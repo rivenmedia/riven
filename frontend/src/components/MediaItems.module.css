@@ -1,0 +1,60 @@
+/* MediaItemsCard.module.css */
+
+.cardContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px 0;
+    align-items: center;
+}
+
+.searchBarContainer {
+    text-align: center; /* Keskitä elementti sivun keskelle */
+    margin-bottom: 30px; /* Antaa ylimääräisen välin hakupalkin ja korttien välille */
+}
+
+.searchBar {
+    width: 60%; /* Asetetaan yhtä leveäksi kuin kortit */
+    margin: 0 auto; /* Keskittää searchBarin vaakasuunnassa */
+}
+
+.card {
+    width: 70%;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transition: transform 0.2s; /* lisätään pieni siirtymäeffekti hoveriin */
+}
+
+.card:hover {
+    transform: translateY(-5px); /* nostetaan korttia hieman kun hiiren osoitin on sen päällä */
+}
+
+.cardHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+}
+
+.title {
+    margin: 0;
+    margin-bottom: 10px;
+}
+
+.cardContent {
+    padding: 20px;
+}
+
+.cardActions {
+    justify-content: center;
+}
+
+.item {
+    margin: 8px 0;
+}
+
+.cardFooter {
+    text-align: left;
+    padding: 10px 20px;
+    border-top: 1px solid #e0e0e0; /* Lisää ylänreunaan ohuen viivan */
+}

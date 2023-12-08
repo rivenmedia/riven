@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "debug": true,
+    "service_mode": false,
+    "log": true,
+    "menu_on_startup": true,
+    "library_plex": {
+        "user": "",
+        "token" : "",
+        "url": "http://localhost:32400"
+    },
+    "content_mdblist": {
+        "lists": [
+            ""
+        ],
+        "api_key" : "",
+        "update_interval": 80
+    },
+    "content_overseerr": {
+        "url" : "http://localhost:5055",
+        "api_key" : ""
+    },
+    "scraper_torrentio" : {
+        "filter" : "sort=qualitysize%7Cqualityfilter=480p,other,scr,cam,unknown"
+    },
+    "debrid_realdebrid" : {
+        "api_key" : ""
+    }
+}
