@@ -1,14 +1,16 @@
 """MediaItem module"""
 
-from enum import Enum
+from enum import IntEnum
+from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 import datetime
 import re
 import threading
 import dill
 
 
-class MediaItemState(Enum):
+class MediaItemState(IntEnum):
     """MediaItem states"""
 
     ERROR = -1
@@ -22,7 +24,6 @@ class MediaItemState(Enum):
     PARTIALLY_SCRAPED = 8
     DOWNLOADING = 9
     PARTIALLY_DOWNLOADING = 10
-
 
 class MediaItem:
     """MediaItem class"""

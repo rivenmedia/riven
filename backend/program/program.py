@@ -68,18 +68,11 @@ class Program:
         else:
             logger.info("Overseerr is not configured and will not be used.")
 
-        self.scraping_services = self.__import_modules("src/program/scrapers")
-        self.debrid_services = self.__import_modules("src/program/debrid")
+        self.scraping_services = self.__import_modules("backend/program/scrapers")
+        self.debrid_services = self.__import_modules("backend/program/debrid")
 
         if not os.path.exists("data"):
             os.mkdir("data")
-
-    def __validate_api_key(self, url: str, api_key: str) -> bool:
-        try:
-            response = requests.get(url, headers={"Authorization": f"Bearer {api_key}"})
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
 
     def run(self):
         """Run the program"""
@@ -99,7 +92,7 @@ class Program:
         self.media_items.save("data/media.pkl")
 
     def __import_modules(self, service_name: str) -> list[object]:
-        folder_path = "src/program/content"
+        folder_path = "backend/program/content"
         modules = []
         if os.path.exists(folder_path):
             for f in os.listdir(folder_path):
