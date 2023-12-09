@@ -16,14 +16,15 @@ class Scraper:
     """Scraper for torrentio"""
 
     def __init__(self):
-        self.settings = "scraper_torrentio"
+        self.settings = "torrentio"
         self.class_settings = settings_manager.get(self.settings)
         self.last_scrape = 0
-        self.filters = (self.class_settings["filter"])
+        self.filters = self.class_settings["filter"]
         self.minute_limiter = RateLimiter(
             max_calls=140, period=60 * 5, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.initialized = True
 
     def scrape(self, media_items: MediaItemContainer):
         """Scrape the torrentio site for the given media items

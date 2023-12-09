@@ -1,8 +1,9 @@
 """Plex library module"""
 import copy
 import os
-import sys
+import time
 from typing import List, Optional
+from plexapi import exceptions
 from plexapi.server import PlexServer
 import requests
 from requests.exceptions import ReadTimeout
@@ -22,13 +23,16 @@ class Library:
     """Plex library class"""
 
     def __init__(self):
-        self.class_settings = settings.get("library_plex")
-        if self.class_settings is None:
-            logger.error("Plex settings not found")
-            sys.exit(1)
-        
-        self.settings = PlexSettings(**self.class_settings)
-        self.plex = PlexServer(str(self.settings.url), self.settings.token, timeout=15)
+        # Plex class library is a necessity
+        while True:
+            try:
+                temp_settings = settings.get("plex")
+                self.plex = PlexServer(temp_settings["url"], temp_settings["token"], timeout=15)
+                self.settings = PlexSettings(**temp_settings)
+                break
+            except exceptions.Unauthorized:
+                logger.error("Plex settings incorrect, retrying in 2...")
+                time.sleep(2)
 
     def update_items(self, media_items: List[MediaItem]):
         logger.info("Getting items...")
@@ -226,6 +230,9 @@ class Library:
                     item_to_update.fixMatch(match)
                     return True
         return False
+
+
+
 
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""

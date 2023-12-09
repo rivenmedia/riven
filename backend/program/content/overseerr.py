@@ -1,20 +1,39 @@
 """Mdblist content module"""
+from requests import ConnectTimeout
 from utils.settings import settings_manager
 from utils.logger import logger
-from utils.request import get
+from utils.request import get, ping
 from program.media import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
 class Content:
-    """Content class for mdblist"""
+    """Content class for overseerr"""
 
     def __init__(
         self,
     ):
-        self.settings = settings_manager.get("content_overseerr")
+        self.initialized = False
+        self.settings = settings_manager.get("overseerr")
+        if not self._validate_settings():
+            logger.info("Overseerr is not configured and will not be used.")
+            return
         self.updater = Trakt()
         self.not_found_ids = []
+        self.initialized = True
+
+    def _validate_settings(self):
+        try:
+            response = ping(
+                self.settings.get("url") + "/api/v1/auth/me",
+                additional_headers={"X-Api-Key": self.settings.get("api_key")},
+                timeout=2
+            )
+            return response.ok
+        except ConnectTimeout:
+            return False
+        # response = json.loads(response.content)
+        # return response['response']
 
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from overseerr and add them to media_items attribute

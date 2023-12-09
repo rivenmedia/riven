@@ -1,7 +1,8 @@
 """Mdblist content module"""
+import json
 from utils.settings import settings_manager
 from utils.logger import logger
-from utils.request import RateLimitExceeded, RateLimiter, get
+from utils.request import RateLimitExceeded, RateLimiter, get, ping
 from program.media import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
@@ -12,10 +13,22 @@ class Content:
     def __init__(
         self,
     ):
-        self.settings = settings_manager.get("content_mdblist")
+        self.initialized = False
+        self.settings = settings_manager.get("mdblist")
+        if not self._validate_settings():
+            logger.info("mdblist is not configured and will not be used.")
+            return
         self.updater = Trakt()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
+        self.initialized = True
+
+    def _validate_settings(self):
+        response = ping(
+            f"https://mdblist.com/api/lists/user?apikey={self.settings['api_key']}"
+        )
+        response = json.loads(response.content)
+        return response['response']
 
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from mdblist and add them to media_items attribute

@@ -87,6 +87,12 @@ def _make_request(
     session.close()
     return ResponseObject(response, response_type)
 
+def ping(
+        url: str,
+        timeout=10,
+        additional_headers=None
+):
+    return requests.Session().get(url, headers=additional_headers, timeout=timeout)
 
 def get(
     url: str,
