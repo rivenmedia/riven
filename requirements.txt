@@ -2,7 +2,6 @@ dill
 PlexAPI
 Requests
 xmltodict
-pre-commit
 flask_cors
 lxml
 pathos
