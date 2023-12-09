@@ -7,3 +7,4 @@ lxml
 pathos
 pydantic
 FastAPI
+uvicorn[standard]

@@ -1,4 +1,43 @@
-# DISCONTINUED
+# Iceburg
+
+
+## Development
+
+### Install dependencies for the frontend
+
+```bash
+pnpm install
+# OR
+npm install
+```
+
+### Run the frontend
+
+```bash
+pnpm run dev
+# OR
+npm run dev
+```
+
+### Install dependencies for the backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+### Run the backend
+
+```bash
+cd backend
+python main.py
+```
+
+
+--------------------
+
+
+# Old Readme
 
 The idea behind this was to make a simple and functional rewrite of plex debrid that seemed to get a bit clustered.
 
