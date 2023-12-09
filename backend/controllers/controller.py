@@ -1,8 +1,7 @@
-"Api controller module"
-from copy import copy
 from fastapi import APIRouter, Request, HTTPException
 from program.media import MediaItemState
 from utils.settings import settings_manager
+from copy import copy
 
 router = APIRouter()
 
