@@ -15,7 +15,7 @@ class Content:
     ):
         self.initialized = False
         self.settings = settings_manager.get("overseerr")
-        if not self._validate_settings():
+        if self.settings.get("api_key") == "" or not self._validate_settings():
             logger.info("Overseerr is not configured and will not be used.")
             return
         self.updater = Trakt()
@@ -27,7 +27,7 @@ class Content:
             response = ping(
                 self.settings.get("url") + "/api/v1/auth/me",
                 additional_headers={"X-Api-Key": self.settings.get("api_key")},
-                timeout=2
+                timeout=1
             )
             return response.ok
         except ConnectTimeout:

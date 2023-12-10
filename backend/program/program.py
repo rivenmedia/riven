@@ -61,12 +61,9 @@ class Program:
 
     def run(self):
         """Run the program"""
-        if len(self.content_services) == 0:
-            logger.error("No content services configured, skipping cycle!")
+        if self._validate_modules():
             return
-        if len(self.scraping_services) == 0:
-            logger.error("No scraping services configured, skipping cycle!")
-            return
+
         self.media_items.load("data/media.pkl")
 
         self.plex.update_sections(self.media_items)
@@ -84,6 +81,15 @@ class Program:
 
         self.media_items.save("data/media.pkl")
 
+    def _validate_modules(self):
+        if len(self.content_services) == 0:
+            logger.error("No content services configured, skipping cycle!")
+            return True
+        if len(self.scraping_services) == 0:
+            logger.error("No scraping services configured, skipping cycle!")
+            return True
+        return False
+
     def __import_modules(self, folder_path: str) -> list[object]:
         file_list = [
             f[:-3]
@@ -98,7 +104,7 @@ class Program:
             )
             sys.modules[module_name] = module
             clsmembers = inspect.getmembers(module, inspect.isclass)
-            wanted_classes = ["Content"]
+            wanted_classes = ["Content", "Scraper"]
             for name, obj in clsmembers:
                 if name in wanted_classes:
                     module = obj()

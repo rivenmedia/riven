@@ -6,7 +6,7 @@ from typing import List, Optional
 from plexapi import exceptions
 from plexapi.server import PlexServer
 import requests
-from requests.exceptions import ReadTimeout
+from requests.exceptions import ReadTimeout, ConnectionError
 from pydantic import BaseModel, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
@@ -31,8 +31,10 @@ class Library:
                 self.settings = PlexSettings(**temp_settings)
                 break
             except exceptions.Unauthorized:
-                logger.error("Plex settings incorrect, retrying in 2...")
-                time.sleep(2)
+                logger.error("Wrong plex token, retrying in 2...")
+            except ConnectionError:
+                logger.error("Couldnt connect to plex, retrying in 2...")
+            time.sleep(2)
 
     def update_items(self, media_items: List[MediaItem]):
         logger.info("Getting items...")
