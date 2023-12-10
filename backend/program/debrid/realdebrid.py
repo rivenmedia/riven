@@ -2,8 +2,10 @@
 import os
 import re
 import time
+
+from requests import ConnectTimeout
 from utils.logger import logger
-from utils.request import get, post
+from utils.request import get, post, ping
 from utils.settings import settings_manager
 from program.media import MediaItem, MediaItemContainer, MediaItemState
 
@@ -15,9 +17,25 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
     """Real-Debrid API Wrapper"""
 
     def __init__(self):
-        self.settings = settings_manager.get("debrid_realdebrid")
-        self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
-        self._torrents = {}
+        # Realdebrid class library is a necessity
+        while True:
+            self.settings = settings_manager.get("realdebrid")
+            self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
+            if self._validate_settings():
+                self._torrents = {}
+                break
+            logger.error("Realdebrid settings incorrect, retrying in 2...")
+            time.sleep(2)
+
+    def _validate_settings(self):
+        try:
+            response = ping(
+                    "https://api.real-debrid.com/rest/1.0/user",
+                    additional_headers=self.auth_headers
+                )
+            return response.ok
+        except ConnectTimeout:
+            return False
 
     def download(self, media_items: MediaItemContainer):
         """Download given media items from real-debrid.com"""

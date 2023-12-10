@@ -9,14 +9,14 @@ class SettingsManager:
 
     def __init__(self):
         self.filename = "settings.json"
-        self.config_dir = "."
+        self.config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
         self.settings_file = os.path.join(self.config_dir, self.filename)
         self.settings = {}
         self.load()
 
     def load(self):
         """Load settings from file"""
-        if not os.path.exists(self.filename):
+        if not os.path.exists(os.path.join(self.config_dir, self.filename)):
             shutil.copy(os.path.join(os.path.dirname(__file__), "default_settings.json"), os.path.join(self.config_dir, self.filename))
             logger.debug("Settings file not found, using default settings")
         with open(self.filename, "r", encoding="utf-8") as file:

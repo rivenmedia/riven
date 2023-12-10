@@ -39,11 +39,11 @@ class Settings(BaseModel):
     service_mode: bool
     log: bool
     menu_on_startup: bool
-    library_plex: PlexConfig
-    content_mdblist: MdblistConfig
-    content_overseerr: OverseerrConfig
+    plex: PlexConfig
+    mdblist: MdblistConfig
+    overseerr: OverseerrConfig
     scraper_torrentio: TorrentioConfig
-    debrid_realdebrid: RealDebridConfig
+    realdebrid: RealDebridConfig
 
 
 class Program:
@@ -52,30 +52,18 @@ class Program:
         self.settings = settings_manager.get_all()
         self.plex = Plex()
         self.debrid = RealDebrid()
-        self.torrentio = Torrentio()
         self.media_items = MediaItemContainer(items=[])
-        self.content_services = []
-        mdblist_settings = self.settings.get("content_mdblist")
-        overseerr_settings = self.settings.get("content_overseerr")
-
-        if mdblist_settings and mdblist_settings.get("api_key"):
-            self.content_services += self.__import_modules("mdblist")
-        else:
-            logger.info("mdblist is not configured and will not be used.")
-
-        if overseerr_settings and overseerr_settings.get("api_key") and overseerr_settings.get("url"):
-            self.content_services += self.__import_modules("overseerr")
-        else:
-            logger.info("Overseerr is not configured and will not be used.")
-
+        self.content_services = self.__import_modules("backend/program/content")
         self.scraping_services = self.__import_modules("backend/program/scrapers")
-        self.debrid_services = self.__import_modules("backend/program/debrid")
 
         if not os.path.exists("data"):
             os.mkdir("data")
 
     def run(self):
         """Run the program"""
+        if self._validate_modules():
+            return
+
         self.media_items.load("data/media.pkl")
 
         self.plex.update_sections(self.media_items)
@@ -86,27 +74,45 @@ class Program:
 
         self.plex.update_items(self.media_items)
 
-        self.torrentio.scrape(self.media_items)
+        for scraper in self.scraping_services:
+            scraper.scrape(self.media_items)
+
         self.debrid.download(self.media_items)
 
         self.media_items.save("data/media.pkl")
 
-    def __import_modules(self, service_name: str) -> list[object]:
-        folder_path = "backend/program/content"
+    def _validate_modules(self):
+        if len(self.content_services) == 0:
+            logger.error("No content services configured, skipping cycle!")
+            return True
+        if len(self.scraping_services) == 0:
+            logger.error("No scraping services configured, skipping cycle!")
+            return True
+        return False
+
+    def __import_modules(self, folder_path: str) -> list[object]:
+        file_list = [
+            f[:-3]
+            for f in os.listdir(folder_path)
+            if f.endswith(".py") and f != "__init__.py"
+        ]
+        module_path_name = folder_path.split("/")[-1]
         modules = []
-        if os.path.exists(folder_path):
-            for f in os.listdir(folder_path):
-                if f.endswith(".py") and f != "__init__.py" and service_name in f:
-                    module_name = f[:-3]
-                    module = importlib.import_module(
-                        f"..{module_name}", f"program.content.{module_name}"
-                    )
-                    sys.modules[module_name] = module
-                    clsmembers = inspect.getmembers(module, inspect.isclass)
-                    for name, obj in clsmembers:
-                        if name == "Content":
-                            module_instance = obj()
-                            modules.append(module_instance)
-        else:
-            logger.error(f"Directory not found: {folder_path}")
+        for module_name in file_list:
+            module = importlib.import_module(
+                f"..{module_name}", f"program.{module_path_name}.{module_name}"
+            )
+            sys.modules[module_name] = module
+            clsmembers = inspect.getmembers(module, inspect.isclass)
+            wanted_classes = ["Content", "Scraper"]
+            for name, obj in clsmembers:
+                if name in wanted_classes:
+                    module = obj()
+                    if module.initialized:
+                        try:
+                            # self._setup(module)
+                            modules.append(module)
+                        except TypeError as exception:
+                            logger.error(exception)
+                            raise KeyboardInterrupt from exception
         return modules
