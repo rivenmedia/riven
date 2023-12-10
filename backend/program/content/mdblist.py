@@ -25,10 +25,10 @@ class Content:
 
     def _validate_settings(self):
         response = ping(
-            f"https://mdblist.com/api/lists/user?apikey={self.settings['api_key']}"
+            f"https://mdblist.com/api/user?apikey={self.settings['api_key']}"
+
         )
-        response = json.loads(response.content)
-        return response['response']
+        return not "Invalid API key!" in response.text
 
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from mdblist and add them to media_items attribute
