@@ -255,6 +255,7 @@ def _map_item_from_data(item, item_type):
 
     media_item_data = {
         "title": title,
+        "year": year,
         "imdb_id": imdb_id,
         "aired_at": aired_at,
         "genres": genres,
