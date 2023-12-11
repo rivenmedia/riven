@@ -48,6 +48,20 @@ class MediaItem:
         self.guid = item.get("guid", None)
         self.art_url = item.get("art_url", None)
 
+    def to_dict(self):
+        return {
+            "title": self.title,
+            "imdb_id": self.imdb_id,
+            "imdb_link": self.imdb_link if hasattr(self, 'imdb_link') else None,
+            "aired_at": self.aired_at,
+            "genres": self.genres,
+            "key": self.key,
+            "guid": self.guid,
+            "art_url": self.art_url,
+            "is_cached": self.is_cached(),
+            "is_checked_for_availability": self.is_checked_for_availability()
+        }
+
     def is_cached(self):
         if self.streams:
             return any(stream.get("cached", None) for stream in self.streams.values())
