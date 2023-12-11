@@ -40,6 +40,7 @@ class MediaItem:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
         self.aired_at = item.get("aired_at", None)
         self.genres = item.get("genres", [])
+        self.state = MediaItemState.UNKNOWN
 
         # Plex related
         self.key = item.get("key", None)
@@ -50,6 +51,7 @@ class MediaItem:
         return {
             "title": self.title,
             "imdb_id": self.imdb_id,
+            "state": self.state.name,
             "imdb_link": self.imdb_link if hasattr(self, 'imdb_link') else None,
             "aired_at": self.aired_at,
             "genres": self.genres,
