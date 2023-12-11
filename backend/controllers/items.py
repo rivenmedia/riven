@@ -4,34 +4,47 @@ from utils.logger import logger
 
 
 router = APIRouter(
+    prefix="/items",
     tags=["items"],
     responses={404: {"description": "Not found"}},
 )
 
-@router.get("/items")
-async def get_items(request: Request):
-    """items endpoint"""
-    logger.info("Updating states...")
-    state = request.app.MediaItemState if state else None
-    media_items = request.app.program.media_items
-    if state:
-        items = [item for item in media_items if item.state.name == state]
-    else:
-        items = media_items.items
-    for item in items:
-        item.set("current_state", item.state.name)
-        logger.debug(f'Set \'{item.title}\' to {item.current_state}')
-    logger.info("Done!")
-    return [item.to_dict() for item in items]
-
 @router.get("/states")
 async def get_states(request: Request):
-    return [state.name for state in request.app.MediaItemState]
+    return {
+        "success": True,
+        "states": [state.name for state in MediaItemState],
+    }
 
-@router.post("/items/remove")
-async def remove_item(request: Request, item: str = None):
-    program = request.app.state.program
-    if item is not None:
-        program.media_items.remove(item)
-    else:
-        raise HTTPException(status_code=400, detail="Item not provided")
+
+@router.get("/")
+async def get_items(request: Request):
+    items = request.app.program.media_items.items
+    for item in items:
+        item.set("current_state", item.state.name)
+
+    return {
+        "success": True,
+        "items": [item.to_dict() for item in items],
+    }
+
+
+@router.get("/{state}")
+async def get_item(request: Request, state: str):
+    items = [item for item in request.app.program.media_items if item.state.name == state]
+    for item in items:
+        item.set("current_state", item.state.name)
+
+    return {
+        "success": True,
+        "items": [item.to_dict() for item in items],
+    }
+
+
+@router.delete("/remove/{item}")
+async def remove_item(request: Request, item: str):
+    request.app.program.media_items.remove(item)
+    return {
+        "success": True,
+        "message": f"Removed {item}",
+    }

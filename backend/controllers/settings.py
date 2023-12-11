@@ -10,24 +10,38 @@ class SetSettings(BaseModel):
 
 
 router = APIRouter(
+    prefix="/settings",
     tags=["settings"],
     responses={404: {"description": "Not found"}},
 )
 
+
 @router.get("/load")
 async def load_settings():
-    """Load settings"""
     settings_manager.load()
+    return {
+        "success": True,
+        "message": "Settings loaded!",
+    }
+
 
 @router.post("/save")
 async def save_settings():
-    """Save settings"""
     settings_manager.save()
+    return {
+        "success": True,
+        "message": "Settings saved!",
+    }
+
 
 @router.get("/get/{key}")
 async def get_settings(key: str):
-    """Get settings"""
-    return settings_manager.get(key)
+    return {
+        "success": True,
+        "message": "Settings loaded!",
+        "data": settings_manager.get(key),
+    }
+
 
 @router.post("/set")
 async def set_settings(settings: SetSettings):
@@ -36,3 +50,7 @@ async def set_settings(settings: SetSettings):
         settings.key,
         settings.value,
     )
+    return {
+        "success": True,
+        "message": "Settings saved!",
+    }
