@@ -3,10 +3,11 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from program.media import MediaItemState
 from program.program import Program
 from utils.thread import ThreadRunner
-from controllers.settings import settings_router
-from controllers.items import items_router
+from controllers.settings import router as settings_router
+from controllers.items import router as items_router
 
 
 sys.path.append(os.getcwd())
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 
 app.program = program
+app.MediaItemState = MediaItemState
 app.include_router(settings_router)
 app.include_router(items_router)
 
