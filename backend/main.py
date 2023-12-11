@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.state.program = program
+app.program = program
 app.include_router(settings_router)
 app.include_router(items_router)
 
