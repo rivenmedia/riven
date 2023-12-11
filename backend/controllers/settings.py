@@ -9,30 +9,48 @@ class SetSettings(BaseModel):
     value: str
 
 
-settings_router = APIRouter(
+router = APIRouter(
+    prefix="/settings",
     tags=["settings"],
     responses={404: {"description": "Not found"}},
 )
 
-@settings_router.get("/load")
+
+@router.get("/load")
 async def load_settings():
-    """Load settings"""
     settings_manager.load()
+    return {
+        "success": True,
+        "message": "Settings loaded!",
+    }
 
-@settings_router.post("/save")
+
+@router.post("/save")
 async def save_settings():
-    """Save settings"""
     settings_manager.save()
+    return {
+        "success": True,
+        "message": "Settings saved!",
+    }
 
-@settings_router.get("/get/{key}")
+
+@router.get("/get/{key}")
 async def get_settings(key: str):
-    """Get settings"""
-    return settings_manager.get(key)
+    return {
+        "success": True,
+        "message": "Settings loaded!",
+        "data": settings_manager.get(key),
+    }
 
-@settings_router.post("/set")
+
+@router.post("/set")
 async def set_settings(settings: SetSettings):
     """Set settings"""
     settings_manager.set(
         settings.key,
         settings.value,
     )
+    return {
+        "success": True,
+        "message": "Settings saved!",
+    }

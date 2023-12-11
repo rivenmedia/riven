@@ -16,3 +16,20 @@ TODO:
 - ~~Add support for shows, ongoing...~~ (Functionalish, needs work...)
 - Implement uncached download in real-rebrid, dont know if we need this, movies seem to work ok...
 - Implement updating quality of fetched items if below something
+
+
+## Running the project
+
+```
+pip install -r requirements.txt
+```
+
+```
+python3 backend/main.py
+```
+
+```
+cd frontend
+npm install
+npm run start
+```

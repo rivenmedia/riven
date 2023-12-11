@@ -1,34 +1,45 @@
-from copy import copy
 from fastapi import APIRouter, HTTPException, Request
 from program.media import MediaItemState
+from utils.logger import logger
 
 
-items_router = APIRouter(
+router = APIRouter(
+    prefix="/items",
     tags=["items"],
     responses={404: {"description": "Not found"}},
 )
 
-@items_router.get("/items")
-async def get_items(request: Request, state: str = None):
-    program = request.app.state.program
-    if state:
-        items = [item for item in program.media_items if item.state.name == state]
-    else:
-        items = program.media_items.items
-
-    new_items = copy(items)
-    for item in new_items:
-        item.set("current_state", item.state.name)
-    return items
-
-@items_router.get("/states")
+@router.get("/states")
 async def get_states(request: Request):
-    return [state.name for state in MediaItemState]
+    return {
+        "success": True,
+        "states": [state.name for state in MediaItemState],
+    }
 
-@items_router.post("/items/remove")
-async def remove_item(request: Request, item: str = None):
-    program = request.app.state.program
-    if item is not None:
-        program.media_items.remove(item)
-    else:
-        raise HTTPException(status_code=400, detail="Item not provided")
+
+@router.get("/")
+async def get_items(request: Request):
+    return {
+        "success": True,
+        "items": [item.to_dict() for item in request.app.program.media_items.items],
+    }
+
+
+@router.get("/{state}")
+async def get_item(request: Request, state: str):
+    state = MediaItemState[state]
+    items = request.app.program.media_items.get_items_with_state(state).items
+
+    return {
+        "success": True,
+        "items": [item.to_dict() for item in items],
+    }
+
+
+@router.delete("/remove/{item}")
+async def remove_item(request: Request, item: str):
+    request.app.program.media_items.remove(item)
+    return {
+        "success": True,
+        "message": f"Removed {item}",
+    }

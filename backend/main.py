@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program.program import Program
 from utils.thread import ThreadRunner
-from controllers.settings import settings_router
-from controllers.items import items_router
+from controllers.settings import router as settings_router
+from controllers.items import router as items_router
+from controllers.default import router as default_router
 
 
 sys.path.append(os.getcwd())
@@ -28,8 +29,14 @@ app.add_middleware(
 )
 
 app.program = program
+
+app.include_router(default_router)
 app.include_router(settings_router)
 app.include_router(items_router)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="localhost", port=8080)
+    try:
+        uvicorn.run("main:app", host="localhost", port=8080, reload=True)
+    except KeyboardInterrupt:
+        print("Exiting...")
+        sys.exit(0)
