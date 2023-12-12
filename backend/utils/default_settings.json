@@ -1,13 +1,13 @@
 {
-    "version": "0.2.0",
+    "version": "0.2.1",
     "debug": true,
     "service_mode": false,
     "log": true,
-    "menu_on_startup": true,
     "plex": {
         "user": "",
         "token" : "",
-        "url": "http://localhost:32400"
+        "url": "http://localhost:32400",
+        "user_watchlist_rss": ""
     },
     "mdblist": {
         "lists": [
