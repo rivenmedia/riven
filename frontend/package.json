@@ -18,6 +18,7 @@
 		"@sveltejs/kit": "^1.27.4",
 		"@typescript-eslint/eslint-plugin": "^6.0.0",
 		"@typescript-eslint/parser": "^6.0.0",
+		"@types/luxon": "^3.3.7",
 		"autoprefixer": "^10.4.14",
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^9.0.0",
@@ -39,7 +40,9 @@
 		"bits-ui": "^0.11.6",
 		"clsx": "^2.0.0",
 		"lucide-svelte": "^0.294.0",
+		"luxon": "^3.4.4",
 		"mode-watcher": "^0.1.2",
+		"svelte-sonner": "^0.3.6",
 		"tailwind-merge": "^2.1.0",
 		"tailwind-variants": "^0.1.18"
 	}
