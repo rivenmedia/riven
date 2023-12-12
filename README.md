@@ -30,6 +30,12 @@ python3 backend/main.py
 
 ```
 cd frontend
+
 npm install
-npm run start
+npm run dev
+
+# OR
+
+pnpm install
+pnpm run dev
 ```
