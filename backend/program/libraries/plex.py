@@ -2,22 +2,45 @@
 import copy
 import os
 import time
-from typing import List, Optional
+import requests
+import re
+from datetime import datetime
+import xml.etree.ElementTree as ET
 from plexapi import exceptions
 from plexapi.server import PlexServer
-import requests
-from requests.exceptions import ReadTimeout, ConnectionError
-from pydantic import BaseModel, HttpUrl
+from typing import List
+from pydantic import BaseModel, validator, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
+from requests.exceptions import ReadTimeout, ConnectionError
 from program.media import MediaItemState, MediaItem, Movie, Show, Season, Episode
 
 
-class PlexSettings(BaseModel):
-    user: str
-    token: str
-    url: HttpUrl
-    user_watchlist_rss: Optional[str] = None
+class WatchListItem(BaseModel):
+    title: str
+    year: int = None
+    pub_date: datetime
+    category: str
+    keywords: list[str]
+    rating: str
+    guid: str
+
+    @validator('title', pre=True, always=True)
+    def split_title_year(cls, v, values):
+        match = re.match(r"^(.*?)\s*\((\d{4})\)$", v)
+        if match:
+            values['year'] = int(match.group(2))
+            return match.group(1)
+        return v
+
+    @validator('pub_date', pre=True)
+    def parse_pub_date(cls, v):
+        return datetime.strptime(v, '%a, %d %b %Y %H:%M:%S GMT')
+
+    @validator('keywords', pre=True)
+    def split_keywords(cls, v):
+        return v.split(', ')
+
 
 class Library:
     """Plex library class"""
@@ -26,9 +49,8 @@ class Library:
         # Plex class library is a necessity
         while True:
             try:
-                temp_settings = settings.get("plex")
-                self.plex = PlexServer(temp_settings["url"], temp_settings["token"], timeout=15)
-                self.settings = PlexSettings(**temp_settings)
+                self.settings = settings.get("plex")
+                self.plex = PlexServer(self.settings["url"], self.settings["token"], timeout=15)
                 break
             except exceptions.Unauthorized:
                 logger.error("Wrong plex token, retrying in 2...")
@@ -54,7 +76,7 @@ class Library:
                             items.append(media_item)
             except requests.exceptions.ReadTimeout:
                 logger.error(f"Timeout occurred when accessing section: {section.title}")
-                continue  # Skip to the next section
+                continue
 
             processed_sections.add(section.key)
 
@@ -234,8 +256,6 @@ class Library:
         return False
 
 
-
-
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
     guid = getattr(item, "guid", None)
@@ -279,3 +299,27 @@ def _map_item_from_data(item, item_type):
         return Episode(media_item_data)
     else:
         return None
+
+# Get watchlist from plex rss feed. Requires Plex Pass.
+def parse_plex_watchlist(url: str) -> List[WatchListItem]:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+    except (requests.RequestException, ET.ParseError) as e:
+        logger.error(f"Error processing the watchlist: {e}")
+        return []
+
+    watchlist = []
+    for item in root.findall('.//channel/item'):
+        watchlist_item_data = {
+            'title': item.find('title').text,
+            'pub_date': item.find('pubDate').text,
+            'category': item.find('category').text,
+            'keywords': item.find('{http://search.yahoo.com/mrss/}keywords').text,
+            'rating': item.find('{http://search.yahoo.com/mrss/}rating').text,
+            'guid': item.find('guid').text,
+        }
+        watchlist.append(WatchListItem(**watchlist_item_data))
+
+    return watchlist
