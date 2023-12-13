@@ -10,6 +10,10 @@
         "url": "http://localhost:32400",
         "watchlist": ""
     },
+    "symlink": {
+        "host_mount": "",
+        "mount": ""
+    },
     "mdblist": {
         "lists": [
             ""
