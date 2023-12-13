@@ -65,7 +65,7 @@ class Logger(logging.Logger):
 
         self.addFilter(RedactSensitiveInfo())
         file_handler = logging.FileHandler(
-            os.path.join("logs", file_name), encoding="utf-8"
+            os.path.join("backend/data/logs", file_name), encoding="utf-8"
         )
         file_handler.setLevel(logging.DEBUG)
         # if settings_manager.get("debug"):

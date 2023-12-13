@@ -22,7 +22,7 @@ class Updater:
 
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
-        self.trakt_data.load("data/trakt_data.pkl")
+        self.trakt_data.load("backend/data/trakt_data.pkl")
         new_items = MediaItemContainer()
         get_items = MediaItemContainer()
         for imdb_id in imdb_ids:
@@ -38,7 +38,7 @@ class Updater:
             for added_item in added_items:
                 logger.debug("Added %s", added_item.title)
             self.trakt_data.extend(added_items)
-            self.trakt_data.save("data/trakt_data.pkl")
+            self.trakt_data.save("backend/data/trakt_data.pkl")
 
         return get_items
 

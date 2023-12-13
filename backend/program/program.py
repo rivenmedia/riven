@@ -5,12 +5,12 @@ import os
 import sys
 import requests
 from pydantic import BaseModel, HttpUrl, Field
+from program.symlink import Symlinker
 from utils.logger import logger
 from utils.settings import settings_manager
 from program.media import MediaItemContainer
 from program.libraries.plex import Library as Plex
 from program.debrid.realdebrid import Debrid as RealDebrid
-from program.scrapers.torrentio import Scraper as Torrentio
 
 # Pydantic models for configuration
 class PlexConfig(BaseModel):
@@ -52,23 +52,23 @@ class Program:
         self.settings = settings_manager.get_all()
         self.plex = Plex()
         self.debrid = RealDebrid()
+        self.symlink = Symlinker()
         self.media_items = MediaItemContainer(items=[])
         self.content_services = self.__import_modules("backend/program/content")
         self.scraping_services = self.__import_modules("backend/program/scrapers")
 
-        if not os.path.exists("data"):
-            os.mkdir("data")
+        if not os.path.exists("backend/data"):
+            os.mkdir("backend/data")
 
     def run(self):
         """Run the program"""
         if self._validate_modules():
             return
 
-        self.media_items.load("data/media.pkl")
+        self.media_items.load("backend/data/media.pkl")
 
         self.plex.update_sections(self.media_items)
 
-        # Update content lists
         for content_service in self.content_services:
             content_service.update_items(self.media_items)
 
@@ -79,7 +79,9 @@ class Program:
 
         self.debrid.download(self.media_items)
 
-        self.media_items.save("data/media.pkl")
+        self.symlink.run(self.media_items)
+
+        self.media_items.save("backend/data/media.pkl")
 
     def _validate_modules(self):
         if len(self.content_services) == 0:

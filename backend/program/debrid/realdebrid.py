@@ -8,6 +8,7 @@ from utils.logger import logger
 from utils.request import get, post, ping
 from utils.settings import settings_manager
 from program.media import MediaItem, MediaItemContainer, MediaItemState
+import PTN
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
@@ -41,20 +42,23 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         """Download given media items from real-debrid.com"""
         added_files = 0
 
-        items = [
-            item
-            for item in media_items
-            if item.type == "movie"
-            and item.state == MediaItemState.SCRAPED
-            or item.type == "show"
-            and item.state is not MediaItemState.LIBRARY
-        ]
+        items = []
+        for item in media_items:
+            if item.state is not MediaItemState.LIBRARY:
+                if item.type == "movie" and item.state is MediaItemState.SCRAPE:
+                    items.append(item)
+                if item.type == "show":
+                    for season in item.seasons:
+                        if season.state is MediaItemState.SCRAPE:
+                            items.append(season)
+                        else:
+                            for episode in season.episodes:
+                                if episode.state is MediaItemState.SCRAPE:
+                                    items.append(episode)
 
         for item in items:
-            if item.type == "movie":
-                added_files += self._download_movie(item)
-            if item.type == "show":
-                added_files += self._download_show(item)
+            added_files += self._download_movie(item)
+
         if added_files > 0:
             logger.info("Downloaded %s cached releases", added_files)
 
@@ -63,7 +67,7 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         self.check_stream_availability(item)
         self._determine_best_stream(item)
         self._download_item(item)
-        # item.change_state(MediaItemState.DOWNLOADING)
+        # item.change_state(MediaItemState.DOWNLOAD)
         return 1
 
     def _download_item(self, item):
@@ -74,24 +78,33 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         time.sleep(0.3)
         self.select_files(request_id, item)
 
-        folder_name = item.active_stream.get("name", None).split("\n")[0]
-
         if item.type == "movie":
-            item.set("file_name", item.active_stream.get("name"))
+            # file = next(iter(item.active_stream["files"].values())).get("filename")
             log_string = item.title
         if item.type == "season":
-            if folder_name:
-                item.parent.locations.append(folder_name)
+            # for file in item.active_stream["files"].values():
+            #     obj = PTN.parse(file["filename"])
+            #     if not obj.get("episode"):
+            #         continue
+            #     episode = obj["episode"]
+            #     if type(episode) == list:
+            #         item.joined_episodes = []
+            #         for sub_episode in episode:
+            #             item.episodes[sub_episode - 1].file = file["filename"]
+            #             item.episodes[obj["episode"] - 1].folder = item.active_stream.get("name")
+            #     else:
+            #         index = obj["episode"] - 1
+            #         if index in range(len(item.episodes)):
+            #             item.episodes[obj["episode"] - 1].file = file["filename"]
+            #             item.episodes[obj["episode"] - 1].folder = item.active_stream.get("name")
             log_string = f"{item.parent.title} season {item.number}"
-            # item.parent.change_state(MediaItemState.PARTIALLY_DOWNLOADING)
         if item.type == "episode":
+            # file = next(iter(item.active_stream["files"].values())).get("filename")
             log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
-            if folder_name:
-                item.parent.parent.locations.append(folder_name)
-            item.set("file_name", item.active_stream.get("file_name"))
-            # item.parent.parent.change_state(MediaItemState.PARTIALLY_DOWNLOADING)
+
+        # item.set("folder", item.active_stream.get("name"))
+        # item.set("file", file)
         logger.debug("Downloaded %s", log_string)
-        # item.change_state(MediaItemState.DOWNLOADING)
         return 1
 
     def _get_torrent_info(self, request_id):
@@ -102,13 +115,13 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
     def _download_show(self, item):
         values = 0
         for season in item.seasons:
-            if season.state == MediaItemState.SCRAPED:
+            if season.state == MediaItemState.SCRAPE:
                 self.check_stream_availability(season)
                 self._determine_best_stream(season)
                 values += self._download_item(season)
             else:
                 for episode in season.episodes:
-                    if episode.state == MediaItemState.SCRAPED:
+                    if episode.state == MediaItemState.SCRAPE:
                         self.check_stream_availability(episode)
                         if self._determine_best_stream(episode):
                             self._download_item(season)
@@ -124,12 +137,10 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
             if stream_value.get("cached")
         ]
         for stream_hash, stream in item.streams.items():
-            # folder_name = stream["name"].split("\n")[0]
             if item.type == "episode":
-                if self._real_episode_count(stream["files"]) >= len(
+                if stream.get("files") and self._real_episode_count(stream["files"]) >= len(
                     item.parent.episodes
                 ):
-                    # item.parent.change_state(MediaItemState.SCRAPED)
                     item.parent.set("active_stream", stream)
                     logger.debug(
                         "Found cached release for %s %s",
@@ -137,7 +148,7 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
                         item.parent.number,
                     )
                     return True
-                if self._real_episode_count(stream["files"]) == 0:
+                if stream.get("files") and self._real_episode_count(stream["files"]) == 0:
                     continue
             if stream_hash in cached:
                 stream["hash"] = stream_hash
@@ -224,6 +235,8 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
 
     def add_magnet(self, item: MediaItem) -> str:
         """Add magnet link to real-debrid.com"""
+        if not item.active_stream.get("hash"):
+            return None
         response = post(
             "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
             {

@@ -1,5 +1,5 @@
 """Plex library module"""
-import copy
+import PTN
 import os
 import time
 from typing import List, Optional
@@ -37,7 +37,7 @@ class Library:
             time.sleep(2)
 
     def update_items(self, media_items: List[MediaItem]):
-        logger.info("Getting items...")
+        logger.debug("Getting items...")
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
@@ -59,18 +59,18 @@ class Library:
             processed_sections.add(section.key)
 
         matched_items = self.match_items(items, media_items)
-        if matched_items:
-            logger.info(f"Found {len(matched_items)} new items")
-        logger.info("Done!")
+        if matched_items > 0:
+            logger.info(f"Found {matched_items} new items")
+        logger.debug("Done!")
 
     def update_sections(self, media_items: List[MediaItem]):
         """Update plex library section"""
         for section in self.plex.library.sections():
             for item in media_items:
-                if item.type == section.type and item.state in [MediaItemState.DOWNLOADING, MediaItemState.PARTIALLY_DOWNLOADING]:
+                if item.type == section.type and item.state in [MediaItemState.SYMLINK, MediaItemState.LIBRARY_PARTIAL]:
                     if not section.refreshing:
                         section.update()
-                        logger.info("Updated section %s", section.title)
+                        logger.debug("Updated section %s", section.title)
                         break
 
     def _create_item(self, item):
@@ -92,121 +92,36 @@ class Library:
     def match_items(self, found_items: List[MediaItem], media_items: List[MediaItem]):
         """Matches items in given mediacontainer that are not in library
         to items that are in library"""
-        logger.info("Matching items...")
+        logger.debug("Matching items...")
 
-        items_to_be_removed = []
+        items_to_update = 0
 
         for item in media_items:
-            if not item:
-                continue
-            library_item = next(
-                (
-                    library_item
-                    for library_item in found_items
-                    if item.state != MediaItemState.LIBRARY
-                    and (
-                        item.type == "movie"
-                        and library_item.type == "movie"
-                        and item.file_name == library_item.file_name
-                        or item.type == "show"
-                        and library_item.type == "show"
-                        and any(
-                            location in item.locations
-                            for location in library_item.locations
-                        )
-                        or item.imdb_id == library_item.imdb_id
-                    )
-                ),
-                None,
-            )
+            if item.state != MediaItemState.LIBRARY:
+                if item.type == "movie":
+                    for found_item in found_items:
+                        if found_item.type == "movie" and found_item.imdb_id == item.imdb_id:
+                            self._update_item(item, found_item)
+                            items_to_update += 1
+                if item.type == "show":
+                    for found_item in found_items:
+                        if found_item.type == "show":
+                            for found_season in found_item.seasons:
+                                for found_episode in found_season.episodes:
+                                    for season in item.seasons:
+                                        for episode in season.episodes:
+                                            if episode.imdb_id == found_episode.imdb_id:
+                                                self._update_item(episode, found_episode)
+                                                items_to_update += 1
 
-            if library_item:
-                if self._fix_match(library_item, item):
-                    items_to_be_removed.append(library_item)
-
-                self._update_item(item, library_item)
-
-                items_to_be_removed.append(library_item)
-
-        for item in items_to_be_removed:
-            found_items.remove(item)
-
-        for item in found_items:
-            if item in media_items:
-                if item.state == MediaItemState.DOWNLOADING:
-                    logger.debug(
-                        "Could not match library item %s to any media item", item.title
-                    )
-                    # media_items.change_state(MediaItemState.ERROR)
-
-        logger.info("Done!")
-        return found_items
+        return items_to_update
 
     def _update_item(self, item: MediaItem, library_item: MediaItem):
         """Internal method to use with match_items
         It does some magic to update media items according to library
         items found"""
-        if item.type == "show":
-            # library_season_numbers = [s.number for s in library_item.seasons]
-            # item_season_numbers = [s.number for s in item.seasons]
-
-            # # Check if any season from item is missing in library_item
-            # missing_seasons = [
-            #     s for s in item_season_numbers if s not in library_season_numbers
-            # ]
-            # if missing_seasons:
-            #     state = MediaItemState.LIBRARY_ONGOING
-
-            for season_index, season in enumerate(item.seasons):
-                matching_library_season = next(
-                    (s for s in library_item.seasons if s == season),
-                    None,
-                )
-
-                if (
-                    not matching_library_season
-                ):  # if there's no matching season in the library item
-                    continue
-
-                # If the current item season has fewer or
-                # same episodes as the library item season, replace it
-                if len(season.episodes) <= len(matching_library_season.episodes):
-                    item.seasons[season_index] = matching_library_season
-                else:  # If not, we need to check each episode
-                    for episode in season.episodes:
-                        matching_library_episode = next(
-                            (
-                                e
-                                for e in matching_library_season.episodes
-                                if str(episode.number) in e.get_multi_episode_numbers()
-                                or e == episode
-                            ),
-                            None,
-                        )
-
-                        # Replace the episode in item with the one from library_item
-                        if matching_library_episode:
-                            true_episode_number = episode.number
-                            # matching_library_episode.number = episode.number
-                            episode_index = season.episodes.index(episode)
-                            season.episodes[episode_index] = copy.copy(
-                                matching_library_episode
-                            )
-                            season.episodes[episode_index].number = true_episode_number
-                            continue
-                        # if the episode is not in library item season, change its state
-                        else:
-                            pass
-                            # season.change_state(MediaItemState.LIBRARY_ONGOING)
-                            # state = MediaItemState.LIBRARY_ONGOING
-
-        if item.type == "movie":
-            item.set("file_name", library_item.file_name)
-        else:
-            item.set("locations", library_item.locations)
         item.set("guid", library_item.guid)
         item.set("key", library_item.key)
-        item.set("art_url", library_item.art_url)
 
     def _fix_match(self, library_item: MediaItem, item: MediaItem):
         """Internal method to use in match_items method.
@@ -239,13 +154,15 @@ class Library:
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
     guid = getattr(item, "guid", None)
+    file = None
+    if item_type in  ["movie", "episode"]:
+        file = getattr(item, "locations",  [None])[0].split("/")[-1]
     genres = [genre.tag for genre in getattr(item, "genres", [])]
     available_at = getattr(item, "originallyAvailableAt", None)
     title = getattr(item, "title", None)
     year = getattr(item, "year", None)
     guids = getattr(item, "guids", [])
     key = getattr(item, "key", None)
-    locations = getattr(item, "locations", [])
     season_number = getattr(item, "seasonNumber", None)
     episode_number = getattr(item, "episodeNumber", None)
     art_url = getattr(item, "artUrl", None)
@@ -261,7 +178,7 @@ def _map_item_from_data(item, item_type):
         "key": key,
         "guid": guid,
         "art_url": art_url,
-        "file_name": os.path.basename(locations[0]) if locations else None,
+        "file": file,
     }
 
     # Instantiate the appropriate subclass based on 'item_type'

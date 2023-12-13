@@ -2,8 +2,9 @@ dill
 PlexAPI
 Requests
 xmltodict
-flask_cors
 lxml
 pathos
 pydantic
-FastAPI
+fastapi
+uvicorn[standard]
+PTN

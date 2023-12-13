@@ -35,7 +35,7 @@ class Content:
         if they are not already there"""
         try:
             with self.rate_limiter:
-                logger.info("Getting items...")
+                logger.debug("Getting items...")
 
                 items = []
                 for list_id in self.settings["lists"]:
@@ -44,11 +44,12 @@ class Content:
                             list_id, self.settings["api_key"]
                         )
 
-                container = self.updater.create_items(items)
+                new_items = [item for item in items if item not in media_items]
+                container = self.updater.create_items(new_items)
                 added_items = media_items.extend(container)
                 if len(added_items) > 0:
                     logger.info("Added %s items", len(added_items))
-                logger.info("Done!")
+                logger.debug("Done!")
         except RateLimitExceeded:
             pass
 
