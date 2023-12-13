@@ -28,3 +28,14 @@ export interface PlexDebridItem {
 	is_cached: boolean;
 	is_checked_for_availability: boolean;
 }
+
+export interface StatusInterface {
+	text: string;
+	color: string;
+	bg: string;
+	description: string;
+}
+
+export interface StatusInfo {
+	[key: string]: StatusInterface;
+}

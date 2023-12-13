@@ -28,10 +28,10 @@
 </script>
 
 <header class="flex items-center justify-between w-full p-8 md:px-24 lg:px-32">
-	<div class="flex items-center gap-2">
+	<a href="/" class="flex items-center gap-2">
 		<Mountain class="h-8 w-8" />
 		<h1 class="text-3xl font-semibold tracking-wider">Iceberg</h1>
-	</div>
+	</a>
 	<nav class="items-center gap-6 tracking-wider hidden md:flex">
 		<div class="flex items-center gap-3">
 			{#each navItems as navItem}

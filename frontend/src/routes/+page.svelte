@@ -10,12 +10,12 @@
 
 <div class="flex flex-col w-full p-8 md:px-24 lg:px-32">
 	{#if data.user}
-		<h1 class="text-2xl font-semibold">Welcome {data.user?.username}</h1>
-		<p class="text-lg text-muted-foreground">{data.user?.email}</p>
-		<p class="text-lg text-muted-foreground break-words">
+		<h1 class="text-xl md:text-2xl font-semibold">Welcome {data.user?.username}</h1>
+		<p class="md:text-lg text-muted-foreground">{data.user?.email}</p>
+		<p class="md:text-lg text-muted-foreground break-words">
 			Premium expires on {formatDate(data.user?.expiration, 'short')}
 		</p>
 	{:else}
-		<p class="text-lg text-muted-foreground">You are not logged in.</p>
+		<p class="md:text-lg text-muted-foreground">You are not logged in.</p>
 	{/if}
 </div>
