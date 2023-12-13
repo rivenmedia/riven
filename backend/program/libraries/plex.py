@@ -1,52 +1,21 @@
 """Plex library module"""
-import copy
-import os
-import time
-import requests
-import re
-from datetime import datetime
-import xml.etree.ElementTree as ET
 from plexapi import exceptions
 from plexapi.server import PlexServer
 from typing import List
-from pydantic import BaseModel, validator, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
 from requests.exceptions import ReadTimeout, ConnectionError
 from program.media import MediaItemState, MediaItem, Movie, Show, Season, Episode
-
-
-class WatchListItem(BaseModel):
-    title: str
-    year: int = None
-    pub_date: datetime
-    category: str
-    keywords: list[str]
-    rating: str
-    guid: str
-
-    @validator('title', pre=True, always=True)
-    def split_title_year(cls, v, values):
-        match = re.match(r"^(.*?)\s*\((\d{4})\)$", v)
-        if match:
-            values['year'] = int(match.group(2))
-            return match.group(1)
-        return v
-
-    @validator('pub_date', pre=True)
-    def parse_pub_date(cls, v):
-        return datetime.strptime(v, '%a, %d %b %Y %H:%M:%S GMT')
-
-    @validator('keywords', pre=True)
-    def split_keywords(cls, v):
-        return v.split(', ')
+import copy
+import os
+import time
+import requests
 
 
 class Library:
     """Plex library class"""
 
     def __init__(self):
-        # Plex class library is a necessity
         while True:
             try:
                 self.settings = settings.get("plex")
@@ -255,6 +224,13 @@ class Library:
                     return True
         return False
 
+    def item_exists(self, imdb_id):
+        """Check if item exists in plex library"""
+        for section in self.plex.library.sections():
+            results = section.search(guid=f"imdb://{imdb_id}")
+            if results:
+                return True
+        return False
 
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
@@ -299,27 +275,3 @@ def _map_item_from_data(item, item_type):
         return Episode(media_item_data)
     else:
         return None
-
-# Get watchlist from plex rss feed. Requires Plex Pass.
-def parse_plex_watchlist(url: str) -> List[WatchListItem]:
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        root = ET.fromstring(response.content)
-    except (requests.RequestException, ET.ParseError) as e:
-        logger.error(f"Error processing the watchlist: {e}")
-        return []
-
-    watchlist = []
-    for item in root.findall('.//channel/item'):
-        watchlist_item_data = {
-            'title': item.find('title').text,
-            'pub_date': item.find('pubDate').text,
-            'category': item.find('category').text,
-            'keywords': item.find('{http://search.yahoo.com/mrss/}keywords').text,
-            'rating': item.find('{http://search.yahoo.com/mrss/}rating').text,
-            'guid': item.find('guid').text,
-        }
-        watchlist.append(WatchListItem(**watchlist_item_data))
-
-    return watchlist

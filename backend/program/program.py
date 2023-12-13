@@ -1,8 +1,4 @@
 """Program main module"""
-import importlib
-import inspect
-import os
-import sys
 from typing import Optional
 from pydantic import BaseModel, HttpUrl, Field
 from utils.logger import logger
@@ -10,6 +6,10 @@ from utils.settings import settings_manager
 from program.media import MediaItemContainer
 from program.libraries.plex import Library as Plex
 from program.debrid.realdebrid import Debrid as RealDebrid
+import importlib
+import inspect
+import os
+import sys
 
 
 # Pydantic models for configuration
@@ -17,7 +17,7 @@ class PlexConfig(BaseModel):
     user: str
     token: str
     url: HttpUrl
-    user_watchlist_rss: Optional[str] = None
+    watchlist: Optional[HttpUrl] = None
 
 class MdblistConfig(BaseModel):
     lists: list[str] = Field(default_factory=list)
@@ -63,13 +63,18 @@ class Program:
         """Run the program"""
         if self._validate_modules():
             return
+        
         self.media_items.load("data/media.pkl")
         self.plex.update_sections(self.media_items)
+
         for content_service in self.content_services:
             content_service.update_items(self.media_items)
+
         self.plex.update_items(self.media_items)
+        
         for scraper in self.scraping_services:
             scraper.scrape(self.media_items)
+        
         self.debrid.download(self.media_items)
         self.media_items.save("data/media.pkl")
 
