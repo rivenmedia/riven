@@ -36,7 +36,7 @@ app.include_router(items_router)
 
 if __name__ == "__main__":
     try:
-        uvicorn.run("main:app", host="localhost", port=8080, reload=True)
+        uvicorn.run("main:app", host="localhost", port=8080, reload=False)
     except KeyboardInterrupt:
         print("Exiting...")
         sys.exit(0)

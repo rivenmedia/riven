@@ -40,7 +40,6 @@ class MediaItem:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
         self.aired_at = item.get("aired_at", None)
         self.genres = item.get("genres", [])
-        self.state = MediaItemState.UNKNOWN
 
         # Plex related
         self.key = item.get("key", None)
