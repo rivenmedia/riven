@@ -3,7 +3,7 @@ import type { UserResponse } from '$lib/types';
 
 export const load: PageLoad = async ({ fetch }) => {
 	const getUserData = async () => {
-		const res = await fetch('http://localhost:8080/user');
+		const res = await fetch('http://%hostip%:8080/user');
 		if (res.ok) {
             return await res.json() as UserResponse;
         }
