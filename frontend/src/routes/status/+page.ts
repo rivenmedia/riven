@@ -2,7 +2,7 @@ import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch }) => {
 	const getItems = async () => {
-		const res = await fetch('http://%hostip%:8080/items/');
+		const res = await fetch('http://${HOSTIP}:8080/items/');
 		if (res.ok) {
 			return await res.json();
 		}
@@ -10,7 +10,7 @@ export const load: PageLoad = async ({ fetch }) => {
 	};
 
     const getStates = async () => {
-        const res = await fetch('http://%hostip%:8080/items/states');
+        const res = await fetch('http://${HOSTIP}:8080/items/states');
         if (res.ok) {
             return await res.json();
         }
