@@ -1,10 +1,6 @@
 data/
 logs/
-<<<<<<< HEAD
 settings.json
 .vscode
 __pycache__
 .git
-=======
-settings.json
->>>>>>> main
