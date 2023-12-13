@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  iceberg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4173:4173"

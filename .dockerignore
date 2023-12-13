@@ -1,3 +1,13 @@
+# Frontend
+.DS_Store
+/build
+/.svelte-kit
+/package
+.env
+.env.*
+!.env.example
+
+# Backend
 logs/
 settings.json
 __pycache__
