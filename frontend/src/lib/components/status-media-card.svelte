@@ -16,7 +16,7 @@
 >
 	<div class="absolute top-0 left-0 w-full h-full bg-black opacity-40 rounded-xl" />
 	<div class="w-full h-full flex flex-col md:flex-row gap-2">
-		<div class="z-10 flex gap-x-2 items-start md:items-center w-full md:w-2/3">
+		<div class="z-[1] flex gap-x-2 items-start md:items-center w-full md:w-2/3">
 			<a href={plexDebridItem.imdb_link} target="_blank" rel="noopener noreferrer">
 				<img
 					alt="test"
@@ -30,7 +30,7 @@
 				<p>{plexDebridItem.aired_at}</p>
 			</div>
 		</div>
-		<div class="z-10 flex flex-col items-start w-full md:w-1/2">
+		<div class="z-[1] flex flex-col items-start w-full md:w-1/2">
 			<div class="flex gap-2 items-center">
 				<p class="text-lg font-semibold">Status</p>
 				<Badge class="{itemState.bg} text-black tracking-wider hover:text-white dark:hover:text-black">

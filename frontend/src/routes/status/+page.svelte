@@ -34,7 +34,7 @@
 			description: 'Unknown status'
 		},
 		LIBRARY: {
-			text: "In Library",
+			text: 'In Library',
 			color: 'text-green-400',
 			bg: 'bg-green-400',
 			description: 'Item is in your library'
@@ -52,7 +52,7 @@
 			description: 'TODO: Add description'
 		},
 		CONTENT: {
-			text: "Requested",
+			text: 'Requested',
 			color: 'text-purple-500',
 			bg: 'bg-purple-500',
 			description: 'Item is requested from external service'
@@ -117,6 +117,7 @@
 							builders={[builder]}
 							disabled={reloadButtonLoading}
 							type="button"
+							variant="outline"
 							size="sm"
 							class="max-w-max"
 							on:click={reloadData}
@@ -133,6 +134,7 @@
 					<Tooltip.Trigger asChild let:builder>
 						<Button
 							builders={[builder]}
+							variant="outline"
 							size="sm"
 							class="max-w-max"
 							href="https://app.plex.tv/desktop"
@@ -160,7 +162,8 @@
 						{#each Object.keys(statusInfo) as key (key)}
 							{#if key !== 'ERROR' && key !== 'UNKNOWN'}
 								<li>
-									<span class="font-semibold {statusInfo[key].color}">{statusInfo[key].text}:</span> {statusInfo[key].description}
+									<span class="font-semibold {statusInfo[key].color}">{statusInfo[key].text}:</span>
+									{statusInfo[key].description}
 								</li>
 							{/if}
 						{/each}

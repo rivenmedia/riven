@@ -45,7 +45,7 @@
 		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
 			<MoreHorizontal class="h-4 w-4" />
 		</Button>
-	</nav>	
+	</nav>
 </header>
 
 <div
@@ -53,7 +53,7 @@
 	class:h-0={!showMenu}
 	class:h-screen={showMenu}
 	class:h-[100dvh]={showMenu}
-	class="h-0 w-screen fixed z-10 top-0 left-0 bg-background overflow-x-hidden flex flex-col items-center md:hidden"
+	class="h-0 w-screen fixed z-[99] top-0 left-0 bg-background overflow-x-hidden flex flex-col items-center md:hidden"
 >
 	<div class="flex p-10 w-full items-end justify-end transition-all ease-in-out duration-300">
 		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
@@ -62,7 +62,9 @@
 	</div>
 	<div class="flex flex-col items-center justify-center gap-6 p-8 w-full">
 		{#each navItems as navItem}
-			<NavigationItem {navItem} />
+			<button on:click={toggleNavbar}>
+				<NavigationItem {navItem} />
+			</button>
 		{/each}
 	</div>
 </div>
