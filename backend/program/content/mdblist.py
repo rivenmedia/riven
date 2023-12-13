@@ -1,5 +1,4 @@
 """Mdblist content module"""
-import json
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get, ping

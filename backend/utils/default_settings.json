@@ -7,7 +7,7 @@
         "user": "",
         "token" : "",
         "url": "http://localhost:32400",
-        "user_watchlist_rss": ""
+        "watchlist": ""
     },
     "mdblist": {
         "lists": [

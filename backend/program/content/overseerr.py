@@ -32,8 +32,6 @@ class Content:
             return response.ok
         except ConnectTimeout:
             return False
-        # response = json.loads(response.content)
-        # return response['response']
 
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from overseerr and add them to media_items attribute
