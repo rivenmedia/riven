@@ -1,10 +1,20 @@
 <script lang="ts">
-	import { formatState, convertPlexDebridItemsToObject } from '$lib/helpers.js';
+	import { convertPlexDebridItemsToObject } from '$lib/helpers.js';
 	import { invalidateAll } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { Loader2, ArrowUpRight, RotateCw } from 'lucide-svelte';
 	import StatusMediaCard from '$lib/components/status-media-card.svelte';
+
 	export let data;
+
+	let reloadButtonLoading = false;
+
+	async function reloadData() {
+		reloadButtonLoading = true;
+		await invalidateAll();
+		reloadButtonLoading = false;
+	}
 </script>
 
 <svelte:head>
@@ -26,25 +36,44 @@
 				</p>
 			</div>
 			<div class="flex flex-row items-center gap-2">
-				<Button
-					type="button"
-					size="sm"
-					class="max-w-max"
-					on:click={() => {
-						invalidateAll();
-					}}
-				>
-					<RotateCw class="h-4 w-4" />
-				</Button>
-				<Button type="button" size="sm" class="max-w-max" href="https://app.plex.tv/desktop">
-					<ArrowUpRight class="h-4 w-4" />
-				</Button>
+				<Tooltip.Root>
+					<Tooltip.Trigger asChild let:builder>
+						<Button
+							builders={[builder]}
+							disabled={reloadButtonLoading}
+							type="button"
+							size="sm"
+							class="max-w-max"
+							on:click={reloadData}
+						>
+							<RotateCw class="h-4 w-4" />
+						</Button>
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						<p>Reload data</p>
+					</Tooltip.Content>
+				</Tooltip.Root>
+
+				<Tooltip.Root>
+					<Tooltip.Trigger asChild let:builder>
+						<Button
+							builders={[builder]}
+							size="sm"
+							class="max-w-max"
+							href="https://app.plex.tv/desktop"
+						>
+							<ArrowUpRight class="h-4 w-4" />
+						</Button>
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						<p>Open Plex</p>
+					</Tooltip.Content>
+				</Tooltip.Root>
 			</div>
 		</div>
 		{@const plexDebridItems = convertPlexDebridItemsToObject(items.items)}
 		{#each Object.keys(plexDebridItems) as key (key)}
-			<h2 class="text-2xl font-semibold">{formatState(key)}</h2>
-			<div class="flex flex-row flex-wrap w-full gap-4">
+			<div class="flex flex-col gap-4">
 				{#each plexDebridItems[key] as item}
 					<StatusMediaCard plexDebridItem={item} />
 				{/each}

@@ -3,6 +3,7 @@ import os
 import re
 import time
 
+import requests
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
@@ -11,6 +12,17 @@ from program.media import MediaItem, MediaItemContainer, MediaItemState
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
+RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
+
+
+def get_user():
+    # TODO: Improve
+    api_key = settings_manager.get("realdebrid")["api_key"]
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get(
+        "https://api.real-debrid.com/rest/1.0/user", headers=headers
+    )
+    return response.json()
 
 
 class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
@@ -30,9 +42,9 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
     def _validate_settings(self):
         try:
             response = ping(
-                    "https://api.real-debrid.com/rest/1.0/user",
-                    additional_headers=self.auth_headers
-                )
+                "https://api.real-debrid.com/rest/1.0/user",
+                additional_headers=self.auth_headers,
+            )
             return response.ok
         except ConnectTimeout:
             return False
