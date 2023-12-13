@@ -5,12 +5,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program.program import Program
 from utils.thread import ThreadRunner
-from controllers.controller import router as program_router, PlexController, ContentController, SettingsController
+from controllers.settings import router as settings_router
+from controllers.items import router as items_router
+from controllers.default import router as default_router
+
 
 sys.path.append(os.getcwd())
+program = Program()
+runner = ThreadRunner(program.run, 5)
 
-app = FastAPI()
+def lifespan(app: FastAPI):
+    runner.start()
+    yield
+    runner.stop()
 
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,23 +28,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include the main router
-app.include_router(program_router)
+app.program = program
 
-# Create an instance of your Program class
-program = Program()
-
-# Attach the program instance to the FastAPI app
-app.state.program = program
-
-# Include the routers for PlexController, ContentController, and SettingsController
-app.include_router(PlexController(app).router)
-app.include_router(ContentController(app).router)
-app.include_router(SettingsController(app).router)
-
-# Thread runner setup (if still needed)
-runner = ThreadRunner(program.run, 5)
-runner.start()
+app.include_router(default_router)
+app.include_router(settings_router)
+app.include_router(items_router)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    try:
+        uvicorn.run("main:app", host="localhost", port=8080, reload=False)
+    except KeyboardInterrupt:
+        print("Exiting...")
+        sys.exit(0)

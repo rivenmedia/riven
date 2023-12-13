@@ -1,5 +1,5 @@
 {
-    "version": "0.2.0",
+    "version": "0.2.1",
     "debug": true,
     "service_mode": false,
     "log": true,
@@ -7,7 +7,8 @@
     "plex": {
         "user": "",
         "token" : "",
-        "url": "http://localhost:32400"
+        "url": "http://localhost:32400",
+        "watchlist": ""
     },
     "mdblist": {
         "lists": [

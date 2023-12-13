@@ -3,16 +3,26 @@ import os
 import re
 import time
 
+import requests
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
 from utils.settings import settings_manager
 from program.media import MediaItem, MediaItemContainer, MediaItemState
-import PTN
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
+RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
+
+def get_user():
+    # TODO: Improve
+    api_key = settings_manager.get("realdebrid")["api_key"]
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get(
+        "https://api.real-debrid.com/rest/1.0/user", headers=headers
+    )
+    return response.json()
 
 class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
     """Real-Debrid API Wrapper"""
@@ -57,12 +67,12 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
                                     items.append(episode)
 
         for item in items:
-            added_files += self._download_movie(item)
+            added_files += self._download(item)
 
         if added_files > 0:
             logger.info("Downloaded %s cached releases", added_files)
 
-    def _download_movie(self, item):
+    def _download(self, item):
         """Download movie from real-debrid.com"""
         self.check_stream_availability(item)
         self._determine_best_stream(item)
@@ -79,31 +89,12 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         self.select_files(request_id, item)
 
         if item.type == "movie":
-            # file = next(iter(item.active_stream["files"].values())).get("filename")
             log_string = item.title
         if item.type == "season":
-            # for file in item.active_stream["files"].values():
-            #     obj = PTN.parse(file["filename"])
-            #     if not obj.get("episode"):
-            #         continue
-            #     episode = obj["episode"]
-            #     if type(episode) == list:
-            #         item.joined_episodes = []
-            #         for sub_episode in episode:
-            #             item.episodes[sub_episode - 1].file = file["filename"]
-            #             item.episodes[obj["episode"] - 1].folder = item.active_stream.get("name")
-            #     else:
-            #         index = obj["episode"] - 1
-            #         if index in range(len(item.episodes)):
-            #             item.episodes[obj["episode"] - 1].file = file["filename"]
-            #             item.episodes[obj["episode"] - 1].folder = item.active_stream.get("name")
             log_string = f"{item.parent.title} season {item.number}"
         if item.type == "episode":
-            # file = next(iter(item.active_stream["files"].values())).get("filename")
             log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
 
-        # item.set("folder", item.active_stream.get("name"))
-        # item.set("file", file)
         logger.debug("Downloaded %s", log_string)
         return 1
 
@@ -111,23 +102,6 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         data = self.get_torrent_info(request_id)
         if not data["id"] in self._torrents.keys():
             self._torrents[data["id"]] = data
-
-    def _download_show(self, item):
-        values = 0
-        for season in item.seasons:
-            if season.state == MediaItemState.SCRAPE:
-                self.check_stream_availability(season)
-                self._determine_best_stream(season)
-                values += self._download_item(season)
-            else:
-                for episode in season.episodes:
-                    if episode.state == MediaItemState.SCRAPE:
-                        self.check_stream_availability(episode)
-                        if self._determine_best_stream(episode):
-                            self._download_item(season)
-                            break
-                        values += self._download_item(episode)
-        return values
 
     def _determine_best_stream(self, item) -> bool:
         """Returns true if season stream found for episode"""

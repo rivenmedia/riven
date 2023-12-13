@@ -3,7 +3,6 @@ import importlib
 import inspect
 import os
 import sys
-import requests
 from pydantic import BaseModel, HttpUrl, Field
 from program.symlink import Symlinker
 from utils.logger import logger

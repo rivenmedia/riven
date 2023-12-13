@@ -1,5 +1,4 @@
 """Plex library module"""
-import PTN
 import os
 import time
 from typing import List, Optional
