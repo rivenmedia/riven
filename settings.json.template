@@ -1,0 +1,29 @@
+{
+    "version": "0.2.1",
+    "debug": true,
+    "service_mode": false,
+    "log": true,
+    "plex": {
+        "user": "${PLEXUSER}",
+        "token" : "${PLEXTOKEN}",
+        "url": "${PLEXURLWITHPORT}",
+        "watchlist": "${PLEXWATCHLIST}"
+    },
+    "mdblist": {
+        "lists": [
+            "${MDBLIST}"
+        ],
+        "api_key" : "${MDBLISTAPI}",
+        "update_interval": 80
+    },
+    "overseerr": {
+        "url" : "${OSURLWITHPORT}",
+        "api_key" : "${OSAPIKEY}"
+    },
+    "torrentio" : {
+        "filter" : "${TORRENTIOFILTER}"
+    },
+    "realdebrid" : {
+        "api_key" : "${RDAPIKEY}"
+    }
+}
