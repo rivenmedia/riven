@@ -67,10 +67,16 @@ class Library:
         for section in self.plex.library.sections():
             for item in media_items:
                 if item.type == section.type and item.state in [MediaItemState.SYMLINK, MediaItemState.LIBRARY_PARTIAL]:
-                    if not section.refreshing:
-                        section.update()
-                        logger.debug("Updated section %s", section.title)
-                        break
+                    if (
+                      (item.type == "movie" and item.state is MediaItemState.SYMLINK)
+                      or
+                      (item.type == "show" and
+                       any(season for season in item.seasons if season.state is MediaItemState.SYMLINK))
+                    ):
+                        if not section.refreshing:
+                            section.update()
+                            logger.debug("Updated section %s", section.title)
+                            break
 
     def _create_item(self, item):
         new_item = _map_item_from_data(item, item.type)
@@ -108,10 +114,11 @@ class Library:
                             for found_season in found_item.seasons:
                                 for found_episode in found_season.episodes:
                                     for season in item.seasons:
-                                        for episode in season.episodes:
-                                            if episode.imdb_id == found_episode.imdb_id:
-                                                self._update_item(episode, found_episode)
-                                                items_to_update += 1
+                                        if season.state is not MediaItemState.LIBRARY:
+                                            for episode in season.episodes:
+                                                if episode.imdb_id == found_episode.imdb_id:
+                                                    self._update_item(episode, found_episode)
+                                                    items_to_update += 1
 
         return items_to_update
 

@@ -5,7 +5,7 @@ import os
 import sys
 from pydantic import BaseModel, HttpUrl, Field
 from program.symlink import Symlinker
-from utils.logger import logger
+from utils.logger import logger, get_data_path
 from utils.settings import settings_manager
 from program.media import MediaItemContainer
 from program.libraries.plex import Library as Plex
@@ -55,16 +55,17 @@ class Program:
         self.media_items = MediaItemContainer(items=[])
         self.content_services = self.__import_modules("backend/program/content")
         self.scraping_services = self.__import_modules("backend/program/scrapers")
+        self.data_path = get_data_path()
+        
+        logger.info("Iceberg initialized")
 
-        if not os.path.exists("backend/data"):
-            os.mkdir("backend/data")
 
     def run(self):
         """Run the program"""
         if self._validate_modules():
             return
 
-        self.media_items.load("backend/data/media.pkl")
+        self.media_items.load(os.path.join(self.data_path, "media.pkl"))
 
         self.plex.update_sections(self.media_items)
 
@@ -80,7 +81,7 @@ class Program:
 
         self.symlink.run(self.media_items)
 
-        self.media_items.save("backend/data/media.pkl")
+        self.media_items.save(os.path.join(self.data_path, "media.pkl"))
 
     def _validate_modules(self):
         if len(self.content_services) == 0:
