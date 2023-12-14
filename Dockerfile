@@ -1,6 +1,6 @@
 FROM alpine:3.19
 
-LABEL org.label-schema.name="iceberg" \
+LABEL org.label-schema.name="Iceberg" \
       org.label-schema.description="Iceberg Debrid Downloader" \
       org.label-schema.url="https://github.com/dreulavelle/iceberg"
 
@@ -20,10 +20,6 @@ RUN cd /iceberg/frontend && \
     pnpm install && \
     pnpm run build
 
-# COPY run.sh /run.sh
-# RUN chmod +x /run.sh
+EXPOSE 4173
 
-EXPOSE 5173
-
-# CMD ["/run.sh"]
-CMD cd /iceberg/frontend && pnpm run preview & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
+CMD cd /iceberg/frontend && pnpm run preview --host & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
