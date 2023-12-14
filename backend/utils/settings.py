@@ -8,7 +8,7 @@ class SettingsManager:
     """Class that handles settings"""
 
     def __init__(self):
-        self.filename = "settings.json"
+        self.filename = "data/settings.json"
         self.config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
         self.settings_file = os.path.join(self.config_dir, self.filename)
         self.settings = {}
