@@ -1,31 +1,25 @@
-# Use a base image with Python 3.12 and Node.js 18 on Alpine
-FROM nikolaik/python-nodejs:python3.12-nodejs18-alpine
+FROM alpine:3.19
 
-# Set the working directory
-WORKDIR /app
+LABEL org.label-schema.name="iceberg" \
+      org.label-schema.description="Iceberg Debrid Downloader" \
+      org.label-schema.url="https://github.com/dreulavelle/iceberg"
 
-# Install pnpm
+RUN apk --update add python3 py3-pip nodejs npm bash && \
+    rm -rf /var/cache/apk/*
+
 RUN npm install -g pnpm
 
-# Copy and install backend dependencies
-COPY backend/requirements.txt /app/backend/
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+WORKDIR /iceberg
+COPY . /iceberg/
 
-# Copy backend code
-COPY backend /app/backend
+RUN python3 -m venv /venv && \
+    source /venv/bin/activate && \
+    pip3 install --no-cache-dir -r /iceberg/requirements.txt
 
-# Copy and install frontend dependencies
-COPY frontend/package.json frontend/pnpm-lock.yaml /app/frontend/
-RUN cd /app/frontend && pnpm install
+RUN cd /iceberg/frontend && \
+    pnpm install && \
+    pnpm run build
 
-# Copy frontend code
-COPY frontend /app/frontend
+EXPOSE 5173
 
-# Build the frontend
-RUN cd /app/frontend && pnpm run build
-
-# Expose the port your backend runs on
-EXPOSE 8000
-
-# Start the frontend in preview mode and the backend
-CMD sh -c 'cd /app/frontend && pnpm run preview & python /app/backend/main.py'
+CMD sh -c 'cd /iceberg/frontend && pnpm run preview ; source /venv/bin/activate && python /iceberg/backend/main.py'
