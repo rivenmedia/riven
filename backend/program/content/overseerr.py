@@ -32,17 +32,20 @@ class Content:
             return response.ok
         except ConnectTimeout:
             return False
+        # response = json.loads(response.content)
+        # return response['response']
 
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from overseerr and add them to media_items attribute
         if they are not already there"""
-        logger.info("Getting items...")
+        logger.debug("Getting items...")
         items = self._get_items_from_overseerr(1000)
-        container = self.updater.create_items(items)
+        new_items = [item for item in items if item not in media_items]
+        container = self.updater.create_items(new_items)
         added_items = media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))
-        logger.info("Done!")
+        logger.debug("Done!")
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""

@@ -1,3 +1,6 @@
 data/
 logs/
 settings.json
+.vscode
+__pycache__
+.git

@@ -3,7 +3,14 @@ import datetime
 import logging
 import os
 import re
+import sys
 
+def get_data_path():
+    main_dir = os.path.dirname(os.path.abspath(sys.modules["__main__"].__file__))
+    return os.path.join(
+        main_dir,
+        os.pardir,
+        "data")
 
 class RedactSensitiveInfo(logging.Filter):
     """logging filter to redact sensitive info"""
@@ -53,23 +60,28 @@ class RedactSensitiveInfo(logging.Filter):
 class Logger(logging.Logger):
     """Logging class"""
 
-    def __init__(self, file_name):
+    def __init__(self):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        file_name = f"iceberg-{timestamp}.log"
+        data_path = get_data_path()
+
         super().__init__(file_name)
         formatter = logging.Formatter(
             "[%(asctime)s | %(levelname)s] <%(module)s.%(funcName)s> - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
-        if not os.path.exists("logs"):
-            os.mkdir("logs")
+        if not os.path.exists(data_path):
+            os.mkdir(data_path)
+
+        if not os.path.exists(os.path.join(data_path, "logs")):
+            os.mkdir(os.path.join(data_path, "logs"))
 
         self.addFilter(RedactSensitiveInfo())
         file_handler = logging.FileHandler(
-            os.path.join("logs", file_name), encoding="utf-8"
+            os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
         )
         file_handler.setLevel(logging.DEBUG)
-        # if settings_manager.get("debug"):
-        #     file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
 
         console_handler = logging.StreamHandler()
@@ -79,17 +91,5 @@ class Logger(logging.Logger):
         self.addHandler(file_handler)
         self.addHandler(console_handler)
 
+logger = Logger()
 
-timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-logger = Logger(f"plex_debrid-{timestamp}.log")
-
-
-def log_estimate(items, time_per):
-    """Log the estimated time"""
-    if len(items) > 0:
-        estimate = len(items) * time_per
-        unit = "seconds"
-        if estimate > 60:
-            estimate = estimate / 60
-            unit = "minutes"
-        logger.info("Estimated time to finish %s %s", estimate, unit)

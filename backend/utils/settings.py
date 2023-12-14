@@ -4,7 +4,6 @@ import json
 import os
 import shutil
 
-
 class SettingsManager:
     """Class that handles settings"""
 

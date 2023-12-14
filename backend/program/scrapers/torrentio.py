@@ -55,10 +55,8 @@ class Scraper:
         episodes = [
             episode
             for season in item.seasons
-            if season.state
-            in [MediaItemState.SCRAPED_NOT_FOUND, MediaItemState.LIBRARY_ONGOING]
             for episode in season.episodes
-            if self._can_we_scrape(episode)
+            if not season.is_scraped() and self._can_we_scrape(episode)
         ]
         scraped_amount += self._scrape_items(episodes)
         return scraped_amount
@@ -74,7 +72,6 @@ class Scraper:
                 log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
             if len(data) > 0:
                 item.set("streams", data)
-                # item.change_state(MediaItemState.SCRAPED)
                 logger.debug("Found %s streams for %s", len(data), log_string)
                 amount_scraped += 1
                 continue
@@ -96,7 +93,7 @@ class Scraper:
 
         if item.type == "show" and item.state in [
             MediaItemState.CONTENT,
-            MediaItemState.LIBRARY_ONGOING,
+            MediaItemState.LIBRARY_PARTIAL,
         ]:
             return True
 
@@ -106,15 +103,7 @@ class Scraper:
                 "season": [MediaItemState.CONTENT],
                 "episode": [MediaItemState.CONTENT],
             }
-            invalid_states = {
-                "movie": [],
-                "season": [MediaItemState.SCRAPED_NOT_FOUND],
-                "episode": [],
-            }
-            if (
-                item.state in valid_states[item.type]
-                and item.state not in invalid_states[item.type]
-            ):
+            if (item.state in valid_states[item.type]):
                 return needs_new_scrape()
 
         return False
@@ -147,63 +136,11 @@ class Scraper:
             if response.is_ok:
                 data = {}
                 for stream in response.data.streams:
-                    # lets get only 20 streams
                     if len(data) >= 20:
                         break
-                    complete_title = stream.title.split("\n👤")[0]
-                    folder = complete_title.split("\n")[0]
-                    file = complete_title.split("\n")[-1]
-                    if not _matches_formatting(item, file, folder):
-                        continue
                     data[stream.infoHash] = {
                         "name": stream.title.split("\n👤")[0],
-                        "seeds": re.search(r"👤\s*(\d*)\s*💾", stream.title).group(1),
                     }
-
                 if len(data) > 0:
                     return data
-            else:
-                # item.change_state(MediaItemState.ERROR)
-                pass
             return {}
-
-
-def _matches_formatting(item: MediaItem, file: str, folder: str) -> bool:
-    if not _matches_rclone_formatting(item, file, folder):
-        return False
-
-    def match_folder(folder: str):
-        season_pattern = r"(S\d{2}|Season \d{1,2})"
-        episode_pattern = r"(E\d{1,2}|Episode \d{1,2})"
-        matches = re.finditer(season_pattern, folder, re.IGNORECASE)
-        return [
-            match.group()
-            for match in matches
-            if not re.search(episode_pattern, folder[match.start():])
-        ]
-
-    match (item.type):
-        case "movie":
-            pattern = r"^(?:(?!Season|Episode|Collection|S\d{1,2}|E\d{1,2}).)*$"
-            return len(re.findall(pattern, file, re.IGNORECASE)) > 0
-        case "season":
-            return len(match_folder(folder)) > 0
-        case "episode":
-            if len(match_folder(folder)) == 0:
-                return False
-            pattern = r"(S\d{1,2}|Season \d{1,2}).*(E\d{1,2}|Episode \d{1,2})"
-            return len(re.findall(pattern, file, re.IGNORECASE)) > 0
-        case _:
-            return False
-
-
-def _matches_rclone_formatting(item, file, folder) -> bool:
-    matching_string = file
-    match (item.type):
-        case "movie":
-            pattern = r"(19|20)([0-9]{2} ?\.?)"
-        case _:
-            pattern = r"(S[0-9]{2}|SEASON|COMPLETE|[^457a-z\W\s]-[0-9]+)"
-            matching_string = folder
-
-    return len(re.findall(pattern, matching_string, re.IGNORECASE)) > 0

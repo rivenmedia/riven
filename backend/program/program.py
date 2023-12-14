@@ -1,23 +1,21 @@
 """Program main module"""
-from typing import Optional
-from pydantic import BaseModel, HttpUrl, Field
-from utils.logger import logger
-from utils.settings import settings_manager
-from program.media import MediaItemContainer
-from program.libraries.plex import Library as Plex
-from program.debrid.realdebrid import Debrid as RealDebrid
 import importlib
 import inspect
 import os
 import sys
-
+from pydantic import BaseModel, HttpUrl, Field
+from program.symlink import Symlinker
+from utils.logger import logger, get_data_path
+from utils.settings import settings_manager
+from program.media import MediaItemContainer
+from program.libraries.plex import Library as Plex
+from program.debrid.realdebrid import Debrid as RealDebrid
 
 # Pydantic models for configuration
 class PlexConfig(BaseModel):
     user: str
     token: str
-    url: HttpUrl
-    watchlist: Optional[HttpUrl] = None
+    address: HttpUrl
 
 class MdblistConfig(BaseModel):
     lists: list[str] = Field(default_factory=list)
@@ -39,6 +37,7 @@ class Settings(BaseModel):
     debug: bool
     service_mode: bool
     log: bool
+    menu_on_startup: bool
     plex: PlexConfig
     mdblist: MdblistConfig
     overseerr: OverseerrConfig
@@ -52,31 +51,37 @@ class Program:
         self.settings = settings_manager.get_all()
         self.plex = Plex()
         self.debrid = RealDebrid()
+        self.symlink = Symlinker()
         self.media_items = MediaItemContainer(items=[])
         self.content_services = self.__import_modules("backend/program/content")
         self.scraping_services = self.__import_modules("backend/program/scrapers")
+        self.data_path = get_data_path()
+        
+        logger.info("Iceberg initialized")
 
-        if not os.path.exists("data"):
-            os.mkdir("data")
 
     def run(self):
         """Run the program"""
         if self._validate_modules():
             return
-        
-        self.media_items.load("data/media.pkl")
+
+        self.media_items.load(os.path.join(self.data_path, "media.pkl"))
+
         self.plex.update_sections(self.media_items)
 
         for content_service in self.content_services:
             content_service.update_items(self.media_items)
 
         self.plex.update_items(self.media_items)
-        
+
         for scraper in self.scraping_services:
             scraper.scrape(self.media_items)
-        
+
         self.debrid.download(self.media_items)
-        self.media_items.save("data/media.pkl")
+
+        self.symlink.run(self.media_items)
+
+        self.media_items.save(os.path.join(self.data_path, "media.pkl"))
 
     def _validate_modules(self):
         if len(self.content_services) == 0:

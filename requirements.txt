@@ -7,3 +7,4 @@ pathos
 pydantic
 fastapi
 uvicorn[standard]
+parse-torrent-file
