@@ -20,6 +20,10 @@ RUN cd /iceberg/frontend && \
     pnpm install && \
     pnpm run build
 
+# COPY run.sh /run.sh
+# RUN chmod +x /run.sh
+
 EXPOSE 5173
 
-CMD sh -c 'cd /iceberg/frontend && pnpm run preview ; source /venv/bin/activate && python /iceberg/backend/main.py'
+# CMD ["/run.sh"]
+CMD cd /iceberg/frontend && pnpm run preview & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
