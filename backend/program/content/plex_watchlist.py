@@ -33,13 +33,14 @@ class Content:
     def update_items(self, media_items: MediaItemContainer):
         """Fetch media from Plex watchlist and add them to media_items attribute
         if they are not already there"""
-        logger.info("Getting items...")
-        watchlist_items = self._get_items_from_plex_watchlist()
-        container = self.updater.create_items(watchlist_items)
+        logger.debug("Getting items...")
+        items = self._get_items_from_plex_watchlist()
+        new_items = [item for item in items if item not in media_items]
+        container = self.updater.create_items(new_items)
         added_items = media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))
-        logger.info("Done!")
+        logger.debug("Done!")
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""
@@ -50,4 +51,5 @@ class Content:
         for item in items:
             imdb_id = next((guid.split('//')[-1] for guid in item.get('guids') if "imdb://" in guid), None)
             ids.append(imdb_id)
+        logger.debug("Found %s items", len(ids))
         return ids
