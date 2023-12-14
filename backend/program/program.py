@@ -3,6 +3,7 @@ import importlib
 import inspect
 import os
 import sys
+from typing import Optional
 from pydantic import BaseModel, HttpUrl, Field
 from program.symlink import Symlinker
 from utils.logger import logger, get_data_path
@@ -16,6 +17,7 @@ class PlexConfig(BaseModel):
     user: str
     token: str
     address: HttpUrl
+    watchlist: Optional[HttpUrl] = None
 
 class MdblistConfig(BaseModel):
     lists: list[str] = Field(default_factory=list)
@@ -93,6 +95,10 @@ class Program:
         return False
 
     def __import_modules(self, folder_path: str) -> list[object]:
+        if os.path.exists('/iceberg'):
+            folder_path = os.path.join('/iceberg', folder_path)
+        else:
+            folder_path = folder_path
         file_list = [
             f[:-3]
             for f in os.listdir(folder_path)
