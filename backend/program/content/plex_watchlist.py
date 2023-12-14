@@ -34,8 +34,9 @@ class Content:
         """Fetch media from Plex watchlist and add them to media_items attribute
         if they are not already there"""
         logger.info("Getting items...")
-        watchlist_items = self._get_items_from_plex_watchlist()
-        container = self.updater.create_items(watchlist_items)
+        items = self._get_items_from_plex_watchlist()
+        new_items = [item for item in items if item not in media_items]
+        container = self.updater.create_items(new_items)
         added_items = media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))
