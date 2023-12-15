@@ -20,6 +20,6 @@ RUN cd /iceberg/frontend && \
     pnpm install && \
     pnpm run build
 
-EXPOSE 4173
+EXPOSE 4173 8080
 
-CMD cd /iceberg/frontend && pnpm run preview --host & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
+CMD cd /iceberg/frontend && pnpm run preview --host 0.0.0.0 & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
