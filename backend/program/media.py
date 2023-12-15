@@ -48,20 +48,19 @@ class MediaItem:
             return MediaItemState.LIBRARY
         if self.symlinked:
             return MediaItemState.SYMLINK
-        if self.is_cached() or self.file:
+        if self.is_cached():
             return MediaItemState.DOWNLOAD
         if len(self.streams) > 0:
             return MediaItemState.SCRAPE
         if self.title:
             return MediaItemState.CONTENT
         return MediaItemState.UNKNOWN
-    
 
     def is_cached(self):
         if self.streams:
             return any(stream.get("cached", None) for stream in self.streams.values())
         return False
-    
+
     def is_scraped(self):
         return len(self.streams) > 0
 
@@ -72,6 +71,17 @@ class MediaItem:
                 for stream in self.streams.values()
             )
         return False
+
+    def to_dict(self):
+        return {
+            "title": self.title,
+            "imdb_id": self.imdb_id,
+            "state": self.state.name,
+            "imdb_link": self.imdb_link if hasattr(self, 'imdb_link') else None,
+            "aired_at": self.aired_at,
+            "genres": self.genres,
+            "guid": self.guid,
+        }
 
     def is_not_cached(self):
         return not self.is_cached()
@@ -118,7 +128,7 @@ class Show(MediaItem):
         self.locations = item.get("locations", [])
         self.seasons = item.get("seasons", [])
         self.type = "show"
-    
+
     @property
     def state(self):
         if all(season.state is MediaItemState.LIBRARY for season in self.seasons):

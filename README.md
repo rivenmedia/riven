@@ -37,7 +37,7 @@ version: '3.8'
 
 services:
   iceberg:
-    image: iceberg:latest
+    image: spoked/iceberg:latest
     container_name: Iceberg
     restart: unless-stopped
     ports:
@@ -80,5 +80,4 @@ Seperate terminal:
 
 ```sh
 python backend/main.py
-```
 ```
