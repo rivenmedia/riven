@@ -5,6 +5,7 @@ import PTN
 from utils.settings import settings_manager as settings
 from utils.logger import logger
 from program.media import MediaItemState
+from utils.thread import ThreadRunner
 
 
 class Symlinker:
@@ -15,6 +16,7 @@ class Symlinker:
     ):
         # Symlinking is required
         while True:
+            self.cache = {}
             self.settings = settings.get("symlink")
             self.mount_path = os.path.abspath(self.settings["mount"])
             self.host_path = os.path.abspath(self.settings["host_mount"])
@@ -26,6 +28,8 @@ class Symlinker:
                     os.mkdir(os.path.join(self.symlink_path, "movies"))
                 if not os.path.exists(os.path.join(self.symlink_path, "shows")):
                     os.mkdir(os.path.join(self.symlink_path, "shows"))
+                self.cache_thread = ThreadRunner(self.update_cache, 10)
+                self.cache_thread.start()
                 break
             logger.error("Rclone mount not found, retrying in 2...")
             time.sleep(2)
@@ -119,23 +123,9 @@ class Symlinker:
         logger.debug("Done!")
 
     def _find_file(self, filename):
+        return self.cache.get(filename, None)
+    
+    def update_cache(self):
         for root, _, files in os.walk(os.path.join(self.host_path, "torrents")):
             for file in files:
-                if file == filename:
-                    return os.path.join(root, file)
-
-# class FileWatcher():
-#     def __init__(self, path):
-#         self.path = os.path.join(os.path.abspath(path), "torrents")
-#         self.cache = {}
-
-#     def run(self):
-#         for folder_name, _, filenames in os.walk(self.path):
-#             folder = folder_name.split("/")[-1]
-#             for filename in filenames:
-#                 if folder not in self.cache:
-#                     self.cache[folder] = []
-#                 if filename not in self.cache[folder]:
-#                     self.cache[folder].append(filename)
-#         # Scan every after 5 seconds each cycle...
-#         time.sleep(5)
+                self.cache[file] = os.path.join(root, file)

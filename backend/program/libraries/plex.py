@@ -72,6 +72,7 @@ class Library:
                       or
                       (item.type == "show" and
                        any(season for season in item.seasons if season.state is MediaItemState.SYMLINK))
+                       or any(episode for season in item.seasons for episode in season.episodes if episode.state is MediaItemState.SYMLINK)
                     ):
                         if not section.refreshing:
                             section.update()
