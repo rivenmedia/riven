@@ -1,6 +1,7 @@
 """Trakt updater module"""
 from datetime import datetime
-from utils.logger import logger
+from os import path
+from utils.logger import get_data_path, logger
 from utils.request import get
 from program.media import (
     Episode,
@@ -18,11 +19,12 @@ class Updater:
 
     def __init__(self):
         self.trakt_data = MediaItemContainer()
+        self.pkl_file = path.join(get_data_path(), "trakt_data.pkl")
         self.ids = []
 
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
-        self.trakt_data.load("data/trakt_data.pkl")
+        self.trakt_data.load(self.pkl_file)
         new_items = MediaItemContainer()
         get_items = MediaItemContainer()
         for imdb_id in imdb_ids:
@@ -38,7 +40,7 @@ class Updater:
             for added_item in added_items:
                 logger.debug("Added %s", added_item.title)
             self.trakt_data.extend(added_items)
-            self.trakt_data.save("data/trakt_data.pkl")
+            self.trakt_data.save(self.pkl_file)
 
         return get_items
 
