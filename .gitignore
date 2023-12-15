@@ -4,4 +4,3 @@ settings.json
 .vscode
 __pycache__
 .git
-package-lock.json
