@@ -48,7 +48,7 @@ class MediaItem:
             return MediaItemState.LIBRARY
         if self.symlinked:
             return MediaItemState.SYMLINK
-        if self.is_cached():
+        if self.is_cached() or self.file:
             return MediaItemState.DOWNLOAD
         if len(self.streams) > 0:
             return MediaItemState.SCRAPE
@@ -135,12 +135,6 @@ class Show(MediaItem):
             return MediaItemState.LIBRARY
         if any(season.state in [MediaItemState.LIBRARY, MediaItemState.LIBRARY_PARTIAL] for season in self.seasons):
             return MediaItemState.LIBRARY_PARTIAL
-        if any(season.state == MediaItemState.SYMLINK for season in self.seasons):
-            return MediaItemState.SYMLINK
-        if any(season.state == MediaItemState.DOWNLOAD for season in self.seasons):
-            return MediaItemState.DOWNLOAD
-        if any(season.state == MediaItemState.SCRAPE for season in self.seasons):
-            return MediaItemState.SCRAPE
         if any(season.state == MediaItemState.CONTENT for season in self.seasons):
             return MediaItemState.CONTENT
         return MediaItemState.UNKNOWN
@@ -172,11 +166,9 @@ class Season(MediaItem):
                 return MediaItemState.LIBRARY
             if any(episode.state == MediaItemState.LIBRARY for episode in self.episodes):
                 return MediaItemState.LIBRARY_PARTIAL
-            if any(episode.state == MediaItemState.SYMLINK for episode in self.episodes):
-                return MediaItemState.SYMLINK
-            if self.is_cached() or any(episode.state == MediaItemState.DOWNLOAD for episode in self.episodes):
+            if self.is_cached():
                 return MediaItemState.DOWNLOAD
-            if self.is_scraped() or any(episode.state == MediaItemState.SCRAPE for episode in self.episodes):
+            if self.is_scraped():
                 return MediaItemState.SCRAPE
             if any(episode.state == MediaItemState.CONTENT for episode in self.episodes):
                 return MediaItemState.CONTENT
