@@ -20,74 +20,50 @@
 		toast.success('Refreshed data');
 	}
 
-	const statusInfo: StatusInfo = {
-		ERROR: {
-			text: formatState('ERROR'),
-			color: 'text-red-500',
-			bg: 'bg-red-500',
-			description: 'Error occurred during processing'
-		},
-		UNKNOWN: {
-			text: formatState('UNKNOWN'),
-			color: 'text-red-500',
-			bg: 'bg-red-500',
-			description: 'Unknown status'
-		},
-		LIBRARY: {
-			text: 'In Library',
-			color: 'text-green-400',
-			bg: 'bg-green-400',
-			description: 'Item is in your library'
-		},
-		LIBRARY_ONGOING: {
-			text: formatState('LIBRARY_ONGOING'),
-			color: 'text-green-400',
-			bg: 'bg-green-400',
-			description: 'Item is in your library and is ongoing'
-		},
-		LIBRARY_METADATA: {
-			text: formatState('LIBRARY_METADATA'),
-			color: 'text-gray-500',
-			bg: 'bg-gray-500',
-			description: 'TODO: Add description'
-		},
-		CONTENT: {
-			text: 'Requested',
-			color: 'text-purple-500',
-			bg: 'bg-purple-500',
-			description: 'Item is requested from external service'
-		},
-		SCRAPED: {
-			text: formatState('SCRAPED'),
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is scraped and will be downloaded'
-		},
-		SCRAPED_NOT_FOUND: {
-			text: formatState('SCRAPED_NOT_FOUND'),
-			color: 'text-red-500',
-			bg: 'bg-red-500',
-			description: 'Item was unable to be scraped'
-		},
-		PARTIALLY_SCRAPED: {
-			text: formatState('PARTIALLY_SCRAPED'),
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item was partially scraped'
-		},
-		DOWNLOADING: {
-			text: formatState('DOWNLOADING'),
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is currently downloading'
-		},
-		PARTIALLY_DOWNLOADING: {
-			text: formatState('PARTIALLY_DOWNLOADING'),
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is partially downloading'
-		}
-	};
+    const statusInfo: StatusInfo = {
+        UNKNOWN: {
+            text: formatState('Unknown'),
+            color: 'text-red-500',
+            bg: 'bg-red-500',
+            description: 'Unknown status'
+        },
+        CONTENT: {
+            text: 'Requested',
+            color: 'text-purple-500',
+            bg: 'bg-purple-500',
+            description: 'Item is requested from external service'
+        },
+        SCRAPE: {
+            text: formatState('Scraped'),
+            color: 'text-yellow-500',
+            bg: 'bg-yellow-500',
+            description: 'Item is scraped and will be downloaded'
+        },
+        DOWNLOAD: {
+            text: formatState('Download'),
+            color: 'text-yellow-500',
+            bg: 'bg-yellow-500',
+            description: 'Item is currently downloading'
+        },
+        SYMLINK: {
+            text: formatState('Symlink'),
+            color: 'text-yellow-500',
+            bg: 'bg-yellow-500',
+            description: 'Item is currently being symmlinked'
+        },
+        LIBRARY: {
+            text: 'In Library',
+            color: 'text-green-400',
+            bg: 'bg-green-400',
+            description: 'Item is in your library'
+        },
+        LIBRARY_PARTIAL: {
+            text: formatState('Library Partial'),
+            color: 'text-blue-400',
+            bg: 'bg-blue-400',
+            description: 'Item is in your library and is ongoing'
+        },
+    };
 </script>
 
 <svelte:head>
