@@ -81,4 +81,3 @@ Seperate terminal:
 ```sh
 python backend/main.py
 ```
-```
