@@ -9,6 +9,8 @@ updates:
     directory: '/frontend'
     schedule:
       interval: 'weekly'
+    ignore:
+      - dependency-name: 'sveltekit'
   - package-ecosystem: 'pip'
     directory: '/'
     schedule:
