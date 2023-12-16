@@ -57,6 +57,9 @@ class Library:
 
             processed_sections.add(section.key)
 
+        # Add items that arent in in media_items
+        media_items.extend(items)
+
         matched_items = self.match_items(items, media_items)
         if matched_items > 0:
             logger.info(f"Found {matched_items} new items")
@@ -174,7 +177,7 @@ def _map_item_from_data(item, item_type):
     art_url = getattr(item, "artUrl", None)
 
     imdb_id = next((guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None)
-    aired_at = available_at.strftime("%Y-%m-%d:%H") if available_at else None
+    aired_at = available_at or None
 
     media_item_data = {
         "title": title,

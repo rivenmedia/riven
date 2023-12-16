@@ -83,6 +83,8 @@ class Program:
 
         self.symlink.run(self.media_items)
 
+        self.media_items.sort("requested_at")
+
         self.media_items.save(os.path.join(self.data_path, "media.pkl"))
 
     def _validate_modules(self):

@@ -16,7 +16,6 @@ RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 
 def get_user():
-    # TODO: Improve
     api_key = settings_manager.get("realdebrid")["api_key"]
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(

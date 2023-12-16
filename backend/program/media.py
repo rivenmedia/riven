@@ -29,6 +29,7 @@ class MediaItem:
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
         self.symlinked = False
+        self.requested_at = item.get("requested_at", None) or datetime.datetime.now()
 
         # Media related
         self.title = item.get("title", None)
@@ -81,6 +82,7 @@ class MediaItem:
             "aired_at": self.aired_at,
             "genres": self.genres,
             "guid": self.guid,
+            "requested_at": self.requested_at
         }
 
     def is_not_cached(self):
@@ -255,6 +257,9 @@ class MediaItemContainer:
             self.items.append(other)
             self._set_updated_at()
         return self
+
+    def sort(self, by):
+        self.items.sort(key=lambda item: item.get(by), reverse=True)
 
     def __len__(self):
         """Get length of container"""
