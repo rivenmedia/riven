@@ -15,16 +15,16 @@ TODO:
 Check out out [Project Board](https://github.com/users/dreulavelle/projects/2) to stay informed!
 
 COMPLETED:
-- ~~Update plex libraries for changes, ongoing... ~~; (functional but we need to be more specific when to update)
+- ~~Update plex libraries for changes, ongoing...~~ (functional but we need to be more specific when to update)
 - ~~Real-debrid should download only one file per stream, lets avoid collections~~
-- ~~Add overseerr support, mostly done~~; still need to mark items as available?
+- ~~Add overseerr support, mostly done~~ still need to mark items as available?
 - ~~Add support for shows, ongoing...~~ (Functionalish, needs work...)
 - ~~Modify scraping logic to try scaping once a day if not found?~~
 - ~~Store data with pickle~~
 - ~~Improve logging...~~
 - And more..
 
-Please add features and mention issues over on our [Issue Tracker](https://github.com/dreulavelle/iceberg/issues)!
+Please add feature requests and issues over on our [Issue Tracker](https://github.com/dreulavelle/iceberg/issues)!
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
@@ -44,11 +44,6 @@ services:
       - "4173:4173"
     volumes:
       - ./data:/iceberg/data
-    # healthcheck:
-    #   test: ["CMD", "curl", "-f", "http://localhost:8080/"]
-    #   interval: 1m30s
-    #   timeout: 10s
-    #   retries: 1
 ```
 
 > [!WARNING]  
@@ -61,14 +56,6 @@ After copying over the settings file (on a fresh install) you can bind mount it 
 
 ## Running outside of Docker
 
-```sh
-pip install -r requirements.txt
-python3 backend/main.py
-cd frontend && npm install && npm run dev
-```
-
-## Development
-
 First terminal:
 
 ```sh
@@ -76,8 +63,10 @@ git clone https://github.com/dreulavelle/iceberg.git
 cd frontend && npm install && npm run dev
 ```
 
-Seperate terminal:
+Second terminal:
 
 ```sh
+pip install -r requirements.txt
 python backend/main.py
 ```
+
