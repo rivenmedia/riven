@@ -1,4 +1,4 @@
-import { DateTime, Settings } from 'luxon';
+import { DateTime } from 'luxon';
 import type { PlexDebridItem } from '$lib/types';
 
 // only works with real-debrid dates because of CET format provided by RD

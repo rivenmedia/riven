@@ -82,7 +82,7 @@ class Scraper:
         def is_released():
             return (
                 item.aired_at is not None
-                and datetime.strptime(item.aired_at, "%Y-%m-%d:%H") < datetime.now()
+                and item.aired_at < datetime.now()
             )
 
         def needs_new_scrape():

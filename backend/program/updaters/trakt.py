@@ -65,12 +65,10 @@ def _map_item_from_data(data, item_type):
         aired_at = data.first_aired
         formatted_aired_at = datetime.strptime(
             aired_at, "%Y-%m-%dT%H:%M:%S.%fZ"
-        ).strftime("%Y-%m-%d:%H")
+        )
     if getattr(data, "released", None):
         released_at = data.released
-        formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d").strftime(
-            "%Y-%m-%d:%H"
-        )
+        formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
     item = {
         "state": MediaItemState.CONTENT,
         "title": getattr(data, "title", None),
@@ -78,6 +76,7 @@ def _map_item_from_data(data, item_type):
         "imdb_id": getattr(data.ids, "imdb", None),
         "aired_at": formatted_aired_at,
         "genres": getattr(data, "genres", None),
+        "requested_at": datetime.now(),
     }
     match item_type:
         case "movie":
