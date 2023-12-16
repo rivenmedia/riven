@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { NavItem } from '$lib/types';
 	import ThemeSwitcher from '$lib/components/theme-switcher.svelte';
-	import NavigationItem from '$lib/components/header/item.svelte';
-	import { Mountain, MoreHorizontal, X } from 'lucide-svelte';
+	import NavigationItem from '$lib/components/header-item.svelte';
+	import { Mountain, MoreHorizontal, X, Loader2 } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { navigating } from '$app/stores';
 
 	const navItems: NavItem[] = [
 		{
@@ -48,6 +49,12 @@
 	</nav>
 </header>
 
+{#if $navigating}
+	<div class="loading-bar dark:bg-white bg-black z-[99]">
+		<div class="loading-animation"></div>
+	</div>
+{/if}
+
 <div
 	id="mobilenav"
 	class:h-0={!showMenu}
@@ -72,5 +79,29 @@
 <style>
 	#mobilenav {
 		transition: all 0.5s ease-in-out;
+	}
+	.loading-bar {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 4px;
+		overflow: hidden;
+	}
+
+	.loading-animation {
+		width: 100%;
+		height: 100%;
+		background: linear-gradient(to right, transparent, #888, transparent);
+		animation: loading 1s infinite;
+	}
+
+	@keyframes loading {
+		0% {
+			transform: translateX(-100%);
+		}
+		100% {
+			transform: translateX(100%);
+		}
 	}
 </style>

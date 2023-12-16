@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { PlexDebridItem, StatusInterface } from '$lib/types';
+	import { formatState } from '$lib/helpers';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
+	import { Clapperboard } from 'lucide-svelte';
 
 	export let plexDebridItem: PlexDebridItem;
 	export let itemState: StatusInterface;
@@ -11,12 +14,14 @@
 </script>
 
 <div
-	class="flex flex-col md:flex-row md:justify-between gap-2 md:gap-0 text-white w-full bg-cover bg-center relative rounded-xl p-4 overflow-hidden"
+	class="flex flex-col md:flex-row md:justify-between gap-2 md:gap-0 text-white w-full bg-cover bg-center relative rounded-xl p-4 overflow-hidden border"
 	style="background-image: url({banner});"
 >
-	<div class="absolute top-0 left-0 w-full h-full bg-black opacity-40 rounded-xl" />
+	<div class="absolute top-0 left-0 w-full h-full bg-slate-900 opacity-50 rounded-xl" />
 	<div class="w-full h-full flex flex-col md:flex-row gap-2">
-		<div class="z-[1] flex gap-x-2 items-start md:items-center w-full md:w-2/3">
+		<div
+			class="z-[1] flex gap-x-2 items-start md:items-center w-full md:w-2/3 lg:w-3/4 xl:w-4/5 2xl:w-5/6"
+		>
 			<a href={plexDebridItem.imdb_link} target="_blank" rel="noopener noreferrer">
 				<img
 					alt="test"
@@ -26,15 +31,24 @@
 				/>
 			</a>
 			<div class="flex flex-col">
-				<p class="text-xl font-semibold md:text-ellipsis md:line-clamp-1">{plexDebridItem.title}</p>
-				<p>{plexDebridItem.aired_at}</p>
+				<p class="text-xl lg:text-2xl font-semibold md:text-ellipsis md:line-clamp-1">
+					{plexDebridItem.title}
+				</p>
+				<p>{plexDebridItem.aired_at.slice(0, -3)}</p>
+				<div class="flex flex-wrap gap-1 items-center mt-1">
+					{#each plexDebridItem.genres as genre}
+						<Badge variant="secondary">
+							{formatState(genre)}
+						</Badge>
+					{/each}
+				</div>
 			</div>
 		</div>
-		<div class="z-[1] flex flex-col items-start w-full md:w-1/2">
+		<div class="z-[1] flex flex-col gap-2 items-start w-full md:w-1/3 lg:w-1/4 xl:w-1/5 2xl:w-1/6">
 			<div class="flex gap-2 items-center">
 				<p class="text-lg font-semibold">Status</p>
-				<Badge class="{itemState.bg} text-black tracking-wider hover:text-white dark:hover:text-black">
-					{itemState.text}
+				<Badge class="{itemState.bg} tracking-wider text-black">
+					{itemState.text ?? formatState(plexDebridItem.state)}
 				</Badge>
 			</div>
 		</div>

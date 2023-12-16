@@ -30,7 +30,7 @@ export interface PlexDebridItem {
 }
 
 export interface StatusInterface {
-	text: string;
+	text?: string;
 	color: string;
 	bg: string;
 	description: string;
