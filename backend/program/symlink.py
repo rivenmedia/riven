@@ -37,7 +37,7 @@ class Symlinker:
     def _determine_file_name(self, item):
         filename = None
         if item.type == "movie":
-            filename = f"{item.title} ({item.aired_at[:4]}) " + "{imdb-" + item.imdb_id + "}"
+            filename = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
         if item.type == "episode":
             episode_string = ""
             episode_number = item.get_file_episodes()
@@ -48,7 +48,7 @@ class Symlinker:
                     episode_string = f"e{str(item.number).zfill(2)}"
             if episode_string != "":
                 showname = item.parent.parent.title
-                showyear = item.parent.parent.aired_at[:4]
+                showyear = item.parent.parent.aired_at.year
                 filename  = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
         return filename
 
@@ -91,14 +91,14 @@ class Symlinker:
             symlink_filename = f"{self._determine_file_name(item)}.{extension}"
 
             if item.type == "movie":
-                movie_folder = f"{item.title} ({item.aired_at[:4]}) " + "{imdb-" + item.imdb_id + "}"
+                movie_folder = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
                 folder_path = os.path.join(self.symlink_path, "movies", movie_folder)
                 symlink_path = os.path.join(folder_path, symlink_filename)
                 if not os.path.exists(folder_path):
                     os.mkdir(folder_path)
             if item.type == "episode":
                 show = item.parent.parent
-                show_folder = f"{show.title} ({show.aired_at[:4]})" + " {" + show.imdb_id + "}"
+                show_folder = f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
                 show_path = os.path.join(self.symlink_path, "shows", show_folder)
                 if not os.path.exists(show_path):
                     os.mkdir(show_path)
