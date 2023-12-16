@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { NavItem } from '$lib/types';
 	import ThemeSwitcher from '$lib/components/theme-switcher.svelte';
-	import NavigationItem from '$lib/components/header/item.svelte';
+	import NavigationItem from '$lib/components/header-item.svelte';
 	import { Mountain, MoreHorizontal, X } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
 

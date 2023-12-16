@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PlexDebridItem, StatusInterface } from '$lib/types';
+	import { formatState } from '$lib/helpers';
 	import { Badge } from '$lib/components/ui/badge';
 
 	export let plexDebridItem: PlexDebridItem;
@@ -33,8 +34,10 @@
 		<div class="z-[1] flex flex-col items-start w-full md:w-1/2">
 			<div class="flex gap-2 items-center">
 				<p class="text-lg font-semibold">Status</p>
-				<Badge class="{itemState.bg} text-black tracking-wider hover:text-white dark:hover:text-black">
-					{itemState.text}
+				<Badge
+					class="{itemState.bg} text-black tracking-wider hover:text-white dark:hover:text-black"
+				>
+					{itemState.text ?? formatState(plexDebridItem.state)}
 				</Badge>
 			</div>
 		</div>

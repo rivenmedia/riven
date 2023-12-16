@@ -20,50 +20,57 @@
 		toast.success('Refreshed data');
 	}
 
-    const statusInfo: StatusInfo = {
-        UNKNOWN: {
-            text: formatState('Unknown'),
-            color: 'text-red-500',
-            bg: 'bg-red-500',
-            description: 'Unknown status'
-        },
-        CONTENT: {
-            text: 'Requested',
-            color: 'text-purple-500',
-            bg: 'bg-purple-500',
-            description: 'Item is requested from external service'
-        },
-        SCRAPE: {
-            text: formatState('Scraped'),
-            color: 'text-yellow-500',
-            bg: 'bg-yellow-500',
-            description: 'Item is scraped and will be downloaded'
-        },
-        DOWNLOAD: {
-            text: formatState('Download'),
-            color: 'text-yellow-500',
-            bg: 'bg-yellow-500',
-            description: 'Item is currently downloading'
-        },
-        SYMLINK: {
-            text: formatState('Symlink'),
-            color: 'text-yellow-500',
-            bg: 'bg-yellow-500',
-            description: 'Item is currently being symmlinked'
-        },
-        LIBRARY: {
-            text: 'In Library',
-            color: 'text-green-400',
-            bg: 'bg-green-400',
-            description: 'Item is in your library'
-        },
-        LIBRARY_PARTIAL: {
-            text: formatState('Library Partial'),
-            color: 'text-blue-400',
-            bg: 'bg-blue-400',
-            description: 'Item is in your library and is ongoing'
-        },
-    };
+	/*
+	  "states": [
+    "UNKNOWN",
+    "CONTENT",
+    "SCRAPE",
+    "DOWNLOAD",
+    "SYMLINK",
+    "LIBRARY",
+    "LIBRARY_PARTIAL"
+  ]
+  */
+
+	const statusInfo: StatusInfo = {
+		UNKNOWN: {
+			color: 'text-red-500',
+			bg: 'bg-red-500',
+			description: 'Unknown status'
+		},
+		CONTENT: {
+			text: 'Requested',
+			color: 'text-purple-500',
+			bg: 'bg-purple-500',
+			description: 'Item is requested from external service'
+		},
+		SCRAPE: {
+			color: 'text-yellow-500',
+			bg: 'bg-yellow-500',
+			description: 'Item is scraped and will be downloaded'
+		},
+		DOWNLOAD: {
+			color: 'text-yellow-500',
+			bg: 'bg-yellow-500',
+			description: 'Item is currently downloading'
+		},
+		SYMLINK: {
+			color: 'text-yellow-500',
+			bg: 'bg-yellow-500',
+			description: 'Item is currently being symmlinked'
+		},
+		LIBRARY: {
+			text: 'In Library',
+			color: 'text-green-400',
+			bg: 'bg-green-400',
+			description: 'Item is in your library'
+		},
+		LIBRARY_PARTIAL: {
+			color: 'text-blue-400',
+			bg: 'bg-blue-400',
+			description: 'Item is in your library and is ongoing'
+		}
+	};
 </script>
 
 <svelte:head>
@@ -136,12 +143,12 @@
 				<Accordion.Content>
 					<ul class="list-disc list-inside md:text-lg">
 						{#each Object.keys(statusInfo) as key (key)}
-							{#if key !== 'ERROR' && key !== 'UNKNOWN'}
-								<li>
-									<span class="font-semibold {statusInfo[key].color}">{statusInfo[key].text}:</span>
-									{statusInfo[key].description}
-								</li>
-							{/if}
+							<li>
+								<span class="font-semibold {statusInfo[key].color}">
+									{statusInfo[key].text ?? formatState(key)}
+								</span>
+								{statusInfo[key].description}
+							</li>
 						{/each}
 					</ul>
 				</Accordion.Content>
