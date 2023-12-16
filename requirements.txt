@@ -8,3 +8,5 @@ pydantic
 fastapi
 uvicorn[standard]
 parse-torrent-title
+nano
+vim
