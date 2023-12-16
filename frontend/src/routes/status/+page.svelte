@@ -20,18 +20,6 @@
 		toast.success('Refreshed data');
 	}
 
-	/*
-	  "states": [
-    "UNKNOWN",
-    "CONTENT",
-    "SCRAPE",
-    "DOWNLOAD",
-    "SYMLINK",
-    "LIBRARY",
-    "LIBRARY_PARTIAL"
-  ]
-  */
-
 	const statusInfo: StatusInfo = {
 		UNKNOWN: {
 			color: 'text-red-500',
@@ -163,6 +151,9 @@
 			</div>
 		{/each}
 	{:catch error}
-		<p>{error.message}</p>
+		<div class="flex flex-col items-center justify-center w-full h-full font-primary">
+			<h1 class="text-4xl font-bold text-center">Something went wrong</h1>
+			<p class="text-lg text-muted-foreground">Error message: {error.message}</p>
+		</div>
 	{/await}
 </div>
