@@ -15,6 +15,8 @@ updates:
       prefix: 'chore'
       include: 'scope'
     open-pull-requests-limit: 5
+    assignees:
+      - 'AyushSehrawat'
 
   # Frontend
   - package-ecosystem: 'pip'
@@ -25,3 +27,6 @@ updates:
       prefix: 'update'
       include: 'scope'
     open-pull-requests-limit: 5
+    assignees:
+      - 'dreulavelle'
+      - 'Gaisberg'
