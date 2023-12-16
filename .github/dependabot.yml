@@ -4,19 +4,21 @@ version: 2
 
 updates:
 
-  # Backend
+  # Backend (points to frontend/package.json)
   - package-ecosystem: 'npm'
     directory: '/frontend'
     schedule:
       interval: 'weekly'
     ignore:
-      - dependency-name: 'sveltekit'
+      - dependency-name: '*'
+        update-types: ["version-update:semver-patch"]
     commit-message:
       prefix: 'chore'
       include: 'scope'
-    open-pull-requests-limit: 5
+    assignees:
+      - 'AyushSehrawat'
 
-  # Frontend
+  # Frontend (points to requirements.txt in root directory)
   - package-ecosystem: 'pip'
     directory: '/'
     schedule:
@@ -24,4 +26,6 @@ updates:
     commit-message:
       prefix: 'update'
       include: 'scope'
-    open-pull-requests-limit: 5
+    assignees:
+      - 'dreulavelle'
+      - 'Gaisberg'
