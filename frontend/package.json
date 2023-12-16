@@ -39,7 +39,7 @@
 	"dependencies": {
 		"bits-ui": "^0.11.6",
 		"clsx": "^2.0.0",
-		"lucide-svelte": "^0.294.0",
+		"lucide-svelte": "^0.298.0",
 		"luxon": "^3.4.4",
 		"mode-watcher": "^0.1.2",
 		"svelte-sonner": "^0.3.6",
