@@ -20,6 +20,7 @@ __pycache__
 *.log
 data
 test*
+.git
 
 # Jupyter Notebooks
 .ipynb_checkpoints
