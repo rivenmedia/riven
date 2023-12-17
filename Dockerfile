@@ -4,13 +4,14 @@ LABEL org.label-schema.name="Iceberg" \
       org.label-schema.description="Iceberg Debrid Downloader" \
       org.label-schema.url="https://github.com/dreulavelle/iceberg"
 
-RUN apk --update add python3 py3-pip nodejs npm bash && \
+RUN apk --update add python3 py3-pip nodejs npm bash shadow vim nano rclone && \
     rm -rf /var/cache/apk/*
 
 RUN npm install -g pnpm
 
 WORKDIR /iceberg
 COPY . /iceberg/
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN python3 -m venv /venv && \
     source /venv/bin/activate && \
@@ -21,5 +22,9 @@ RUN cd /iceberg/frontend && \
     pnpm run build
 
 EXPOSE 4173 8080
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-CMD cd /iceberg/frontend && pnpm run preview --host 0.0.0.0 & cd /iceberg/backend && source /venv/bin/activate && exec python main.py
+# Start the backend first, then the frontend (suppressed frontend output)
+CMD cd /iceberg/backend && source /venv/bin/activate && exec python main.py & \
+    cd /iceberg/frontend && pnpm run preview --host 0.0.0.0 >/dev/null 2>&1
