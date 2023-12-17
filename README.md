@@ -41,8 +41,8 @@ services:
     container_name: Iceberg
     restart: unless-stopped
     environment:
-      - PUID=999
-      - GUID=999
+      - PUID=1000
+      - GUID=1000
     ports:
       - "4173:4173"
     volumes:
