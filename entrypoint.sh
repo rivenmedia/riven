@@ -23,7 +23,7 @@ PGID=${PGID:-1000}
 
 addgroup -g $PGID iceberg
 adduser -D -u $PUID -G iceberg iceberg
-chown -R iceberg:iceberg /iceberg
+chown -R 1000:1000 /iceberg
 chmod -R 755 /iceberg
 
 trap "echo 'Shutting down...'; exit" SIGINT SIGTERM
