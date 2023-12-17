@@ -20,6 +20,7 @@ class MediaItemState(IntEnum):
     LIBRARY = 5
     LIBRARY_PARTIAL = 6
 
+
 class MediaItem:
     """MediaItem class"""
 
@@ -78,11 +79,11 @@ class MediaItem:
             "title": self.title,
             "imdb_id": self.imdb_id,
             "state": self.state.name,
-            "imdb_link": self.imdb_link if hasattr(self, 'imdb_link') else None,
+            "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres,
             "guid": self.guid,
-            "requested_at": self.requested_at
+            "requested_at": self.requested_at,
         }
 
     def is_not_cached(self):
@@ -135,7 +136,10 @@ class Show(MediaItem):
     def state(self):
         if all(season.state is MediaItemState.LIBRARY for season in self.seasons):
             return MediaItemState.LIBRARY
-        if any(season.state in [MediaItemState.LIBRARY, MediaItemState.LIBRARY_PARTIAL] for season in self.seasons):
+        if any(
+            season.state in [MediaItemState.LIBRARY, MediaItemState.LIBRARY_PARTIAL]
+            for season in self.seasons
+        ):
             return MediaItemState.LIBRARY_PARTIAL
         if any(season.state == MediaItemState.CONTENT for season in self.seasons):
             return MediaItemState.CONTENT
@@ -164,15 +168,21 @@ class Season(MediaItem):
     @property
     def state(self):
         if len(self.episodes) > 0:
-            if all(episode.state == MediaItemState.LIBRARY for episode in self.episodes):
+            if all(
+                episode.state == MediaItemState.LIBRARY for episode in self.episodes
+            ):
                 return MediaItemState.LIBRARY
-            if any(episode.state == MediaItemState.LIBRARY for episode in self.episodes):
+            if any(
+                episode.state == MediaItemState.LIBRARY for episode in self.episodes
+            ):
                 return MediaItemState.LIBRARY_PARTIAL
             if self.is_cached():
                 return MediaItemState.DOWNLOAD
             if self.is_scraped():
                 return MediaItemState.SCRAPE
-            if any(episode.state == MediaItemState.CONTENT for episode in self.episodes):
+            if any(
+                episode.state == MediaItemState.CONTENT for episode in self.episodes
+            ):
                 return MediaItemState.CONTENT
         return MediaItemState.UNKNOWN
 

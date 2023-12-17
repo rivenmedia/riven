@@ -27,7 +27,7 @@ class Content:
             response = ping(
                 self.settings.get("url") + "/api/v1/auth/me",
                 additional_headers={"X-Api-Key": self.settings.get("api_key")},
-                timeout=1
+                timeout=1,
             )
             return response.ok
         except ConnectTimeout:

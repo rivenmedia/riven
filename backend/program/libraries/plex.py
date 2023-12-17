@@ -18,6 +18,7 @@ class PlexSettings(BaseModel):
     url: HttpUrl
     user_watchlist_rss: Optional[str] = None
 
+
 class Library:
     """Plex library class"""
 
@@ -26,7 +27,9 @@ class Library:
         while True:
             try:
                 temp_settings = settings.get("plex")
-                self.plex = PlexServer(temp_settings["url"], temp_settings["token"], timeout=15)
+                self.plex = PlexServer(
+                    temp_settings["url"], temp_settings["token"], timeout=15
+                )
                 self.settings = PlexSettings(**temp_settings)
                 break
             except exceptions.Unauthorized:
@@ -52,7 +55,9 @@ class Library:
                         if media_item:
                             items.append(media_item)
             except requests.exceptions.ReadTimeout:
-                logger.error(f"Timeout occurred when accessing section: {section.title}")
+                logger.error(
+                    f"Timeout occurred when accessing section: {section.title}"
+                )
                 continue  # Skip to the next section
 
             processed_sections.add(section.key)
@@ -69,13 +74,26 @@ class Library:
         """Update plex library section"""
         for section in self.plex.library.sections():
             for item in media_items:
-                if item.type == section.type and item.state in [MediaItemState.SYMLINK, MediaItemState.LIBRARY_PARTIAL]:
+                if item.type == section.type and item.state in [
+                    MediaItemState.SYMLINK,
+                    MediaItemState.LIBRARY_PARTIAL,
+                ]:
                     if (
-                      (item.type == "movie" and item.state is MediaItemState.SYMLINK)
-                      or
-                      (item.type == "show" and
-                       any(season for season in item.seasons if season.state is MediaItemState.SYMLINK))
-                       or any(episode for season in item.seasons for episode in season.episodes if episode.state is MediaItemState.SYMLINK)
+                        (item.type == "movie" and item.state is MediaItemState.SYMLINK)
+                        or (
+                            item.type == "show"
+                            and any(
+                                season
+                                for season in item.seasons
+                                if season.state is MediaItemState.SYMLINK
+                            )
+                        )
+                        or any(
+                            episode
+                            for season in item.seasons
+                            for episode in season.episodes
+                            if episode.state is MediaItemState.SYMLINK
+                        )
                     ):
                         if not section.refreshing:
                             section.update()
@@ -109,7 +127,10 @@ class Library:
             if item.state != MediaItemState.LIBRARY:
                 if item.type == "movie":
                     for found_item in found_items:
-                        if found_item.type == "movie" and found_item.imdb_id == item.imdb_id:
+                        if (
+                            found_item.type == "movie"
+                            and found_item.imdb_id == item.imdb_id
+                        ):
                             self._update_item(item, found_item)
                             items_to_update += 1
                 if item.type == "show":
@@ -120,8 +141,13 @@ class Library:
                                     for season in item.seasons:
                                         if season.state is not MediaItemState.LIBRARY:
                                             for episode in season.episodes:
-                                                if episode.imdb_id == found_episode.imdb_id:
-                                                    self._update_item(episode, found_episode)
+                                                if (
+                                                    episode.imdb_id
+                                                    == found_episode.imdb_id
+                                                ):
+                                                    self._update_item(
+                                                        episode, found_episode
+                                                    )
                                                     items_to_update += 1
 
         return items_to_update
@@ -159,14 +185,12 @@ class Library:
         return False
 
 
-
-
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
     guid = getattr(item, "guid", None)
     file = None
-    if item_type in  ["movie", "episode"]:
-        file = getattr(item, "locations",  [None])[0].split("/")[-1]
+    if item_type in ["movie", "episode"]:
+        file = getattr(item, "locations", [None])[0].split("/")[-1]
     genres = [genre.tag for genre in getattr(item, "genres", [])]
     available_at = getattr(item, "originallyAvailableAt", None)
     title = getattr(item, "title", None)
@@ -177,7 +201,9 @@ def _map_item_from_data(item, item_type):
     episode_number = getattr(item, "episodeNumber", None)
     art_url = getattr(item, "artUrl", None)
 
-    imdb_id = next((guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None)
+    imdb_id = next(
+        (guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None
+    )
     aired_at = available_at or None
 
     media_item_data = {

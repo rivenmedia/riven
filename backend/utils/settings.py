@@ -4,12 +4,15 @@ import json
 import os
 import shutil
 
+
 class SettingsManager:
     """Class that handles settings"""
 
     def __init__(self):
         self.filename = "data/settings.json"
-        self.config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+        self.config_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+        )
         self.settings_file = os.path.join(self.config_dir, self.filename)
         self.settings = {}
         self.load()
@@ -17,7 +20,9 @@ class SettingsManager:
     def load(self):
         """Load settings from file"""
         if not os.path.exists(self.settings_file):
-            default_settings_path = os.path.join(os.path.dirname(__file__), "default_settings.json")
+            default_settings_path = os.path.join(
+                os.path.dirname(__file__), "default_settings.json"
+            )
             shutil.copy(default_settings_path, self.settings_file)
             logger.debug("Settings file not found, using default settings")
         with open(self.settings_file, "r", encoding="utf-8") as file:
@@ -47,5 +52,6 @@ class SettingsManager:
     def get_all(self):
         """Return all settings"""
         return self.settings
+
 
 settings_manager = SettingsManager()

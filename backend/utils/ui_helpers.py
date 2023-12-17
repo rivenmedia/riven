@@ -9,7 +9,9 @@ class CustomJSONEncoder(JSONEncoder):
 
     def default(self, o):
         if isinstance(o, MediaItem):
-            attributes = {k: v for k, v in o.__dict__.items() if k not in ["_lock", "parent"]}
+            attributes = {
+                k: v for k, v in o.__dict__.items() if k not in ["_lock", "parent"]
+            }
             return attributes
         if isinstance(o, MediaItemState):
             return o.name

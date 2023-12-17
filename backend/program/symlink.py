@@ -37,7 +37,9 @@ class Symlinker:
     def _determine_file_name(self, item):
         filename = None
         if item.type == "movie":
-            filename = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+            filename = (
+                f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+            )
         if item.type == "episode":
             episode_string = ""
             episode_number = item.get_file_episodes()
@@ -49,7 +51,7 @@ class Symlinker:
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
-                filename  = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
+                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
         return filename
 
     def run(self, media_items):
@@ -57,12 +59,18 @@ class Symlinker:
         items = []
         for item in media_items:
             if item.type == "movie" and item.state is MediaItemState.DOWNLOAD:
-                item.file = next(iter(item.active_stream["files"].values())).get("filename")
+                item.file = next(iter(item.active_stream["files"].values())).get(
+                    "filename"
+                )
                 file = self._find_file(item.file)
                 if file:
                     item.folder = os.path.dirname(file).split("/")[-1]
                     items.append(item)
-            if item.type == "show" and item.state in [MediaItemState.LIBRARY_PARTIAL, MediaItemState.SYMLINK, MediaItemState.DOWNLOAD]:
+            if item.type == "show" and item.state in [
+                MediaItemState.LIBRARY_PARTIAL,
+                MediaItemState.SYMLINK,
+                MediaItemState.DOWNLOAD,
+            ]:
                 for season in item.seasons:
                     if season.state is MediaItemState.DOWNLOAD:
                         stream = season.get("active_stream")
@@ -74,16 +82,22 @@ class Symlinker:
                                 episode = obj["episode"]
                                 if type(episode) == list:
                                     for sub_episode in episode:
-                                        season.episodes[sub_episode - 1].file = file["filename"]
+                                        season.episodes[sub_episode - 1].file = file[
+                                            "filename"
+                                        ]
                                 else:
                                     index = obj["episode"] - 1
                                     if index in range(len(season.episodes)):
-                                        season.episodes[obj["episode"] - 1].file = file["filename"]
+                                        season.episodes[obj["episode"] - 1].file = file[
+                                            "filename"
+                                        ]
                         for episode in season.episodes:
                             if episode.state is MediaItemState.DOWNLOAD:
                                 file = self._find_file(episode.file)
                                 if file:
-                                    episode.folder = os.path.dirname(file).split("/")[-1]
+                                    episode.folder = os.path.dirname(file).split("/")[
+                                        -1
+                                    ]
                                     items.append(episode)
 
         for item in items:
@@ -91,14 +105,21 @@ class Symlinker:
             symlink_filename = f"{self._determine_file_name(item)}.{extension}"
 
             if item.type == "movie":
-                movie_folder = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+                movie_folder = (
+                    f"{item.title} ({item.aired_at.year}) "
+                    + "{imdb-"
+                    + item.imdb_id
+                    + "}"
+                )
                 folder_path = os.path.join(self.symlink_path, "movies", movie_folder)
                 symlink_path = os.path.join(folder_path, symlink_filename)
                 if not os.path.exists(folder_path):
                     os.mkdir(folder_path)
             if item.type == "episode":
                 show = item.parent.parent
-                show_folder = f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
+                show_folder = (
+                    f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
+                )
                 show_path = os.path.join(self.symlink_path, "shows", show_folder)
                 if not os.path.exists(show_path):
                     os.mkdir(show_path)
@@ -108,7 +129,7 @@ class Symlinker:
                 if not os.path.exists(season_path):
                     os.mkdir(season_path)
                 symlink_path = os.path.join(season_path, symlink_filename)
-            
+
             if symlink_path:
                 try:
                     os.remove(symlink_path)
@@ -116,7 +137,7 @@ class Symlinker:
                     pass
                 os.symlink(
                     os.path.join(self.mount_path, "torrents", item.folder, item.file),
-                    symlink_path
+                    symlink_path,
                 )
                 logger.debug("Created symlink for %s", item.__repr__)
                 item.symlinked = True
@@ -124,7 +145,7 @@ class Symlinker:
 
     def _find_file(self, filename):
         return self.cache.get(filename, None)
-    
+
     def update_cache(self):
         for root, _, files in os.walk(os.path.join(self.host_path, "torrents")):
             for file in files:
