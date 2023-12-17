@@ -4,7 +4,7 @@ import { error } from '@sveltejs/kit';
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getStates() {
 		try {
-			const res = await fetch('http://localhost:8080/items/states');
+			const res = await fetch('http://127.0.0.1:8080/items/states');
 			if (res.ok) {
 				return await res.json();
 			}
@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 
 	async function getItems() {
 		try {
-			const res = await fetch('http://localhost:8080/items/');
+			const res = await fetch('http://127.0.0.1:8080/items/');
 			if (res.ok) {
 				return await res.json();
 			}

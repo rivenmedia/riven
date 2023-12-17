@@ -5,7 +5,7 @@ import { error } from '@sveltejs/kit';
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getUserData() {
 		try {
-			const res = await fetch('http://localhost:8080/user');
+			const res = await fetch('http://127.0.0.1:8080/user');
 			if (res.ok) {
 				return (await res.json()) as UserResponse;
 			}
