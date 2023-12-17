@@ -22,11 +22,8 @@ export interface PlexDebridItem {
 	imdb_link: string;
 	aired_at: string;
 	genres: string[];
-	key: string;
 	guid: string;
-	art_url: string;
-	is_cached: boolean;
-	is_checked_for_availability: boolean;
+	requested_at: string;
 }
 
 export interface StatusInterface {

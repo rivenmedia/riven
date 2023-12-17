@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatDate } from '$lib/helpers';
+	import { formatRDDate } from '$lib/helpers';
 	import type { UserResponse } from '$lib/types';
 
 	interface ExportedData {
@@ -17,6 +17,6 @@
 		<h1 class="text-xl md:text-2xl font-semibold">Welcome {data.user?.username}</h1>
 		<p class="md:text-lg text-muted-foreground">{data.user?.email}</p>
 		<p class="md:text-lg text-muted-foreground break-words">
-			Premium expires on {formatDate(data.user?.expiration, 'short')}
+			Premium expires on {formatRDDate(data.user?.expiration, 'short')}
 		</p>
 </div>

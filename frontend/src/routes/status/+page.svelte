@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { convertPlexDebridItemsToObject, formatState } from '$lib/helpers';
+	import { convertPlexDebridItemsToObject, formatWords } from '$lib/helpers';
 	import { invalidateAll } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
@@ -8,16 +8,17 @@
 	import StatusMediaCard from '$lib/components/status-media-card.svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
+	import { onMount } from 'svelte';
 
 	export let data;
 
 	let reloadButtonLoading = false;
 
-	async function reloadData() {
+	async function reloadData(message: string = 'Refreshed data') {
 		reloadButtonLoading = true;
 		await invalidateAll();
 		reloadButtonLoading = false;
-		toast.success('Refreshed data');
+		toast.success(message);
 	}
 
 	const statusInfo: StatusInfo = {
@@ -59,6 +60,13 @@
 			description: 'Item is in your library and is ongoing'
 		}
 	};
+
+	// every 5s reload data
+	onMount(async () => {
+		setInterval(async () => {
+			await reloadData('Automatically refreshed data');
+		}, 60000);
+	});
 </script>
 
 <svelte:head>
@@ -66,7 +74,7 @@
 </svelte:head>
 
 <div class="flex flex-col gap-2 p-8 md:px-24 lg:px-32">
-	{#await data.streamed.items}
+	{#await data.items}
 		<div class="flex items-center gap-1 w-full justify-center">
 			<Loader2 class="animate-spin w-4 h-4" />
 			<p class="text-lg text-muted-foreground">Loading library items...</p>
@@ -91,7 +99,9 @@
 							variant="outline"
 							size="sm"
 							class="max-w-max"
-							on:click={reloadData}
+							on:click={async () => {
+								await reloadData();
+							}}
 						>
 							<RotateCw class="h-4 w-4" />
 						</Button>
@@ -133,7 +143,7 @@
 						{#each Object.keys(statusInfo) as key (key)}
 							<li>
 								<span class="font-semibold {statusInfo[key].color}">
-									{statusInfo[key].text ?? formatState(key)}
+									{statusInfo[key].text ?? formatWords(key)}
 								</span>
 								{statusInfo[key].description}
 							</li>

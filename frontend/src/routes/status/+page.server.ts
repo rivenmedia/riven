@@ -29,9 +29,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	return {
-		streamed: {
-			items: getItems()
-		},
+		items: getItems(),
 		states: await getStates()
 	};
 };
