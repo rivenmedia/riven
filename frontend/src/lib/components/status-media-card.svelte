@@ -1,9 +1,7 @@
 <script lang="ts">
 	import type { PlexDebridItem, StatusInterface } from '$lib/types';
-	import { formatState } from '$lib/helpers';
+	import { formatWords, formatDate } from '$lib/helpers';
 	import { Badge } from '$lib/components/ui/badge';
-	import { Button } from '$lib/components/ui/button';
-	import { Clapperboard } from 'lucide-svelte';
 
 	export let plexDebridItem: PlexDebridItem;
 	export let itemState: StatusInterface;
@@ -34,22 +32,26 @@
 				<p class="text-xl lg:text-2xl font-semibold md:text-ellipsis md:line-clamp-1">
 					{plexDebridItem.title}
 				</p>
-				<p>{plexDebridItem.aired_at.slice(0, -3)}</p>
+				<p>Aired {formatDate(plexDebridItem.aired_at, 'short')}</p>
 				<div class="flex flex-wrap gap-1 items-center mt-1">
 					{#each plexDebridItem.genres as genre}
 						<Badge variant="secondary">
-							{formatState(genre)}
+							{formatWords(genre)}
 						</Badge>
 					{/each}
 				</div>
 			</div>
 		</div>
-		<div class="z-[1] flex flex-col gap-2 items-start w-full md:w-1/3 lg:w-1/4 xl:w-1/5 2xl:w-1/6">
+		<div class="z-[1] flex flex-col items-start w-full md:w-1/3 lg:w-1/4 xl:w-1/5 2xl:w-1/6">
 			<div class="flex gap-2 items-center">
 				<p class="text-lg font-semibold">Status</p>
 				<Badge class="{itemState.bg} tracking-wider text-black">
-					{itemState.text ?? formatState(plexDebridItem.state)}
+					{itemState.text ?? formatWords(plexDebridItem.state)}
 				</Badge>
+			</div>
+			<div class="flex gap-2 items-center">
+				<p class="text-lg font-semibold">Requested</p>
+				<p>{formatDate(plexDebridItem.requested_at, 'long', true)}</p>
 			</div>
 		</div>
 	</div>
