@@ -40,6 +40,9 @@ services:
     image: spoked/iceberg:latest
     container_name: Iceberg
     restart: unless-stopped
+    environment:
+      - PUID=999
+      - GUID=999
     ports:
       - "4173:4173"
     volumes:
