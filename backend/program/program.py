@@ -12,6 +12,7 @@ from program.media import MediaItemContainer
 from program.libraries.plex import Library as Plex
 from program.debrid.realdebrid import Debrid as RealDebrid
 
+
 # Pydantic models for configuration
 class PlexConfig(BaseModel):
     user: str
@@ -19,20 +20,25 @@ class PlexConfig(BaseModel):
     address: HttpUrl
     watchlist: Optional[HttpUrl] = None
 
+
 class MdblistConfig(BaseModel):
     lists: list[str] = Field(default_factory=list)
     api_key: str
     update_interval: int = 80
 
+
 class OverseerrConfig(BaseModel):
     url: HttpUrl
     api_key: str
 
+
 class RealDebridConfig(BaseModel):
     api_key: str
 
+
 class TorrentioConfig(BaseModel):
     filter: str
+
 
 class Settings(BaseModel):
     version: str
@@ -49,6 +55,7 @@ class Settings(BaseModel):
 
 class Program:
     """Program class"""
+
     def __init__(self):
         self.settings = settings_manager.get_all()
         self.plex = Plex()
@@ -58,9 +65,8 @@ class Program:
         self.content_services = self.__import_modules("backend/program/content")
         self.scraping_services = self.__import_modules("backend/program/scrapers")
         self.data_path = get_data_path()
-        
-        logger.info("Iceberg initialized")
 
+        logger.info("Iceberg initialized")
 
     def run(self):
         """Run the program"""
@@ -97,8 +103,8 @@ class Program:
         return False
 
     def __import_modules(self, folder_path: str) -> list[object]:
-        if os.path.exists('/iceberg'):
-            folder_path = os.path.join('/iceberg', folder_path)
+        if os.path.exists("/iceberg"):
+            folder_path = os.path.join("/iceberg", folder_path)
         else:
             folder_path = folder_path
         file_list = [

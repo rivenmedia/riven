@@ -3,7 +3,6 @@
 	import { Toaster } from 'svelte-sonner';
 	import '../app.pcss';
 	import Header from '$lib/components/header.svelte';
-
 </script>
 
 <ModeWatcher track={true} />

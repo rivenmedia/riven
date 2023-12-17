@@ -14,6 +14,7 @@ from program.media import (
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
+
 class Updater:
     """Trakt updater class"""
 
@@ -63,9 +64,7 @@ def _map_item_from_data(data, item_type):
     formatted_aired_at = None
     if getattr(data, "first_aired", None):
         aired_at = data.first_aired
-        formatted_aired_at = datetime.strptime(
-            aired_at, "%Y-%m-%dT%H:%M:%S.%fZ"
-        )
+        formatted_aired_at = datetime.strptime(aired_at, "%Y-%m-%dT%H:%M:%S.%fZ")
     if getattr(data, "released", None):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")

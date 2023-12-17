@@ -23,6 +23,7 @@ def get_user():
     )
     return response.json()
 
+
 class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
     """Real-Debrid API Wrapper"""
 
@@ -40,9 +41,9 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
     def _validate_settings(self):
         try:
             response = ping(
-                    "https://api.real-debrid.com/rest/1.0/user",
-                    additional_headers=self.auth_headers
-                )
+                "https://api.real-debrid.com/rest/1.0/user",
+                additional_headers=self.auth_headers,
+            )
             return response.ok
         except ConnectTimeout:
             return False
@@ -111,9 +112,9 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         ]
         for stream_hash, stream in item.streams.items():
             if item.type == "episode":
-                if stream.get("files") and self._real_episode_count(stream["files"]) >= len(
-                    item.parent.episodes
-                ):
+                if stream.get("files") and self._real_episode_count(
+                    stream["files"]
+                ) >= len(item.parent.episodes):
                     item.parent.set("active_stream", stream)
                     logger.debug(
                         "Found cached release for %s %s",
@@ -121,7 +122,10 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
                         item.parent.number,
                     )
                     return True
-                if stream.get("files") and self._real_episode_count(stream["files"]) == 0:
+                if (
+                    stream.get("files")
+                    and self._real_episode_count(stream["files"]) == 0
+                ):
                     continue
             if stream_hash in cached:
                 stream["hash"] = stream_hash

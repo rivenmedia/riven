@@ -5,12 +5,11 @@ import os
 import re
 import sys
 
+
 def get_data_path():
     main_dir = os.path.dirname(os.path.abspath(sys.modules["__main__"].__file__))
-    return os.path.join(
-        main_dir,
-        os.pardir,
-        "data")
+    return os.path.join(main_dir, os.pardir, "data")
+
 
 class RedactSensitiveInfo(logging.Filter):
     """logging filter to redact sensitive info"""
@@ -91,5 +90,5 @@ class Logger(logging.Logger):
         self.addHandler(file_handler)
         self.addHandler(console_handler)
 
-logger = Logger()
 
+logger = Logger()

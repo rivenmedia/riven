@@ -45,7 +45,7 @@ def split_and_execute_in_parallel(lst, method):
     MIN_ITEMS = 20
 
     # Split list into sublists with at least MIN_ITEMS
-    sublists = [lst[i: i + MIN_ITEMS] for i in range(0, len(lst), MIN_ITEMS)]
+    sublists = [lst[i : i + MIN_ITEMS] for i in range(0, len(lst), MIN_ITEMS)]
 
     # Use a Pool of processes
     pool = Pool()

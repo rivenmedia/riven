@@ -26,7 +26,6 @@ class Content:
     def _validate_settings(self):
         response = ping(
             f"https://mdblist.com/api/user?apikey={self.settings['api_key']}"
-
         )
         return not "Invalid API key!" in response.text
 

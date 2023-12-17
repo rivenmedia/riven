@@ -80,10 +80,7 @@ class Scraper:
 
     def _can_we_scrape(self, item: MediaItem) -> bool:
         def is_released():
-            return (
-                item.aired_at is not None
-                and item.aired_at < datetime.now()
-            )
+            return item.aired_at is not None and item.aired_at < datetime.now()
 
         def needs_new_scrape():
             return (
@@ -103,7 +100,7 @@ class Scraper:
                 "season": [MediaItemState.CONTENT],
                 "episode": [MediaItemState.CONTENT],
             }
-            if (item.state in valid_states[item.type]):
+            if item.state in valid_states[item.type]:
                 return needs_new_scrape()
 
         return False

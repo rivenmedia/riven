@@ -14,10 +14,12 @@ sys.path.append(os.getcwd())
 program = Program()
 runner = ThreadRunner(program.run, 5)
 
+
 def lifespan(app: FastAPI):
     runner.start()
     yield
     runner.stop()
+
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(

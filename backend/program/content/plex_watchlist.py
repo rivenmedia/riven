@@ -15,7 +15,9 @@ class Content:
         self.initialized = False
         self.watchlist_url = settings.get("plex")["watchlist"]
         if not self.watchlist_url or not self._validate_settings():
-            logger.info("Plex watchlist RSS URL is not configured and will not be used.")
+            logger.info(
+                "Plex watchlist RSS URL is not configured and will not be used."
+            )
             return
         self.updater = Trakt()
         self.initialized = True
@@ -46,10 +48,17 @@ class Content:
         """Fetch media from Plex watchlist"""
         response_obj = get(self.watchlist_url, timeout=5)
         watchlist_data = json.loads(response_obj.response.content)
-        items = watchlist_data.get('items', [])
+        items = watchlist_data.get("items", [])
         ids = []
         for item in items:
-            imdb_id = next((guid.split('//')[-1] for guid in item.get('guids') if "imdb://" in guid), None)
+            imdb_id = next(
+                (
+                    guid.split("//")[-1]
+                    for guid in item.get("guids")
+                    if "imdb://" in guid
+                ),
+                None,
+            )
             ids.append(imdb_id)
         logger.debug("Found %s items", len(ids))
         return ids
