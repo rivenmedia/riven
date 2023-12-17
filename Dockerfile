@@ -4,7 +4,12 @@ LABEL org.label-schema.name="Iceberg" \
       org.label-schema.description="Iceberg Debrid Downloader" \
       org.label-schema.url="https://github.com/dreulavelle/iceberg"
 
-RUN apk --update add python3 py3-pip nodejs npm bash shadow vim nano rclone && \
+RUN apk --update add \
+    python3 py3-pip \
+    nodejs npm \
+    bash shadow \
+    vim nano curl \
+    rclone && \
     rm -rf /var/cache/apk/*
 
 RUN npm install -g pnpm
