@@ -8,10 +8,10 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			if (res.ok) {
 				return await res.json();
 			}
-			throw error(res.status, `Unable to fetch states data: ${res.status} ${res.statusText}`);
+			error(400, `Unable to fetch states data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			throw error(500, 'Unable to fetch states data. API is down.');
+			error(500, 'Unable to fetch states data. API is down.');
 		}
 	}
 
@@ -21,10 +21,10 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			if (res.ok) {
 				return await res.json();
 			}
-			throw error(res.status, `Unable to fetch items data: ${res.status} ${res.statusText}`);
+			error(400, `Unable to fetch items data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			throw error(500, 'Unable to fetch items data. API is down.');
+			error(500, 'Unable to fetch items data. API is down.');
 		}
 	}
 
