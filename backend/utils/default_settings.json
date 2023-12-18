@@ -4,15 +4,13 @@
   "service_mode": false,
   "log": true,
   "menu_on_startup": true,
+  "host_mount": "",
+  "container_mount": "",
   "plex": {
     "user": "",
     "token": "",
     "url": "http://localhost:32400",
     "watchlist": ""
-  },
-  "symlink": {
-    "host_mount": "",
-    "mount": ""
   },
   "mdblist": {
     "lists": [""],

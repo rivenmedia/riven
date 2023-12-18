@@ -20,9 +20,8 @@ class Symlinker(threading.Thread):
             self.running = False
             self.media_items = media_items
             self.cache = {}
-            self.settings = settings.get("symlink")
-            self.mount_path = os.path.abspath(self.settings["mount"])
-            self.host_path = os.path.abspath(self.settings["host_mount"])
+            self.mount_path = os.path.abspath(settings.get("container_mount"))
+            self.host_path = os.path.abspath(settings.get("host_mount"))
             if os.path.exists(self.host_path):
                 self.symlink_path = os.path.join(self.host_path, os.pardir, "library")
                 if not os.path.exists(self.symlink_path):
