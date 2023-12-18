@@ -1,4 +1,5 @@
 """Plex library module"""
+import os
 import threading
 import time
 from typing import List, Optional
@@ -36,6 +37,7 @@ class Library(threading.Thread):
         while True:
             try:
                 temp_settings = settings.get("plex")
+                self.library_path = os.path.abspath(os.path.join(settings.get("container_mount"), os.pardir, "library"))
                 self.plex = PlexServer(
                     temp_settings["url"], temp_settings["token"], timeout=15
                 )
@@ -95,6 +97,8 @@ class Library(threading.Thread):
     def _update_sections(self):
         """Update plex library section"""
         for section in self.plex.library.sections():
+            if not any(self.library_path in location for location in section.locations):
+                continue
             movie_items = [
                 item
                 for item in self.media_items
