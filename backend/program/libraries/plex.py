@@ -121,7 +121,10 @@ class Library(threading.Thread):
                 ):
                     section.update(item.update_folder)
                     item.set("update_folder", "updated")
-                    logger.debug("Updated section %s for %s", section.title, item.title)
+                    log_string = item.title
+                    if item.type == "episode":
+                        log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+                    logger.debug("Updated section %s for %s", section.title, log_string)
                     break
 
     def _create_item(self, item):

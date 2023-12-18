@@ -187,7 +187,10 @@ class Symlinker(threading.Thread):
                     os.path.join(self.mount_path, item.folder, item.file), symlink_path
                 )
                 item.set("update_folder", update_folder)
-                logger.debug("Created symlink for %s", item.__repr__)
+                log_string = item.title
+                if item.type == "episode":
+                    log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+                logger.debug("Created symlink for %s", log_string)
                 item.symlinked = True
 
     def _find_file(self, filename):

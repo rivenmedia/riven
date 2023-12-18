@@ -8,8 +8,6 @@ import threading
 import dill
 import PTN
 
-from utils.logger import logger
-
 
 class MediaItemState(IntEnum):
     """MediaItem states"""
@@ -28,6 +26,7 @@ class MediaItem:
 
     def __init__(self, item):
         self._lock = threading.Lock()
+        self.itemid = item_id.get_next_value()
         self.scraped_at = 0
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
@@ -79,6 +78,7 @@ class MediaItem:
 
     def to_dict(self):
         return {
+            "item_id": self.itemid,
             "title": self.title,
             "type": self.type,
             "imdb_id": self.imdb_id,
@@ -87,9 +87,17 @@ class MediaItem:
             "aired_at": self.aired_at,
             "genres": self.genres,
             "guid": self.guid,
-            "requested_at": self.requested_at,
+            "requested_at": self.requested_at
         }
-
+    
+    def to_extended_dict(self):
+        dict = self.to_dict()
+        if self.type == "show":
+            dict["seasons"] = [season.to_extended_dict() for season in self.seasons]
+        if self.type == "season":
+            dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
+        return dict
+    
     def is_not_cached(self):
         return not self.is_cached()
 
@@ -286,6 +294,13 @@ class MediaItemContainer:
             if my_item == item:
                 return my_item
         return None
+    
+    def get_item_by_id(self, itemid) -> MediaItem:
+        """Get item matching given item from container"""
+        for my_item in self.items:
+            if my_item.itemid == int(itemid):
+                return my_item
+        return None
 
     def get_item(self, attr, value) -> "MediaItemContainer":
         """Get items that match given items"""
@@ -345,3 +360,13 @@ def _set_nested_attr(obj, key, value):
                 obj[key] = value
         else:
             setattr(obj, key, value)
+
+class ItemId:
+    value = 0
+
+    @classmethod
+    def get_next_value(cls):
+        cls.value += 1
+        return cls.value
+
+item_id = ItemId()

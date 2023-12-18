@@ -203,8 +203,8 @@ class Debrid(
                         if item.type == "episode":
                             if len(wanted_files) >= 1:
                                 cached = True
-                    item.set(f"streams[{stream_hash}][files]", wanted_files)
-                    item.set(f"streams[{stream_hash}][cached]", cached)
+                    item.streams[stream_hash]["files"] = wanted_files
+                    item.streams[stream_hash]["cached"] = cached
                     if cached:
                         return
 
