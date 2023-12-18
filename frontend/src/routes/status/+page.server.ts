@@ -1,7 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ fetch }) => {
+export const load: PageServerLoad = async ({ fetch, depends }) => {
+	depends('api:states')
+
 	async function getStates() {
 		try {
 			const res = await fetch('http://127.0.0.1:8080/items/states');

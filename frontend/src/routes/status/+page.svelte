@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { convertPlexDebridItemsToObject, formatWords } from '$lib/helpers';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, invalidate } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as Accordion from '$lib/components/ui/accordion';
@@ -8,7 +8,7 @@
 	import StatusMediaCard from '$lib/components/status-media-card.svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 
 	export let data;
 
@@ -16,7 +16,7 @@
 
 	async function reloadData(message: string = 'Refreshed data') {
 		reloadButtonLoading = true;
-		await invalidateAll();
+		await invalidate('api:states');
 		reloadButtonLoading = false;
 		toast.success(message);
 	}
@@ -61,11 +61,16 @@
 		}
 	};
 
-	// every 5s reload data
+	let interval: any;
 	onMount(async () => {
-		setInterval(async () => {
+		// reload data every 5 minutes
+		interval = setInterval(async () => {
 			await reloadData('Automatically refreshed data');
 		}, 60000);
+	});
+
+	onDestroy(() => {
+		clearInterval(interval);
 	});
 </script>
 

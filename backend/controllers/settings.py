@@ -34,6 +34,14 @@ async def save_settings():
     }
 
 
+@router.get('/get/all')
+async def get_all_settings():
+    return {
+        "success": True,
+        "data": copy(settings_manager.get_all()),
+    }
+
+
 @router.get("/get/{key}")
 async def get_settings(key: str):
     return {
