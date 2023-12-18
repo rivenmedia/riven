@@ -4,6 +4,7 @@ import re
 import threading
 import time
 import requests
+import PTN
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
@@ -40,7 +41,7 @@ class Debrid(
             if self._validate_settings():
                 self._torrents = {}
                 break
-            logger.error("Realdebrid settings incorrect, retrying in 2...")
+            logger.error("Realdebrid settings incorrect or not premium, retrying in 2...")
             time.sleep(2)
 
     def _validate_settings(self):
@@ -49,7 +50,9 @@ class Debrid(
                 "https://api.real-debrid.com/rest/1.0/user",
                 additional_headers=self.auth_headers,
             )
-            return response.ok
+            if response.ok:
+                json = response.json()
+                return json["premium"] > 0
         except ConnectTimeout:
             return False
 
@@ -93,11 +96,21 @@ class Debrid(
 
     def _download(self, item):
         """Download movie from real-debrid.com"""
-        self.check_stream_availability(item)
+        self._check_stream_availability(item)
         self._determine_best_stream(item)
-        self._download_item(item)
-        # item.change_state(MediaItemState.DOWNLOAD)
-        return 1
+        if not self._is_downloaded(item):
+            self._download_item(item)
+            return 1
+        return 0
+
+    def _is_downloaded(self, item):
+        if not item.get("active_stream", None):
+            return False
+        torrents = self.get_torrents()
+        if any(torrent.hash == item.active_stream.get("hash") for torrent in torrents):
+            logger.debug("Torrent already downloaded")
+            return True
+        return False
 
     def _download_item(self, item):
         if not item.get("active_stream", None):
@@ -167,12 +180,12 @@ class Debrid(
             item.streams = {}
         return False
 
-    def check_stream_availability(self, item: MediaItem):
+    def _check_stream_availability(self, item: MediaItem):
         if len(item.streams) == 0:
             return
         streams = "/".join(
             list(item.streams)
-        )  # THIS IT TO SLOW, LETS CHECK ONE STREAM AT A TIME
+        )
         response = get(
             f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
             additional_headers=self.auth_headers,
@@ -184,12 +197,25 @@ class Debrid(
                 continue
             for containers in provider_list.values():
                 for container in containers:
-                    wanted_files = {
-                        file_id: file
-                        for file_id, file in container.items()
-                        if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
-                        and file["filesize"] > 50000000
-                    }
+                    wanted_files = None
+                    if item.type in ["movie", "season"]:
+                        wanted_files = {
+                            file_id: file
+                            for file_id, file in container.items()
+                            if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
+                            and file["filesize"] > 50000000
+                        }
+                    if item.type == "episode":
+                        for file_id, file in container.items():
+                            parse = PTN.parse(file["filename"])
+                            episode = parse.get("episode")
+                            if type(episode) == list:
+                                if item.number in episode:
+                                    wanted_files = {file_id: file}
+                                    break
+                            elif item.number == episode:
+                                wanted_files = {file_id: file}
+                                break
                     if wanted_files:
                         cached = False
                         if item.type == "season":
@@ -244,6 +270,20 @@ class Debrid(
         )
         if response.is_ok:
             return response.data.id
+        return None
+
+    def get_torrents(self) -> str:
+        """Add magnet link to real-debrid.com"""
+        response = get(
+            "https://api.real-debrid.com/rest/1.0/torrents/",
+            data = {
+                "offset": 0,
+                "limit": 2500
+            },
+            additional_headers=self.auth_headers,
+        )
+        if response.is_ok:
+            return response.data
         return None
 
     def select_files(self, request_id, item) -> bool:

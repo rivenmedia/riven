@@ -21,7 +21,7 @@ class Torrentio:
         self.last_scrape = 0
         self.filters = self.class_settings["filter"]
         self.minute_limiter = RateLimiter(
-            max_calls=140, period=60 * 5, raise_on_limit=True
+            max_calls=60, period=60, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = True
@@ -37,11 +37,11 @@ class Torrentio:
                     scraped_amount += self._scrape_items([item])
                 else:
                     scraped_amount += self._scrape_show(item)
-            except RequestException as exception:
-                logger.error("%s, trying again next cycle", exception)
+            except RequestException:
+                self.minute_limiter.limit_hit()
                 break
-            except RateLimitExceeded as exception:
-                logger.error("%s, trying again next cycle", exception)
+            except RateLimitExceeded:
+                self.minute_limiter.limit_hit()
                 break
 
         if scraped_amount > 0:
