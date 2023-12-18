@@ -42,9 +42,7 @@ class TorrentioConfig(BaseModel):
 class Settings(BaseModel):
     version: str
     debug: bool
-    service_mode: bool
     log: bool
-    menu_on_startup: bool
     plex: PlexConfig
     mdblist: MdblistConfig
     overseerr: OverseerrConfig

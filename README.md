@@ -73,3 +73,14 @@ pip install -r requirements.txt
 python backend/main.py
 ```
 
+## Symlinking settings
+"host_mount" should point to your rclone mount that has your torrents on your host, if you are using native webdav set webdav-url to "https://dav.real-debrid.com/torrents"
+
+"container_mount" should point to the location of the mount in plex container
+
+### Example:
+Rclone is mounted to /iceberg/vfs on your host machine -> settings should have: "host_mount": "/iceberg/vfs"
+
+Plex container volume configuration for rclone mount is "/iceberg/vfs:/media/vfs" -> settings should have: "container_mount": "/media/vfs"
+
+Plex libraries you want to add to sections: movies -> /media/library/movies, shows -> /media/library/shows
