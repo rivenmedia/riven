@@ -1,5 +1,5 @@
 """Plex library module"""
-import os
+import threading
 import time
 from typing import List, Optional
 from plexapi import exceptions
@@ -9,7 +9,15 @@ from requests.exceptions import ReadTimeout, ConnectionError
 from pydantic import BaseModel, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
-from program.media import MediaItemState, MediaItem, Movie, Show, Season, Episode
+from program.media import (
+    MediaItemContainer,
+    MediaItemState,
+    MediaItem,
+    Movie,
+    Show,
+    Season,
+    Episode,
+)
 
 
 class PlexSettings(BaseModel):
@@ -19,10 +27,11 @@ class PlexSettings(BaseModel):
     user_watchlist_rss: Optional[str] = None
 
 
-class Library:
+class Library(threading.Thread):
     """Plex library class"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
+        super().__init__(name="Plex")
         # Plex class library is a necessity
         while True:
             try:
@@ -31,6 +40,9 @@ class Library:
                     temp_settings["url"], temp_settings["token"], timeout=15
                 )
                 self.settings = PlexSettings(**temp_settings)
+                self.running = False
+                self.media_items = media_items
+                self._update_items()
                 break
             except exceptions.Unauthorized:
                 logger.error("Wrong plex token, retrying in 2...")
@@ -38,8 +50,20 @@ class Library:
                 logger.error("Couldnt connect to plex, retrying in 2...")
             time.sleep(2)
 
-    def update_items(self, media_items: List[MediaItem]):
-        logger.debug("Getting items...")
+    def run(self):
+        while self.running:
+            self._update_sections()
+            self._update_items()
+
+    def start(self):
+        self.running = True
+        super().start()
+
+    def stop(self):
+        self.running = False
+        super().join()
+
+    def _update_items(self):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
@@ -58,47 +82,47 @@ class Library:
                 logger.error(
                     f"Timeout occurred when accessing section: {section.title}"
                 )
-                continue  # Skip to the next section
+                continue
 
             processed_sections.add(section.key)
 
-        # Add items that arent in in media_items
-        media_items.extend(items)
+        self.media_items.extend(items)
 
-        matched_items = self.match_items(items, media_items)
+        matched_items = self.match_items(items, self.media_items)
         if matched_items > 0:
             logger.info(f"Found {matched_items} new items")
-        logger.debug("Done!")
 
-    def update_sections(self, media_items: List[MediaItem]):
+    def _update_sections(self):
         """Update plex library section"""
         for section in self.plex.library.sections():
-            for item in media_items:
-                if item.type == section.type and item.state in [
-                    MediaItemState.SYMLINK,
-                    MediaItemState.LIBRARY_PARTIAL,
-                ]:
-                    if (
-                        (item.type == "movie" and item.state is MediaItemState.SYMLINK)
-                        or (
-                            item.type == "show"
-                            and any(
-                                season
-                                for season in item.seasons
-                                if season.state is MediaItemState.SYMLINK
-                            )
-                        )
-                        or any(
-                            episode
-                            for season in item.seasons
-                            for episode in season.episodes
-                            if episode.state is MediaItemState.SYMLINK
-                        )
-                    ):
-                        if not section.refreshing:
-                            section.update()
-                            logger.debug("Updated section %s", section.title)
-                            break
+            movie_items = [
+                item
+                for item in self.media_items
+                if item.type == "movie"
+                and item.state is MediaItemState.SYMLINK
+                and item.update_folder != "updated"
+            ]
+            episodes = [
+                episode
+                for item in self.media_items
+                if item.type == "show"
+                for season in item.seasons
+                for episode in season.episodes
+                if episode.state is MediaItemState.SYMLINK
+                and episode.update_folder != "updated"
+            ]
+            items = movie_items + episodes
+
+            for item in items:
+                if (
+                    item.type == section.type
+                    or item.type in ["season", "episode"]
+                    and section.type == "show"
+                ):
+                    section.update(item.update_folder)
+                    item.set("update_folder", "updated")
+                    logger.debug("Updated section %s for %s", section.title, item.title)
+                    break
 
     def _create_item(self, item):
         new_item = _map_item_from_data(item, item.type)
@@ -119,8 +143,6 @@ class Library:
     def match_items(self, found_items: List[MediaItem], media_items: List[MediaItem]):
         """Matches items in given mediacontainer that are not in library
         to items that are in library"""
-        logger.debug("Matching items...")
-
         items_to_update = 0
 
         for item in media_items:
@@ -133,14 +155,18 @@ class Library:
                         ):
                             self._update_item(item, found_item)
                             items_to_update += 1
+                            break
                 if item.type == "show":
                     for found_item in found_items:
                         if found_item.type == "show":
                             for found_season in found_item.seasons:
                                 for found_episode in found_season.episodes:
                                     for season in item.seasons:
-                                        if season.state is not MediaItemState.LIBRARY:
-                                            for episode in season.episodes:
+                                        for episode in season.episodes:
+                                            if (
+                                                episode.state
+                                                is not MediaItemState.LIBRARY
+                                            ):
                                                 if (
                                                     episode.imdb_id
                                                     == found_episode.imdb_id
@@ -149,6 +175,7 @@ class Library:
                                                         episode, found_episode
                                                     )
                                                     items_to_update += 1
+                                                    break
 
         return items_to_update
 
@@ -194,7 +221,6 @@ def _map_item_from_data(item, item_type):
     genres = [genre.tag for genre in getattr(item, "genres", [])]
     available_at = getattr(item, "originallyAvailableAt", None)
     title = getattr(item, "title", None)
-    year = getattr(item, "year", None)
     guids = getattr(item, "guids", [])
     key = getattr(item, "key", None)
     season_number = getattr(item, "seasonNumber", None)

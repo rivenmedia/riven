@@ -8,11 +8,12 @@ from program.updaters.trakt import Updater as Trakt
 import json
 
 
-class Content:
+class PlexWatchlist:
     """Class for managing Plex watchlist"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
+        self.media_items = media_items
         self.watchlist_url = settings.get("plex")["watchlist"]
         if not self.watchlist_url or not self._validate_settings():
             logger.info(
@@ -32,17 +33,15 @@ class Content:
         except ConnectTimeout:
             return False
 
-    def update_items(self, media_items: MediaItemContainer):
+    def run(self):
         """Fetch media from Plex watchlist and add them to media_items attribute
         if they are not already there"""
-        logger.debug("Getting items...")
         items = self._get_items_from_plex_watchlist()
-        new_items = [item for item in items if item not in media_items]
+        new_items = [item for item in items if item not in self.media_items]
         container = self.updater.create_items(new_items)
-        added_items = media_items.extend(container)
+        added_items = self.media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))
-        logger.debug("Done!")
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""

@@ -165,9 +165,7 @@ class RateLimiter:
         self.max_calls = max_calls
         self.period = period
         self.tokens = max_calls
-        self.last_call = (
-            time.time() - period
-        )  # Initialize as if the last call was a "period" ago
+        self.last_call = time.time() - period
         self.lock = Lock()
         self.raise_on_limit = raise_on_limit
 
@@ -176,7 +174,6 @@ class RateLimiter:
             current_time = time.time()
             time_since_last_call = current_time - self.last_call
 
-            # Refill tokens only if the entire period has elapsed
             if time_since_last_call >= self.period:
                 self.tokens = self.max_calls
 
@@ -185,10 +182,8 @@ class RateLimiter:
                     raise RateLimitExceeded("Rate limit exceeded!")
                 time_to_sleep = self.period - time_since_last_call
                 time.sleep(time_to_sleep)
-                # After sleeping, update the last_call to account for the time we just waited
                 self.last_call = current_time + time_to_sleep
             else:
-                # If we had enough tokens, just consume one and update the last call
                 self.tokens -= 1
                 self.last_call = current_time
 

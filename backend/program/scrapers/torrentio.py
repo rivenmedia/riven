@@ -1,6 +1,5 @@
 """ Torrentio scraper module """
 from datetime import datetime
-import re
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
@@ -12,10 +11,11 @@ from program.media import (
 )
 
 
-class Scraper:
+class Torrentio:
     """Scraper for torrentio"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
+        self.media_items = media_items
         self.settings = "torrentio"
         self.class_settings = settings_manager.get(self.settings)
         self.last_scrape = 0
@@ -26,12 +26,11 @@ class Scraper:
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = True
 
-    def scrape(self, media_items: MediaItemContainer):
+    def run(self):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
-        logger.info("Scraping...")
         scraped_amount = 0
-        items = [item for item in media_items if self._can_we_scrape(item)]
+        items = [item for item in self.media_items if self._can_we_scrape(item)]
         for item in items:
             try:
                 if item.type == "movie":
@@ -44,9 +43,9 @@ class Scraper:
             except RateLimitExceeded as exception:
                 logger.error("%s, trying again next cycle", exception)
                 break
+
         if scraped_amount > 0:
             logger.info("Scraped %s streams", scraped_amount)
-        logger.info("Done!")
 
     def _scrape_show(self, item: MediaItem):
         scraped_amount = 0
@@ -84,7 +83,8 @@ class Scraper:
 
         def needs_new_scrape():
             return (
-                datetime.now().timestamp() - item.scraped_at > 60 * 30
+                datetime.now().timestamp() - item.scraped_at
+                > 60 * 30  # 30 minutes between scrapes
                 or item.scraped_at == 0
             )
 
