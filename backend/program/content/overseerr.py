@@ -7,13 +7,12 @@ from program.media import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
-class Content:
+class Overseerr:
     """Content class for overseerr"""
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
+        self.media_items = media_items
         self.settings = settings_manager.get("overseerr")
         if self.settings.get("api_key") == "" or not self._validate_settings():
             logger.info("Overseerr is not configured and will not be used.")
@@ -33,17 +32,15 @@ class Content:
         except ConnectTimeout:
             return False
 
-    def update_items(self, media_items: MediaItemContainer):
+    def run(self):
         """Fetch media from overseerr and add them to media_items attribute
         if they are not already there"""
-        logger.debug("Getting items...")
         items = self._get_items_from_overseerr(10000)
-        new_items = [item for item in items if item not in media_items]
+        new_items = [item for item in items if item not in self.media_items]
         container = self.updater.create_items(new_items)
-        added_items = media_items.extend(container)
+        added_items = self.media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))
-        logger.debug("Done!")
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""

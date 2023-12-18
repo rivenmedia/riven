@@ -26,6 +26,7 @@ class MediaItem:
 
     def __init__(self, item):
         self._lock = threading.Lock()
+        self.itemid = item_id.get_next_value()
         self.scraped_at = 0
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
@@ -43,6 +44,7 @@ class MediaItem:
         # Plex related
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
+        self.updated = None
 
     @property
     def state(self):
@@ -50,7 +52,7 @@ class MediaItem:
             return MediaItemState.LIBRARY
         if self.symlinked:
             return MediaItemState.SYMLINK
-        if self.is_cached() or self.file:
+        if self.active_stream or self.file:
             return MediaItemState.DOWNLOAD
         if len(self.streams) > 0:
             return MediaItemState.SCRAPE
@@ -76,16 +78,26 @@ class MediaItem:
 
     def to_dict(self):
         return {
+            "item_id": self.itemid,
             "title": self.title,
+            "type": self.type,
             "imdb_id": self.imdb_id,
             "state": self.state.name,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres,
             "guid": self.guid,
-            "requested_at": self.requested_at,
+            "requested_at": self.requested_at
         }
-
+    
+    def to_extended_dict(self):
+        dict = self.to_dict()
+        if self.type == "show":
+            dict["seasons"] = [season.to_extended_dict() for season in self.seasons]
+        if self.type == "season":
+            dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
+        return dict
+    
     def is_not_cached(self):
         return not self.is_cached()
 
@@ -141,6 +153,10 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return MediaItemState.LIBRARY_PARTIAL
+        if any(season.state == MediaItemState.DOWNLOAD for season in self.seasons):
+            return MediaItemState.DOWNLOAD
+        if any(season.state == MediaItemState.SCRAPE for season in self.seasons):
+            return MediaItemState.SCRAPE
         if any(season.state == MediaItemState.CONTENT for season in self.seasons):
             return MediaItemState.CONTENT
         return MediaItemState.UNKNOWN
@@ -176,7 +192,7 @@ class Season(MediaItem):
                 episode.state == MediaItemState.LIBRARY for episode in self.episodes
             ):
                 return MediaItemState.LIBRARY_PARTIAL
-            if self.is_cached():
+            if self.active_stream:
                 return MediaItemState.DOWNLOAD
             if self.is_scraped():
                 return MediaItemState.SCRAPE
@@ -246,7 +262,7 @@ class MediaItemContainer:
 
     def __init__(self, items: Optional[List[MediaItem]] = None):
         self.items = items if items is not None else []
-        self.updated_at = None
+        self.lock = threading.Lock()
 
     def __iter__(self):
         for item in self.items:
@@ -257,11 +273,10 @@ class MediaItemContainer:
             raise TypeError("Cannot append non-MediaItem to MediaItemContainer")
         if other not in self.items:
             self.items.append(other)
-            self._set_updated_at()
         return self
 
-    def sort(self, by):
-        self.items.sort(key=lambda item: item.get(by), reverse=True)
+    def sort(self, by, reverse):
+        self.items.sort(key=lambda item: item.get(by), reverse=reverse)
 
     def __len__(self):
         """Get length of container"""
@@ -269,13 +284,21 @@ class MediaItemContainer:
 
     def append(self, item) -> bool:
         """Append item to container"""
-        self.items.append(item)
-        self._set_updated_at()
+        with self.lock:
+            self.items.append(item)
+            self.sort("requested_at", True)
 
     def get(self, item) -> MediaItem:
         """Get item matching given item from container"""
         for my_item in self.items:
             if my_item == item:
+                return my_item
+        return None
+    
+    def get_item_by_id(self, itemid) -> MediaItem:
+        """Get item matching given item from container"""
+        for my_item in self.items:
+            if my_item.itemid == int(itemid):
                 return my_item
         return None
 
@@ -285,24 +308,19 @@ class MediaItemContainer:
 
     def extend(self, items) -> "MediaItemContainer":
         """Extend container with items"""
-        added_items = MediaItemContainer()
-        for media_item in items:
-            if media_item not in self.items:
-                self.items.append(media_item)
-                added_items.append(media_item)
-        return added_items
-
-    def _set_updated_at(self):
-        self.updated_at = {
-            "length": len(self.items),
-            "time": datetime.datetime.now().timestamp(),
-        }
+        with self.lock:
+            added_items = MediaItemContainer()
+            for media_item in items:
+                if media_item not in self.items:
+                    self.items.append(media_item)
+                    added_items.append(media_item)
+            self.sort("requested_at", True)
+            return added_items
 
     def remove(self, item):
         """Remove item from container"""
         if item in self.items:
             self.items.remove(item)
-            self._set_updated_at()
 
     def count(self, state) -> int:
         """Count items with given state in container"""
@@ -343,13 +361,12 @@ def _set_nested_attr(obj, key, value):
         else:
             setattr(obj, key, value)
 
+class ItemId:
+    value = 0
 
-def count_episodes(episode_nums):
-    count = 0
-    for ep in episode_nums:
-        if "-" in ep:  # Range of episodes
-            start, end = map(int, ep.split("-"))
-            count += end - start + 1
-        else:  # Individual episodes
-            count += 1
-    return count
+    @classmethod
+    def get_next_value(cls):
+        cls.value += 1
+        return cls.value
+
+item_id = ItemId()

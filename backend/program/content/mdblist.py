@@ -7,13 +7,12 @@ from program.media import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
-class Content:
+class Mdblist:
     """Content class for mdblist"""
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
+        self.media_items = media_items
         self.settings = settings_manager.get("mdblist")
         if not self._validate_settings():
             logger.info("mdblist is not configured and will not be used.")
@@ -29,13 +28,11 @@ class Content:
         )
         return not "Invalid API key!" in response.text
 
-    def update_items(self, media_items: MediaItemContainer):
+    def run(self):
         """Fetch media from mdblist and add them to media_items attribute
         if they are not already there"""
         try:
             with self.rate_limiter:
-                logger.debug("Getting items...")
-
                 items = []
                 for list_id in self.settings["lists"]:
                     if list_id:
@@ -43,12 +40,11 @@ class Content:
                             list_id, self.settings["api_key"]
                         )
 
-                new_items = [item for item in items if item not in media_items]
+                new_items = [item for item in items if item not in self.media_items]
                 container = self.updater.create_items(new_items)
-                added_items = media_items.extend(container)
+                added_items = self.media_items.extend(container)
                 if len(added_items) > 0:
                     logger.info("Added %s items", len(added_items))
-                logger.debug("Done!")
         except RateLimitExceeded:
             pass
 

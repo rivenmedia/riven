@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
 from program.media import MediaItemState
-from utils.logger import logger
 
 
 router = APIRouter(
@@ -26,14 +25,14 @@ async def get_items(request: Request):
     }
 
 
-@router.get("/{state}")
-async def get_item(request: Request, state: str):
-    state = MediaItemState[state]
-    items = request.app.program.media_items.get_items_with_state(state).items
-
+@router.get("/extended/{item_id}")
+async def get_extended_item_info(request: Request, item_id: str):
+    item = request.app.program.media_items.get_item_by_id(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
     return {
         "success": True,
-        "items": [item.to_dict() for item in items],
+        "item": item.to_extended_dict(),  # Assuming this method exists
     }
 
 
