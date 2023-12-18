@@ -71,7 +71,7 @@ class Library(threading.Thread):
         processed_sections = set()
 
         for section in sections:
-            if section.key in processed_sections:
+            if section.key in processed_sections and not self._is_wanted_section(section):
                 continue
 
             try:
@@ -97,7 +97,7 @@ class Library(threading.Thread):
     def _update_sections(self):
         """Update plex library section"""
         for section in self.plex.library.sections():
-            if not any(self.library_path in location for location in section.locations):
+            if not self._is_wanted_section(section):
                 continue
             movie_items = [
                 item
@@ -193,31 +193,8 @@ class Library(threading.Thread):
         item.set("guid", library_item.guid)
         item.set("key", library_item.key)
 
-    def _fix_match(self, library_item: MediaItem, item: MediaItem):
-        """Internal method to use in match_items method.
-        It gets plex guid and checks if it matches with plex metadata
-        for given imdb_id. If it does, it will update the metadata of the plex item."""
-        section = next(
-            section
-            for section in self.plex.library.sections()
-            if section.type == item.type
-        )
-        dummy = section.search(maxresults=1)[0]
-
-        if dummy and not section.refreshing:
-            if item.imdb_id:
-                try:
-                    match = dummy.matches(agent=section.agent, title=item.imdb_id)[0]
-                except ReadTimeout:
-                    return False
-                except IndexError:
-                    return False
-                if library_item.guid != match.guid:
-                    item_to_update = self.plex.fetchItem(library_item.key)
-                    item_to_update.fixMatch(match)
-                    return True
-        return False
-
+    def _is_wanted_section(self, section):
+        return any(self.library_path in location for location in section.locations)
 
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
