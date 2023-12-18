@@ -1,8 +1,8 @@
 """Realdebrid module"""
 import os
 import re
+import threading
 import time
-
 import requests
 from requests import ConnectTimeout
 from utils.logger import logger
@@ -24,14 +24,19 @@ def get_user():
     return response.json()
 
 
-class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
+class Debrid(
+    threading.Thread
+):  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
     """Real-Debrid API Wrapper"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
+        super().__init__(name="Debrid")
         # Realdebrid class library is a necessity
         while True:
             self.settings = settings_manager.get("realdebrid")
+            self.media_items = media_items
             self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
+            self.running = False
             if self._validate_settings():
                 self._torrents = {}
                 break
@@ -48,16 +53,29 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
         except ConnectTimeout:
             return False
 
-    def download(self, media_items: MediaItemContainer):
+    def run(self):
+        while self.running:
+            self.download()
+
+    def start(self) -> None:
+        self.running = True
+        super().start()
+
+    def stop(self) -> None:
+        self.running = False
+        super().join()
+
+    def download(self):
         """Download given media items from real-debrid.com"""
         added_files = 0
 
         items = []
-        for item in media_items:
+        for item in self.media_items:
             if item.state is not MediaItemState.LIBRARY:
                 if item.type == "movie" and item.state is MediaItemState.SCRAPE:
                     items.append(item)
                 if item.type == "show":
+                    item._lock.acquire()
                     for season in item.seasons:
                         if season.state is MediaItemState.SCRAPE:
                             items.append(season)
@@ -65,6 +83,7 @@ class Debrid:  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT
                             for episode in season.episodes:
                                 if episode.state is MediaItemState.SCRAPE:
                                     items.append(episode)
+                    item._lock.release()
 
         for item in items:
             added_files += self._download(item)
