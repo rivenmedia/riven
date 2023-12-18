@@ -56,6 +56,7 @@ class Program:
     """Program class"""
 
     def __init__(self):
+        logger.info("Iceberg initializing...")
         self.settings = settings_manager.get_all()
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
@@ -67,7 +68,7 @@ class Program:
             Symlinker(self.media_items),
             Scraping(self.media_items),
         ]
-        logger.info("Iceberg initialized")
+        logger.info("Iceberg initialized!")
 
     def start(self):
         for thread in self.threads:

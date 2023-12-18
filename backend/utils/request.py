@@ -95,6 +95,7 @@ def ping(url: str, timeout=10, additional_headers=None):
 def get(
     url: str,
     timeout=10,
+    data=None,
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
@@ -103,6 +104,7 @@ def get(
     return _make_request(
         "GET",
         url,
+        data=data,
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
@@ -160,7 +162,36 @@ class RateLimitExceeded(Exception):
     pass
 
 
+import time
+from threading import Lock
+
 class RateLimiter:
+    """
+    A rate limiter class that limits the number of calls within a specified period.
+
+    Args:
+        max_calls (int): The maximum number of calls allowed within the specified period.
+        period (float): The time period (in seconds) within which the calls are limited.
+        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded. 
+            Defaults to False.
+
+    Attributes:
+        max_calls (int): The maximum number of calls allowed within the specified period.
+        period (float): The time period (in seconds) within which the calls are limited.
+        tokens (int): The number of available tokens for making calls.
+        last_call (float): The timestamp of the last call made.
+        lock (threading.Lock): A lock used for thread-safety.
+        raise_on_limit (bool): Whether to raise an exception when the rate limit is exceeded.
+
+    Methods:
+        limit_hit(): Resets the token count to 0, indicating that the rate limit has been hit.
+        __enter__(): Enters the rate limiter context and checks if a call can be made.
+        __exit__(): Exits the rate limiter context.
+
+    Raises:
+        RateLimitExceeded: If the rate limit is exceeded and `raise_on_limit` is set to True.
+    """
+
     def __init__(self, max_calls, period, raise_on_limit=False):
         self.max_calls = max_calls
         self.period = period
@@ -169,7 +200,16 @@ class RateLimiter:
         self.lock = Lock()
         self.raise_on_limit = raise_on_limit
 
+    def limit_hit(self):
+        """
+        Resets the token count to 0, indicating that the rate limit has been hit.
+        """
+        self.tokens = 0
+
     def __enter__(self):
+        """
+        Enters the rate limiter context and checks if a call can be made.
+        """
         with self.lock:
             current_time = time.time()
             time_since_last_call = current_time - self.last_call
@@ -190,4 +230,7 @@ class RateLimiter:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exits the rate limiter context.
+        """
         pass
