@@ -62,7 +62,11 @@ class Updater:
 def _map_item_from_data(data, item_type):
     """Map trakt.tv API data to MediaItemContainer"""
     formatted_aired_at = None
-    if getattr(data, "first_aired", None):
+    if getattr(data, "first_aired", None) and (
+        item_type == "show"
+        or (item_type == "season" and data.aired_episodes == data.episode_count)
+        or item_type == "episode"
+    ):
         aired_at = data.first_aired
         formatted_aired_at = datetime.strptime(aired_at, "%Y-%m-%dT%H:%M:%S.%fZ")
     if getattr(data, "released", None):
