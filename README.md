@@ -41,10 +41,10 @@ services:
     container_name: Iceberg
     restart: unless-stopped
     environment:
-      - PUID=1000
-      - GUID=1000
+      PUID: "1000"
+      PGID: "1000"
     ports:
-      - "4173:4173"
+      - "3000:3000"
     volumes:
       - ./data:/iceberg/data
 ```
