@@ -21,7 +21,7 @@ help:
 	@echo logs      : Show the logs of the Iceberg container
 	@echo sc        : Show the contents of the settings.json file inside the Iceberg container
 	@echo ec        : Edit the settings.json file inside the Iceberg container
-	@echo update    : Update the Iceberg container
+	@echo update    : Update this repository from GitHub and rebuild image
 	@echo -------------------------------------------------------------------------
 
 start: 
