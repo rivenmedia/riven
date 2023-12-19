@@ -8,7 +8,7 @@ COPY frontend/ .
 RUN npm run build && npm prune --production
 
 # Final Image
-FROM alpine:3.18
+FROM node:20-alpine
 
 LABEL name="Iceberg" \
       description="Iceberg Debrid Downloader" \
@@ -20,7 +20,6 @@ RUN apk --update add python3 py3-pip bash shadow vim nano rclone && \
 WORKDIR /iceberg
 
 # Frontend
-RUN addgroup -S node && adduser -S node -G node
 COPY --from=frontend --chown=node:node /app/build /iceberg/frontend/build
 COPY --from=frontend --chown=node:node /app/node_modules /iceberg/frontend/node_modules
 COPY --from=frontend --chown=node:node /app/package.json /iceberg/frontend/package.json
@@ -36,6 +35,7 @@ RUN chmod +x ./entrypoint.sh
 ENTRYPOINT ["/iceberg/entrypoint.sh"]
 
 EXPOSE 3000 8080
+USER node:node
 
 CMD cd backend && source /venv/bin/activate && exec python /iceberg/backend/main.py & \
     node /iceberg/frontend/build

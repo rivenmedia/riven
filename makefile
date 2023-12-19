@@ -4,23 +4,23 @@ help:
 	@echo Iceberg Local Development Environment
 	@echo -------------------------------------------------------
 	@echo start           : Build and run the Iceberg container
-	@echo start-nocache   : Build and run the Iceberg container without using cache
+	@echo start-nocache   : Build and run the Iceberg container without caching image
 	@echo stop            : Stop and remove the Iceberg container
 	@echo restart         : Restart the Iceberg container
-	@echo restart-nocache : Restart the Iceberg container without using cache
+	@echo restart-nocache : Restart the Iceberg container without caching image
 	@echo exec            : Open a shell inside the Iceberg container
 	@echo logs            : Show the logs of the Iceberg container
 	@echo -------------------------------------------------------
 
 start: 
 	docker build -t iceberg:latest -f Dockerfile .
-	docker run -d --name iceberg -p 3000:3000 -p 8080:8080 -e PUID=1000 -e PGID=1000 -v ${PWD}/data:/iceberg/data iceberg:latest
+	@docker run -d --name iceberg -p 3000:3000 -p 8080:8080 -e PUID=1000 -e PGID=1000 -v ${PWD}/data:/iceberg/data iceberg:latest
 	@echo Iceberg Frontend is running on http://localhost:3000/
 	@echo Iceberg Backend is running on http://localhost:8080/items/
 	@docker logs iceberg -f
 
 start-nocache: 
-	docker build --no-cache -t iceberg:latest -f Dockerfile .
+	@docker build --no-cache -t iceberg:latest -f Dockerfile .
 	docker run -d --name iceberg -p 3000:3000 -p 8080:8080 -e PUID=1000 -e PGID=1000 -v ${PWD}/data:/iceberg/data iceberg:latest
 	@echo Iceberg Frontend is running on http://localhost:3000/
 	@echo Iceberg Backend is running on http://localhost:8080/items/
