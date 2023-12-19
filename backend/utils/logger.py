@@ -22,8 +22,6 @@ class RedactSensitiveInfo(logging.Filter):
             "user": re.compile(r"(\'user\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
             "watchlist": re.compile(r"(\'watchlist\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
         }
-    
-    
 
     def _redact_string(self, data):
         if isinstance(data, str):
