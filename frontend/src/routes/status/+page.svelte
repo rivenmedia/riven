@@ -60,18 +60,6 @@
 			description: 'Item is in your library and is ongoing'
 		}
 	};
-
-	let interval: any;
-	onMount(async () => {
-		// reload data every 5 minutes
-		interval = setInterval(async () => {
-			await reloadData('Automatically refreshed data');
-		}, 60000);
-	});
-
-	onDestroy(() => {
-		clearInterval(interval);
-	});
 </script>
 
 <svelte:head>
