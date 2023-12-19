@@ -2,7 +2,6 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import * as Select from '$lib/components/ui/select';
 	import type { NavItem } from '$lib/types';
-	import HeaderItem from '$lib/components/header-item.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 
