@@ -49,14 +49,6 @@ services:
       - ./data:/iceberg/data
 ```
 
-> [!WARNING]  
-> You must have a standard settings.json file already in place before bind mounting it!
-> An empty settings.json file, or no file at all, will cause issues!
-
-You can get a copy of the default settings [here](https://raw.githubusercontent.com/dreulavelle/iceberg/main/backend/utils/default_settings.json)
-
-After copying over the settings file (on a fresh install) you can bind mount it like the compose above.
-
 ## Running outside of Docker
 
 First terminal:
@@ -84,3 +76,19 @@ Rclone is mounted to /iceberg/vfs on your host machine -> settings should have: 
 Plex container volume configuration for rclone mount is "/iceberg/vfs:/media/vfs" -> settings should have: "container_mount": "/media/vfs"
 
 Plex libraries you want to add to sections: movies -> /media/library/movies, shows -> /media/library/shows
+
+
+## Development
+You can view the readme in `make` to get started!
+
+```sh
+make
+```
+
+To get started you can simply
+
+```sh
+make start
+```
+
+You can restart with `make restart` **or** `make restart-nocache` to build the image without caching layers.
