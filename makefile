@@ -65,4 +65,4 @@ ec:
 
 update:
 	@git pull
-	@rebuild
+	@make rebuild
