@@ -5,3 +5,4 @@ settings.json
 __pycache__
 .git
 docker-compose.yml
+makefile

@@ -3,6 +3,7 @@
 .dockerignore
 docker-compose.yml
 Dockerfile
+makefile
 
 # Frontend
 .DS_Store
