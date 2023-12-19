@@ -8,7 +8,6 @@
 	import StatusMediaCard from '$lib/components/status-media-card.svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
-	import { onMount, onDestroy } from 'svelte';
 
 	export let data;
 

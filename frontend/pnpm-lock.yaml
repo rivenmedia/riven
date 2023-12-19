@@ -6,7 +6,7 @@ settings:
 
 dependencies:
   bits-ui:
-    specifier: ^0.11.6
+    specifier: ^0.11.8
     version: 0.11.8(svelte@4.2.8)
   clsx:
     specifier: ^2.0.0
