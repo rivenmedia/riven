@@ -20,7 +20,10 @@ class RedactSensitiveInfo(logging.Filter):
             "api_key": re.compile(r"(\'api_key\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
             "token": re.compile(r"(\'token\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
             "user": re.compile(r"(\'user\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
+            "watchlist": re.compile(r"(\'watchlist\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
         }
+    
+    
 
     def _redact_string(self, data):
         if isinstance(data, str):
