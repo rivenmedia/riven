@@ -35,7 +35,3 @@ RUN chmod +x ./entrypoint.sh
 ENTRYPOINT ["/iceberg/entrypoint.sh"]
 
 EXPOSE 3000 8080
-USER node:node
-
-CMD cd backend && source /venv/bin/activate && exec python /iceberg/backend/main.py & \
-    node /iceberg/frontend/build
