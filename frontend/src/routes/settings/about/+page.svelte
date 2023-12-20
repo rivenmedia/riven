@@ -10,6 +10,10 @@
 	};
 </script>
 
+<svelte:head>
+	<title>Settings | About</title>
+</svelte:head>
+
 <div class="flex flex-col gap-2">
 	<h1 class="text-2xl md:text-3xl font-semibold mb-2">About Iceberg</h1>
 
