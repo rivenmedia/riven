@@ -95,9 +95,10 @@ class Symlinker(threading.Thread):
                                 episode = obj["episode"]
                                 if type(episode) == list:
                                     for sub_episode in episode:
-                                        season.episodes[sub_episode - 1].set(
-                                            "file", file["filename"]
-                                        )
+                                        if sub_episode - 1 in range(len(season.episodes)):
+                                            season.episodes[sub_episode - 1].set(
+                                                "file", file["filename"]
+                                            )
                                 else:
                                     index = obj["episode"] - 1
                                     if index in range(len(season.episodes)):
