@@ -5,9 +5,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	async function getAboutInfo() {
 		try {
 			const toGet = ['version', 'host_mount', 'container_mount'];
-
-			// use Promise.all to make all requests at once
-
 			const promises = toGet.map(async (item) => {
 				const res = await fetch(`http://127.0.0.1:8080/settings/get/${item}`);
 				if (res.ok) {

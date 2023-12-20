@@ -11,6 +11,14 @@
 			path: '/settings/general'
 		},
 		{
+			name: 'Plex',
+			path: '/settings/plex'
+		},
+		{
+			name: 'Content',
+			path: '/settings/content'
+		},
+		{
 			name: 'About',
 			path: '/settings/about'
 		}
