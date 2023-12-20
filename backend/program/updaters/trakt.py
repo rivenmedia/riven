@@ -80,6 +80,7 @@ def _map_item_from_data(data, item_type):
         "aired_at": formatted_aired_at,
         "genres": getattr(data, "genres", None),
         "requested_at": datetime.now(),
+        "requested_by": getattr(data, 'requested_by', None),
     }
     match item_type:
         case "movie":

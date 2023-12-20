@@ -22,6 +22,7 @@ class PlexWatchlist:
             return
         self.updater = Trakt()
         self.initialized = True
+        self.requested_by = "Plex Watchlist"
 
     def _validate_settings(self):
         try:
@@ -39,6 +40,8 @@ class PlexWatchlist:
         items = self._get_items_from_plex_watchlist()
         new_items = [item for item in items if item not in self.media_items]
         container = self.updater.create_items(new_items)
+        for item in container:
+            item.set_requested_by("Plex Watchlist")
         added_items = self.media_items.extend(container)
         if len(added_items) > 0:
             logger.info("Added %s items", len(added_items))

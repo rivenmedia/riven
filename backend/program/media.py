@@ -32,6 +32,7 @@ class MediaItem:
         self.streams = {}
         self.symlinked = False
         self.requested_at = item.get("requested_at", None) or datetime.datetime.now()
+        self.requested_by = item.get("requested_by", None)
 
         # Media related
         self.title = item.get("title", None)
@@ -87,7 +88,8 @@ class MediaItem:
             "aired_at": self.aired_at,
             "genres": self.genres,
             "guid": self.guid,
-            "requested_at": self.requested_at
+            "requested_at": self.requested_at,
+            "requested_by": self.requested_by
         }
     
     def to_extended_dict(self):
@@ -97,7 +99,10 @@ class MediaItem:
         if self.type == "season":
             dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
         return dict
-    
+
+    def set_requested_by(self, requested_by):
+        self.requested_by = requested_by
+
     def is_not_cached(self):
         return not self.is_cached()
 
@@ -276,7 +281,7 @@ class MediaItemContainer:
         return self
 
     def sort(self, by, reverse):
-        self.items.sort(key=lambda item: item.get(by), reverse=reverse)
+        self.items.sort(key=lambda item: item.get(by) if item is not None else None)
 
     def __len__(self):
         """Get length of container"""

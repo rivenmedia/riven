@@ -42,6 +42,8 @@ class Mdblist:
 
                 new_items = [item for item in items if item not in self.media_items]
                 container = self.updater.create_items(new_items)
+                for item in container:
+                    item.set_requested_by("Mdblist")
                 added_items = self.media_items.extend(container)
                 if len(added_items) > 0:
                     logger.info("Added %s items", len(added_items))

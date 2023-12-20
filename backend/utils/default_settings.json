@@ -1,6 +1,6 @@
 {
-  "version": "0.2.1",
-  "debug": true,
+  "version": "0.3.0",
+  "debug": false,
   "log": true,
   "host_mount": "",
   "container_mount": "",
