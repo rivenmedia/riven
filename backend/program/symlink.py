@@ -10,7 +10,18 @@ from utils.thread import ThreadRunner
 
 
 class Symlinker(threading.Thread):
-    """Content class for mdblist"""
+    """
+    A class that represents a symlinker thread.
+
+    Attributes:
+        media_items (MediaItemContainer): The container of media items.
+        running (bool): Flag indicating if the thread is running.
+        cache (dict): A dictionary to cache file paths.
+        mount_path (str): The absolute path of the container mount.
+        host_path (str): The absolute path of the host mount.
+        symlink_path (str): The path where the symlinks will be created.
+        cache_thread (ThreadRunner): The thread runner for updating the cache.
+    """
 
     def __init__(self, media_items: MediaItemContainer):
         # Symlinking is required
