@@ -91,7 +91,7 @@ class MediaItem:
             "requested_at": self.requested_at,
             "requested_by": self.requested_by
         }
-    
+
     def to_extended_dict(self):
         dict = self.to_dict()
         if self.type == "show":
@@ -104,25 +104,21 @@ class MediaItem:
         return not self.is_cached()
 
     def __iter__(self):
-        with self._lock:
-            for attr, _ in vars(self).items():
-                yield attr
+        for attr, _ in vars(self).items():
+            yield attr
 
     def __eq__(self, other):
-        with self._lock:
-            if isinstance(other, type(self)):
-                return self.imdb_id == other.imdb_id
-            return False
+        if isinstance(other, type(self)):
+            return self.imdb_id == other.imdb_id
+        return False
 
     def get(self, key, default=None):
         """Get item attribute"""
-        with self._lock:
-            return getattr(self, key, default)
+        return getattr(self, key, default)
 
     def set(self, key, value):
         """Set item attribute"""
-        with self._lock:
-            _set_nested_attr(self, key, value)
+        _set_nested_attr(self, key, value)
 
 
 class Movie(MediaItem):
@@ -168,9 +164,8 @@ class Show(MediaItem):
 
     def add_season(self, season):
         """Add season to show"""
-        with self._lock:
-            self.seasons.append(season)
-            season.parent = self
+        self.seasons.append(season)
+        season.parent = self
 
 
 class Season(MediaItem):
@@ -194,6 +189,10 @@ class Season(MediaItem):
                 episode.state == MediaItemState.LIBRARY for episode in self.episodes
             ):
                 return MediaItemState.LIBRARY_PARTIAL
+            if all(
+                episode.state == MediaItemState.SYMLINK for episode in self.episodes
+            ):
+                return MediaItemState.SYMLINK
             if self.active_stream:
                 return MediaItemState.DOWNLOAD
             if self.is_scraped():
@@ -296,7 +295,7 @@ class MediaItemContainer:
             if my_item == item:
                 return my_item
         return None
-    
+
     def get_item_by_id(self, itemid) -> MediaItem:
         """Get item matching given item from container"""
         for my_item in self.items:
@@ -358,10 +357,10 @@ def _set_nested_attr(obj, key, value):
         _set_nested_attr(current_obj, rest_of_keys, value)
     else:
         if isinstance(obj, dict):
-            if key in obj:
-                obj[key] = value
+            obj[key] = value
         else:
             setattr(obj, key, value)
+
 
 class ItemId:
     value = 0
@@ -370,5 +369,6 @@ class ItemId:
     def get_next_value(cls):
         cls.value += 1
         return cls.value
+
 
 item_id = ItemId()
