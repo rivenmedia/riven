@@ -40,7 +40,7 @@ class Mdblist:
                         items += self._get_items_from_list(
                             list_id, self.settings["api_key"]
                         )
-                if len(items) != len(self.last_items):
+                if len(items) != len(self.media_items):
                     self.last_items = items
                     new_items = [item for item in items if item not in self.media_items]
                     container = self.updater.create_items(new_items)

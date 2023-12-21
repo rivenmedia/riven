@@ -1,8 +1,8 @@
 """Trakt updater module"""
 from datetime import datetime
 from os import path
-from utils.logger import get_data_path, logger
-from utils.request import get
+from backend.utils.logger import get_data_path, logger
+from backend.utils.request import get
 from program.media import (
     Episode,
     MediaItemContainer,
