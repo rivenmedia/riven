@@ -100,9 +100,6 @@ class MediaItem:
             dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
         return dict
 
-    def set_requested_by(self, requested_by):
-        self.requested_by = requested_by
-
     def is_not_cached(self):
         return not self.is_cached()
 
