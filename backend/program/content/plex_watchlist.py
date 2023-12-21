@@ -61,11 +61,7 @@ class PlexWatchlist:
         for item in items:
             imdb_id = next((guid.split("//")[-1] for guid in item.get("guids") if "imdb://" in guid), None)
             if imdb_id:
-                tvdb_id = next((guid.split("//")[-1] for guid in item.get("guids") if "tvdb://" in guid), None)
-                if tvdb_id:
-                    # TODO: Convert tvdb to imdb. Will work on this later.
-                    logger.debug("Found imdb id %s and tvdb id %s for %s", imdb_id, tvdb_id, item.get("title"))
-                else:
-                    # TODO: Needs testing to determine if streams only return tvdb/imdb or if there are other options.
-                    logger.debug("No imdb id or tvdb id found for %s", item.get("title"))
+                ids.append(imdb_id)
+            else:
+                logger.warning("Could not find IMDb ID for %s in Plex watchlist", item.get("title"))
         return ids
