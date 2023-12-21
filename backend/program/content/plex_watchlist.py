@@ -41,7 +41,7 @@ class PlexWatchlist:
         new_items = [item for item in items if item not in self.media_items]
         container = self.updater.create_items(new_items)
         for item in container:
-            item.set_requested_by("Plex Watchlist")
+            item.set("requested_by", "Plex Watchlist")
         previous_count = len(self.media_items)
         added_items = self.media_items.extend(container)
         added_items_count = len(self.media_items) - previous_count
@@ -63,5 +63,6 @@ class PlexWatchlist:
             if imdb_id:
                 ids.append(imdb_id)
             else:
+                # TODO: Add tvdb conversion here
                 logger.debug("No imdb id found for %s", item.get("title"))
         return ids

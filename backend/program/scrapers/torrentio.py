@@ -63,22 +63,16 @@ class Torrentio:
     def _scrape_items(self, items: list):
         amount_scraped = 0
         for item in items:
-            log_string = ""  # Initialize log_string with a default value
-            try:
-                data = self.api_scrape(item)
-                if item.type == "season":
-                    log_string = f"{item.parent.title} S{item.number}"
-                if item.type == "episode":
-                    log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
-                if len(data) > 0:
-                    item.set("streams", data)
-                    logger.debug("Found %s streams for %s", len(data), log_string)
-                    amount_scraped += 1
-                    continue
-                logger.debug("Could not find streams for %s", log_string)
-            except Exception as e:
-                logger.error("Error occurred while scraping %s: %s", log_string, str(e))
-                continue
+            data = self.api_scrape(item)
+            if item.type == "season":
+                log_string = f"{item.parent.title} S{item.number}"
+            if item.type == "episode":
+                log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            if len(data) > 0:
+                item.set("streams", data)
+                logger.debug("Found %s streams for %s", len(data), log_string)
+                amount_scraped += 1
+            logger.debug("Could not find streams for %s", log_string)
         return amount_scraped
 
     def _can_we_scrape(self, item: MediaItem) -> bool:

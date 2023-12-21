@@ -281,7 +281,7 @@ class MediaItemContainer:
         return self
 
     def sort(self, by, reverse):
-        self.items.sort(key=lambda item: item.get(by) if item is not None else None)
+        self.items.sort(key=lambda item: item.get(by), reverse=reverse)
 
     def __len__(self):
         """Get length of container"""
