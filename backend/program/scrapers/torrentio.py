@@ -64,16 +64,14 @@ class Torrentio:
         amount_scraped = 0
         for item in items:
             data = self.api_scrape(item)
-            log_string = item.title
             if item.type == "season":
-                log_string = f"{item.parent.title} season {item.number}"
+                log_string = f"{item.parent.title} S{item.number}"
             if item.type == "episode":
-                log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+                log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
             if len(data) > 0:
                 item.set("streams", data)
                 logger.debug("Found %s streams for %s", len(data), log_string)
                 amount_scraped += 1
-                continue
             logger.debug("Could not find streams for %s", log_string)
         return amount_scraped
 

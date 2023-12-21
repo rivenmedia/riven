@@ -123,9 +123,9 @@ class Debrid(
         if item.type == "movie":
             log_string = item.title
         if item.type == "season":
-            log_string = f"{item.parent.title} season {item.number}"
+            log_string = f"{item.parent.title} S{item.number}"
         if item.type == "episode":
-            log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
 
         logger.debug("Downloaded %s", log_string)
         return 1

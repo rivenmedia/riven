@@ -1,8 +1,8 @@
 """Trakt updater module"""
 from datetime import datetime
 from os import path
-from utils.logger import get_data_path, logger
-from utils.request import get
+from backend.utils.logger import get_data_path, logger
+from backend.utils.request import get
 from program.media import (
     Episode,
     MediaItemContainer,
@@ -129,4 +129,15 @@ def create_item_from_imdb_id(imdb_id: str):
                 data = response.data[0].show
             if data:
                 return _map_item_from_data(data, media_type)
+    return None
+
+def get_imdb_id_from_tvdb(tvdb_id: str) -> str:
+    """Get IMDb ID from TVDB ID in Trakt"""
+    url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}?extended=full"
+    response = get(
+        url,
+        additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
+    )
+    if response.is_ok and len(response.data) > 0:
+            return response.data[0].show.ids.imdb
     return None
