@@ -85,10 +85,12 @@ You can view the readme in `make` to get started!
 make
 ```
 
-To get started you can simply
+To get started you can simply do this. This will stop any previous Iceberg containers and remove previous image.
+As well as rebuild the image using cached layers. If your a developer, then any files changed in the code will not get cached, 
+and thus rebuilt in the image.
 
 ```sh
 make start
 ```
 
-You can restart with `make restart` **or** `make restart-nocache` to build the image without caching layers.
+You can also restart the container with `make restart`, or view the logs with `make logs`. 

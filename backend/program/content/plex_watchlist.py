@@ -15,6 +15,7 @@ class PlexWatchlist:
         self.initialized = False
         self.media_items = media_items
         self.watchlist_url = settings.get("plex")["watchlist"]
+        self.previous_added_items_count = 0
         if not self.watchlist_url or not self._validate_settings():
             logger.info(
                 "Plex watchlist RSS URL is not configured and will not be used."
@@ -39,25 +40,32 @@ class PlexWatchlist:
         items = self._get_items_from_plex_watchlist()
         new_items = [item for item in items if item not in self.media_items]
         container = self.updater.create_items(new_items)
+        for item in container:
+            item.set("requested_by", "Plex Watchlist")
+        previous_count = len(self.media_items)
         added_items = self.media_items.extend(container)
-        if len(added_items) > 0:
-            logger.info("Added %s items", len(added_items))
+        added_items_count = len(self.media_items) - previous_count
+        if added_items_count != self.previous_added_items_count and added_items_count > 0:
+            logger.info("Added %s items", added_items_count)
+            self.previous_added_items_count = added_items_count
+        if added_items_count > 0:
+            for added_item in added_items:
+                logger.debug("Added %s", added_item.title)
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""
-        response_obj = get(self.watchlist_url, timeout=5)
+        response_obj = get(self.watchlist_url, timeout=30)
         watchlist_data = json.loads(response_obj.response.content)
         items = watchlist_data.get("items", [])
         ids = []
         for item in items:
-            imdb_id = next(
-                (
-                    guid.split("//")[-1]
-                    for guid in item.get("guids")
-                    if "imdb://" in guid
-                ),
-                None,
-            )
-            ids.append(imdb_id)
-        logger.debug("Found %s items", len(ids))
+            imdb_id = next((guid.split("//")[-1] for guid in item.get("guids") if "imdb://" in guid), None)
+            if imdb_id:
+                tvdb_id = next((guid.split("//")[-1] for guid in item.get("guids") if "tvdb://" in guid), None)
+                if tvdb_id:
+                    # TODO: Convert tvdb to imdb. Will work on this later.
+                    logger.debug("Found imdb id %s and tvdb id %s for %s", imdb_id, tvdb_id, item.get("title"))
+                else:
+                    # TODO: Needs testing to determine if streams only return tvdb/imdb or if there are other options.
+                    logger.debug("No imdb id or tvdb id found for %s", item.get("title"))
         return ids
