@@ -37,8 +37,6 @@ class MediaItem:
         # Media related
         self.title = item.get("title", None)
         self.imdb_id = item.get("imdb_id", None)
-        self.tmdb_id = item.get("tmdb_id", None)
-        self.tvdb_id = item.get("tvdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
         self.aired_at = item.get("aired_at", None)
@@ -85,8 +83,6 @@ class MediaItem:
             "title": self.title,
             "type": self.type,
             "imdb_id": self.imdb_id,
-            "tmdb_id": self.tmdb_id,
-            "tvdb_id": self.tvdb_id,
             "state": self.state.name,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,

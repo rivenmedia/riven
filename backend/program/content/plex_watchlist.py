@@ -48,7 +48,7 @@ class PlexWatchlist:
         if added_items_count != self.previous_added_items_count and added_items_count > 0:
             logger.info("Added %s items", added_items_count)
             self.previous_added_items_count = added_items_count
-        if len(added_items) > 0:
+        if added_items_count > 0:
             for added_item in added_items:
                 logger.debug("Added %s", added_item.title)
 
