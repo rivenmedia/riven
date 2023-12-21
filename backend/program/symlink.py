@@ -5,8 +5,8 @@ import time
 import PTN
 from utils.settings import settings_manager as settings
 from utils.logger import logger
+from utils.utils import parser
 from program.media import MediaItemState, MediaItemContainer
-from utils.thread import ThreadRunner
 
 
 class Symlinker(threading.Thread):
@@ -45,9 +45,6 @@ class Symlinker(threading.Thread):
             else:
                 logger.error("Rclone mount not found, retrying in 2...")
                 time.sleep(2)
-        if self.host_path:
-            self.cache_thread = ThreadRunner(self.update_cache, 10)
-            self.cache_thread.start()
 
     def run(self):
         while self.running:
@@ -59,7 +56,6 @@ class Symlinker(threading.Thread):
 
     def stop(self):
         self.running = False
-        self.cache_thread.stop()
         super().join()
 
     def _determine_file_name(self, item):
@@ -86,67 +82,34 @@ class Symlinker(threading.Thread):
         items = []
         for item in self.media_items:
             if item.type == "movie" and item.state is MediaItemState.DOWNLOAD:
-                item.set(
-                    "file",
-                    next(iter(item.active_stream["files"].values())).get("filename"),
-                )
-                file = self._find_file(item.file)
-                if file:
-                    item.set("folder", os.path.dirname(file).split("/")[-1])
+                self._handle_movie_paths(item)
+                if os.path.exists(os.path.join(self.host_path, item.folder, item.file)):
                     items.append(item)
-            if item.type == "show":
+            if item.type == "show" and item.state in [
+                MediaItemState.DOWNLOAD,
+                MediaItemState.LIBRARY_PARTIAL,
+            ]:
                 for season in item.seasons:
                     if season.state is MediaItemState.DOWNLOAD:
-                        stream = season.get("active_stream")
-                        if stream:
-                            for file in season.active_stream["files"].values():
-                                obj = PTN.parse(file["filename"])
-                                if not obj.get("episode"):
-                                    continue
-                                episode = obj["episode"]
-                                if type(episode) == list:
-                                    for sub_episode in episode:
-                                        if sub_episode - 1 in range(len(season.episodes)):
-                                            season.episodes[sub_episode - 1].set(
-                                                "file", file["filename"]
-                                            )
-                                else:
-                                    index = obj["episode"] - 1
-                                    if index in range(len(season.episodes)):
-                                        season.episodes[obj["episode"] - 1].set(
-                                            "file", file["filename"]
-                                        )
+                        self._handle_season_paths(season)
                         for episode in season.episodes:
                             if episode.state is MediaItemState.DOWNLOAD:
-                                file = self._find_file(episode.file)
-                                if file:
-                                    episode.set(
-                                        "folder", os.path.dirname(file).split("/")[-1]
+                                if os.path.exists(
+                                    os.path.join(
+                                        self.host_path, episode.folder, episode.file
                                     )
+                                ):
                                     items.append(episode)
                     else:
                         for episode in season.episodes:
                             if episode.state is MediaItemState.DOWNLOAD:
-                                stream = episode.get("active_stream")
-                                if stream:
-                                    for file in episode.active_stream["files"].values():
-                                        obj = PTN.parse(file["filename"])
-                                        if not obj.get("episode"):
-                                            continue
-                                        episode_number = obj["episode"]
-                                        if type(episode_number) == list:
-                                            if episode.number in episode_number:
-                                                episode.set("file", file["filename"])
-                                        else:
-                                            if episode.number == episode_number:
-                                                episode.set("file", file["filename"])
-                                        file = self._find_file(episode.file)
-                                        if file:
-                                            episode.set(
-                                                "folder",
-                                                os.path.dirname(file).split("/")[-1],
-                                            )
-                                            items.append(episode)
+                                self._handle_episode_paths(episode)
+                                if os.path.exists(
+                                    os.path.join(
+                                        self.host_path, episode.folder, episode.file
+                                    )
+                                ):
+                                    items.append(episode)
 
         for item in items:
             extension = item.file.split(".")[-1]
@@ -159,24 +122,28 @@ class Symlinker(threading.Thread):
                     + item.imdb_id
                     + "}"
                 )
-                folder_path = os.path.join(self.symlink_path, "movies", movie_folder)
-                symlink_path = os.path.join(folder_path, symlink_filename)
-                if not os.path.exists(folder_path):
-                    os.mkdir(folder_path)
+                symlink_folder_path = os.path.join(
+                    self.symlink_path, "movies", movie_folder
+                )
+                if not os.path.exists(symlink_folder_path):
+                    os.mkdir(symlink_folder_path)
+                symlink_path = os.path.join(symlink_folder_path, symlink_filename)
                 update_folder = os.path.join(
                     self.mount_path, os.pardir, "library", "movies", movie_folder
                 )
             if item.type == "episode":
                 show = item.parent.parent
-                show_folder = (
+                symlink_show_folder = (
                     f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
                 )
-                show_path = os.path.join(self.symlink_path, "shows", show_folder)
-                if not os.path.exists(show_path):
-                    os.mkdir(show_path)
+                symlink_show_path = os.path.join(
+                    self.symlink_path, "shows", symlink_show_folder
+                )
+                if not os.path.exists(symlink_show_path):
+                    os.mkdir(symlink_show_path)
                 season = item.parent
-                season_folder = f"Season {str(season.number).zfill(2)}"
-                season_path = os.path.join(show_path, season_folder)
+                symlink_season_folder = f"Season {str(season.number).zfill(2)}"
+                season_path = os.path.join(symlink_show_path, symlink_season_folder)
                 if not os.path.exists(season_path):
                     os.mkdir(season_path)
                 symlink_path = os.path.join(season_path, symlink_filename)
@@ -185,8 +152,8 @@ class Symlinker(threading.Thread):
                     os.pardir,
                     "library",
                     "shows",
-                    show_folder,
-                    season_folder,
+                    symlink_show_folder,
+                    symlink_season_folder,
                 )
 
             if symlink_path:
@@ -204,10 +171,25 @@ class Symlinker(threading.Thread):
                 logger.debug("Created symlink for %s", log_string)
                 item.symlinked = True
 
-    def _find_file(self, filename):
-        return self.cache.get(filename, None)
+    def _handle_movie_paths(self, item):
+        item.set("folder", item.active_stream.get("name"))
+        item.set(
+            "file",
+            next(iter(item.active_stream["files"].values())).get("filename"),
+        )
 
-    def update_cache(self):
-        for root, _, files in os.walk(self.host_path):
-            for file in files:
-                self.cache[file] = os.path.join(root, file)
+    def _handle_season_paths(self, season):
+        for file in season.active_stream["files"].values():
+            for episode in parser.episodes(file["filename"]):
+                if episode in range(len(season.episodes)):
+                    season.episodes[episode - 1].set(
+                        "folder", season.active_stream.get("name")
+                    )
+                    season.episodes[episode - 1].set("file", file["filename"])
+
+    def _handle_episode_paths(self, episode):
+        for file in episode.active_stream["files"].values():
+            for episode_number in parser.episodes(file["filename"]):
+                if episode.number == episode_number:
+                    episode.set("folder", episode.active_stream.get("name"))
+                    episode.set("file", file["filename"])

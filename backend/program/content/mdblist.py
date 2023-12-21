@@ -21,6 +21,7 @@ class Mdblist:
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         self.initialized = True
+        self.last_items = []
 
     def _validate_settings(self):
         response = ping(
@@ -39,14 +40,15 @@ class Mdblist:
                         items += self._get_items_from_list(
                             list_id, self.settings["api_key"]
                         )
-
-                new_items = [item for item in items if item not in self.media_items]
-                container = self.updater.create_items(new_items)
-                for item in container:
-                    item.set("requested_by", "Mdblist")
-                added_items = self.media_items.extend(container)
-                if len(added_items) > 0:
-                    logger.info("Added %s items", len(added_items))
+                if len(items) != len(self.last_items):
+                    self.last_items = items
+                    new_items = [item for item in items if item not in self.media_items]
+                    container = self.updater.create_items(new_items)
+                    for item in container:
+                        item.set("requested_by", "Mdblist")
+                    added_items = self.media_items.extend(container)
+                    if len(added_items) > 0:
+                        logger.info("Added %s items", len(added_items))
         except RateLimitExceeded:
             pass
 

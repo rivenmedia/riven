@@ -1,4 +1,5 @@
 """Plex library module"""
+import concurrent.futures
 import os
 import threading
 import time
@@ -6,7 +7,7 @@ from typing import List, Optional
 from plexapi import exceptions
 from plexapi.server import PlexServer
 import requests
-from requests.exceptions import ReadTimeout, ConnectionError
+from requests.exceptions import ConnectionError
 from pydantic import BaseModel, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
@@ -37,7 +38,9 @@ class Library(threading.Thread):
         while True:
             try:
                 temp_settings = settings.get("plex")
-                self.library_path = os.path.abspath(os.path.join(settings.get("container_mount"), os.pardir, "library"))
+                self.library_path = os.path.abspath(
+                    os.path.join(settings.get("container_mount"), os.pardir, "library")
+                )
                 self.plex = PlexServer(
                     temp_settings["url"], temp_settings["token"], timeout=15
                 )
@@ -71,15 +74,24 @@ class Library(threading.Thread):
         processed_sections = set()
 
         for section in sections:
-            if section.key in processed_sections and not self._is_wanted_section(section):
+            if section.key in processed_sections and not self._is_wanted_section(
+                section
+            ):
                 continue
 
             try:
                 if not section.refreshing:
-                    for item in section.all():
-                        media_item = self._create_item(item)
-                        if media_item:
-                            items.append(media_item)
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=5, thread_name_prefix="Plex"
+                    ) as executor:
+                        future_items = {
+                            executor.submit(self._create_item, item)
+                            for item in section.all()
+                        }
+                        for future in concurrent.futures.as_completed(future_items):
+                            media_item = future.result()
+                            if media_item:
+                                items.append(media_item)
             except requests.exceptions.ReadTimeout:
                 logger.error(
                     f"Timeout occurred when accessing section: {section.title}"
@@ -97,39 +109,42 @@ class Library(threading.Thread):
     def _update_sections(self):
         """Update plex library section"""
         for section in self.plex.library.sections():
-            if not self._is_wanted_section(section):
-                continue
-            movie_items = [
-                item
-                for item in self.media_items
-                if item.type == "movie"
-                and item.state is MediaItemState.SYMLINK
-                and item.update_folder != "updated"
-            ]
-            episodes = [
-                episode
-                for item in self.media_items
-                if item.type == "show"
-                for season in item.seasons
-                for episode in season.episodes
-                if episode.state is MediaItemState.SYMLINK
-                and episode.update_folder != "updated"
-            ]
-            items = movie_items + episodes
-
-            for item in items:
-                if (
-                    item.type == section.type
-                    or item.type in ["season", "episode"]
-                    and section.type == "show"
-                ):
-                    section.update(item.update_folder)
-                    item.set("update_folder", "updated")
-                    log_string = item.title
-                    if item.type == "episode":
-                        log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+            for item in self.media_items:
+                log_string = None
+                if section.type == item.type:
+                    if item.type == "movie":
+                        if (
+                            item.state is MediaItemState.SYMLINK
+                            and item.get("update_folder") != "updated"
+                        ):
+                            section.update(item.update_folder)
+                            item.set("update_folder", "updated")
+                            log_string = item.title
+                            break
+                    if item.type == "show":
+                        for season in item.seasons:
+                            if (
+                                season.state is MediaItemState.SYMLINK
+                                and season.get("update_folder") != "updated"
+                            ):
+                                section.update(season.episodes[0].update_folder)
+                                season.set("update_folder", "updated")
+                                log_string = f"{item.title} season {season.number}"
+                                break
+                            else:
+                                for episode in season.episodes:
+                                    if (
+                                        episode.state is MediaItemState.SYMLINK
+                                        and episode.get("update_folder") != "updated"
+                                        and episode.parent.get("update_folder")
+                                        != "updated"
+                                    ):
+                                        section.update(episode.update_folder)
+                                        episode.set("update_folder", "updated")
+                                        log_string = f"{item.title} season {season.number} episode {episode.number}"
+                                        break
+                if log_string:
                     logger.debug("Updated section %s for %s", section.title, log_string)
-                    break
 
     def _create_item(self, item):
         new_item = _map_item_from_data(item, item.type)
@@ -196,25 +211,28 @@ class Library(threading.Thread):
     def _is_wanted_section(self, section):
         return any(self.library_path in location for location in section.locations)
 
+
 def _map_item_from_data(item, item_type):
     """Map Plex API data to MediaItemContainer."""
-    guid = getattr(item, "guid", None)
     file = None
+    guid = getattr(item, "guid", None)
     if item_type in ["movie", "episode"]:
         file = getattr(item, "locations", [None])[0].split("/")[-1]
     genres = [genre.tag for genre in getattr(item, "genres", [])]
-    available_at = getattr(item, "originallyAvailableAt", None)
     title = getattr(item, "title", None)
-    guids = getattr(item, "guids", [])
     key = getattr(item, "key", None)
     season_number = getattr(item, "seasonNumber", None)
     episode_number = getattr(item, "episodeNumber", None)
     art_url = getattr(item, "artUrl", None)
+    imdb_id = None
+    aired_at = None
 
-    imdb_id = next(
-        (guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None
-    )
-    aired_at = available_at or None
+    if item_type != "season":
+        guids = getattr(item, "guids", [])
+        imdb_id = next(
+            (guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None
+        )
+        aired_at = getattr(item, "originallyAvailableAt", None)
 
     media_item_data = {
         "title": title,
