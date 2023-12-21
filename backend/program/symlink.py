@@ -49,6 +49,8 @@ class Symlinker(threading.Thread):
     def run(self):
         while self.running:
             self._run()
+            time.sleep(1)
+
 
     def start(self):
         self.running = True
