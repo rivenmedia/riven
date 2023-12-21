@@ -77,6 +77,8 @@ def _map_item_from_data(data, item_type):
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
         "imdb_id": getattr(data.ids, "imdb", None),
+        "tmdb_id": getattr(data.ids, "tmdb", None),
+        "tvdb_id": getattr(data.ids, "tvdb", None),
         "aired_at": formatted_aired_at,
         "genres": getattr(data, "genres", None),
         "requested_at": datetime.now(),

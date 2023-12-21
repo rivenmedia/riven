@@ -1,4 +1,4 @@
-.PHONY: help start reset stop restart rebuild logs exec sc ec update
+.PHONY: help start stop restart logs exec sc ec update
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -13,7 +13,6 @@ help:
 	@echo Iceberg Local Development Environment
 	@echo -------------------------------------------------------------------------
 	@echo start     : Build and run the Iceberg container
-	@echo reset     : Build and run the Iceberg container without caching image
 	@echo stop      : Stop and remove the Iceberg container and image
 	@echo restart   : Restart the Iceberg container (without rebuilding image)
 	@echo rebuild   : Rebuild the Iceberg container (with rebuilding image)
@@ -24,32 +23,23 @@ help:
 	@echo update    : Update this repository from GitHub and rebuild image
 	@echo -------------------------------------------------------------------------
 
-start: 
+start: stop
 	@docker build -t iceberg:latest -f Dockerfile .
 	@docker run -d --name iceberg --hostname iceberg -p 3000:3000 -p 8080:8080 -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data iceberg:latest
 	@echo Iceberg Frontend is running on http://localhost:3000/status/
 	@echo Iceberg Backend is running on http://localhost:8080/items/
 	@docker logs iceberg -f
 
-reset: 
-	@docker build --no-cache -t iceberg:latest -f Dockerfile .
-	@docker run -d --name iceberg --hostname iceberg -p 3000:3000 -p 8080:8080 -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data iceberg:latest
-	@echo Iceberg Frontend is running on http://localhost:3000/status/
-	@echo Iceberg Backend is running on http://localhost:8080/items/
-	@docker logs iceberg -f
-
 stop:
-	@-docker stop iceberg
-	@-docker rm iceberg
-	@-docker rmi iceberg:latest
+	@-docker stop iceberg --time 0
+	@-docker rm iceberg --force
+	@-docker rmi iceberg:latest --force
 
 restart: 
 	@-docker restart iceberg
 	@echo Iceberg Frontend is running on http://localhost:3000/status/
 	@echo Iceberg Backend is running on http://localhost:8080/items/
 	@docker logs iceberg -f
-
-rebuild: stop reset
 
 logs:
 	@docker logs iceberg -f
