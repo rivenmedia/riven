@@ -59,6 +59,7 @@ class Debrid(threading.Thread):
     def run(self):
         while self.running:
             self.download()
+            time.sleep(1)
 
     def start(self) -> None:
         self.running = True
@@ -131,7 +132,9 @@ class Debrid(threading.Thread):
         if item.type == "season":
             log_string = f"{item.parent.title} S{item.number}"
         if item.type == "episode":
-            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            log_string = (
+                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            )
 
         logger.debug("Downloaded %s", log_string)
         return 1

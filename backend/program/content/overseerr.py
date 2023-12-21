@@ -19,7 +19,6 @@ class Overseerr:
             return
         self.updater = Trakt()
         self.not_found_ids = []
-        self.last_items = []
         self.initialized = True
 
     def _validate_settings(self):
@@ -37,15 +36,13 @@ class Overseerr:
         """Fetch media from overseerr and add them to media_items attribute
         if they are not already there"""
         items = self._get_items_from_overseerr(10000)
-        if len(items) != len(self.last_items):
-            self.last_items = items
-            new_items = [item for item in items if item not in self.media_items]
-            container = self.updater.create_items(new_items)
-            for item in container:
-                item.set("requested_by", "Overseerr")
-            added_items = self.media_items.extend(container)
-            if len(added_items) > 0:
-                logger.info("Added %s items", len(added_items))
+        new_items = [item for item in items if item not in self.media_items]
+        container = self.updater.create_items(new_items)
+        for item in container:
+            item.set("requested_by", "Overseerr")
+        added_items = self.media_items.extend(container)
+        if len(added_items) > 0:
+            logger.info("Added %s items", len(added_items))
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""

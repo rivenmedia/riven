@@ -63,6 +63,7 @@ class Torrentio:
         amount_scraped = 0
         for item in items:
             data = self.api_scrape(item)
+            log_string = item.title
             if item.type == "season":
                 log_string = f"{item.parent.title} S{item.number}"
             if item.type == "episode":

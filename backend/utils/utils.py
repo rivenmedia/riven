@@ -35,22 +35,21 @@ class Pickly(threading.Thread):
             time.sleep(10)
 
 
-    
-class Parser():
+class Parser:
     def __init__(self):
         self.resolution = ["1080p", "720p"]
         self.language = ["English"]
 
     def _parse(self, string):
         parse = PTN.parse(string)
-        
+
         # episodes
         episodes = []
         if parse.get("episode", False):
             episode = parse.get("episode")
             if type(episode) == list:
-                    for sub_episode in episode:
-                        episodes.append(int(sub_episode))
+                for sub_episode in episode:
+                    episodes.append(int(sub_episode))
             else:
                 episodes.append(int(episode))
 
@@ -60,20 +59,24 @@ class Parser():
         if not language:
             language = "English"
         extended = parse.get("extended")
-        
+
         return {
             "episodes": episodes or [],
             "resolution": resolution or [],
             "language": language or [],
             "extended": extended,
         }
-    
+
     def episodes(self, string):
         parse = self._parse(string)
         return parse["episodes"]
 
     def parse(self, string):
         parse = self._parse(string)
-        return parse["resolution"] in self.resolution and parse["language"] in self.language
+        return (
+            parse["resolution"] in self.resolution
+            and parse["language"] in self.language
+        )
+
 
 parser = Parser()
