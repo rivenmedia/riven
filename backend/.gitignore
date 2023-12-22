@@ -11,7 +11,6 @@ __pycache__
 settings.json
 *.log
 data
-test*
 
 # User-specific stuff
 .idea/**/workspace.xml
