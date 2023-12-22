@@ -72,7 +72,8 @@ class Torrentio:
                 item.set("streams", data)
                 logger.debug("Found %s streams for %s", len(data), log_string)
                 amount_scraped += 1
-            logger.debug("Could not find streams for %s", log_string)
+            else:
+                logger.debug("Could not find streams for %s", log_string)
         return amount_scraped
 
     def _can_we_scrape(self, item: MediaItem) -> bool:
