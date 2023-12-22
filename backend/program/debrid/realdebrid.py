@@ -1,7 +1,6 @@
 """Realdebrid module"""
 import os
 import re
-import threading
 import time
 import requests
 import PTN
@@ -9,7 +8,7 @@ from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
 from utils.settings import settings_manager
-from program.media import MediaItem, MediaItemContainer, MediaItemState
+from utils.utils import parser
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
@@ -25,15 +24,13 @@ def get_user():
     return response.json()
 
 
-class Debrid(threading.Thread):
+class Debrid():
     """Real-Debrid API Wrapper"""
 
-    def __init__(self, media_items: MediaItemContainer):
-        super().__init__(name="Debrid")
+    def __init__(self):
         # Realdebrid class library is a necessity
         while True:
             self.settings = settings_manager.get("realdebrid")
-            self.media_items = media_items
             self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
             self.running = False
             if self._validate_settings():
@@ -56,44 +53,12 @@ class Debrid(threading.Thread):
         except ConnectTimeout:
             return False
 
-    def run(self):
-        while self.running:
-            self.download()
-            time.sleep(1)
+    def run(self, item):
+        self.download(item)
 
-    def start(self) -> None:
-        self.running = True
-        super().start()
-
-    def stop(self) -> None:
-        self.running = False
-        super().join()
-
-    def download(self):
+    def download(self, item):
         """Download given media items from real-debrid.com"""
-        added_files = 0
-
-        items = []
-        for item in self.media_items:
-            if item.state is not MediaItemState.LIBRARY:
-                if item.type == "movie" and item.state is MediaItemState.SCRAPE:
-                    items.append(item)
-                if item.type == "show":
-                    item._lock.acquire()
-                    for season in item.seasons:
-                        if season.state is MediaItemState.SCRAPE:
-                            items.append(season)
-                        else:
-                            for episode in season.episodes:
-                                if episode.state is MediaItemState.SCRAPE:
-                                    items.append(episode)
-                    item._lock.release()
-
-        for item in items:
-            added_files += self._download(item)
-
-        if added_files > 0:
-            logger.info("Downloaded %s cached releases", added_files)
+        self._download(item)
 
     def _download(self, item):
         """Download movie from real-debrid.com"""
@@ -103,6 +68,7 @@ class Debrid(threading.Thread):
         if not self._is_downloaded(item):
             downloaded = self._download_item(item)
         self._update_torrent_info(item)
+        self._set_file_paths(item)
         return downloaded
 
     def _is_downloaded(self, item):
@@ -189,7 +155,7 @@ class Debrid(threading.Thread):
             item.streams = {}
         return False
 
-    def _check_stream_availability(self, item: MediaItem):
+    def _check_stream_availability(self, item):
         if len(item.streams) == 0:
             return
         streams = "/".join(list(item.streams))
@@ -261,8 +227,39 @@ class Debrid(threading.Thread):
             )
             total_count += count_episodes(episode_numbers)
         return total_count
+    
+    def _set_file_paths(self, item):
+        if item.type == "movie":
+            self._handle_movie_paths(item)
+        if item.type == "season":
+            self._handle_season_paths(item)
+        if item.type == "episode":
+            self._handle_episode_paths(item)
 
-    def add_magnet(self, item: MediaItem) -> str:
+    def _handle_movie_paths(self, item):
+        item.set("folder", item.active_stream.get("name"))
+        item.set(
+            "file",
+            next(iter(item.active_stream["files"].values())).get("filename"),
+        )
+
+    def _handle_season_paths(self, season):
+        for file in season.active_stream["files"].values():
+            for episode in parser.episodes(file["filename"]):
+                if episode in range(len(season.episodes)):
+                    season.episodes[episode - 1].set(
+                        "folder", season.active_stream.get("name")
+                    )
+                    season.episodes[episode - 1].set("file", file["filename"])
+
+    def _handle_episode_paths(self, episode):
+        for file in episode.active_stream["files"].values():
+            for episode_number in parser.episodes(file["filename"]):
+                if episode.number == episode_number:
+                    episode.set("folder", episode.active_stream.get("name"))
+                    episode.set("file", file["filename"])
+
+    def add_magnet(self, item) -> str:
         """Add magnet link to real-debrid.com"""
         if not item.active_stream.get("hash"):
             return None
@@ -308,3 +305,5 @@ class Debrid(threading.Thread):
         )
         if response.is_ok:
             return response.data
+
+debrid = Debrid()

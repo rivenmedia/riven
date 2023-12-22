@@ -3,14 +3,8 @@ from datetime import datetime
 from os import path
 from utils.logger import get_data_path, logger
 from utils.request import get
-from program.media import (
-    Episode,
-    MediaItemContainer,
-    MediaItemState,
-    Movie,
-    Season,
-    Show,
-)
+from program.media.container import MediaItemContainer
+from program.media.item import Movie, Show, Season, Episode
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
@@ -73,7 +67,6 @@ def _map_item_from_data(data, item_type):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
     item = {
-        "state": MediaItemState.CONTENT,
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
         "imdb_id": getattr(data.ids, "imdb", None),

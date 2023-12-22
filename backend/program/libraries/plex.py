@@ -11,15 +11,9 @@ from requests.exceptions import ConnectionError
 from pydantic import BaseModel, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
-from program.media import (
-    MediaItemContainer,
-    MediaItemState,
-    MediaItem,
-    Movie,
-    Show,
-    Season,
-    Episode,
-)
+from program.media.container import MediaItemContainer
+import program.media.state as states
+from program.media.item import MediaItem, Movie, Show, Season, Episode
 
 
 class PlexSettings(BaseModel):
@@ -57,7 +51,6 @@ class Library(threading.Thread):
 
     def run(self):
         while self.running:
-            self._update_sections()
             self._update_items()
             time.sleep(1)
 
@@ -113,7 +106,7 @@ class Library(threading.Thread):
                 if section.type == item.type:
                     if item.type == "movie":
                         if (
-                            item.state is MediaItemState.SYMLINK
+                            item.state is states.Symlink
                             and item.get("update_folder") != "updated"
                         ):
                             section.update(item.update_folder)
@@ -123,7 +116,7 @@ class Library(threading.Thread):
                     if item.type == "show":
                         for season in item.seasons:
                             if (
-                                season.state is MediaItemState.SYMLINK
+                                season.state is states.Symlink
                                 and season.get("update_folder") != "updated"
                             ):
                                 section.update(season.episodes[0].update_folder)
@@ -133,7 +126,7 @@ class Library(threading.Thread):
                             else:
                                 for episode in season.episodes:
                                     if (
-                                        episode.state is MediaItemState.SYMLINK
+                                        episode.state is states.Symlink
                                         and episode.get("update_folder") != "updated"
                                         and episode.parent.get("update_folder")
                                         != "updated"
@@ -168,8 +161,8 @@ class Library(threading.Thread):
 
         for item in self.media_items:
             if item.state not in [
-                MediaItemState.LIBRARY,
-                MediaItemState.LIBRARY_PARTIAL,
+                states.Library,
+                states.LibraryPartial,
             ]:
                 for found_item in found_items:
                     if found_item.imdb_id == item.imdb_id:

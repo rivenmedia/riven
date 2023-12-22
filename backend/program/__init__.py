@@ -1,18 +1,15 @@
 """Program main module"""
-import os
 import threading
 import time
 from typing import Optional
 from pydantic import BaseModel, HttpUrl, Field
-from program.symlink import Symlinker
+from program.media.container import MediaItemContainer
 from utils.logger import logger, get_data_path
 from utils.settings import settings_manager
-from program.media import MediaItemContainer
 from program.libraries.plex import Library as Plex
-from program.debrid.realdebrid import Debrid as RealDebrid
 from program.content import Content
-from program.scrapers import Scraping
 from utils.utils import Pickly
+import concurrent.futures
 
 
 # Pydantic models for configuration
@@ -53,11 +50,13 @@ class Settings(BaseModel):
     realdebrid: RealDebridConfig
 
 
-class Program:
+class Program(threading.Thread):
     """Program class"""
 
     def __init__(self):
         logger.info("Iceberg initializing...")
+        super().__init__()
+        self.running = False
         self.settings = settings_manager.get_all()
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
@@ -66,13 +65,18 @@ class Program:
         self.threads = [
             Content(self.media_items),  # Content must be first
             Plex(self.media_items),
-            RealDebrid(self.media_items),
-            Symlinker(self.media_items),
-            Scraping(self.media_items),
         ]
         logger.info("Iceberg initialized!")
 
+    def run(self):
+        while self.running:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="Worker") as executor:
+                { executor.submit(item.perform_action) for item in self.media_items }
+            time.sleep(1)
+
     def start(self):
+        self.running = True
+        super().start()
         for thread in self.threads:
             thread.start()
 
@@ -80,3 +84,6 @@ class Program:
         for thread in self.threads:
             thread.stop()
         self.pickly.stop()
+        self.running = False
+        super().join()
+

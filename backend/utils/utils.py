@@ -3,11 +3,8 @@ import threading
 import time
 import PTN
 
-from program.media import MediaItemContainer
-
-
 class Pickly(threading.Thread):
-    def __init__(self, media_items: MediaItemContainer, data_path: str):
+    def __init__(self, media_items, data_path: str):
         super().__init__(name="Pickly")
         self.media_items = media_items
         self.data_path = data_path
