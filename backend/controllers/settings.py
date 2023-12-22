@@ -2,11 +2,12 @@ from copy import copy
 from fastapi import APIRouter
 from utils.settings import settings_manager
 from pydantic import BaseModel
+from typing import Any
 
 
 class SetSettings(BaseModel):
     key: str
-    value: str
+    value: Any
 
 
 router = APIRouter(

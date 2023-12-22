@@ -16,7 +16,9 @@ export interface UserResponse {
 }
 
 export interface PlexDebridItem {
+	item_id: number;
 	title: string;
+	type: string;
 	imdb_id: string;
 	state: string;
 	imdb_link: string;
@@ -24,6 +26,7 @@ export interface PlexDebridItem {
 	genres: string[];
 	guid: string;
 	requested_at: string;
+	requested_by: string;
 }
 
 export interface StatusInterface {

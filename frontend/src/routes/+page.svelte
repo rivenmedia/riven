@@ -1,20 +1,16 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { formatRDDate, formatWords } from '$lib/helpers';
 	import type { UserResponse, IcebergServices } from '$lib/types';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Loader2, Check, X } from 'lucide-svelte';
 
-	interface ServiceResponse {
+	type ServiceResponse = {
 		success: boolean;
 		data: IcebergServices;
-	}
+	};
 
-	interface ExportedData {
-		user: UserResponse;
-		services: Promise<ServiceResponse>;
-	}
-
-	export let data: ExportedData;
+	export let data: PageData;
 
 	function checkConfiguration(data: IcebergServices) {
 		const fieldsToCheck: { [key: string]: string } = {

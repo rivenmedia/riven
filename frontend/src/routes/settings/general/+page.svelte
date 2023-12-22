@@ -1,55 +1,109 @@
 <script lang="ts">
-	import * as Form from '$lib/components/ui/form';
+	import type { PageData } from './$types';
+	import { superForm } from 'sveltekit-superforms/client';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
-	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/schemas/setting';
 	import { toast } from 'svelte-sonner';
-	import type { SuperValidated } from 'sveltekit-superforms';
+	import { Loader2 } from 'lucide-svelte';
 
-	export let form: SuperValidated<GeneralSettingsSchema>;
-	export let data: any;
+	export let data: PageData;
+	const { form, errors, message, enhance, constraints, delayed } = superForm(data.form);
+
+	$: if ($message) {
+		toast.success($message);
+	}
 </script>
 
-<pre>{JSON.stringify(data, null, 2)}</pre>
-<pre>{JSON.stringify(form, null, 2)}</pre>
 
-<Form.Root method="POST" {form} schema={generalSettingsSchema} let:config>
-	<Form.Field {config} name="host_mount">
-		<Form.Item>
-			<Form.Label class="text-xl">Host Mount</Form.Label>
-			<Form.Input class="text-base" />
-			<Form.Description>This is your host mount</Form.Description>
-			<Form.Validation />
-		</Form.Item>
-	</Form.Field>
-	<Form.Field {config} name="container_mount">
-		<Form.Item>
-			<Form.Label class="text-xl">Container Mount</Form.Label>
-			<Form.Input class="text-base" />
-			<Form.Description>This is your container mount</Form.Description>
-			<Form.Validation />
-		</Form.Item>
-	</Form.Field>
-	<Form.Field {config} name="realdebrid_api_key">
-		<Form.Item>
-			<Form.Label class="text-xl">Realdebrid API Key</Form.Label>
-			<Form.Input
-				class="text-base blur-sm hover:blur-none focus:blur-none transition-all duration-300"
+<div class="flex flex-col">
+	<h2 class="text-2xl md:text-3xl font-semibold">General Settings</h2>
+	<p class="text-base md:text-lg text-muted-foreground">
+		Configure global and default settings for Iceberg.
+	</p>
+
+	<form method="POST" class="flex flex-col my-4 gap-4" use:enhance>
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+			<Label
+				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+				for="host_mount">Host Mount</Label
+			>
+			<Input
+				class="text-sm md:text-base"
+				type="text"
+				id="host_mount"
+				name="host_mount"
+				bind:value={$form.host_mount}
+				{...$constraints.host_mount}
 			/>
-			<Form.Description>This is your realdebrid api key</Form.Description>
-			<Form.Validation />
-		</Form.Item>
-	</Form.Field>
-	<Form.Field {config} name="torrentio_filter">
-		<Form.Item>
-			<Form.Label class="text-xl">Torrentio Filter</Form.Label>
-			<Form.Input class="text-base" />
-			<Form.Description>This is your torrentio filter</Form.Description>
-			<Form.Validation />
-		</Form.Item>
-	</Form.Field>
-	<Separator class="my-8 p-1 w-full" />
+		</div>
+		{#if $errors.host_mount}
+			<small class="text-sm md:text-base text-red-500">{$errors.host_mount}</small>
+		{/if}
 
-	<div class="flex w-full justify-end">
-		<Form.Button size="sm">Save changes</Form.Button>
-	</div>
-</Form.Root>
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+			<Label
+				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+				for="container_mount">Container Mount</Label
+			>
+			<Input
+				class="text-sm md:text-base"
+				type="text"
+				id="container_mount"
+				name="container_mount"
+				bind:value={$form.container_mount}
+				{...$constraints.container_mount}
+			/>
+		</div>
+		{#if $errors.container_mount}
+			<p class="text-sm md:text-base text-red-500">{$errors.container_mount}</p>
+		{/if}
+
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+			<Label
+				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+				for="realdebrid_api_key">RealDebrid API Key</Label
+			>
+			<Input
+				class="blur-sm hover:blur-none focus:blur-none transition-all duration-300 text-sm md:text-base"
+				type="text"
+				id="realdebrid_api_key"
+				name="realdebrid_api_key"
+				bind:value={$form.realdebrid_api_key}
+				{...$constraints.realdebrid_api_key}
+			/>
+		</div>
+		{#if $errors.realdebrid_api_key}
+			<p class="text-sm md:text-base text-red-500">{$errors.realdebrid_api_key}</p>
+		{/if}
+
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+			<Label
+				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+				for="torrentio_filter">Torrentio Filter</Label
+			>
+			<Input
+				class="text-sm md:text-base"
+				type="text"
+				id="torrentio_filter"
+				name="torrentio_filter"
+				bind:value={$form.torrentio_filter}
+				{...$constraints.torrentio_filter}
+			/>
+		</div>
+		{#if $errors.torrentio_filter}
+			<p class="text-sm md:text-base text-red-500">{$errors.torrentio_filter}</p>
+		{/if}
+
+		<Separator class=" mt-4" />
+		<div class="flex w-full justify-end">
+			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max">
+				{#if $delayed}
+					<Loader2 class="w-4 h-4 animate-spin mr-2" />
+				{/if}
+				Save changes
+			</Button>
+		</div>
+	</form>
+</div>

@@ -1,26 +1,14 @@
 import type { PageServerLoad, Actions } from './$types';
-import { fail } from '@sveltejs/kit';
-import { error } from '@sveltejs/kit';
-import { superValidate } from 'sveltekit-superforms/server';
+import { fail, error } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import { generalSettingsSchema } from '$lib/schemas/setting';
+import { getSettings, setSettings } from '$lib/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
-	async function getSettings() {
+	async function getPartialSettings() {
 		try {
 			const toGet = ['version', 'host_mount', 'container_mount', 'realdebrid', 'torrentio'];
-			const promises = toGet.map(async (item) => {
-				const res = await fetch(`http://127.0.0.1:8080/settings/get/${item}`);
-				if (res.ok) {
-					return await res.json();
-				}
-				error(400, `Unable to fetch settings data: ${res.status} ${res.statusText}`);
-			});
-
-			const results = (await Promise.all(promises)).reduce((acc, item, index) => {
-				acc[toGet[index]] = item;
-				return acc;
-			}, {});
-
+			const results = await getSettings(fetch, toGet);
 			return results;
 		} catch (e) {
 			console.error(e);
@@ -28,7 +16,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	let toPassToSchema: any = await getSettings();
+	let toPassToSchema: any = await getPartialSettings();
 	toPassToSchema = {
 		host_mount: toPassToSchema.host_mount.data,
 		container_mount: toPassToSchema.container_mount.data,
@@ -50,8 +38,28 @@ export const actions: Actions = {
 			});
 		}
 		console.log(form);
-		return {
-			form
+
+		const toSet = {
+			host_mount: form.data.host_mount,
+			container_mount: form.data.container_mount,
+			realdebrid: {
+				api_key: form.data.realdebrid_api_key
+			},
+			torrentio: {
+				filter: form.data.torrentio_filter
+			}
 		};
+
+		try {
+			const data = await setSettings(event.fetch, toSet);
+			console.log(data);
+		} catch (e) {
+			console.error(e);
+			return message(form, 'Unable to save settings. API is down.', {
+				status: 400
+			});
+		}
+
+		return message(form, 'Settings saved!');
 	}
 };

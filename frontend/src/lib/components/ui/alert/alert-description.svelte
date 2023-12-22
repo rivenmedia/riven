@@ -3,10 +3,11 @@
 	import type { HTMLAttributes } from "svelte/elements";
 
 	type $$Props = HTMLAttributes<HTMLDivElement>;
-	let className: string | undefined | null = undefined;
+
+	let className: $$Props["class"] = undefined;
 	export { className as class };
 </script>
 
-<div class={cn("space-y-2", className)} {...$$restProps}>
+<div class={cn("text-sm [&_p]:leading-relaxed", className)} {...$$restProps}>
 	<slot />
 </div>

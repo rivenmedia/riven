@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { convertPlexDebridItemsToObject, formatWords } from '$lib/helpers';
 	import { invalidateAll, invalidate } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
@@ -9,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
 
-	export let data;
+	export let data: PageData;
 
 	let reloadButtonLoading = false;
 

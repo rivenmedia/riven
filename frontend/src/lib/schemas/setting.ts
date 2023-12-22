@@ -1,10 +1,8 @@
 import { z } from 'zod';
 
 export const generalSettingsSchema = z.object({
-	host_mount: z.string(),
-	container_mount: z.string(),
-	realdebrid_api_key: z.string(),
-	torrentio_filter: z.string()
+	host_mount: z.string().min(1),
+	container_mount: z.string().min(1),
+	realdebrid_api_key: z.string().min(1),
+	torrentio_filter: z.string().min(1),
 });
-
-export type GeneralSettingsSchema = typeof generalSettingsSchema;
