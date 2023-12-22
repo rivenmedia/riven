@@ -9,6 +9,10 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      security-events: write
 
     steps:
     - name: Docker Setup QEMU
