@@ -28,10 +28,17 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	return {
-		settings: await getSettings(),
-		form: superValidate(generalSettingsSchema)
+	let toPassToSchema: any = await getSettings();
+	toPassToSchema = {
+		host_mount: toPassToSchema.host_mount.data,
+		container_mount: toPassToSchema.container_mount.data,
+		realdebrid_api_key: toPassToSchema.realdebrid.data.api_key,
+		torrentio_filter: toPassToSchema.torrentio.data.filter
 	};
+
+	const form = await superValidate(toPassToSchema, generalSettingsSchema);
+
+	return { form };
 };
 
 export const actions: Actions = {
