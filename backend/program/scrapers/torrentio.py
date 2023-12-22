@@ -109,11 +109,11 @@ class Torrentio:
         with self.minute_limiter:
             if item.type == "season":
                 identifier = f":{item.number}:1"
-                scrape_type = "show"
+                scrape_type = "series"
                 imdb_id = item.parent.imdb_id
             elif item.type == "episode":
                 identifier = f":{item.parent.number}:{item.number}"
-                scrape_type = "show"
+                scrape_type = "series"
                 imdb_id = item.parent.parent.imdb_id
             else:
                 identifier = None
