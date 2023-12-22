@@ -25,9 +25,7 @@ def get_user():
     return response.json()
 
 
-class Debrid(
-    threading.Thread
-):  # TODO CHECK TORRENTS LIST BEFORE DOWNLOAD, IF DOWNLOADED AND NOT IN LIBRARY CHOOSE ANOTHER TORRENT
+class Debrid(threading.Thread):
     """Real-Debrid API Wrapper"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -41,7 +39,9 @@ class Debrid(
             if self._validate_settings():
                 self._torrents = {}
                 break
-            logger.error("Realdebrid settings incorrect or not premium, retrying in 2...")
+            logger.error(
+                "Realdebrid settings incorrect or not premium, retrying in 2..."
+            )
             time.sleep(2)
 
     def _validate_settings(self):
@@ -59,6 +59,7 @@ class Debrid(
     def run(self):
         while self.running:
             self.download()
+            time.sleep(1)
 
     def start(self) -> None:
         self.running = True
@@ -96,36 +97,44 @@ class Debrid(
 
     def _download(self, item):
         """Download movie from real-debrid.com"""
+        downloaded = 0
         self._check_stream_availability(item)
         self._determine_best_stream(item)
         if not self._is_downloaded(item):
-            self._download_item(item)
-            return 1
-        return 0
+            downloaded = self._download_item(item)
+        self._update_torrent_info(item)
+        return downloaded
 
     def _is_downloaded(self, item):
         if not item.get("active_stream", None):
             return False
         torrents = self.get_torrents()
-        if any(torrent.hash == item.active_stream.get("hash") for torrent in torrents):
-            logger.debug("Torrent already downloaded")
-            return True
+        for torrent in torrents:
+            if torrent.hash == item.active_stream.get("hash"):
+                item.set("active_stream.id", torrent.id)
+                logger.debug("Torrent already downloaded")
+                return True
         return False
 
+    def _update_torrent_info(self, item):
+        info = self.get_torrent_info(item.get("active_stream")["id"])
+        item.active_stream["name"] = info.filename
+
     def _download_item(self, item):
-        if not item.get("active_stream", None):
-            return 0
         request_id = self.add_magnet(item)
 
         time.sleep(0.3)
         self.select_files(request_id, item)
+        item.set("active_stream.id", request_id)
 
         if item.type == "movie":
             log_string = item.title
         if item.type == "season":
             log_string = f"{item.parent.title} S{item.number}"
         if item.type == "episode":
-            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            log_string = (
+                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            )
 
         logger.debug("Downloaded %s", log_string)
         return 1
@@ -183,9 +192,7 @@ class Debrid(
     def _check_stream_availability(self, item: MediaItem):
         if len(item.streams) == 0:
             return
-        streams = "/".join(
-            list(item.streams)
-        )
+        streams = "/".join(list(item.streams))
         response = get(
             f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
             additional_headers=self.auth_headers,
@@ -276,10 +283,7 @@ class Debrid(
         """Add magnet link to real-debrid.com"""
         response = get(
             "https://api.real-debrid.com/rest/1.0/torrents/",
-            data = {
-                "offset": 0,
-                "limit": 2500
-            },
+            data={"offset": 0, "limit": 2500},
             additional_headers=self.auth_headers,
         )
         if response.is_ok:

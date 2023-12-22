@@ -1,5 +1,7 @@
 """Program main module"""
 import os
+import threading
+import time
 from typing import Optional
 from pydantic import BaseModel, HttpUrl, Field
 from program.symlink import Symlinker
@@ -10,6 +12,7 @@ from program.libraries.plex import Library as Plex
 from program.debrid.realdebrid import Debrid as RealDebrid
 from program.content import Content
 from program.scrapers import Scraping
+from utils.utils import Pickly
 
 
 # Pydantic models for configuration
@@ -58,7 +61,8 @@ class Program:
         self.settings = settings_manager.get_all()
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
-        self.media_items.load(os.path.join(self.data_path, "media.pkl"))
+        self.pickly = Pickly(self.media_items, self.data_path)
+        self.pickly.start()
         self.threads = [
             Content(self.media_items),  # Content must be first
             Plex(self.media_items),
@@ -75,4 +79,4 @@ class Program:
     def stop(self):
         for thread in self.threads:
             thread.stop()
-        self.media_items.save(os.path.join(self.data_path, "media.pkl"))
+        self.pickly.stop()

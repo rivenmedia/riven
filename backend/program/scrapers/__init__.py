@@ -26,6 +26,8 @@ class Scraping(threading.Thread):
             for service in self.services:
                 if service.initialized:
                     service.run()
+                    time.sleep(1)
+
 
     def start(self) -> None:
         self.running = True
