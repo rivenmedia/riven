@@ -10,7 +10,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			return results;
 		} catch (e) {
 			console.error(e);
-			error(500, 'Unable to fetch settings data. API is down.');
+			error(503, 'Unable to fetch settings data. API is down.');
 		}
 	}
 

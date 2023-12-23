@@ -12,7 +12,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch user data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(500, 'Unable to fetch user data. API is down.');
+			error(503, 'Unable to fetch user data. API is down.');
 		}
 	}
 
@@ -25,7 +25,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch services data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(500, 'Unable to fetch services data. API is down.');
+			error(503, 'Unable to fetch services data. API is down.');
 		}
 	}
 
