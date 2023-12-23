@@ -7,15 +7,17 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
+	import { page } from '$app/stores';
 
 	export let data: PageData;
 	const { form, errors, message, enhance, constraints, delayed } = superForm(data.form);
 
-	$: if ($message) {
+	$: if ($message && $page.status === 200) {
 		toast.success($message);
+	} else if ($message) {
+		toast.error($message);
 	}
 </script>
-
 
 <div class="flex flex-col">
 	<h2 class="text-2xl md:text-3xl font-semibold">General Settings</h2>

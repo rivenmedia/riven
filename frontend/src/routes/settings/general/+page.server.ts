@@ -52,7 +52,6 @@ export const actions: Actions = {
 
 		try {
 			const data = await setSettings(event.fetch, toSet);
-			console.log(data);
 		} catch (e) {
 			console.error(e);
 			return message(form, 'Unable to save settings. API is down.', {
