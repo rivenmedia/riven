@@ -1,7 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ fetch }) => {
+export const load: PageServerLoad = async ({ fetch, depends }) => {
+	depends('api:states');
+
 	async function getStates() {
 		try {
 			const res = await fetch('http://127.0.0.1:8080/items/states');
@@ -11,7 +13,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch states data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(500, 'Unable to fetch states data. API is down.');
+			error(503, 'Unable to fetch states data. API is down.');
 		}
 	}
 
@@ -24,12 +26,12 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch items data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(500, 'Unable to fetch items data. API is down.');
+			error(503, 'Unable to fetch items data. API is down.');
 		}
 	}
 
 	return {
-		items: getItems(),
-		states: await getStates()
+		states: await getStates(),
+		items: getItems()
 	};
 };

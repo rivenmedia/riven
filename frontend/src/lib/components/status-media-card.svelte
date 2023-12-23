@@ -9,6 +9,9 @@
 	let fallback = 'https://via.placeholder.com/198x228.png?text=No+thumbnail';
 	let poster = `https://images.metahub.space/poster/small/${plexDebridItem.imdb_id}/img`;
 	let banner = `https://images.metahub.space/background/medium/${plexDebridItem.imdb_id}/img`;
+
+	// TODO: Use item ID to show more data
+	// TODO: Make use of type
 </script>
 
 <div
@@ -52,6 +55,10 @@
 			<div class="flex gap-2 items-center">
 				<p class="text-lg font-semibold">Requested</p>
 				<p>{formatDate(plexDebridItem.requested_at, 'long', true)}</p>
+			</div>
+			<div class="flex gap-2 items-center">
+				<p class="text-lg font-semibold">Requested by</p>
+				<p>{plexDebridItem.requested_by}</p>
 			</div>
 		</div>
 	</div>

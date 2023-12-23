@@ -2,11 +2,12 @@ from copy import copy
 from fastapi import APIRouter
 from utils.settings import settings_manager
 from pydantic import BaseModel
+from typing import Any
 
 
 class SetSettings(BaseModel):
     key: str
-    value: str
+    value: Any
 
 
 router = APIRouter(
@@ -31,6 +32,14 @@ async def save_settings():
     return {
         "success": True,
         "message": "Settings saved!",
+    }
+
+
+@router.get('/get/all')
+async def get_all_settings():
+    return {
+        "success": True,
+        "data": copy(settings_manager.get_all()),
     }
 
 

@@ -1,6 +1,7 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { convertPlexDebridItemsToObject, formatWords } from '$lib/helpers';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, invalidate } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as Accordion from '$lib/components/ui/accordion';
@@ -8,15 +9,14 @@
 	import StatusMediaCard from '$lib/components/status-media-card.svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
-	import { onMount } from 'svelte';
 
-	export let data;
+	export let data: PageData;
 
 	let reloadButtonLoading = false;
 
 	async function reloadData(message: string = 'Refreshed data') {
 		reloadButtonLoading = true;
-		await invalidateAll();
+		await invalidate('api:states');
 		reloadButtonLoading = false;
 		toast.success(message);
 	}
@@ -60,13 +60,6 @@
 			description: 'Item is in your library and is ongoing'
 		}
 	};
-
-	// every 5s reload data
-	onMount(async () => {
-		setInterval(async () => {
-			await reloadData('Automatically refreshed data');
-		}, 60000);
-	});
 </script>
 
 <svelte:head>
