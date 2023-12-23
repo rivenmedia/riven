@@ -11,5 +11,5 @@ export const plexSettingsSchema = z.object({
 	user: z.string().min(1),
 	token: z.string().min(1),
 	url: z.string().min(1),
-	watchlist: z.string().default('').optional()
+	watchlist: z.string().optional().default('')
 });
