@@ -40,6 +40,7 @@
 	"dependencies": {
 		"bits-ui": "^0.11.8",
 		"clsx": "^2.0.0",
+		"cmdk-sv": "^0.0.12",
 		"lucide-svelte": "^0.298.0",
 		"luxon": "^3.4.4",
 		"mode-watcher": "^0.1.2",

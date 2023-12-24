@@ -52,7 +52,7 @@
 	</Select.Root>
 
 	<div
-		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-2 gap-2 rounded-md text-base"
+		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-1 gap-2 rounded-md text-base"
 	>
 		{#each settingsItems as item}
 			<a

@@ -10,6 +10,9 @@ export const generalSettingsSchema = z.object({
 export const plexSettingsSchema = z.object({
 	user: z.string().min(1),
 	token: z.string().min(1),
-	url: z.string().min(1),
+	url: z.string().url().min(1),
 	watchlist: z.string().optional().default('')
 });
+
+type GeneralSettings = z.infer<typeof generalSettingsSchema>;
+type PlexSettings = z.infer<typeof plexSettingsSchema>;

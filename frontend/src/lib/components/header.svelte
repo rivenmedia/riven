@@ -2,7 +2,7 @@
 	import type { NavItem } from '$lib/types';
 	import ThemeSwitcher from '$lib/components/theme-switcher.svelte';
 	import NavigationItem from '$lib/components/header-item.svelte';
-	import { Mountain, MoreHorizontal, X, Loader2 } from 'lucide-svelte';
+	import { Mountain, MoreHorizontal, X, Command } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { navigating } from '$app/stores';
 
@@ -32,6 +32,13 @@
 	<a href="/" class="flex items-center gap-2">
 		<Mountain class="h-8 w-8" />
 		<h1 class="text-3xl font-semibold tracking-wider">Iceberg</h1>
+		<div class="ml-2 hidden lg:flex items-center p-2 px-4 bg-slate-100 dark:bg-slate-900 rounded-md">
+			<div class="flex items-center">
+				<Command class="h-4 w-4" />
+				<span>K</span>
+			</div>
+			<span class="ml-2">to open command palette</span>
+		</div>
 	</a>
 	<nav class="items-center gap-6 tracking-wider hidden md:flex">
 		<div class="flex items-center gap-3">
