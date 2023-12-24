@@ -3,10 +3,21 @@
 	import { Toaster } from 'svelte-sonner';
 	import '../app.pcss';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import NProgress from 'nprogress';
 	import Header from '$lib/components/header.svelte';
 	import * as Command from '$lib/components/ui/command';
 	import { Settings, CircleDashed, SlidersHorizontal, Info, Layers, Tv } from 'lucide-svelte';
+
+	beforeNavigate(() => {
+		NProgress.start();
+	});
+	afterNavigate(() => {
+		NProgress.done();
+	});
+	NProgress.configure({
+		showSpinner: false
+	});
 
 	let open = false;
 	onMount(() => {
