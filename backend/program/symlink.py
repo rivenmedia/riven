@@ -126,5 +126,7 @@ class Symlinker(threading.Thread):
                 log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
             logger.debug("Created symlink for %s", log_string)
             item.symlinked = True
+        else:
+            logger.debug("Could not create symlink for %s in path %s", item.title, symlink_path)
 
 symlink = Symlinker()

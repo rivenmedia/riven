@@ -3,24 +3,30 @@ import concurrent.futures
 import os
 import threading
 import time
-from typing import List, Optional
+import requests
+from typing import List
 from plexapi import exceptions
 from plexapi.server import PlexServer
-import requests
 from requests.exceptions import ConnectionError
 from pydantic import BaseModel, HttpUrl
 from utils.logger import logger
 from utils.settings import settings_manager as settings
+from program.updaters.trakt import get_imdbid_from_tvdb
 from program.media.container import MediaItemContainer
-import program.media.state as states
-from program.media.item import MediaItem, Movie, Show, Season, Episode
+from program.media.state import States
+from program.media.item import (
+    MediaItem,
+    Movie,
+    Show,
+    Season,
+    Episode,
+)
 
 
 class PlexSettings(BaseModel):
     user: str
     token: str
     url: HttpUrl
-    user_watchlist_rss: Optional[str] = None
 
 
 class Library(threading.Thread):
@@ -36,10 +42,11 @@ class Library(threading.Thread):
                     os.path.join(settings.get("container_mount"), os.pardir, "library")
                 )
                 self.plex = PlexServer(
-                    temp_settings["url"], temp_settings["token"], timeout=15
+                    temp_settings["url"], temp_settings["token"], timeout=10
                 )
                 self.settings = PlexSettings(**temp_settings)
                 self.running = False
+                self.log_worker_count = False
                 self.media_items = media_items
                 self._update_items()
                 break
@@ -47,10 +54,15 @@ class Library(threading.Thread):
                 logger.error("Wrong plex token, retrying in 2...")
             except ConnectionError:
                 logger.error("Couldnt connect to plex, retrying in 2...")
+            except TimeoutError as e:
+                logger.warn(f"Plex timed out: retrying in 2 seconds... {str(e)}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Unknown error: {str(e)}", exc_info=True)
             time.sleep(2)
 
     def run(self):
         while self.running:
+            self._update_sections()
             self._update_items()
             time.sleep(1)
 
@@ -66,17 +78,20 @@ class Library(threading.Thread):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
+        max_workers = 2 * os.cpu_count() + len(sections)
+        if not self.log_worker_count:
+            # Only log worker count once to tell user how many workers are being used
+            logger.debug(f"Using {max_workers} workers for Plex")
+            self.log_worker_count = True
 
         for section in sections:
-            if section.key in processed_sections and not self._is_wanted_section(
-                section
-            ):
+            if section.key in processed_sections and not self._is_wanted_section(section):
                 continue
 
             try:
                 if not section.refreshing:
                     with concurrent.futures.ThreadPoolExecutor(
-                        max_workers=5, thread_name_prefix="Plex"
+                        max_workers=max_workers, thread_name_prefix="Plex"
                     ) as executor:
                         future_items = {
                             executor.submit(self._create_item, item)
@@ -86,10 +101,8 @@ class Library(threading.Thread):
                             media_item = future.result()
                             if media_item:
                                 items.append(media_item)
-            except requests.exceptions.ReadTimeout:
-                logger.error(
-                    f"Timeout occurred when accessing section: {section.title}"
-                )
+            except requests.exceptions.ReadTimeout as e:
+                logger.error(f"Timeout occurred when accessing section {section.title} with Reason: {str(e)}")
                 continue
 
             processed_sections.add(section.key)
@@ -106,7 +119,7 @@ class Library(threading.Thread):
                 if section.type == item.type:
                     if item.type == "movie":
                         if (
-                            item.state is states.Symlink
+                            item.state is States.Symlink
                             and item.get("update_folder") != "updated"
                         ):
                             section.update(item.update_folder)
@@ -116,7 +129,7 @@ class Library(threading.Thread):
                     if item.type == "show":
                         for season in item.seasons:
                             if (
-                                season.state is states.Symlink
+                                season.state is States.Symlink
                                 and season.get("update_folder") != "updated"
                             ):
                                 section.update(season.episodes[0].update_folder)
@@ -126,7 +139,7 @@ class Library(threading.Thread):
                             else:
                                 for episode in season.episodes:
                                     if (
-                                        episode.state is states.Symlink
+                                        episode.state is States.Symlink
                                         and episode.get("update_folder") != "updated"
                                         and episode.parent.get("update_folder")
                                         != "updated"
@@ -161,8 +174,8 @@ class Library(threading.Thread):
 
         for item in self.media_items:
             if item.state not in [
-                states.Library,
-                states.LibraryPartial,
+                States.Library,
+                States.LibraryPartial,
             ]:
                 for found_item in found_items:
                     if found_item.imdb_id == item.imdb_id:
@@ -209,6 +222,7 @@ def _map_item_from_data(item):
     episode_number = getattr(item, "episodeNumber", None)
     art_url = getattr(item, "artUrl", None)
     imdb_id = None
+    tvdb_id = None
     aired_at = None
 
     if item.type in ["movie", "show"]:
@@ -218,9 +232,17 @@ def _map_item_from_data(item):
         )
         aired_at = getattr(item, "originallyAvailableAt", None)
 
+    # All movies have imdb, but not all shows do
+    if item.type == "show" and not imdb_id:
+        tvdb_id = getattr(item, "guid", None).split("://")[-1].split("?")[0] or None
+        logger.debug("Found tvdb_id %s for %s", tvdb_id, title)
+        imdb_id = get_imdbid_from_tvdb(tvdb_id)
+        logger.debug("Found imdb_id %s for %s, from tvdb %s", imdb_id, title, tvdb_id)
+
     media_item_data = {
         "title": title,
         "imdb_id": imdb_id,
+        "tvdb_id": tvdb_id,
         "aired_at": aired_at,
         "genres": genres,
         "key": key,
@@ -242,4 +264,5 @@ def _map_item_from_data(item):
         media_item_data["season_number"] = season_number
         return Episode(media_item_data)
     else:
+        logger.error("Unknown Item: %s with type %s", item.title, item.type)
         return None

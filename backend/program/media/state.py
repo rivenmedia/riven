@@ -16,7 +16,7 @@ class States(IntEnum):
 class MediaItemState():
 
     def __eq__(self, obj: object) -> bool:
-        return isinstance(self, obj)
+        return type(self) is type(obj)
 
     def set_context(self, context):
         self.context = context

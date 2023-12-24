@@ -22,6 +22,11 @@ class MediaItem:
         self.imdb_id = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
+        self.tvdb_id = item.get("tvdb_id", None)
+        self.tmdb_id = item.get("tmdb_id", None)
+        self.network = item.get("network", None)
+        self.country = item.get("country", None)
+        self.language = item.get("language", None)
         self.aired_at = item.get("aired_at", None)
         self.genres = item.get("genres", [])
 
@@ -31,7 +36,7 @@ class MediaItem:
         self.updated = None
 
         self.state.set_context(self)
-    
+
     def perform_action(self):
         self._lock.acquire()
         self.state.perform_action()
@@ -77,11 +82,16 @@ class MediaItem:
             "item_id": self.itemid,
             "title": self.title,
             "type": self.type,
-            "imdb_id": self.imdb_id,
+            "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
+            "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
+            "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "state": self.state.name,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
-            "genres": self.genres,
+            "network": self.network if hasattr(self, "network") else None,
+            "country": self.country if hasattr(self, "country") else None,
+            "language": self.language if hasattr(self, "language") else None,
+            "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": self.requested_at,
             "requested_by": self.requested_by
@@ -133,6 +143,7 @@ class Show(MediaItem):
     """Show class"""
 
     def __init__(self, item):
+        
         self.locations = item.get("locations", [])
         self.seasons = item.get("seasons", [])
         self.type = "show"
