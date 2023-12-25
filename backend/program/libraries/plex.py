@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import requests
-from typing import List
+from typing import List, Optional
 from plexapi import exceptions
 from plexapi.server import PlexServer
 from requests.exceptions import ConnectionError
@@ -23,11 +23,11 @@ from program.media.item import (
 )
 
 
-class PlexSettings(BaseModel):
-    user: str
-    token: str
-    url: HttpUrl
-
+class PlexConfig(BaseModel):
+    user: Optional[str] = None
+    token: Optional[str] = None
+    url: Optional[HttpUrl] = None
+    watchlist_url: Optional[str] = None
 
 class Library(threading.Thread):
     """Plex library class"""
@@ -42,9 +42,8 @@ class Library(threading.Thread):
                     os.path.join(settings.get("container_mount"), os.pardir, "library")
                 )
                 self.plex = PlexServer(
-                    temp_settings["url"], temp_settings["token"], timeout=10
+                    temp_settings["url"], temp_settings["token"], timeout=60
                 )
-                self.settings = PlexSettings(**temp_settings)
                 self.running = False
                 self.log_worker_count = False
                 self.media_items = media_items
@@ -78,12 +77,7 @@ class Library(threading.Thread):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
-        max_workers = 2 * os.cpu_count() + len(sections)
-        if not self.log_worker_count:
-            # Only log worker count once to tell user how many workers are being used
-            logger.debug(f"Using {max_workers} workers for Plex")
-            self.log_worker_count = True
-
+        max_workers = os.cpu_count() + 1
         for section in sections:
             if section.key in processed_sections and not self._is_wanted_section(section):
                 continue

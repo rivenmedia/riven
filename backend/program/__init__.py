@@ -7,32 +7,25 @@ from program.media.container import MediaItemContainer
 from utils.logger import logger, get_data_path
 from utils.settings import settings_manager
 from program.libraries.plex import Library as Plex
+from program.libraries.plex import PlexConfig
 from program.content import Content
 from utils.utils import Pickly
 import concurrent.futures
 
 
-# Pydantic models for configuration
-class PlexConfig(BaseModel):
-    user: str
-    token: str
-    address: HttpUrl
-    watchlist: Optional[HttpUrl] = None
-
-
 class MdblistConfig(BaseModel):
     lists: list[str] = Field(default_factory=list)
-    api_key: str
+    api_key: Optional[str]
     update_interval: int = 80
 
 
 class OverseerrConfig(BaseModel):
-    url: HttpUrl
-    api_key: str
+    url: Optional[HttpUrl]
+    api_key: Optional[str]
 
 
 class RealDebridConfig(BaseModel):
-    api_key: str
+    api_key: Optional[str]
 
 
 class TorrentioConfig(BaseModel):

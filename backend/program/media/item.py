@@ -88,9 +88,6 @@ class MediaItem:
             "state": self.state.name,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
-            "network": self.network if hasattr(self, "network") else None,
-            "country": self.country if hasattr(self, "country") else None,
-            "language": self.language if hasattr(self, "language") else None,
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": self.requested_at,
@@ -103,6 +100,9 @@ class MediaItem:
             dict["seasons"] = [season.to_extended_dict() for season in self.seasons]
         if self.type == "season":
             dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
+        dict["language"] = self.language if hasattr(self, "language") else None,
+        dict["country"] = self.country if hasattr(self, "country") else None,
+        dict["network"] = self.network if hasattr(self, "network") else None,
         return dict
 
     def is_not_cached(self):
