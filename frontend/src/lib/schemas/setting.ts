@@ -19,8 +19,8 @@ export const contentSettingsSchema = z.object({
 	overseerr_api_key: z.string().optional().default(''),
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().int().min(1).default(80),
-	mdblist_lists: z.array(z.string()).optional().default([""]),
-})
+	mdblist_lists: z.string().array().default([''])
+});
 
 type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 type PlexSettings = z.infer<typeof plexSettingsSchema>;

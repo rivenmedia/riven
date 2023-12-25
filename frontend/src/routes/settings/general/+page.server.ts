@@ -37,7 +37,6 @@ export const actions: Actions = {
 				form
 			});
 		}
-		console.log(form);
 
 		const toSet = {
 			host_mount: form.data.host_mount,

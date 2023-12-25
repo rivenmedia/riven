@@ -37,8 +37,6 @@ export const actions: Actions = {
 				form
 			});
 		}
-		console.log(form);
-
 		const toSet = {
 			plex: {
 				user: form.data.user,
