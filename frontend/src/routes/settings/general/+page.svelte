@@ -8,6 +8,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
+	import clsx from 'clsx';
 
 	export let data: PageData;
 	const { form, errors, message, enhance, constraints, delayed } = superForm(data.form);
@@ -68,7 +69,9 @@
 				for="realdebrid_api_key">RealDebrid API Key</Label
 			>
 			<Input
-				class="blur-sm hover:blur-none focus:blur-none transition-all duration-300 text-sm md:text-base"
+				class={clsx('transition-all duration-300 text-sm md:text-base', {
+					'blur-sm hover:blur-none focus:blur-none': $form.realdebrid_api_key.length > 0
+				})}
 				type="text"
 				id="realdebrid_api_key"
 				name="realdebrid_api_key"

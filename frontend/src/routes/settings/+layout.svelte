@@ -52,13 +52,13 @@
 	</Select.Root>
 
 	<div
-		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-2 gap-2 rounded-md text-base"
+		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-1 gap-2 rounded-md text-base"
 	>
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
 					'bg-slate-100 dark:bg-slate-900 font-semibold': item.path === $page.url.pathname,
-					'hover:bg-slate-100 dark:hover:bg-slate-900 hover:font-semibold': item.path !== $page.url.pathname
+					'hover:bg-slate-100 dark:hover:bg-slate-900': item.path !== $page.url.pathname
 				})}
 				href={item.path}
 			>
