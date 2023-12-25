@@ -32,7 +32,7 @@
 		{#each Object.keys(data.settings) as key}
 			<Separator />
 			<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-				<h3 class="text-base md:text-lg font-semibold w-[12rem] min-w-[12rem] text-muted-foreground">
+				<h3 class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
@@ -51,7 +51,7 @@
 	<div class="flex flex-col gap-4 w-full">
 		<Separator />
 		<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-			<h3 class="text-base md:text-lg font-semibold w-[12rem] min-w-[12rem] text-muted-foreground">
+			<h3 class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
 				GitHub
 			</h3>
 			<div class="flex w-full">
@@ -66,7 +66,7 @@
 
 		<Separator />
 		<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-			<h3 class="text-base md:text-lg font-semibold w-[12rem] min-w-[12rem] text-muted-foreground">
+			<h3 class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
 				Discord
 			</h3>
 			<div class="flex w-full">

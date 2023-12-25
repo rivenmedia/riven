@@ -81,7 +81,7 @@
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 			<Label
 				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-				for="watchlist">Watchlist</Label
+				for="watchlist">Watchlist RSS</Label
 			>
 			<Input
 				class="text-sm md:text-base"

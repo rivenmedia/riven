@@ -1,15 +1,14 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { invalidateAll } from '$app/navigation';
 	import { superForm, arrayProxy } from 'sveltekit-superforms/client';
+	import { fly } from 'svelte/transition';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
 	import { toast } from 'svelte-sonner';
-	import { Loader2 } from 'lucide-svelte';
+	import { Loader2, X } from 'lucide-svelte';
 	import { page } from '$app/stores';
-	import SuperDebug from 'sveltekit-superforms/client/SuperDebug.svelte';
 	import clsx from 'clsx';
 
 	export let data: PageData;
@@ -29,28 +28,36 @@
 	let current_add_list = '';
 	function addToMdblistLists(event: SubmitEvent): void {
 		event.preventDefault();
-		// see if current_add_list is already in the list
 		if ($mdblistListsValues.includes(current_add_list)) {
 			current_add_list = '';
 			toast.error('List already exists');
 			return;
 		}
-		// see if current_add_list can be converted to a number
 		if (isNaN(Number(current_add_list))) {
 			current_add_list = '';
 			toast.error('List must be a number');
 			return;
 		}
+		if (Number(current_add_list) <= 0) {
+			current_add_list = '';
+			toast.error('List must be a positive number (> 0)');
+			return;
+		}
 		$mdblistListsValues = [...$mdblistListsValues.filter((item) => item !== ''), current_add_list];
 		current_add_list = '';
+	}
+
+	function removeFromMdblistLists(list: string): void {
+		$mdblistListsValues = $mdblistListsValues.filter((item) => item !== list);
+		if ($mdblistListsValues.length === 0) {
+			$mdblistListsValues = [''];
+		}
 	}
 </script>
 
 <svelte:head>
 	<title>Content | Settings</title>
 </svelte:head>
-
-<SuperDebug data={$form} />
 
 <div class="flex flex-col">
 	<h2 class="text-2xl md:text-3xl font-semibold">Content Settings</h2>
@@ -133,8 +140,6 @@
 			<small class="text-sm md:text-base text-red-500">{$errors.mdblist_update_interval}</small>
 		{/if}
 
-		<pre>{JSON.stringify($mdblistListsValues)}</pre>
-
 		<!--h-0 overflow-hidden instead of hidden because it prevents `required` from operating-->
 		<div class="h-0 overflow-hidden">
 			<select
@@ -150,14 +155,38 @@
 				{/each}
 			</select>
 		</div>
-
 		{#if $mdblistListsErrors}
 			<small class="text-sm md:text-base text-red-500">{$mdblistListsErrors}</small>
 		{/if}
 
-		<form on:submit={addToMdblistLists}>
-			<input type="text" bind:value={current_add_list} />
-		</form>
+		<div class="flex flex-col md:flex-row items-start max-w-6xl">
+			<Label
+				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+				for="mdblist_lists">Mdblist Lists</Label
+			>
+			<form on:submit={addToMdblistLists} class="w-full flex flex-col gap-4 items-start">
+				<Input
+					placeholder="Enter list numbers one at a time"
+					class="text-sm md:text-base"
+					type="number"
+					bind:value={current_add_list}
+				/>
+				<div class="flex items-center w-full flex-wrap gap-2">
+					{#each $mdblistListsValues.filter((list) => list !== '') as list (list)}
+						<button
+							type="button"
+							in:fly={{ y: 10, duration: 200 }}
+							out:fly={{ y: -10, duration: 200 }}
+							class="flex items-center gap-2 py-1 px-6 text-sm bg-slate-200 dark:bg-slate-800 rounded-md"
+							on:click={() => removeFromMdblistLists(list)}
+						>
+							<p>{list}</p>
+							<X class="w-4 h-4 text-red-500" />
+						</button>
+					{/each}
+				</div>
+			</form>
+		</div>
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
