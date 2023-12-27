@@ -6,8 +6,8 @@ from pydantic import BaseModel, HttpUrl, Field
 from program.media.container import MediaItemContainer
 from utils.logger import logger, get_data_path
 from utils.settings import settings_manager
-from program.libraries.plex import Plex
-from program.libraries.plex import PlexConfig
+from program.plex import Plex
+from program.plex import PlexConfig
 from program.content import Content
 from utils.utils import Pickly
 import concurrent.futures
