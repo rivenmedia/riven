@@ -127,7 +127,7 @@ class Orionoid:
                 f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
             )
         if len(data) > 0:
-            item.set("streams", data)
+            item.streams.update(data)
             logger.debug("Found %s streams for %s", len(data), log_string)
         else:
             logger.debug("Could not find streams for %s", log_string)
