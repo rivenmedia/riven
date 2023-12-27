@@ -24,7 +24,7 @@ def get_user():
     return response.json()
 
 
-class Debrid():
+class Debrid:
     """Real-Debrid API Wrapper"""
 
     def __init__(self):
@@ -112,31 +112,10 @@ class Debrid():
 
     def _determine_best_stream(self, item) -> bool:
         """Returns true if season stream found for episode"""
-        cached = [
-            stream_hash
-            for stream_hash, stream_value in item.streams.items()
-            if stream_value.get("cached")
-        ]
-        for stream_hash, stream in item.streams.items():
-            if item.type == "episode":
-                if stream.get("files") and self._real_episode_count(
-                    stream["files"]
-                ) >= len(item.parent.episodes):
-                    item.parent.set("active_stream", stream)
-                    logger.debug(
-                        "Found cached release for %s %s",
-                        item.parent.parent.title,
-                        item.parent.number,
-                    )
-                    return True
-                if (
-                    stream.get("files")
-                    and self._real_episode_count(stream["files"]) == 0
-                ):
-                    continue
-            if stream_hash in cached:
-                stream["hash"] = stream_hash
+        for hash, stream in item.streams.items():
+            if stream.get("cached"):
                 item.set("active_stream", stream)
+                item.set("active_stream.hash", hash)
                 break
         match (item.type):
             case "movie":
@@ -170,38 +149,32 @@ class Debrid():
                 continue
             for containers in provider_list.values():
                 for container in containers:
-                    wanted_files = None
-                    if item.type in ["movie", "season"]:
-                        wanted_files = {
-                            file_id: file
-                            for file_id, file in container.items()
-                            if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
-                            and file["filesize"] > 50000000
-                        }
-                    if item.type == "episode":
-                        for file_id, file in container.items():
-                            parse = PTN.parse(file["filename"])
-                            episode = parse.get("episode")
-                            if type(episode) == list:
-                                if item.number in episode:
-                                    wanted_files = {file_id: file}
-                                    break
-                            elif item.number == episode:
-                                wanted_files = {file_id: file}
-                                break
-                    if wanted_files:
+                    wanted_files = {
+                        file_id: file
+                        for file_id, file in container.items()
+                        if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
+                    }
+                    if len(wanted_files) >= 1:
                         cached = False
                         if item.type == "season":
-                            if self._real_episode_count(wanted_files) >= len(
-                                item.episodes
-                            ):
+                            episodes = []
+                            for file in wanted_files.values():
+                                episodes += parser.episodes_in_season(
+                                    item.number, file["filename"]
+                                )
+                            if len(episodes) >= len(item.episodes):
                                 cached = True
                         if item.type == "movie":
                             if len(wanted_files) == 1:
                                 cached = True
                         if item.type == "episode":
-                            if len(wanted_files) >= 1:
-                                cached = True
+                            for file in wanted_files.values():
+                                episodes = parser.episodes_in_season(
+                                    item.parent.number, file["filename"]
+                                )
+                                if item.number in episodes:
+                                    cached = True
+                                    break
                     item.streams[stream_hash]["files"] = wanted_files
                     item.streams[stream_hash]["cached"] = cached
                     if cached:
@@ -227,7 +200,7 @@ class Debrid():
             )
             total_count += count_episodes(episode_numbers)
         return total_count
-    
+
     def _set_file_paths(self, item):
         if item.type == "movie":
             self._handle_movie_paths(item)
@@ -245,8 +218,8 @@ class Debrid():
 
     def _handle_season_paths(self, season):
         for file in season.active_stream["files"].values():
-            for episode in parser.episodes(file["filename"]):
-                if episode in range(len(season.episodes)):
+            for episode in parser.episodes_in_season(season.number, file["filename"]):
+                if episode - 1 in range(len(season.episodes)):
                     season.episodes[episode - 1].set(
                         "folder", season.active_stream.get("name")
                     )
@@ -305,5 +278,6 @@ class Debrid():
         )
         if response.is_ok:
             return response.data
+
 
 debrid = Debrid()

@@ -1,22 +1,14 @@
-from enum import IntEnum
+from enum import Enum
 from program.scrapers import scraper as scrape
 from program.debrid.realdebrid import debrid
 from program.symlink import symlink
-# from program.libraries.plex import plex
 
-class States(IntEnum):
-    Unknown = 0,
-    Content = 1,
-    Scrape = 2,
-    Download = 3,
-    Symlink = 4,
-    Library = 5,
-    LibraryPartial = 6,
 
-class MediaItemState():
-
-    def __eq__(self, obj: object) -> bool:
-        return type(self) is type(obj)
+class MediaItemState:
+    def __eq__(self, other) -> bool:
+        if type(other) == type:
+            return type(self) == other
+        return type(self) == type(other)
 
     def set_context(self, context):
         self.context = context
@@ -38,16 +30,11 @@ class Content(MediaItemState):
         self.name = "Content"
 
     def perform_action(self):
-        if self.context.type == "movie":
+        if self.context.type in ["movie", "season", "episode"]:
             scrape.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
-                if season.state == Content:
-                    scrape.run(season)
-                else:
-                    for episode in season.episodes:
-                        if episode.state == Content:
-                            scrape.run(episode)
+                season.state.perform_action()
 
 
 class Scrape(MediaItemState):
@@ -55,16 +42,13 @@ class Scrape(MediaItemState):
         self.name = "Scrape"
 
     def perform_action(self):
-        if self.context.type == "movie":
+        if self.context.type in ["movie", "season", "episode"]:
             debrid.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
-                if season.state == Scrape:
-                    debrid.run(season)
-                else:
-                    for episode in season.episodes:
-                        if episode.state == Scrape:
-                            debrid.run(episode)
+                season.state.perform_action()
+        if self.context.type == "season":
+            self.context.state.perform_action()
 
 
 class Download(MediaItemState):
@@ -72,13 +56,15 @@ class Download(MediaItemState):
         self.name = "Download"
 
     def perform_action(self):
-        if self.context.type == "movie":
+        if self.context.type in ["movie", "episode"]:
             symlink.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
                 for episode in season.episodes:
-                    if episode.state == Download:
-                        symlink.run(episode)
+                    episode.state.perform_action()
+        if self.context.type == "season":
+            for episode in self.context.episodes:
+                episode.state.perform_action()
 
 
 class Symlink(MediaItemState):
@@ -87,7 +73,6 @@ class Symlink(MediaItemState):
 
     def perform_action(self):
         pass
-        # plex.update(self.context)
 
 
 class Library(MediaItemState):
@@ -103,18 +88,20 @@ class LibraryPartial(MediaItemState):
         self.name = "Library Partial"
 
     def perform_action(self):
-        for season in self.context.seasons:
-            if season.state == Content:
-                scrape.run(season)
-            if season.state == Scrape:
-                debrid.run(season)
-            elif season.state == LibraryPartial:
-                for episode in season.episodes:
-                    if episode.state == Content:
-                        scrape.run(episode)
-                    if episode.state == Scrape:
-                        debrid.run(episode)
-                    if episode.state == Download:
-                        symlink.run(episode)
+        if self.context.type == "show":
+            for season in self.context.seasons:
+                season.state.perform_action()
+        if self.context.type == "season":
+            for episode in self.context.episodes:
+                episode.state.perform_action()
 
-states = [state for state in States]
+
+# This for api to get states, not for program
+class MediaItemStates(Enum):
+    Unknown = Unknown()
+    Content = Content()
+    Scrape = Scrape()
+    Download = Download()
+    Symlink = Symlink()
+    Library = Library()
+    LibraryPartial = LibraryPartial()

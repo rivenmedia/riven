@@ -13,7 +13,7 @@ from utils.logger import logger
 from utils.settings import settings_manager as settings
 from program.updaters.trakt import get_imdbid_from_tvdb
 from program.media.container import MediaItemContainer
-from program.media.state import States
+from program.media.state import Symlink, Library, LibraryPartial
 from program.media.item import (
     MediaItem,
     Movie,
@@ -29,7 +29,8 @@ class PlexConfig(BaseModel):
     url: Optional[HttpUrl] = None
     watchlist_url: Optional[str] = None
 
-class Library(threading.Thread):
+
+class Plex(threading.Thread):
     """Plex library class"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -54,9 +55,11 @@ class Library(threading.Thread):
             except ConnectionError:
                 logger.error("Couldnt connect to plex, retrying in 2...")
             except TimeoutError as e:
-                logger.warn(f"Plex timed out: retrying in 2 seconds... {str(e)}", exc_info=True)
+                logger.warn(
+                    "Plex timed out: retrying in 2 seconds... %s", str(e), exc_info=True
+                )
             except Exception as e:
-                logger.error(f"Unknown error: {str(e)}", exc_info=True)
+                logger.error("Unknown error: %s",str(e) , exc_info=True)
             time.sleep(2)
 
     def run(self):
@@ -79,7 +82,9 @@ class Library(threading.Thread):
         processed_sections = set()
         max_workers = os.cpu_count() + 1
         for section in sections:
-            if section.key in processed_sections and not self._is_wanted_section(section):
+            if section.key in processed_sections and not self._is_wanted_section(
+                section
+            ):
                 continue
 
             try:
@@ -96,7 +101,10 @@ class Library(threading.Thread):
                             if media_item:
                                 items.append(media_item)
             except requests.exceptions.ReadTimeout as e:
-                logger.error(f"Timeout occurred when accessing section {section.title} with Reason: {str(e)}")
+                logger.error(
+                    "Timeout occurred when accessing section %s with Reason: %s",
+                    section.title, str(e)
+                )
                 continue
 
             processed_sections.add(section.key)
@@ -113,7 +121,7 @@ class Library(threading.Thread):
                 if section.type == item.type:
                     if item.type == "movie":
                         if (
-                            item.state is States.Symlink
+                            item.state == Symlink
                             and item.get("update_folder") != "updated"
                         ):
                             section.update(item.update_folder)
@@ -123,7 +131,7 @@ class Library(threading.Thread):
                     if item.type == "show":
                         for season in item.seasons:
                             if (
-                                season.state is States.Symlink
+                                season.state == Symlink
                                 and season.get("update_folder") != "updated"
                             ):
                                 section.update(season.episodes[0].update_folder)
@@ -133,7 +141,7 @@ class Library(threading.Thread):
                             else:
                                 for episode in season.episodes:
                                     if (
-                                        episode.state is States.Symlink
+                                        episode.state == Symlink
                                         and episode.get("update_folder") != "updated"
                                         and episode.parent.get("update_folder")
                                         != "updated"
@@ -167,14 +175,10 @@ class Library(threading.Thread):
         items_to_update = 0
 
         for item in self.media_items:
-            if item.state not in [
-                States.Library,
-                States.LibraryPartial,
-            ]:
+            if type(item.state) != Library:
                 for found_item in found_items:
                     if found_item.imdb_id == item.imdb_id:
-                        self._update_item(item, found_item)
-                        items_to_update += 1
+                        items_to_update += self._update_item(item, found_item)
                         break
             # Leaving this here as a reminder to not forget about deleting items that are removed from plex, needs to be revisited
             # if item.state is MediaItemState.LIBRARY and item not in found_items:
@@ -185,19 +189,23 @@ class Library(threading.Thread):
         """Internal method to use with match_items
         It does some magic to update media items according to library
         items found"""
+        items_updated = 0
         item.set("guid", library_item.guid)
         item.set("key", library_item.key)
         if item.type == "show":
             for season in item.seasons:
                 for episode in season.episodes:
-                    for found_season in library_item.seasons:
-                        if found_season.number == season.number:
-                            for found_episode in found_season.episodes:
-                                if found_episode.number == episode.number:
-                                    episode.set("guid", found_episode.guid)
-                                    episode.set("key", found_episode.key)
-                                    break
-                            break
+                    if episode.state != Library:
+                        for found_season in library_item.seasons:
+                            if found_season.number == season.number:
+                                for found_episode in found_season.episodes:
+                                    if found_episode.number == episode.number:
+                                        episode.set("guid", found_episode.guid)
+                                        episode.set("key", found_episode.key)
+                                        items_updated += 1
+                                        break
+                                break
+        return items_updated
 
     def _is_wanted_section(self, section):
         return any(self.library_path in location for location in section.locations)

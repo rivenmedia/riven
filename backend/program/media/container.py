@@ -1,3 +1,4 @@
+import os
 import threading
 import dill
 from typing import List, Optional
@@ -88,4 +89,7 @@ class MediaItemContainer:
             with open(filename, "rb") as file:
                 self.items = dill.load(file)
         except FileNotFoundError:
+            self.items = []
+        except EOFError:
+            os.remove(filename)
             self.items = []

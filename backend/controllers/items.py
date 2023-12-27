@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from program.media.state import states
+from program.media.state import MediaItemStates
 
 
 router = APIRouter(
@@ -13,7 +13,7 @@ router = APIRouter(
 async def get_states(request: Request):
     return {
         "success": True,
-        "states": [state.name for state in states],
+        "states": [state.name for state in MediaItemStates],
     }
 
 

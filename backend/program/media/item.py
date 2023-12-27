@@ -1,6 +1,14 @@
 from datetime import datetime
 import threading
-import program.media.state as states
+from program.media.state import (
+    Unknown,
+    Content,
+    Scrape,
+    Download,
+    Symlink,
+    Library,
+    LibraryPartial,
+)
 from utils.utils import parser
 
 
@@ -16,6 +24,8 @@ class MediaItem:
         self.symlinked = False
         self.requested_at = item.get("requested_at", None) or datetime.now()
         self.requested_by = item.get("requested_by", None)
+        self.file = None
+        self.folder = None
 
         # Media related
         self.title = item.get("title", None)
@@ -38,9 +48,8 @@ class MediaItem:
         self.state.set_context(self)
 
     def perform_action(self):
-        self._lock.acquire()
-        self.state.perform_action()
-        self._lock.release()
+        with self._lock:
+            self.state.perform_action()
 
     @property
     def state(self):
@@ -50,16 +59,16 @@ class MediaItem:
 
     def _determine_state(self):
         if self.key:
-            return states.Library()
+            return Library()
         if self.symlinked:
-            return states.Symlink()
-        if self.active_stream or (hasattr(self, "file") and self.file):
-            return states.Download()
+            return Symlink()
+        if self.file and self.folder:
+            return Download()
         if len(self.streams) > 0:
-            return states.Scrape()
+            return Scrape()
         if self.title:
-            return states.Content()
-        return states.Unknown()
+            return Content()
+        return Unknown()
 
     def is_cached(self):
         if self.streams:
@@ -91,7 +100,7 @@ class MediaItem:
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": self.requested_at,
-            "requested_by": self.requested_by
+            "requested_by": self.requested_by,
         }
 
     def to_extended_dict(self):
@@ -100,9 +109,9 @@ class MediaItem:
             dict["seasons"] = [season.to_extended_dict() for season in self.seasons]
         if self.type == "season":
             dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
-        dict["language"] = self.language if hasattr(self, "language") else None,
-        dict["country"] = self.country if hasattr(self, "country") else None,
-        dict["network"] = self.network if hasattr(self, "network") else None,
+        dict["language"] = (self.language if hasattr(self, "language") else None,)
+        dict["country"] = (self.country if hasattr(self, "country") else None,)
+        dict["network"] = (self.network if hasattr(self, "network") else None,)
         return dict
 
     def is_not_cached(self):
@@ -134,7 +143,6 @@ class Movie(MediaItem):
         self.file = item.get("file", None)
         super().__init__(item)
 
-
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.name}"
 
@@ -143,28 +151,26 @@ class Show(MediaItem):
     """Show class"""
 
     def __init__(self, item):
-        
         self.locations = item.get("locations", [])
         self.seasons = item.get("seasons", [])
         self.type = "show"
         super().__init__(item)
 
-
     def _determine_state(self):
-        if all(season.state == states.Library for season in self.seasons):
-            return states.Library()
+        if all(season.state == Library for season in self.seasons):
+            return Library()
         if any(
-            season.state == states.LibraryPartial
+            season.state == Library or season.state == LibraryPartial
             for season in self.seasons
         ):
-            return states.LibraryPartial()
-        if any(season.state == states.Download for season in self.seasons):
-            return states.Download()
-        if any(season.state == states.Scrape for season in self.seasons):
-            return states.Scrape()
-        if any(season.state == states.Content for season in self.seasons):
-            return states.Content()
-        return states.Unknown()
+            return LibraryPartial()
+        if any(season.state == Download for season in self.seasons):
+            return Download()
+        if any(season.state == Scrape for season in self.seasons):
+            return Scrape()
+        if any(season.state == Content for season in self.seasons):
+            return Content()
+        return Unknown()
 
     def __repr__(self):
         return f"Show:{self.title}:{self.state.name}"
@@ -185,30 +191,21 @@ class Season(MediaItem):
         self.episodes = item.get("episodes", [])
         super().__init__(item)
 
-
     def _determine_state(self):
         if len(self.episodes) > 0:
-            if all(
-                episode.state == states.Library for episode in self.episodes
-            ):
-                return states.Library()
-            if any(
-                episode.state == states.Library for episode in self.episodes
-            ):
-                return states.LibraryPartial()
-            if all(
-                episode.state == states.Symlink for episode in self.episodes
-            ):
-                return states.Symlink()
-            if self.active_stream:
-                return states.Download()
+            if all(episode.state == Library for episode in self.episodes):
+                return Library()
+            if any(episode.state == Library for episode in self.episodes):
+                return LibraryPartial()
+            if all(episode.state == Symlink for episode in self.episodes):
+                return Symlink()
+            if all(episode.file and episode.folder for episode in self.episodes):
+                return Download()
             if self.is_scraped():
-                return states.Scrape()
-            if any(
-                episode.state == states.Content for episode in self.episodes
-            ):
-                return states.Content()
-        return states.Unknown()
+                return Scrape()
+            if any(episode.state == Content for episode in self.episodes):
+                return Content()
+        return Unknown()
 
     def __eq__(self, other):
         return self.number == other.number
@@ -232,7 +229,6 @@ class Episode(MediaItem):
         self.file = item.get("file", None)
         super().__init__(item)
 
-
     def __eq__(self, other):
         return self.number == other.number
 
@@ -241,6 +237,7 @@ class Episode(MediaItem):
 
     def get_file_episodes(self):
         return parser.episodes(self.file)
+
 
 def _set_nested_attr(obj, key, value):
     if "." in key:
@@ -257,6 +254,7 @@ def _set_nested_attr(obj, key, value):
             obj[key] = value
         else:
             setattr(obj, key, value)
+
 
 class ItemId:
     value = 0

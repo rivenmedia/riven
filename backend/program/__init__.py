@@ -6,7 +6,7 @@ from pydantic import BaseModel, HttpUrl, Field
 from program.media.container import MediaItemContainer
 from utils.logger import logger, get_data_path
 from utils.settings import settings_manager
-from program.libraries.plex import Library as Plex
+from program.libraries.plex import Plex
 from program.libraries.plex import PlexConfig
 from program.content import Content
 from utils.utils import Pickly
@@ -48,7 +48,7 @@ class Program(threading.Thread):
 
     def __init__(self):
         logger.info("Iceberg initializing...")
-        super().__init__()
+        super().__init__(name="Iceberg")
         self.running = False
         self.settings = settings_manager.get_all()
         self.media_items = MediaItemContainer(items=[])
@@ -63,9 +63,12 @@ class Program(threading.Thread):
 
     def run(self):
         while self.running:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="Worker") as executor:
-                { executor.submit(item.perform_action) for item in self.media_items }
-            time.sleep(1)
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=10, thread_name_prefix="Worker"
+            ) as executor:
+                for item in self.media_items:
+                    executor.submit(item.perform_action)
+            time.sleep(2)
 
     def start(self):
         self.running = True
@@ -79,4 +82,3 @@ class Program(threading.Thread):
         self.pickly.stop()
         self.running = False
         super().join()
-
