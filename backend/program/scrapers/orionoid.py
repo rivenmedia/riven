@@ -193,7 +193,7 @@ class Orionoid:
                     title = stream.file.name
                     infoHash = stream.file.hash
                     if parser.parse(title) and infoHash:
-                        data[stream.infoHash] = {
+                        data[infoHash] = {
                             "name": title,
                         }
                 if len(data) > 0:
