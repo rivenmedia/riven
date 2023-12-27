@@ -33,7 +33,11 @@ class Pickly(threading.Thread):
     def run(self):
         while self.running:
             self.save()
-            time.sleep(10)
+            # workaround for quick shutdown, we should use threading.Event instead
+            for i in range(10):
+                if not self.running:
+                    break
+                time.sleep(i)
 
 
 class Parser:

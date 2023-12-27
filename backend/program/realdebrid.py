@@ -83,7 +83,7 @@ class Debrid:
 
     def _update_torrent_info(self, item):
         info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["name"] = info.filename
+        item.active_stream["name"] = info.original_filename
 
     def _download_item(self, item):
         request_id = self.add_magnet(item)
