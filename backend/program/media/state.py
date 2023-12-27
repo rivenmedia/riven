@@ -1,6 +1,6 @@
 from enum import Enum
 from program.scrapers import scraper as scrape
-from program.debrid.realdebrid import debrid
+from program.realdebrid import debrid
 from program.symlink import symlink
 
 
@@ -85,7 +85,7 @@ class Library(MediaItemState):
 
 class LibraryPartial(MediaItemState):
     def __init__(self) -> None:
-        self.name = "Library Partial"
+        self.name = "LibraryPartial"
 
     def perform_action(self):
         if self.context.type == "show":
