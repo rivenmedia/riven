@@ -31,4 +31,4 @@ fi
 chown -R ${USERNAME}:${GROUPNAME} /iceberg
 
 echo "Container Initialization complete."
-exec su -m $USERNAME -c 'cd backend && source /venv/bin/activate && exec python /iceberg/backend/main.py & ORIGIN=http://localhost:3000 node /iceberg/frontend/build'
+exec su -m $USERNAME -c 'cd backend && source /venv/bin/activate && exec python /iceberg/backend/main.py & ORIGIN=http://0.0.0.0:3000 node /iceberg/frontend/build'
