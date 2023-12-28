@@ -3,14 +3,8 @@ from datetime import datetime
 from os import path
 from utils.logger import get_data_path, logger
 from utils.request import get
-from program.media import (
-    Episode,
-    MediaItemContainer,
-    MediaItemState,
-    Movie,
-    Season,
-    Show,
-)
+from program.media.container import MediaItemContainer
+from program.media.item import Movie, Show, Season, Episode
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
@@ -73,13 +67,18 @@ def _map_item_from_data(data, item_type):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
     item = {
-        "state": MediaItemState.CONTENT,
-        "title": getattr(data, "title", None),
-        "year": getattr(data, "year", None),
-        "imdb_id": getattr(data.ids, "imdb", None),
-        "aired_at": formatted_aired_at,
-        "genres": getattr(data, "genres", None),
-        "requested_at": datetime.now(),
+        "title": getattr(data, "title", None),              # 'Game of Thrones'
+        "year": getattr(data, "year", None),                # 2011
+        "status": getattr(data, "status", None),            # 'ended', 'released', 'returning series'
+        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)
+        "imdb_id": getattr(data.ids, "imdb", None),         # 'tt0496424'
+        "tvdb_id": getattr(data.ids, "tvdb", None),         # 79488
+        "tmdb_id": getattr(data.ids, "tmdb", None),         # 1399
+        "genres": getattr(data, "genres", None),            # ['Action', 'Adventure', 'Drama', 'Fantasy']
+        "network": getattr(data, "network", None),          # 'HBO'
+        "country": getattr(data, "country", None),          # 'US'
+        "language": getattr(data, "language", None),        # 'en'
+        "requested_at": datetime.now(),                     # datetime.datetime(2021, 4, 17, 0, 0)
     }
     match item_type:
         case "movie":
@@ -131,7 +130,7 @@ def create_item_from_imdb_id(imdb_id: str):
                 return _map_item_from_data(data, media_type)
     return None
 
-def get_imdb_id_from_tvdb(tvdb_id: str) -> str:
+def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     """Get IMDb ID from TVDB ID in Trakt"""
     url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}?extended=full"
     response = get(

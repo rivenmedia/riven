@@ -3,7 +3,7 @@ from requests import ConnectTimeout
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
-from program.media import MediaItemContainer
+from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 

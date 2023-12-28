@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request
 from utils.settings import settings_manager
-import requests
-from program.debrid.realdebrid import get_user
+from program.realdebrid import get_user
 
 
 router = APIRouter(

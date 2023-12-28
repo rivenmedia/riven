@@ -3,7 +3,7 @@ from requests import ConnectTimeout
 from utils.request import get, ping
 from utils.logger import logger
 from utils.settings import settings_manager as settings
-from program.media import MediaItemContainer
+from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 import json
 
@@ -18,7 +18,7 @@ class PlexWatchlist:
         self.previous_added_items_count = 0
         if not self.watchlist_url or not self._validate_settings():
             logger.info(
-                "Plex watchlist RSS URL is not configured and will not be used."
+                "Plex Watchlist is not configured and will not be used."
             )
             return
         self.updater = Trakt()
@@ -28,7 +28,7 @@ class PlexWatchlist:
         try:
             response = ping(
                 self.watchlist_url,
-                timeout=5,
+                timeout=10,
             )
             return response.ok
         except ConnectTimeout:

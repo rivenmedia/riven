@@ -22,39 +22,40 @@
 	}
 
 	const statusInfo: StatusInfo = {
-		UNKNOWN: {
+		Unknown: {
 			color: 'text-red-500',
 			bg: 'bg-red-500',
 			description: 'Unknown status'
 		},
-		CONTENT: {
+		Content: {
 			text: 'Requested',
 			color: 'text-purple-500',
 			bg: 'bg-purple-500',
 			description: 'Item is requested from external service'
 		},
-		SCRAPE: {
+		Scrape: {
 			color: 'text-yellow-500',
 			bg: 'bg-yellow-500',
 			description: 'Item is scraped and will be downloaded'
 		},
-		DOWNLOAD: {
+		Download: {
 			color: 'text-yellow-500',
 			bg: 'bg-yellow-500',
 			description: 'Item is currently downloading'
 		},
-		SYMLINK: {
+		Symlink: {
 			color: 'text-yellow-500',
 			bg: 'bg-yellow-500',
 			description: 'Item is currently being symmlinked'
 		},
-		LIBRARY: {
+		Library: {
 			text: 'In Library',
 			color: 'text-green-400',
 			bg: 'bg-green-400',
 			description: 'Item is in your library'
 		},
-		LIBRARY_PARTIAL: {
+		LibraryPartial: {
+			text: "In Library (Partial)",
 			color: 'text-blue-400',
 			bg: 'bg-blue-400',
 			description: 'Item is in your library and is ongoing'

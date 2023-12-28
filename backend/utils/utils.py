@@ -3,11 +3,9 @@ import threading
 import time
 import PTN
 
-from program.media import MediaItemContainer
-
 
 class Pickly(threading.Thread):
-    def __init__(self, media_items: MediaItemContainer, data_path: str):
+    def __init__(self, media_items, data_path: str):
         super().__init__(name="Pickly")
         self.media_items = media_items
         self.data_path = data_path
@@ -16,6 +14,9 @@ class Pickly(threading.Thread):
     def start(self) -> None:
         self.load()
         self.running = True
+        for item in self.media_items:
+            if item._lock.locked():
+                item._lock.release()
         return super().start()
 
     def stop(self) -> None:
@@ -32,7 +33,11 @@ class Pickly(threading.Thread):
     def run(self):
         while self.running:
             self.save()
-            time.sleep(10)
+            # workaround for quick shutdown, we should use threading.Event instead
+            for i in range(10):
+                if not self.running:
+                    break
+                time.sleep(i)
 
 
 class Parser:
@@ -53,6 +58,8 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
+        season = parse.get("season")
+
         resolution = parse.get("resolution")
         quality = parse.get("quality")
         language = parse.get("language")
@@ -65,11 +72,18 @@ class Parser:
             "resolution": resolution or [],
             "language": language or [],
             "extended": extended,
+            "season": season,
         }
 
     def episodes(self, string):
         parse = self._parse(string)
         return parse["episodes"]
+
+    def episodes_in_season(self, season, string):
+        parse = self._parse(string)
+        if parse["season"] == season:
+            return parse["episodes"]
+        return []
 
     def parse(self, string):
         parse = self._parse(string)
