@@ -3,13 +3,10 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 from requests.exceptions import RequestException
-from utils.logger import logger, get_data_path
+from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
 from utils.settings import settings_manager
 from utils.utils import parser
-import time
-import pickle
-import os
 
 
 class OrionoidConfig(BaseModel):
@@ -24,61 +21,31 @@ class Orionoid:
     def __init__(self):
         self.settings = "orionoid"
         self.class_settings = OrionoidConfig(**settings_manager.get(self.settings))
-        self.validate_settings()
-        self.data_path = get_data_path()
-        self.token_file = os.path.join(self.data_path, "orionoid_token.pkl")
-        self.client_id = "GPQJBFGJKAHVFM37LJDNNLTHKJMXEAJJ"
-        self.token = self.load_token()
-        if not self.token:
-            self.token = self.oauth()
-        if self.token:
+        self.keyapp = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
+        self.keyuser = self.class_settings.api_key
+        self.is_premium = False
+        self.initialized = False
+
+        if self.validate_settings():
             self.is_premium = self.check_premium()
-        self.scrape_limit = None  # TODO: Implement scrape limit based on user account
-        max_calls = (
-            50 if self.scrape_limit != "unlimited" else 2500
-        )  # 50 calls a day default for free accounts.
-        self.minute_limiter = RateLimiter(
-            max_calls=max_calls, period=86400, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
-        self.initialized = self.token is not None
+            max_calls = 50 if not self.is_premium else 2500
+            self.minute_limiter = RateLimiter(max_calls=max_calls, period=86400, raise_on_limit=True)
+            self.second_limiter = RateLimiter(max_calls=1, period=1)
+            self.initialized = True
 
-    def validate_settings(self):
+    def validate_settings(self) -> bool:
         """Validate the Orionoid class_settings."""
-        if not self.class_settings.api_key:
-            logger.info("Orionoid is not configured and will not be used.")
-
-    def oauth(self) -> Optional[str]:
-        """Authenticate with Orionoid and return the token."""
-        logger.info("Starting OAuth process for Orionoid.")
-        url = f"https://api.orionoid.com?keyapp={self.client_id}&mode=user&action=authenticate"
-        response = get(url, retry_if_failed=False)
-        if response.is_ok and hasattr(response.data, "data"):
-            auth_code = response.data.data.code
-            direct_url = response.data.data.direct
-            logger.info(f"Please authenticate using the following URL: {direct_url}")
-            token_url = f"https://api.orionoid.com?keyapp={self.client_id}&mode=user&action=authenticate&code={auth_code}"
-            start_time = time.time()
-            timeout = 300  # 5 minutes timeout
-            while time.time() - start_time < timeout:
-                token_response = get(token_url, retry_if_failed=False)
-                if token_response.is_ok and hasattr(token_response.data, "data"):
-                    token = token_response.data.data.token
-                    self.save_token(token)
-                    logger.info("Authentication Token Saved.")
-                    return token
-                time.sleep(5)
-            logger.warning("Authentication timeout. Please try again.")
-        else:
-            logger.warning("Failed to initiate authentication process.")
-        return None
+        if self.class_settings.api_key:
+            return True
+        logger.info("Orionoid is not configured and will not be used.")
+        return False
 
     def check_premium(self) -> bool:
         """
         Check the user's status with the Orionoid API.
         Returns True if the user is active, has a premium account, and has RealDebrid service enabled.
         """
-        url = f"https://api.orionoid.com?token={self.token}&mode=user&action=retrieve"
+        url = f"https://api.orionoid.com?keyapp={self.keyapp}&keyuser={self.keyuser}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
         if response.is_ok:
             active = True if response.data.data.status == "active" else False
@@ -90,18 +57,6 @@ class Orionoid:
         else:
             logger.error(f"Orionoid Free Account Detected.")
         return False
-
-    def load_token(self):
-        """Load the token from a file if it exists."""
-        if os.path.exists(self.token_file):
-            with open(self.token_file, "rb") as file:
-                return pickle.load(file)
-        return None
-
-    def save_token(self, token: str):
-        """Save the token to a file for later use."""
-        with open(self.token_file, "wb") as file:
-            pickle.dump(token, file)
 
     def run(self, item):
         """Scrape the Orionoid site for the given media items
@@ -136,7 +91,8 @@ class Orionoid:
         """Construct the URL for the Orionoid API."""
         base_url = "https://api.orionoid.com"
         params = {
-            "token": self.token,
+            "keyapp": self.keyapp,
+            "keyuser": self.keyuser,
             "mode": "stream",
             "action": "retrieve",
             "type": media_type,
@@ -170,6 +126,9 @@ class Orionoid:
         return url
 
     def _can_we_scrape(self, item) -> bool:
+        logger.debug("Checking if we can scrape %s", item.title)
+        logger.debug("Is released: %s", self._is_released(item))
+        logger.debug("Needs new scrape: %s", self._needs_new_scrape(item))
         return self._is_released(item) and self._needs_new_scrape(item)
 
     def _needs_new_scrape(self, item) -> bool:

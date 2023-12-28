@@ -108,6 +108,12 @@ class Plex(threading.Thread):
                     section.title, str(e)
                 )
                 continue
+            except requests.exceptions.ConnectionError as e:
+                logger.error(
+                    "Connection aborted. Remote end closed connection with response: %s for item %s",
+                    str(e), section.title
+                )
+                continue
 
             processed_sections.add(section.key)
         matched_items = self.match_items(items)
@@ -258,12 +264,20 @@ def _map_item_from_data(item):
         )
         aired_at = getattr(item, "originallyAvailableAt", None)
 
-    # All movies have imdb, but not all shows do
-    if item.type == "show" and not imdb_id:
-        tvdb_id = getattr(item, "guid", None).split("://")[-1].split("?")[0] or None
-        logger.debug("Found tvdb_id %s for %s", tvdb_id, title)
-        imdb_id = get_imdbid_from_tvdb(tvdb_id)
-        logger.debug("Found imdb_id %s for %s, from tvdb %s", imdb_id, title, tvdb_id)
+        # All movies have imdb, but not all shows do.
+        # This is due to season 0 (specials) not having imdb ids.
+        # Attempt to get the imdb id from the tvdb id if we don't have it.
+        # Needs more testing..
+        # if not imdb_id:
+        #     logger.debug("Unable to find imdb, trying tvdb for %s", title)
+        #     tvdb_id = next(
+        #         (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
+        #     )
+        #     if tvdb_id:
+        #         logger.debug("Unable to find imdb, but found tvdb: %s", tvdb_id)
+        #         imdb_id = get_imdbid_from_tvdb(tvdb_id)
+        #         if imdb_id:
+        #             logger.debug("Found imdb from tvdb: %s", imdb_id)
 
     media_item_data = {
         "title": title,
@@ -290,5 +304,6 @@ def _map_item_from_data(item):
         media_item_data["season_number"] = season_number
         return Episode(media_item_data)
     else:
+        # Specials may end up here..
         logger.error("Unknown Item: %s with type %s", item.title, item.type)
         return None
