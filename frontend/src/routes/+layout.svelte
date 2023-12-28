@@ -43,11 +43,12 @@
 </div>
 
 <Command.Dialog class="font-primary" bind:open>
-	<Command.Input class="text-base" placeholder="Type a command or search..." />
+	<Command.Input class="text-base lg:text-lg" placeholder="Type a command or search..." />
 	<Command.List>
-		<Command.Empty>No results found.</Command.Empty>
+		<Command.Empty class="lg:text-base">No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/settings');
@@ -57,6 +58,7 @@
 				<span>Settings</span>
 			</Command.Item>
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/status');
@@ -69,6 +71,7 @@
 		<Command.Separator />
 		<Command.Group heading="Settings">
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/settings/general');
@@ -78,6 +81,7 @@
 				<span>General</span>
 			</Command.Item>
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/settings/plex');
@@ -87,6 +91,7 @@
 				<span>Plex</span>
 			</Command.Item>
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/settings/content');
@@ -96,6 +101,7 @@
 				<span>Content</span>
 			</Command.Item>
 			<Command.Item
+				class="lg:text-base"
 				onSelect={async () => {
 					open = false;
 					await goto('/settings/about');
