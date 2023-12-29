@@ -1,4 +1,4 @@
-.PHONY: help start stop restart logs exec sc ec update
+.PHONY: help start stop restart logs exec sc ec update frontend backend
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -15,12 +15,13 @@ help:
 	@echo start     : Build and run the Iceberg container
 	@echo stop      : Stop and remove the Iceberg container and image
 	@echo restart   : Restart the Iceberg container (without rebuilding image)
-	@echo rebuild   : Rebuild the Iceberg container (with rebuilding image)
 	@echo exec      : Open a shell inside the Iceberg container
 	@echo logs      : Show the logs of the Iceberg container
 	@echo sc        : Show the contents of the settings.json file inside the Iceberg container
 	@echo ec        : Edit the settings.json file inside the Iceberg container
 	@echo update    : Update this repository from GitHub and rebuild image
+	@echo frontend  : Start the frontend development server
+	@echo backend   : Start the backend development server
 	@echo -------------------------------------------------------------------------
 
 start: stop
@@ -54,5 +55,13 @@ ec:
 	@docker exec -it iceberg /bin/bash -c "vim /iceberg/data/settings.json"
 
 update:
-	@git pull
-	@make rebuild
+	@-git pull --rebase
+	@make start
+
+frontend:
+	@echo "Starting Frontend..."
+	@cd frontend && npm install && npm run build && npm start
+
+backend:
+	@echo "Starting Backend..."
+	@cd backend && python main.py

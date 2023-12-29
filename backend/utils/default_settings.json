@@ -23,9 +23,7 @@
     "filter": "sort=qualitysize%7Cqualityfilter=480p,other,scr,cam,unknown"
   },
   "orionoid": {
-    "api_key": "",
-    "movie_filter": "&audiolanguages=en,ja,kr,fr,es,ge&audiotype=standard,dubbed&limitretry=25",
-    "tv_filter": "&audiolanguages=en,ja,kr,fr,es,ge&audiotype=standard,dubbed&limitretry=25"        
+    "api_key": ""  
   },
   "realdebrid": {
     "api_key": ""
