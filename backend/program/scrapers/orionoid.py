@@ -29,8 +29,8 @@ class Orionoid:
             self.is_premium = self.check_premium()
             self.initialized = True
 
-        self.max_calls = 50 if not self.is_premium else 5000
-        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=86400, raise_on_limit=False)
+        self.max_calls = 50 if not self.is_premium else 999999
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=86400, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
 
 
@@ -136,7 +136,7 @@ class Orionoid:
                 url = self.construct_url("movie", imdb_id)
 
             with self.second_limiter:
-                response = get(url, retry_if_failed=False)
+                response = get(url, retry_if_failed=False, timeout=60)
             if response.is_ok:
                 data = {}
                 for stream in response.data.data.streams:
