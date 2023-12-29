@@ -1,23 +1,41 @@
-""" Torrentio scraper module """
+""" Jackett scraper module """
 from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
 from utils.logger import logger
 from utils.request import get
 from utils.settings import settings_manager
 from utils.utils import parser
 
+
+class JackettConfig(BaseModel):
+    url: Optional[str]
+    api_key: Optional[str]
+
+
 class Jackett:
-    """Scraper for torrentio"""
+    """Scraper for Jackett"""
 
     def __init__(self):
         self.settings = "jackett"
-        self.url = settings_manager.get("jackett.url")
-        self.api_key = settings_manager.get("jackett.api_key")
-        self.initialized = True
+        self.class_settings = JackettConfig(**settings_manager.get(self.settings))
+        self.initialized = False
+
+        if self.validate_settings():
+            self.initialized = True
+
+    def validate_settings(self) -> bool:
+        """Validate the Jackett class_settings."""
+        if self.class_settings.api_key:
+            return True
+        logger.info("Jackett is not configured and will not be used.")
+        return False
 
     def run(self, item):
-        """Scrape the torrentio site for the given media items
+        """Scrape Jackett for the given media items
         and update the object with scraped streams"""
-        self._scrape_item(item)
+        if self._can_we_scrape(item):
+            self._scrape_item(item)
 
     def _scrape_item(self, item):
         data = self.api_scrape(item)
@@ -43,7 +61,7 @@ class Jackett:
             query = f"&t=tvsearch&q={item.parent.parent.title}.{item.parent.parent.aired_at.year}&season={item.parent.number}&ep={item.number}"
 
         url = (
-            f"{self.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}"
+            f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.class_settings.api_key}{query}"
         )
         response = get(url=url, retry_if_failed=False)
         if response.is_ok:
