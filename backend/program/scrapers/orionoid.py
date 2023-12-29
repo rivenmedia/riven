@@ -11,8 +11,6 @@ from utils.utils import parser
 
 class OrionoidConfig(BaseModel):
     api_key: Optional[str]
-    movie_filter: Optional[str]
-    tv_filter: Optional[str]
 
 
 class Orionoid:
@@ -23,15 +21,18 @@ class Orionoid:
         self.class_settings = OrionoidConfig(**settings_manager.get(self.settings))
         self.keyapp = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
         self.keyuser = self.class_settings.api_key
+        self.last_scrape = 0
         self.is_premium = False
         self.initialized = False
 
         if self.validate_settings():
             self.is_premium = self.check_premium()
-            max_calls = 50 if not self.is_premium else 2500
-            self.minute_limiter = RateLimiter(max_calls=max_calls, period=86400, raise_on_limit=True)
-            self.second_limiter = RateLimiter(max_calls=1, period=1)
             self.initialized = True
+
+        self.max_calls = 50 if not self.is_premium else 5000
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=86400, raise_on_limit=False)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
+
 
     def validate_settings(self) -> bool:
         """Validate the Orionoid class_settings."""
@@ -72,22 +73,32 @@ class Orionoid:
                 return
 
     def _scrape_item(self, item):
-        """Scrape the Orionoid site for the given media item and log the results."""
         data = self.api_scrape(item)
         log_string = item.title
         if item.type == "season":
             log_string = f"{item.parent.title} S{item.number}"
         if item.type == "episode":
-            log_string = (
-                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
-            )
+            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
         if len(data) > 0:
             item.streams.update(data)
             logger.debug("Found %s streams for %s", len(data), log_string)
         else:
             logger.debug("Could not find streams for %s", log_string)
 
-    def construct_url(self, media_type, imdb_id, season=None, episode=1) -> str:
+    def _can_we_scrape(self, item) -> bool:
+        return self._is_released(item) and self._needs_new_scrape(item)
+
+    def _is_released(self, item) -> bool:
+        return item.aired_at is not None and item.aired_at < datetime.now()
+
+    def _needs_new_scrape(self, item) -> bool:
+        return (
+            datetime.now().timestamp() - item.scraped_at
+            > 60 * 30  # 30 minutes between scrapes
+            or item.scraped_at == 0
+        )
+
+    def construct_url(self, media_type, imdb_id, season, episode) -> str:
         """Construct the URL for the Orionoid API."""
         base_url = "https://api.orionoid.com"
         params = {
@@ -97,47 +108,19 @@ class Orionoid:
             "action": "retrieve",
             "type": media_type,
             "idimdb": imdb_id[2:],
-            "protocoltorrent": "magnet",
-            "access": "realdebrid",
-            "debridlookup": "realdebrid",
+            "streamtype": "torrent",
             "filename": "true",
-            "fileunknown": "false",
-            "limitcount": "10",
+            "limitcount": "200" if self.is_premium else "10",
             "video3d": "false",
-            "videoquality": "sd,hd720,hd1080,hd2k,hd4k",
             "sortorder": "descending",
             "sortvalue": "best" if self.is_premium else "popularity",
-            "metarelease": "bdrip,bdrmx,bluray,webdl,ppv,dvdrip",
         }
 
         if media_type == "show":
-            params["numberseason"] = season if season is not None else "1"
-            params["numberepisode"] = str(episode)
+            params["numberseason"] = season
+            params["numberepisode"] = episode if episode else 1
 
-        custom_filters = (
-            self.class_settings.movie_filter
-            if media_type == "movie"
-            else self.class_settings.tv_filter
-        )
-        custom_filters = custom_filters.lstrip("&") if custom_filters else ""
-        url = f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
-        if custom_filters:
-            url += f"&{custom_filters}"
-        return url
-
-    def _can_we_scrape(self, item) -> bool:
-        logger.debug("Checking if we can scrape %s", item.title)
-        logger.debug("Is released: %s", self._is_released(item))
-        logger.debug("Needs new scrape: %s", self._needs_new_scrape(item))
-        return self._is_released(item) and self._needs_new_scrape(item)
-
-    def _needs_new_scrape(self, item) -> bool:
-        """Determine if a new scrape is needed based on the last scrape time."""
-        current_time = datetime.now().timestamp()
-        scrape_interval = (
-            60 * 60 if self.is_premium else 60 * 60 * 24
-        )  # 1 hour for premium, 1 day for non-premium
-        return current_time - item.scraped_at > scrape_interval or item.scraped_at == 0
+        return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
     def api_scrape(self, item):
         """Wrapper for Orionoid scrape method"""
@@ -147,25 +130,20 @@ class Orionoid:
                 url = self.construct_url("show", imdb_id, season=item.number)
             elif item.type == "episode":
                 imdb_id = item.parent.parent.imdb_id
-                url = self.construct_url(
-                    "show", imdb_id, season=item.parent.number, episode=item.number or 1
-                )
-            else:  # item.type == "movie"
+                url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
+            else:
                 imdb_id = item.imdb_id
                 url = self.construct_url("movie", imdb_id)
 
             with self.second_limiter:
-                response = self.get(url, retry_if_failed=False, timeout=60)
-                item.set("scraped_at", datetime.now().timestamp())
+                response = get(url, retry_if_failed=False)
             if response.is_ok:
                 data = {}
                 for stream in response.data.data.streams:
                     title = stream.file.name
                     infoHash = stream.file.hash
                     if parser.parse(title) and infoHash:
-                        data[infoHash] = {
-                            "name": title,
-                        }
+                        data[infoHash] = {"name": title}
                 if len(data) > 0:
                     return data
             return {}
