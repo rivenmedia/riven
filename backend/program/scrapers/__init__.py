@@ -3,11 +3,12 @@ import time
 from utils.logger import logger
 from .torrentio import Torrentio
 from .orionoid import Orionoid
+from .jackett import Jackett
 
 
 class Scraping():
     def __init__(self):
-        self.services = [Torrentio(), Orionoid()]
+        self.services = [Torrentio(), Orionoid(), Jackett()]
         while not self.validate():
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"

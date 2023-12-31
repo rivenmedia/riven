@@ -25,6 +25,10 @@
   "orionoid": {
     "api_key": ""  
   },
+  "jackett": {
+    "url": "http://localhost:9117",
+    "api_key": ""  
+  },
   "realdebrid": {
     "api_key": ""
   }
