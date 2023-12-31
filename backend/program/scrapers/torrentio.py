@@ -5,7 +5,6 @@ from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
 from utils.settings import settings_manager
 from utils.utils import parser
-import program.media.state as states
 
 
 class Torrentio:

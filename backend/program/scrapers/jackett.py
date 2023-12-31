@@ -3,15 +3,15 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 from utils.logger import logger
-from utils.request import get
+from utils.request import get, ping
 from utils.settings import settings_manager
 from utils.utils import parser
 from requests.exceptions import ReadTimeout
-import xmltodict
+
 
 class JackettConfig(BaseModel):
-    url: Optional[str]
-    api_key: Optional[str]
+    url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class Jackett:
@@ -19,19 +19,27 @@ class Jackett:
 
     def __init__(self):
         self.settings = "jackett"
-        self.class_settings = JackettConfig(**settings_manager.get(self.settings))
         self.last_scrape = 0
-        self.initialized = False
-
-        if self.validate_settings():
-            self.initialized = True
+        try:
+            self.class_settings = JackettConfig(**settings_manager.get(self.settings))
+            self.initialized = self.validate_settings()
+        except ValueError as e:
+            logger.error(f"Jackett configuration error: {e}")
+            self.initialized = False
 
     def validate_settings(self) -> bool:
         """Validate the Jackett class_settings."""
-        if self.class_settings.api_key and self.class_settings.url:
-            return True
-        logger.info("Jackett is not configured and will not be used.")
-        return False
+        if self.class_settings.api_key != "" and self.class_settings.url:
+            try:
+                response = get(
+                    f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab/api?apikey={self.class_settings.api_key}&t=search&q=test"
+                    , timeout=15)
+                if response.is_ok:
+                    return True
+            except Exception as e:
+                logger.error(f"Jackett configuration error: {e}")
+        else:
+            logger.info("Jackett is not configured and will not be used.")
 
     def run(self, item):
         """Scrape Jackett for the given media items
