@@ -8,7 +8,8 @@ from .jackett import Jackett
 
 class Scraping():
     def __init__(self):
-        self.services = [Torrentio(), Orionoid(), Jackett()]
+        # self.services = [Torrentio(), Orionoid(), Jackett()]
+        self.services = [Jackett()]  # TODO: Remove this line. Its just for testing
         while not self.validate():
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"
