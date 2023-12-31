@@ -112,7 +112,6 @@ class Orionoid:
             "filename": "true",
             "limitcount": "200" if self.is_premium else "10",
             "video3d": "false",
-            "videoquality": "sd,hd720,hd1080,hd2k,hd4k",
             "sortorder": "descending",
             "sortvalue": "best" if self.is_premium else "popularity",
         }
