@@ -32,10 +32,10 @@ class Jackett(Base):
 
     def validate_settings(self) -> bool:
         """Validate the Jackett class_settings."""
-        if len(self.class_settings.api_key) != 32 and self.class_settings.url:
+        if len(self.class_settings.api_key) == 32 and self.class_settings.url:
             try:
                 response = get(
-                    f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab/api?apikey={self.class_settings.api_key}&t=search&q=test"
+                    f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.class_settings.api_key}&t=search&q=test"
                     , timeout=15)
                 if response.is_ok:
                     return True
