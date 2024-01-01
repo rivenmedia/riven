@@ -2,7 +2,7 @@
 from typing import Optional
 from pydantic import BaseModel
 from requests import RequestException
-from .common import BaseScraper
+from .base import Base
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
 from utils.settings import settings_manager
@@ -13,7 +13,7 @@ class OrionoidConfig(BaseModel):
     api_key: Optional[str]
 
 
-class Orionoid(BaseScraper):
+class Orionoid(Base):
     """Scraper for Orionoid"""
 
     def __init__(self):

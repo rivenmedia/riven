@@ -4,10 +4,10 @@ from utils.request import RateLimitExceeded, get, RateLimiter
 from utils.settings import settings_manager
 from utils.utils import parser
 from utils.logger import logger
-from .common import BaseScraper
+from .base import Base
 
 
-class Torrentio(BaseScraper):
+class Torrentio(Base):
     """Scraper for Torrentio"""
 
     def __init__(self):

@@ -2,19 +2,20 @@
 from typing import Optional
 from pydantic import BaseModel
 from requests import RequestException
-from .common import BaseScraper
+from .base import Base
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get
 from utils.settings import settings_manager
 from utils.utils import parser
 from utils.request import get, RateLimiter
 
+
 class JackettConfig(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
 
 
-class Jackett(BaseScraper):
+class Jackett(Base):
     """Scraper for Jackett"""
 
     def __init__(self):
@@ -31,7 +32,7 @@ class Jackett(BaseScraper):
 
     def validate_settings(self) -> bool:
         """Validate the Jackett class_settings."""
-        if self.class_settings.api_key != "" and self.class_settings.url:
+        if len(self.class_settings.api_key) != 32 and self.class_settings.url:
             try:
                 response = get(
                     f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab/api?apikey={self.class_settings.api_key}&t=search&q=test"
