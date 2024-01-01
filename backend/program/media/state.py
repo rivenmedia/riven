@@ -27,10 +27,10 @@ class Content(MediaItemState):
         if self.context.type == "show":
             for season in self.context.seasons:
                 if season.aired_at:
-                    season.state.perform_action()
+                    season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
-                        episode.state.perform_action()
+                        episode.state.perform_action(modules)
 
 
 class Scrape(MediaItemState):
@@ -41,12 +41,12 @@ class Scrape(MediaItemState):
         if self.context.type == "show":
             for season in self.context.seasons:
                 if season.aired_at:
-                    season.state.perform_action()
+                    season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
-                        episode.state.perform_action()
+                        episode.state.perform_action(modules)
         if self.context.type == "season":
-            self.context.state.perform_action()
+            self.context.state.perform_action(modules)
 
 
 class Download(MediaItemState):
@@ -57,16 +57,23 @@ class Download(MediaItemState):
         if self.context.type == "show":
             for season in self.context.seasons:
                 for episode in season.episodes:
-                    episode.state.perform_action()
+                    episode.state.perform_action(modules)
         if self.context.type == "season":
             for episode in self.context.episodes:
-                episode.state.perform_action()
+                episode.state.perform_action(modules)
 
 
 class Symlink(MediaItemState):
-    def perform_action(self, _):
-        pass
-
+    def perform_action(self, modules):
+        library = next(module for module in modules if module.key == "plex")
+        if self.context.type == "show":
+            for season in self.context.seasons:
+                season.state.perform_action(modules)
+        elif self.context.type == "season":
+            for episode in self.context.episodes:
+                episode.state.perform_action(modules)
+        else:
+            library.update_item_section(self.context)
 
 class Library(MediaItemState):
     def perform_action(self, _):

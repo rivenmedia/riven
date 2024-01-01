@@ -46,8 +46,7 @@ class MediaItem:
         # Plex related
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
-        self.updated = None
-
+        self.update_folder = item.get("update_folder", None)
         self.state.set_context(self)
 
     def perform_action(self, modules):
@@ -61,7 +60,7 @@ class MediaItem:
         return _state
 
     def _determine_state(self):
-        if self.key:
+        if self.key or self.update_folder == "updated":
             return Library()
         if self.symlinked:
             return Symlink()
@@ -167,6 +166,8 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return LibraryPartial()
+        if any(season.state == Symlink for season in self.seasons):
+            return Symlink()
         if any(season.state == Download for season in self.seasons):
             return Download()
         if any(season.state == Scrape for season in self.seasons):

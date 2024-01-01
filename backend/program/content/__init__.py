@@ -10,6 +10,7 @@ from utils.service_manager import ServiceManager
 class Content(threading.Thread):
     def __init__(self, media_items):
         super().__init__(name="Content")
+        self.key = "content"
         self.running = False
         self.sm = ServiceManager(media_items, Mdblist, Overseerr, PlexWatchlist)
         while not any(service.initialized for service in self.sm.services):

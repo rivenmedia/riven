@@ -27,13 +27,10 @@ class Program(threading.Thread):
         self.data_path = get_data_path()
         self.pickly = Pickly(self.media_items, self.data_path)
         self.pickly.start()
-        self.threads = [
-            Content(self.media_items),  # Content must be first
-            Plex(self.media_items),
-        ]
-        for thread in self.threads:
-            thread.start()
-        self.sm = ServiceManager(None, Scraping, Debrid, Symlinker)
+        self.sm1 = ServiceManager(self.media_items, Content, Plex)
+        for service in self.sm1.services:
+            service.start()
+        self.sm2 = ServiceManager(None, Scraping, Debrid, Symlinker)
         super().start()
         self.running = True
         logger.info("Iceberg started!")
@@ -44,7 +41,7 @@ class Program(threading.Thread):
                 max_workers=10, thread_name_prefix="Worker"
             ) as executor:
                 for item in self.media_items:
-                    executor.submit(item.perform_action, self.sm.services)
+                    executor.submit(item.perform_action, self.sm1.services + self.sm2.services)
             time.sleep(2)
 
     def stop(self):

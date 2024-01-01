@@ -1,6 +1,4 @@
 """ Torrentio scraper module """
-from datetime import datetime
-from typing import Optional
 from pydantic import BaseModel
 from requests.exceptions import RequestException
 from utils.logger import logger

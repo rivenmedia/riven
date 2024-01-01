@@ -19,9 +19,9 @@ class Scraping:
             time.sleep(5)
 
     def run(self, item) -> None:
-        for service in self.sm.services:
-            if service.initialized:
-                if self._can_we_scrape(item):
+        if self._can_we_scrape(item):
+            for service in self.sm.services:
+                if service.initialized:
                     service.run(item)
         item.set("scraped_at", datetime.now().timestamp())
 

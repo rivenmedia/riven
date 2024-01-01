@@ -1,5 +1,7 @@
 """Trakt updater module"""
 from datetime import datetime
+import math
+import concurrent.futures
 from os import path
 from utils.logger import get_data_path, logger
 from utils.request import get
@@ -17,19 +19,32 @@ class Updater:
         self.pkl_file = path.join(get_data_path(), "trakt_data.pkl")
         self.ids = []
 
+
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
         self.trakt_data.load(self.pkl_file)
         new_items = MediaItemContainer()
         get_items = MediaItemContainer()
+
+        existing_imdb_ids = {item.imdb_id for item in self.trakt_data.items if item}
+
+        # This is to calculate 10% batch sizes to speed up the process
+        batch_size = math.ceil(len(imdb_ids) * 0.1)
+        imdb_id_batches = [imdb_ids[i:i + batch_size] for i in range(0, len(imdb_ids), batch_size)]
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for imdb_id_batch in imdb_id_batches:
+                future_items = {executor.submit(self._create_item, imdb_id): imdb_id for imdb_id in imdb_id_batch if imdb_id not in existing_imdb_ids}
+                for future in concurrent.futures.as_completed(future_items):
+                    item = future.result()
+                    if item:
+                        new_items += item
+                    get_items.append(item)
+
         for imdb_id in imdb_ids:
-            if imdb_id not in [item.imdb_id for item in self.trakt_data.items if item]:
-                item = self._create_item(imdb_id)
-                if item:
-                    new_items += item
-                get_items.append(item)
-            else:
+            if imdb_id in existing_imdb_ids:
                 get_items.append(self.trakt_data.get_item("imdb_id", imdb_id))
+
         added_items = self.trakt_data.extend(new_items)
         if len(added_items) > 0:
             for added_item in added_items:

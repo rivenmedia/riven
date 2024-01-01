@@ -47,8 +47,8 @@ class Symlinker(threading.Thread):
                 time.sleep(2)
 
     def _create_init_folders(self):
-        movies = os.path.join(self.library_path, "movies")
-        shows = os.path.join(self.library_path, "shows")
+        movies = os.path.join(self.library_path_movies)
+        shows = os.path.join(self.library_path_shows)
         if not os.path.exists(self.library_path):
             os.mkdir(self.library_path)
         if not os.path.exists(movies):
@@ -129,7 +129,7 @@ class Symlinker(threading.Thread):
             folder_name_show = (
                 f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
             )
-            show_path = os.path.join(self.symlink_path, "shows", folder_name_show)
+            show_path = os.path.join(self.library_path_shows, folder_name_show)
             if not os.path.exists(show_path):
                 os.mkdir(show_path)
             season = item.parent
