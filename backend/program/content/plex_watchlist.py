@@ -54,7 +54,7 @@ class PlexWatchlist:
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""
-        response_obj = get(self.watchlist_url, timeout=30)
+        response_obj = get(self.watchlist_url, timeout=60)
         watchlist_data = json.loads(response_obj.response.content)
         items = watchlist_data.get("items", [])
         ids = []

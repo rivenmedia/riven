@@ -1,25 +1,27 @@
 """ Jackett scraper module """
-from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
+from requests import RequestException
+from .common import BaseScraper
 from utils.logger import logger
-from utils.request import get, ping
+from utils.request import RateLimitExceeded, get
 from utils.settings import settings_manager
 from utils.utils import parser
-from requests.exceptions import ReadTimeout
-
+from utils.request import get, RateLimiter
 
 class JackettConfig(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
 
 
-class Jackett:
+class Jackett(BaseScraper):
     """Scraper for Jackett"""
 
     def __init__(self):
         self.settings = "jackett"
         self.last_scrape = 0
+        self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
         try:
             self.class_settings = JackettConfig(**settings_manager.get(self.settings))
             self.initialized = self.validate_settings()
@@ -42,35 +44,22 @@ class Jackett:
             logger.info("Jackett is not configured and will not be used.")
 
     def run(self, item):
-        """Scrape Jackett for the given media items
+        """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
         if self._can_we_scrape(item):
             try:
                 self._scrape_item(item)
-            except ReadTimeout as e:
-                logger.warning("Jackett timed out: %s", e)
+            except RequestException:
+                self.minute_limiter.limit_hit()
+                return
+            except RateLimitExceeded:
+                self.minute_limiter.limit_hit()
                 return
 
-    def _can_we_scrape(self, item) -> bool:
-        return self._is_released(item) and self._needs_new_scrape(item)
-
-    def _is_released(self, item) -> bool:
-        return item.aired_at is not None and item.aired_at < datetime.now()
-
-    def _needs_new_scrape(self, item) -> bool:
-        return (
-            datetime.now().timestamp() - item.scraped_at
-            > 60 * 30  # 30 minutes between scrapes
-            or item.scraped_at == 0
-        )
-
     def _scrape_item(self, item):
+        """Scrape the given media item"""
         data = self.api_scrape(item)
-        log_string = item.title
-        if item.type == "season":
-            log_string = f"{item.parent.title} S{item.number}"
-        if item.type == "episode":
-            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+        log_string = self._build_log_string(item)
         if len(data) > 0:
             item.set("streams", data)
             logger.debug("Found %s streams for %s", len(data), log_string)
@@ -90,7 +79,7 @@ class Jackett:
         url = (
             f"{self.class_settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.class_settings.api_key}{query}"
         )
-        response = get(url=url, retry_if_failed=False, timeout=60)
+        response = get(url=url, retry_if_failed=False, timeout=30)
         if response.is_ok:
             data = {}
             for stream in response.data['rss']['channel']['item']:

@@ -1,14 +1,14 @@
 """ Torrentio scraper module """
-from datetime import datetime
-from requests.exceptions import RequestException
-from utils.logger import logger
+from requests import RequestException
 from utils.request import RateLimitExceeded, get, RateLimiter
 from utils.settings import settings_manager
 from utils.utils import parser
+from utils.logger import logger
+from .common import BaseScraper
 
 
-class Torrentio:
-    """Scraper for torrentio"""
+class Torrentio(BaseScraper):
+    """Scraper for Torrentio"""
 
     def __init__(self):
         self.settings = "torrentio"
@@ -18,6 +18,10 @@ class Torrentio:
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = True
+
+    def validate_settings(self) -> bool:
+        """Since Torrentio is a public scraper, we don't need to validate settings"""
+        return True
 
     def run(self, item):
         """Scrape the torrentio site for the given media items
@@ -33,30 +37,14 @@ class Torrentio:
                 return
 
     def _scrape_item(self, item):
+        """Scrape the given media item"""
         data = self.api_scrape(item)
-        log_string = item.title
-        if item.type == "season":
-            log_string = f"{item.parent.title} S{item.number}"
-        if item.type == "episode":
-            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+        log_string = self._build_log_string(item)
         if len(data) > 0:
-            item.streams.update(data)
+            item.set("streams", data)
             logger.debug("Found %s streams for %s", len(data), log_string)
         else:
             logger.debug("Could not find streams for %s", log_string)
-
-    def _can_we_scrape(self, item) -> bool:
-        return self._is_released(item) and self._needs_new_scrape(item)
-
-    def _is_released(self, item) -> bool:
-        return item.aired_at is not None and item.aired_at < datetime.now()
-    
-    def _needs_new_scrape(self, item) -> bool:
-        return (
-            datetime.now().timestamp() - item.scraped_at
-            > 60 * 30  # 30 minutes between scrapes
-            or item.scraped_at == 0
-        )
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""

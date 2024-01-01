@@ -120,9 +120,9 @@ class Debrid:
             case "movie":
                 log_string = item.title
             case "season":
-                log_string = f"{item.parent.title} season {item.number}"
+                log_string = f"{item.parent.title} S{item.number}"
             case "episode":
-                log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
+                log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
             case _:
                 log_string = ""
 
