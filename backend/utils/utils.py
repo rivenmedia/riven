@@ -22,7 +22,6 @@ class Pickly(threading.Thread):
     def stop(self) -> None:
         self.save()
         self.running = False
-        return super().join()
 
     def load(self) -> None:
         self.media_items.load(os.path.join(self.data_path, "media.pkl"))

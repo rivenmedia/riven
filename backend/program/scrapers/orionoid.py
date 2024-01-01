@@ -8,6 +8,8 @@ from utils.request import RateLimitExceeded, RateLimiter, get
 from utils.settings import settings_manager
 from utils.utils import parser
 
+KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
+
 
 class OrionoidConfig(BaseModel):
     api_key: Optional[str]
@@ -17,10 +19,8 @@ class Orionoid:
     """Scraper for Orionoid"""
 
     def __init__(self):
-        self.settings = "orionoid"
-        self.class_settings = OrionoidConfig(**settings_manager.get(self.settings))
-        self.keyapp = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
-        self.keyuser = self.class_settings.api_key
+        self.key = "orionoid"
+        self.settings = OrionoidConfig(**settings_manager.get(self.key))
         self.last_scrape = 0
         self.is_premium = False
         self.initialized = False
@@ -30,13 +30,14 @@ class Orionoid:
             self.initialized = True
 
         self.max_calls = 50 if not self.is_premium else 999999
-        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=86400, raise_on_limit=True)
+        self.minute_limiter = RateLimiter(
+            max_calls=self.max_calls, period=86400, raise_on_limit=True
+        )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-
 
     def validate_settings(self) -> bool:
         """Validate the Orionoid class_settings."""
-        if self.class_settings.api_key:
+        if self.settings.api_key:
             return True
         logger.info("Orionoid is not configured and will not be used.")
         return False
@@ -46,7 +47,7 @@ class Orionoid:
         Check the user's status with the Orionoid API.
         Returns True if the user is active, has a premium account, and has RealDebrid service enabled.
         """
-        url = f"https://api.orionoid.com?keyapp={self.keyapp}&keyuser={self.keyuser}&mode=user&action=retrieve"
+        url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
         if response.is_ok:
             active = True if response.data.data.status == "active" else False
@@ -78,7 +79,9 @@ class Orionoid:
         if item.type == "season":
             log_string = f"{item.parent.title} S{item.number}"
         if item.type == "episode":
-            log_string = f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            log_string = (
+                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            )
         if len(data) > 0:
             item.streams.update(data)
             logger.debug("Found %s streams for %s", len(data), log_string)
@@ -102,8 +105,8 @@ class Orionoid:
         """Construct the URL for the Orionoid API."""
         base_url = "https://api.orionoid.com"
         params = {
-            "keyapp": self.keyapp,
-            "keyuser": self.keyuser,
+            "keyapp": KEY_APP,
+            "keyuser": self.settings.api_key,
             "mode": "stream",
             "action": "retrieve",
             "type": media_type,
@@ -130,7 +133,9 @@ class Orionoid:
                 url = self.construct_url("show", imdb_id, season=item.number)
             elif item.type == "episode":
                 imdb_id = item.parent.parent.imdb_id
-                url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
+                url = self.construct_url(
+                    "show", imdb_id, season=item.parent.number, episode=item.number
+                )
             else:
                 imdb_id = item.imdb_id
                 url = self.construct_url("movie", imdb_id)

@@ -1,56 +1,28 @@
 """Program main module"""
 import threading
 import time
-from typing import Optional
-from pydantic import BaseModel, HttpUrl, Field
+from program.scrapers import Scraping
+from program.realdebrid import Debrid
+from program.symlink import Symlinker
 from program.media.container import MediaItemContainer
 from utils.logger import logger, get_data_path
-from utils.settings import settings_manager
 from program.plex import Plex
-from program.plex import PlexConfig
 from program.content import Content
 from utils.utils import Pickly
+from utils.settings import settings_manager as settings
 import concurrent.futures
-
-
-class MdblistConfig(BaseModel):
-    lists: list[str] = Field(default_factory=list)
-    api_key: Optional[str]
-    update_interval: int = 80
-
-
-class OverseerrConfig(BaseModel):
-    url: Optional[HttpUrl]
-    api_key: Optional[str]
-
-
-class RealDebridConfig(BaseModel):
-    api_key: Optional[str]
-
-
-class TorrentioConfig(BaseModel):
-    filter: str
-
-
-class Settings(BaseModel):
-    version: str
-    debug: bool
-    log: bool
-    plex: PlexConfig
-    mdblist: MdblistConfig
-    overseerr: OverseerrConfig
-    scraper_torrentio: TorrentioConfig
-    realdebrid: RealDebridConfig
+from utils.service_manager import ServiceManager
 
 
 class Program(threading.Thread):
     """Program class"""
 
     def __init__(self):
-        logger.info("Iceberg initializing...")
         super().__init__(name="Iceberg")
         self.running = False
-        self.settings = settings_manager.get_all()
+
+    def start(self):
+        logger.info("Iceberg starting!")
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
         self.pickly = Pickly(self.media_items, self.data_path)
@@ -59,7 +31,12 @@ class Program(threading.Thread):
             Content(self.media_items),  # Content must be first
             Plex(self.media_items),
         ]
-        logger.info("Iceberg initialized!")
+        for thread in self.threads:
+            thread.start()
+        self.sm = ServiceManager(None, Scraping, Debrid, Symlinker)
+        super().start()
+        self.running = True
+        logger.info("Iceberg started!")
 
     def run(self):
         while self.running:
@@ -67,18 +44,12 @@ class Program(threading.Thread):
                 max_workers=10, thread_name_prefix="Worker"
             ) as executor:
                 for item in self.media_items:
-                    executor.submit(item.perform_action)
+                    executor.submit(item.perform_action, self.sm.services)
             time.sleep(2)
-
-    def start(self):
-        self.running = True
-        super().start()
-        for thread in self.threads:
-            thread.start()
 
     def stop(self):
         for thread in self.threads:
             thread.stop()
         self.pickly.stop()
+        settings.save()
         self.running = False
-        super().join()

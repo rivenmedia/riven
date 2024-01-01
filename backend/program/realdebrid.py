@@ -2,7 +2,8 @@
 import os
 import re
 import time
-import requests
+from typing import Optional
+from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
@@ -14,13 +15,8 @@ WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 
-def get_user():
-    api_key = settings_manager.get("realdebrid")["api_key"]
-    headers = {"Authorization": f"Bearer {api_key}"}
-    response = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user", headers=headers
-    )
-    return response.json()
+class DebridConfig(BaseModel):
+    api_key: Optional[str]
 
 
 class Debrid:
@@ -29,8 +25,9 @@ class Debrid:
     def __init__(self):
         # Realdebrid class library is a necessity
         while True:
-            self.settings = settings_manager.get("realdebrid")
-            self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
+            self.key = "realdebrid"
+            self.settings = DebridConfig(**settings_manager.get(self.key))
+            self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
             self.running = False
             if self._validate_settings():
                 self._torrents = {}
@@ -83,7 +80,7 @@ class Debrid:
 
     def _update_torrent_info(self, item):
         info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["name"] = info.original_filename
+        item.active_stream["name"] = info.filename
 
     def _download_item(self, item):
         request_id = self.add_magnet(item)
@@ -277,6 +274,3 @@ class Debrid:
         )
         if response.is_ok:
             return response.data
-
-
-debrid = Debrid()

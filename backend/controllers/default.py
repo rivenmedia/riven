@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
+import requests
 from utils.settings import settings_manager
-from program.realdebrid import get_user
 
 
 router = APIRouter(
@@ -9,7 +9,7 @@ router = APIRouter(
 
 
 @router.get("/")
-async def root(request: Request):
+async def root():
     return {
         "success": True,
         "message": "Iceburg is running!",
@@ -17,7 +17,7 @@ async def root(request: Request):
 
 
 @router.get("/health")
-async def health(request: Request):
+async def health():
     return {
         "success": True,
         "message": "Iceburg is running!",
@@ -26,7 +26,12 @@ async def health(request: Request):
 
 @router.get("/user")
 async def get_rd_user():
-    return get_user()
+    api_key = settings_manager.get("realdebrid.api_key")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get(
+        "https://api.real-debrid.com/rest/1.0/user", headers=headers
+    )
+    return response.json()
 
 
 @router.get("/services")

@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+from .settings import settings_manager as settings
 
 
 def get_data_path():
@@ -81,11 +82,16 @@ class Logger(logging.Logger):
         file_handler = logging.FileHandler(
             os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
         )
-        file_handler.setLevel(logging.DEBUG)
+
+        log_level = logging.INFO
+        if settings.get("debug"):
+            log_level = logging.DEBUG
+
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
 
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
+        console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
 
         self.addHandler(file_handler)

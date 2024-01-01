@@ -165,6 +165,7 @@ class RateLimitExceeded(Exception):
 import time
 from threading import Lock
 
+
 class RateLimiter:
     """
     A rate limiter class that limits the number of calls within a specified period.
@@ -172,7 +173,7 @@ class RateLimiter:
     Args:
         max_calls (int): The maximum number of calls allowed within the specified period.
         period (float): The time period (in seconds) within which the calls are limited.
-        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded. 
+        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded.
             Defaults to False.
 
     Attributes:

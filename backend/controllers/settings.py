@@ -35,7 +35,7 @@ async def save_settings():
     }
 
 
-@router.get('/get/all')
+@router.get("/get/all")
 async def get_all_settings():
     return {
         "success": True,

@@ -12,22 +12,23 @@ class PlexWatchlist:
     """Class for managing Plex watchlist"""
 
     def __init__(self, media_items: MediaItemContainer):
+        self.key = "plex_watchlist"
+        self.url = settings.get("plex.watchlist_url")
         self.initialized = False
         self.media_items = media_items
-        self.watchlist_url = settings.get("plex")["watchlist"]
         self.previous_added_items_count = 0
-        if not self.watchlist_url or not self._validate_settings():
-            logger.info(
-                "Plex Watchlist is not configured and will not be used."
-            )
+        if not self.url or not self._validate_settings():
+            logger.info("Plex Watchlist is not configured and will not be used.")
             return
         self.updater = Trakt()
         self.initialized = True
 
     def _validate_settings(self):
+        if self.url == "":
+            return False
         try:
             response = ping(
-                self.watchlist_url,
+                self.url,
                 timeout=10,
             )
             return response.ok
@@ -45,7 +46,10 @@ class PlexWatchlist:
         previous_count = len(self.media_items)
         added_items = self.media_items.extend(container)
         added_items_count = len(self.media_items) - previous_count
-        if added_items_count != self.previous_added_items_count and added_items_count > 0:
+        if (
+            added_items_count != self.previous_added_items_count
+            and added_items_count > 0
+        ):
             logger.info("Added %s items", added_items_count)
             self.previous_added_items_count = added_items_count
         if added_items_count > 0:
@@ -54,14 +58,23 @@ class PlexWatchlist:
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""
-        response_obj = get(self.watchlist_url, timeout=30)
+        response_obj = get(self.url, timeout=30)
         watchlist_data = json.loads(response_obj.response.content)
         items = watchlist_data.get("items", [])
         ids = []
         for item in items:
-            imdb_id = next((guid.split("//")[-1] for guid in item.get("guids") if "imdb://" in guid), None)
+            imdb_id = next(
+                (
+                    guid.split("//")[-1]
+                    for guid in item.get("guids")
+                    if "imdb://" in guid
+                ),
+                None,
+            )
             if imdb_id:
                 ids.append(imdb_id)
             else:
-                logger.warning("Could not find IMDb ID for %s in Plex watchlist", item.get("title"))
+                logger.warning(
+                    "Could not find IMDb ID for %s in Plex watchlist", item.get("title")
+                )
         return ids

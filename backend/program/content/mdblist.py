@@ -11,21 +11,27 @@ class Mdblist:
 
     def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
+        self.key = "mdblist"
+        self.api_key = settings_manager.get("mdblist.api_key")
+        self.lists = settings_manager.get("mdblist.lists")
         self.media_items = media_items
-        self.settings = settings_manager.get("mdblist")
         if not self._validate_settings():
-            logger.info("mdblist is not configured and will not be used.")
             return
         self.updater = Trakt()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
+        logger.info("mdblist initialized")
         self.initialized = True
 
     def _validate_settings(self):
-        response = ping(
-            f"https://mdblist.com/api/user?apikey={self.settings['api_key']}"
-        )
-        return not "Invalid API key!" in response.text
+        if self.api_key == "":
+            logger.debug("mdblist api key is not set")
+            return False
+        response = ping(f"https://mdblist.com/api/user?apikey={self.api_key}")
+        if "Invalid API key!" in response.text:
+            logger.debug("mdblist api key is invalid")
+            return False
+        return True
 
     def run(self):
         """Fetch media from mdblist and add them to media_items attribute
@@ -33,10 +39,10 @@ class Mdblist:
         try:
             with self.rate_limiter:
                 items = []
-                for list_id in self.settings["lists"]:
+                for list_id in settings_manager.get("mdblist.lists"):
                     if list_id:
                         items += self._get_items_from_list(
-                            list_id, self.settings["api_key"]
+                            list_id, settings_manager.get("mdblist.api_key")
                         )
                 new_items = [item for item in items if item not in self.media_items]
                 container = self.updater.create_items(new_items)
@@ -52,7 +58,7 @@ class Mdblist:
         return [item.imdb_id for item in list_items(list_id, api_key)]
 
     def _calculate_request_time(self):
-        limits = my_limits(self.settings["api_key"]).limits
+        limits = my_limits(settings_manager.get("mdblist.api_key")).limits
         daily_requests = limits.api_requests
         requests_per_2_minutes = daily_requests / 24 / 60 * 2
         return requests_per_2_minutes

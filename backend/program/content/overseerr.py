@@ -12,20 +12,27 @@ class Overseerr:
 
     def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
+        self.key = "overseerr"
+        self.api_key = settings_manager.get("overseerr.api_key")
+        self.url = settings_manager.get("overseerr.url")
+        self.headers = {"X-Api-Key": self.api_key}
         self.media_items = media_items
-        self.settings = settings_manager.get("overseerr")
-        if self.settings.get("api_key") == "" or not self._validate_settings():
+        if (
+            settings_manager.get("overseerr.api_key") == ""
+            or not self._validate_settings()
+        ):
             logger.info("Overseerr is not configured and will not be used.")
             return
         self.updater = Trakt()
         self.not_found_ids = []
+        logger.info("Overseerr initialized")
         self.initialized = True
 
     def _validate_settings(self):
         try:
             response = ping(
-                self.settings.get("url") + "/api/v1/auth/me",
-                additional_headers={"X-Api-Key": self.settings.get("api_key")},
+                self.url + "/api/v1/auth/me",
+                additional_headers=self.headers,
                 timeout=1,
             )
             return response.ok
@@ -48,8 +55,8 @@ class Overseerr:
         """Fetch media from overseerr"""
 
         response = get(
-            self.settings.get("url") + f"/api/v1/request?take={amount}",
-            additional_headers={"X-Api-Key": self.settings.get("api_key")},
+            self.url + f"/api/v1/request?take={amount}",
+            additional_headers=self.headers,
         )
         ids = []
         if response.is_ok:
@@ -76,9 +83,8 @@ class Overseerr:
         if f"{id_extension}{external_id}" in self.not_found_ids:
             return None
         response = get(
-            self.settings.get("url")
-            + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
-            additional_headers={"X-Api-Key": self.settings.get("api_key")},
+            self.url + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
+            additional_headers=self.headers,
         )
         if response.is_ok:
             imdb_id = response.data.externalIds.imdbId

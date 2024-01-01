@@ -10,6 +10,9 @@ from program.media.state import (
     LibraryPartial,
 )
 from utils.utils import parser
+from program.scrapers import Scraping
+from program.realdebrid import Debrid
+from program.symlink import Symlinker
 
 
 class MediaItem:
@@ -47,9 +50,9 @@ class MediaItem:
 
         self.state.set_context(self)
 
-    def perform_action(self):
+    def perform_action(self, modules):
         with self._lock:
-            self.state.perform_action()
+            self.state.perform_action(modules)
 
     @property
     def state(self):
@@ -94,7 +97,7 @@ class MediaItem:
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.state.name,
+            "state": self.state.__class__.__name__,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres if hasattr(self, "genres") else None,
@@ -144,7 +147,7 @@ class Movie(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Movie:{self.title}:{self.state.name}"
+        return f"Movie:{self.title}:{self.state.__class__.__name__}"
 
 
 class Show(MediaItem):
@@ -173,7 +176,7 @@ class Show(MediaItem):
         return Unknown()
 
     def __repr__(self):
-        return f"Show:{self.title}:{self.state.name}"
+        return f"Show:{self.title}:{self.state.__class__.__name__}"
 
     def add_season(self, season):
         """Add season to show"""
@@ -201,7 +204,9 @@ class Season(MediaItem):
                 return Symlink()
             if all(episode.file and episode.folder for episode in self.episodes):
                 return Download()
-            if self.is_scraped() or any(episode.state == Scrape for episode in self.episodes):
+            if self.is_scraped() or any(
+                episode.state == Scrape for episode in self.episodes
+            ):
                 return Scrape()
             if any(episode.state == Content for episode in self.episodes):
                 return Content()
@@ -211,7 +216,7 @@ class Season(MediaItem):
         return self.number == other.number
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
+        return f"Season:{self.number}:{self.state.__class__.__name__}"
 
     def add_episode(self, episode):
         """Add episode to season"""
@@ -233,7 +238,7 @@ class Episode(MediaItem):
         return self.number == other.number
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
+        return f"Episode:{self.number}:{self.state.__class__.__name__}"
 
     def get_file_episodes(self):
         return parser.episodes(self.file)

@@ -28,8 +28,7 @@ from program.media.item import (
 class PlexConfig(BaseModel):
     user: Optional[str] = None
     token: Optional[str] = None
-    url: Optional[HttpUrl] = None
-    watchlist_url: Optional[str] = None
+    url: Optional[str] = None
 
 
 class Plex(threading.Thread):
@@ -37,15 +36,17 @@ class Plex(threading.Thread):
 
     def __init__(self, media_items: MediaItemContainer):
         super().__init__(name="Plex")
+        self.key = "plex"
+        self.library_path = os.path.abspath(
+            os.path.dirname(settings.get("symlink.host_path"))
+        )
+
         # Plex class library is a necessity
         while True:
             try:
-                temp_settings = settings.get("plex")
-                self.library_path = os.path.abspath(
-                    os.path.join(settings.get("container_mount"), os.pardir, "library")
-                )
+                self.settings = PlexConfig(**settings.get(self.key))
                 self.plex = PlexServer(
-                    temp_settings["url"], temp_settings["token"], timeout=60
+                    self.settings.url, self.settings.token, timeout=60
                 )
                 self.running = False
                 self.log_worker_count = False
@@ -61,7 +62,7 @@ class Plex(threading.Thread):
                     "Plex timed out: retrying in 2 seconds... %s", str(e), exc_info=True
                 )
             except Exception as e:
-                logger.error("Unknown error: %s",str(e) , exc_info=True)
+                logger.error("Unknown error: %s", str(e), exc_info=True)
             time.sleep(2)
 
     def run(self):
@@ -76,13 +77,12 @@ class Plex(threading.Thread):
 
     def stop(self):
         self.running = False
-        super().join()
 
     def _update_items(self):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
-        max_workers = os.cpu_count() + 1
+        max_workers = os.cpu_count() / 2
         for section in sections:
             if section.key in processed_sections and not self._is_wanted_section(
                 section
@@ -105,13 +105,15 @@ class Plex(threading.Thread):
             except requests.exceptions.ReadTimeout as e:
                 logger.error(
                     "Timeout occurred when accessing section %s with Reason: %s",
-                    section.title, str(e)
+                    section.title,
+                    str(e),
                 )
                 continue
             except requests.exceptions.ConnectionError as e:
                 logger.error(
                     "Connection aborted. Remote end closed connection with response: %s for item %s",
-                    str(e), section.title
+                    str(e),
+                    section.title,
                 )
                 continue
 
@@ -217,7 +219,7 @@ class Plex(threading.Thread):
 
     def _is_wanted_section(self, section):
         return any(self.library_path in location for location in section.locations)
-    
+
     def _oauth(self):
         random_uuid = uuid.uuid4()
         response = get(
@@ -225,9 +227,9 @@ class Plex(threading.Thread):
             additional_headers={
                 "X-Plex-Product": "Iceberg",
                 "X-Plex-Client-Identifier": random_uuid,
-                "X-Plex-Token": settings.get("plex.token")
-                },
-            )
+                "X-Plex-Token": settings.get("plex.token"),
+            },
+        )
         if not response.ok:
             data = post(
                 url="https://plex.tv/api/v2/pins",
@@ -235,7 +237,7 @@ class Plex(threading.Thread):
                     "strong": "true",
                     "X-Plex-Product": "Iceberg",
                     "X-Plex-Client-Identifier": random_uuid,
-                    },
+                },
             )
             if data.ok:
                 pin = data.id

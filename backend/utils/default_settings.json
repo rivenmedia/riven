@@ -2,8 +2,10 @@
   "version": "0.3.0",
   "debug": false,
   "log": true,
-  "host_mount": "",
-  "container_mount": "",
+  "symlink": {
+    "host_path": "",
+    "container_path": ""
+  },
   "plex": {
     "user": "",
     "token": "",
