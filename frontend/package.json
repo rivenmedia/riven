@@ -40,7 +40,7 @@
 	"type": "module",
 	"dependencies": {
 		"bits-ui": "^0.13.0",
-		"clsx": "^2.0.0",
+		"clsx": "^2.1.0",
 		"cmdk-sv": "^0.0.12",
 		"lucide-svelte": "^0.302.0",
 		"luxon": "^3.4.4",
