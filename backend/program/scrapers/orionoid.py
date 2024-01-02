@@ -21,7 +21,6 @@ class Orionoid:
     def __init__(self):
         self.key = "orionoid"
         self.settings = OrionoidConfig(**settings_manager.get(self.key))
-        self.last_scrape = 0
         self.is_premium = False
         self.initialized = False
 
@@ -66,12 +65,12 @@ class Orionoid:
         if self._can_we_scrape(item):
             try:
                 self._scrape_item(item)
-            except RequestException:
+            except RequestException as e:
                 self.minute_limiter.limit_hit()
-                return
-            except RateLimitExceeded:
+                raise e
+            except RateLimitExceeded as e:
                 self.minute_limiter.limit_hit()
-                return
+                raise e
 
     def _scrape_item(self, item):
         data = self.api_scrape(item)
@@ -87,19 +86,6 @@ class Orionoid:
             logger.debug("Found %s streams for %s", len(data), log_string)
         else:
             logger.debug("Could not find streams for %s", log_string)
-
-    def _can_we_scrape(self, item) -> bool:
-        return self._is_released(item) and self._needs_new_scrape(item)
-
-    def _is_released(self, item) -> bool:
-        return item.aired_at is not None and item.aired_at < datetime.now()
-
-    def _needs_new_scrape(self, item) -> bool:
-        return (
-            datetime.now().timestamp() - item.scraped_at
-            > 60 * 30  # 30 minutes between scrapes
-            or item.scraped_at == 0
-        )
 
     def construct_url(self, media_type, imdb_id, season, episode) -> str:
         """Construct the URL for the Orionoid API."""

@@ -1,4 +1,5 @@
 """Mdblist content module"""
+from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.settings import settings_manager
 from utils.logger import logger
@@ -7,18 +8,21 @@ from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
+class OverseerrConfig(BaseModel):
+    api_key: str
+    url: str
+
 class Overseerr:
     """Content class for overseerr"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.initialized = False
         self.key = "overseerr"
-        self.api_key = settings_manager.get("overseerr.api_key")
-        self.url = settings_manager.get("overseerr.url")
-        self.headers = {"X-Api-Key": self.api_key}
+        self.settings = OverseerrConfig(**settings_manager.get(self.key))
         self.media_items = media_items
+        self.headers = {"X-Api-Key": self.settings.api_key}
         if (
-            settings_manager.get("overseerr.api_key") == ""
+            self.settings.api_key == ""
             or not self._validate_settings()
         ):
             logger.info("Overseerr is not configured and will not be used.")
@@ -31,7 +35,7 @@ class Overseerr:
     def _validate_settings(self):
         try:
             response = ping(
-                self.url + "/api/v1/auth/me",
+                self.settings.url + "/api/v1/auth/me",
                 additional_headers=self.headers,
                 timeout=1,
             )
@@ -55,7 +59,7 @@ class Overseerr:
         """Fetch media from overseerr"""
 
         response = get(
-            self.url + f"/api/v1/request?take={amount}",
+            self.settings.url + f"/api/v1/request?take={amount}",
             additional_headers=self.headers,
         )
         ids = []
@@ -83,7 +87,7 @@ class Overseerr:
         if f"{id_extension}{external_id}" in self.not_found_ids:
             return None
         response = get(
-            self.url + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
+            self.settings.url + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
         if response.is_ok:

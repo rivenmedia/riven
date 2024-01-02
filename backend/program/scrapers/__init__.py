@@ -4,13 +4,14 @@ from utils.service_manager import ServiceManager
 from utils.logger import logger
 from .torrentio import Torrentio
 from .orionoid import Orionoid
+from .jackett import Jackett
 
 
 class Scraping:
     def __init__(self):
         self.key = "scrape"
         self.initialized = False
-        self.sm = ServiceManager(None, Torrentio, Orionoid)
+        self.sm = ServiceManager(None, Torrentio, Orionoid, Jackett)
         while not any(service.initialized for service in self.sm.services):
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"

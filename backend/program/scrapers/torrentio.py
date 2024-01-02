@@ -1,4 +1,5 @@
 """ Torrentio scraper module """
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 from requests.exceptions import RequestException
@@ -13,12 +14,11 @@ class TorrentioConfig(BaseModel):
 
 
 class Torrentio:
-    """Scraper for torrentio"""
+    """Scraper for `Torrentio`"""
 
     def __init__(self):
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(self.key))
-        self.last_scrape = 0
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = True
