@@ -84,6 +84,7 @@ class PlexWatchlist:
             if imdb_id:
                 ids.append(imdb_id)
             else:
+                # TODO: Add support for tvdb id's
                 logger.warning(
                     "Could not find IMDb ID for %s in Plex watchlist", item.get("title")
                 )

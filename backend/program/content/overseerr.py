@@ -11,8 +11,8 @@ from program.updaters.trakt import Updater as Trakt
 
 class OverseerrConfig(BaseModel):
     enabled: bool
-    api_key: Optional[str]
     url: Optional[str]
+    api_key: Optional[str]
 
 class Overseerr:
     """Content class for overseerr"""
@@ -20,6 +20,9 @@ class Overseerr:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "overseerr"
         self.settings = OverseerrConfig(**settings_manager.get(self.key))
+        if not self.settings.enabled:
+            logger.debug("Overseerr is set to disabled.")
+            return
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate_settings()
         if not self.initialized:
@@ -31,9 +34,6 @@ class Overseerr:
         logger.info("Overseerr initialized!")
 
     def validate_settings(self):
-        if not self.settings.enabled:
-            logger.debug("Overseerr is set to disabled.")
-            return False
         try:
             response = ping(
                 self.settings.url + "/api/v1/auth/me",
