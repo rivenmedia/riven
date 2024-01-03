@@ -1,4 +1,5 @@
 """Program main module"""
+import os
 import threading
 import time
 from program.scrapers import Scraping
@@ -22,14 +23,14 @@ class Program(threading.Thread):
         self.running = False
 
     def start(self):
-        logger.info("Iceberg starting!")
+        logger.info("Iceberg v%s starting!", settings.get("version"))
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
+        if not os.path.exists(self.data_path):
+            os.mkdir(self.data_path)
         self.pickly = Pickly(self.media_items, self.data_path)
         self.pickly.start()
         self.core_manager = ServiceManager(self.media_items, Content, Plex)
-        for service in self.core_manager.services:
-            service.start()
         self.extras_manager = ServiceManager(None, Scraping, Debrid, Symlinker)
         super().start()
         self.running = True
@@ -37,16 +38,18 @@ class Program(threading.Thread):
 
     def run(self):
         while self.running:
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=10, thread_name_prefix="Worker"
-            ) as executor:
-                for item in self.media_items:
-                    executor.submit(item.perform_action, self.core_manager.services + self.extras_manager.services)
-            time.sleep(2)
+            if self.validate():
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=10, thread_name_prefix="Worker"
+                ) as executor:
+                    for item in self.media_items:
+                        executor.submit(item.perform_action, self.core_manager.services + self.extras_manager.services)
+            time.sleep(1)
+
+    def validate(self):
+        return all(service.initialized for service in self.core_manager.services)
 
     def stop(self):
-        for thread in self.threads:
-            thread.stop()
         self.pickly.stop()
         settings.save()
         self.running = False

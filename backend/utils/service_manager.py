@@ -1,4 +1,5 @@
 from copy import deepcopy
+from threading import Thread
 from utils.settings import settings_manager
 
 
@@ -14,15 +15,15 @@ class ServiceManager:
         services = []
         if self.services:
             for index, service in enumerate(self.services):
-                if modules:
-                    if service.key in modules:
-                        self.services[index] = service.__class__(self.media_items)
-        else:
+                if modules and service.key in modules:
+                    self.services[index] = service.__class__(self.media_items) if self.media_items else service.__class__()
+        elif modules:
             for service in modules:
-                if self.media_items != None:
-                    services.append(service(self.media_items))
-                else:
-                    services.append(service())
+                new_service = service(self.media_items) if self.media_items != None else service()
+                services.append(new_service)
+        for service in self.services:
+            if Thread in service.__class__.__bases__ and service.initialized and not service.running:
+                service.start()
         return services
 
     def update_settings(self, new_settings):
@@ -32,6 +33,7 @@ class ServiceManager:
                 if module == new_module:
                     if values != new_values:
                         modules_to_update.append(module)
+        self.settings = deepcopy(new_settings)
         self.initialize_services(modules_to_update)
 
     def notify(self):

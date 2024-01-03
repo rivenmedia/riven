@@ -14,17 +14,14 @@ class Content(threading.Thread):
         self.key = "content"
         self.running = False
         self.sm = ServiceManager(media_items, Mdblist, Overseerr, PlexWatchlist)
-        while not any(service.initialized for service in self.sm.services):
-            logger.error(
-                "You have no content services enabled, please enable at least one!"
-            )
-            time.sleep(2)
-
+        if not self.validate():
+            logger.error("You have no content services enabled, please enable at least one!")
+            return
         self._get_content()
         self.initialized = True
 
     def validate(self):
-        return any(service.initialized for service in self.services)
+        return any(service.initialized for service in self.sm.services)
 
     def run(self) -> None:
         while self.running:

@@ -14,7 +14,7 @@ class SymlinkConfig(BaseModel):
     container_path: Optional[str]
 
 
-class Symlinker(threading.Thread):
+class Symlinker():
     """
     A class that represents a symlinker thread.
 
@@ -29,23 +29,23 @@ class Symlinker(threading.Thread):
 
     def __init__(self):
         # Symlinking is required
-        super().__init__(name="Symlinker")
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = False
-        while True:
-            self.library_path = os.path.join(
-                os.path.dirname(self.settings.host_path), "library"
-            )
-            self.library_path_movies = os.path.join(self.library_path, "movies")
-            self.library_path_shows = os.path.join(self.library_path, "shows")
-            if os.path.exists(self.settings.host_path):
-                self._create_init_folders()
-                break
-            else:
-                logger.error("Rclone mount not found, retrying in 2...")
-                time.sleep(2)
+        self.library_path = os.path.join(
+            os.path.dirname(self.settings.host_path), "library"
+        )
+        self.library_path_movies = os.path.join(self.library_path, "movies")
+        self.library_path_shows = os.path.join(self.library_path, "shows")
+        if not self.validate():
+            logger.error("Symlink is not configured and will not be used.")
+            return
+        self._create_init_folders()
+        logger.info("Symlink initialized!")
         self.initialized = True
+
+    def validate(self):
+        return os.path.exists(self.settings.host_path) and self.settings.host_path != "" and self.settings.container_path != ""
 
     def _create_init_folders(self):
         movies = os.path.join(self.library_path_movies)

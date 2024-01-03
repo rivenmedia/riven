@@ -25,18 +25,16 @@ class Debrid:
     def __init__(self):
         # Realdebrid class library is a necessity
         self.initialized = False
-        while True:
-            self.key = "real_debrid"
-            self.settings = DebridConfig(**settings_manager.get(self.key))
-            self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
-            self.running = False
-            if self._validate_settings():
-                self._torrents = {}
-                break
+        self.key = "real_debrid"
+        self.settings = DebridConfig(**settings_manager.get(self.key))
+        self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.running = False
+        if not self._validate_settings():
             logger.error(
-                "Realdebrid settings incorrect or not premium, retrying in 2..."
+                "Realdebrid settings incorrect or not premium!"
             )
-            time.sleep(2)
+            return
+        logger.info("Real Debrid initialized!")
         self.initialized = True
 
     def _validate_settings(self):

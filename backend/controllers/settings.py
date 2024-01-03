@@ -55,8 +55,8 @@ async def get_settings(keys: str):
 
 @router.post("/set")
 async def set_settings(**settings: SetSettings):
-    for key, value in settings.items():
-        settings_manager.set(key, value)
+    for _, data in settings.items():
+        settings_manager.set(data.key, data.value)
     return {
         "success": True,
         "message": "Settings saved!",
