@@ -8,7 +8,7 @@ from .jackett import Jackett
 
 
 class Scraping:
-    def __init__(self):
+    def __init__(self, _):
         self.key = "scraping"
         self.initialized = False
         self.sm = ServiceManager(None, Torrentio, Orionoid, Jackett)

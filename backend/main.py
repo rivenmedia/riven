@@ -47,8 +47,8 @@ config = uvicorn.Config(app, host="0.0.0.0", port=8080)
 server = Server(config=config)
 
 with server.run_in_thread():
-    app.program.start()
     try:
+        app.program.start()
         app.program.run()
     except KeyboardInterrupt:
         app.program.stop()

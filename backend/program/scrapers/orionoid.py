@@ -19,7 +19,7 @@ class OrionoidConfig(BaseModel):
 class Orionoid:
     """Scraper for Orionoid"""
 
-    def __init__(self):
+    def __init__(self, _):
         self.key = "orionoid"
         self.settings = OrionoidConfig(**settings_manager.get(self.key))
         self.is_premium = False

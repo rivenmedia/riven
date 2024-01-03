@@ -18,7 +18,7 @@ class JackettConfig(BaseModel):
 class Jackett:
     """Scraper for `Jackett`"""
 
-    def __init__(self):
+    def __init__(self, _):
         self.key = "jackett"
         self.initialized = False
         self.settings = JackettConfig(**settings_manager.get(self.key))

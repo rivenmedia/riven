@@ -16,7 +16,7 @@ class TorrentioConfig(BaseModel):
 class Torrentio:
     """Scraper for `Torrentio`"""
 
-    def __init__(self):
+    def __init__(self, _):
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(self.key))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)

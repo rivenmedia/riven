@@ -30,11 +30,10 @@ class Program(threading.Thread):
             os.mkdir(self.data_path)
         self.pickly = Pickly(self.media_items, self.data_path)
         self.pickly.start()
-        self.core_manager = ServiceManager(self.media_items, Content, Plex)
-        self.extras_manager = ServiceManager(None, Scraping, Debrid, Symlinker)
-        super().start()
-        self.running = True
+        self.core_manager = ServiceManager(self.media_items, Content, Plex, Scraping, Debrid, Symlinker)
         if self.validate():
+            super().start()
+            self.running = True
             logger.info("Iceberg started!")
         else:
             logger.info("----------------------------------------------")
@@ -49,7 +48,7 @@ class Program(threading.Thread):
                     max_workers=10, thread_name_prefix="Worker"
                 ) as executor:
                     for item in self.media_items:
-                        executor.submit(item.perform_action, self.core_manager.services + self.extras_manager.services)
+                        executor.submit(item.perform_action, self.core_manager.services)
             time.sleep(1)
 
     def validate(self):

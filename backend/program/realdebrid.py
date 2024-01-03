@@ -22,7 +22,7 @@ class DebridConfig(BaseModel):
 class Debrid:
     """Real-Debrid API Wrapper"""
 
-    def __init__(self):
+    def __init__(self, _):
         # Realdebrid class library is a necessity
         self.initialized = False
         self.key = "real_debrid"

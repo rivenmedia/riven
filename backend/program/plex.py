@@ -41,7 +41,6 @@ class Plex(threading.Thread):
         )
         self.last_fetch_times = {}
 
-        # Plex class library is a necessity
         try:
             self.settings = PlexConfig(**settings.get(self.key))
             self.plex = PlexServer(
@@ -59,7 +58,6 @@ class Plex(threading.Thread):
 
     def run(self):
         while self.running:
-            # self._update_sections()
             self._update_items()
             for i in range(10):
                 time.sleep(i)

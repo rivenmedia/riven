@@ -27,8 +27,7 @@ class Symlinker():
         symlink_path (str): The path where the symlinks will be created.
     """
 
-    def __init__(self):
-        # Symlinking is required
+    def __init__(self, _):
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = False
