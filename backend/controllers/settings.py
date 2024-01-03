@@ -2,7 +2,7 @@ from copy import copy
 from fastapi import APIRouter
 from utils.settings import settings_manager
 from pydantic import BaseModel
-from typing import Any
+from typing import Any, List
 
 
 class SetSettings(BaseModel):
@@ -54,9 +54,9 @@ async def get_settings(keys: str):
 
 
 @router.post("/set")
-async def set_settings(**settings: SetSettings):
-    for key, value in settings.items():
-        settings_manager.set(key, value)
+async def set_settings(settings: List[SetSettings]):
+    for data in settings:
+        settings_manager.set(data.key, data.value)
     return {
         "success": True,
         "message": "Settings saved!",

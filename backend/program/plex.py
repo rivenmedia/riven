@@ -42,28 +42,19 @@ class Plex(threading.Thread):
         self.last_fetch_times = {}
 
         # Plex class library is a necessity
-        while True:
-            try:
-                self.settings = PlexConfig(**settings.get(self.key))
-                self.plex = PlexServer(
-                    self.settings.url, self.settings.token, timeout=60
-                )
-                self.running = False
-                self.log_worker_count = False
-                self.media_items = media_items
-                self._update_items()
-                break
-            except exceptions.Unauthorized:
-                logger.error("Wrong plex token, retrying in 2...")
-            except ConnectionError:
-                logger.error("Couldnt connect to plex, retrying in 2...")
-            except TimeoutError as e:
-                logger.warn(
-                    "Plex timed out: retrying in 2 seconds... %s", str(e), exc_info=True
-                )
-            except Exception as e:
-                logger.error("Unknown error: %s", str(e), exc_info=True)
-            time.sleep(2)
+        try:
+            self.settings = PlexConfig(**settings.get(self.key))
+            self.plex = PlexServer(
+                self.settings.url, self.settings.token, timeout=60
+            )
+            self.running = False
+            self.log_worker_count = False
+            self.media_items = media_items
+            self._update_items()
+        except Exception as e:
+            logger.error("Plex is not configured!")
+            return
+        logger.info("Plex initialized!")
         self.initialized = True
 
     def run(self):

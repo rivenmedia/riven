@@ -23,6 +23,7 @@ class Mdblist:
         self.settings = MdblistConfig(**settings_manager.get(self.key))
         self.media_items = media_items
         if not self._validate_settings():
+            logger.info("mdblist is not configured and will not be used.")
             return
         self.updater = Trakt()
         self.requests_per_2_minutes = self._calculate_request_time()

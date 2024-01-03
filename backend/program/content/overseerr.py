@@ -30,7 +30,7 @@ class Overseerr:
             return
         self.updater = Trakt()
         self.not_found_ids = []
-        logger.info("Overseerr initialized")
+        logger.info("Overseerr initialized!")
         self.initialized = True
 
     def _validate_settings(self):

@@ -8,8 +8,8 @@
 
 	export let data: PageData;
 
-	const MandatoryServices = ["plex", "content", "scrape", "realdebrid", "symlink"]
-	const ContentServices = ["mdblist", "overseerr"]
+	const MandatoryServices = ["plex", "content", "scraping", "real_debrid", "symlink"]
+	const ContentServices = ["mdblist", "overseerr", "plex_watchlist"]
 	const ScrapingServices = ["torrentio", "jackett", "orionoid"]
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
