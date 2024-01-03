@@ -1,4 +1,5 @@
 """ Torrentio scraper module """
+from typing import Optional
 from pydantic import BaseModel
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -9,7 +10,7 @@ from utils.utils import parser
 
 class TorrentioConfig(BaseModel):
     enabled: bool
-    filter: str
+    filter: Optional[str]
 
 
 class Torrentio:

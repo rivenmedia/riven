@@ -1,4 +1,5 @@
 """Plex Watchlist Module"""
+from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.request import get, ping
@@ -11,32 +12,33 @@ import json
 
 class PlexWatchlistConfig(BaseModel):
     enabled: bool
-    watchlist: str
+    watchlist: Optional[str]
 
 class PlexWatchlist:
     """Class for managing Plex watchlist"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
-        self.settings = PlexWatchlistConfig(**settings.get("plex.watchlist_url"))
-        self.initialized = self.validate_settings()
+        self.settings = PlexWatchlistConfig(**settings.get(self.key))
         self.media_items = media_items
-        self.previous_added_items_count = 0
+        self.prev_count = 0
         self.updater = Trakt()
-        self.initialized = True
+        self.initialized = self.validate_settings()
 
     def validate_settings(self):
         if not self.settings.enabled:
             logger.debug("Plex Watchlist is set to disabled.")
             return False
-        if self.settings.watchlist == "":
+        if not self.settings.watchlist and self.settings.enabled:
+            logger.warning("Plex Watchlist is enabled but no URL is set.")
             return False
         try:
             response = ping(
                 self.settings.watchlist,
                 timeout=10,
             )
-            return True
+            if response.is_ok:
+                return True
         except ConnectTimeout:
             return False
         except Exception as e:
@@ -55,11 +57,11 @@ class PlexWatchlist:
         added_items = self.media_items.extend(container)
         added_items_count = len(self.media_items) - previous_count
         if (
-            added_items_count != self.previous_added_items_count
+            added_items_count != self.prev_count
             and added_items_count > 0
         ):
             logger.info("Added %s items", added_items_count)
-            self.previous_added_items_count = added_items_count
+            self.prev_count = added_items_count
         if added_items_count > 0:
             for added_item in added_items:
                 logger.debug("Added %s", added_item.title)

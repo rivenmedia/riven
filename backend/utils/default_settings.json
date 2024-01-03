@@ -29,6 +29,10 @@
     "url": "http://localhost:5055",
     "api_key": ""
   },
+  "torrentio": {
+    "enabled": false,
+    "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+  },
   "orionoid": {
     "enabled": false,
     "api_key": ""  

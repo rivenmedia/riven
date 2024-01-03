@@ -1,4 +1,5 @@
 """Mdblist content module"""
+from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.settings import settings_manager
@@ -10,30 +11,26 @@ from program.updaters.trakt import Updater as Trakt
 
 class OverseerrConfig(BaseModel):
     enabled: bool
-    api_key: str
-    url: str
+    api_key: Optional[str]
+    url: Optional[str]
 
 class Overseerr:
     """Content class for overseerr"""
 
     def __init__(self, media_items: MediaItemContainer):
-        self.initialized = False
         self.key = "overseerr"
         self.settings = OverseerrConfig(**settings_manager.get(self.key))
-        self.media_items = media_items
         self.headers = {"X-Api-Key": self.settings.api_key}
-        if (
-            self.settings.api_key == ""
-            or not self._validate_settings()
-        ):
+        self.initialized = self.validate_settings()
+        if not self.initialized:
             logger.info("Overseerr is not configured and will not be used.")
             return
         self.updater = Trakt()
+        self.media_items = media_items
         self.not_found_ids = []
         logger.info("Overseerr initialized!")
-        self.initialized = True
 
-    def _validate_settings(self):
+    def validate_settings(self):
         if not self.settings.enabled:
             logger.debug("Overseerr is set to disabled.")
             return False

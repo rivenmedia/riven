@@ -18,29 +18,27 @@ class Mdblist:
     """Content class for mdblist"""
 
     def __init__(self, media_items: MediaItemContainer):
-        self.initialized = False
         self.key = "mdblist"
         self.settings = MdblistConfig(**settings_manager.get(self.key))
-        self.media_items = media_items
-        if not self._validate_settings():
-            logger.info("mdblist is not configured and will not be used.")
+        self.initialized = self.validate_settings()
+        if not self.initialized:
             return
+        self.media_items = media_items
         self.updater = Trakt()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         logger.info("mdblist initialized")
-        self.initialized = True
 
-    def _validate_settings(self):
+    def validate_settings(self):
         if not self.settings.enabled:
             logger.debug("Mdblist is set to disabled.")
             return False
         if self.settings.api_key == "":
-            logger.debug("Mdblist api key is not set.")
+            logger.error("Mdblist api key is not set.")
             return False
         response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
         if "Invalid API key!" in response.text:
-            logger.debug("Mdblist api key is invalid.")
+            logger.error("Mdblist api key is invalid.")
             return False
         return True
 
