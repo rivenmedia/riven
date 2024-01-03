@@ -115,19 +115,19 @@ class Symlinker(threading.Thread):
     def _create_item_folders(self, item, filename) -> str:
         if item.type == "movie":
             movie_folder = (
-                f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+                f"{item.title.replace('/', '-')} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
             )
             destination_folder = os.path.join(self.library_path_movies, movie_folder)
             if not os.path.exists(destination_folder):
                 os.mkdir(destination_folder)
-            destination_path = os.path.join(destination_folder, filename)
+            destination_path = os.path.join(destination_folder, filename.replace('/', '-'))
             item.set(
                 "update_folder", os.path.join(self.library_path_movies, movie_folder)
             )
         if item.type == "episode":
             show = item.parent.parent
             folder_name_show = (
-                f"{show.title} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
+                f"{show.title.replace('/', '-')} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
             )
             show_path = os.path.join(self.library_path_shows, folder_name_show)
             if not os.path.exists(show_path):
@@ -137,6 +137,6 @@ class Symlinker(threading.Thread):
             season_path = os.path.join(show_path, folder_season_name)
             if not os.path.exists(season_path):
                 os.mkdir(season_path)
-            destination_path = os.path.join(season_path, filename)
+            destination_path = os.path.join(season_path, filename.replace('/', '-'))
             item.set("update_folder", os.path.join(season_path))
         return destination_path
