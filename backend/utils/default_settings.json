@@ -1,6 +1,6 @@
 {
   "version": "0.4.0",
-  "debug": false,
+  "debug": true,
   "log": true,
   "symlink": {
     "host_path": "",
