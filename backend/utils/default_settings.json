@@ -17,6 +17,10 @@
     "api_key": "",
     "update_interval": 80
   },
+  "jackett": {
+    "url": "",
+    "api_key": ""
+  },
   "overseerr": {
     "url": "http://localhost:5055",
     "api_key": ""
