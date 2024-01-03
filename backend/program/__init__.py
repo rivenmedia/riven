@@ -32,13 +32,13 @@ class Program(threading.Thread):
         self.pickly.start()
         self.core_manager = ServiceManager(self.media_items, Content, Plex, Scraping, Debrid, Symlinker)
         if self.validate():
-            super().start()
-            self.running = True
             logger.info("Iceberg started!")
         else:
             logger.info("----------------------------------------------")
             logger.info("Iceberg is waiting for configuration to start!")
             logger.info("----------------------------------------------")
+        super().start()
+        self.running = True
 
 
     def run(self):
