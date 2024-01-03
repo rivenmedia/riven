@@ -25,12 +25,12 @@
     "update_interval": 80
   },
   "overseerr": {
-    "enabled": false,
+    "enabled": true,
     "url": "http://localhost:5055",
     "api_key": ""
   },
   "torrentio": {
-    "enabled": false,
+    "enabled": true,
     "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
   },
   "orionoid": {

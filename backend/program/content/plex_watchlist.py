@@ -37,7 +37,7 @@ class PlexWatchlist:
                 self.settings.watchlist,
                 timeout=10,
             )
-            if response.is_ok:
+            if response.ok:
                 return True
         except ConnectTimeout:
             return False
