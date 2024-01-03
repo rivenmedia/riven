@@ -4,21 +4,25 @@ from utils.settings import settings_manager
 
 
 class ServiceManager:
-    def __init__(self, media_items=None, *services):
+    def __init__(self, media_items=None, register_observer=False, *services):
         self.media_items = media_items
         self.services = []
         self.initialize_services(services)
         self.settings = deepcopy(settings_manager.get_all())
-        settings_manager.register_observer(self)
+        if register_observer:
+            settings_manager.register_observer(self)
 
     def initialize_services(self, modules=None):
         services = []
+
+        # Reinitialize
         if self.services:
             for index, service in enumerate(self.services):
                 if modules and service.key in modules:
                     self.services[index] = service.__class__(self.media_items)
                     services.append(self.services[index])
 
+        # Initialize
         elif modules:
             for service in modules:
                 new_service = service(self.media_items)

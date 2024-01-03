@@ -18,10 +18,11 @@ class Torrentio:
 
     def __init__(self, _):
         self.key = "torrentio"
-        self.settings = TorrentioConfig(**settings_manager.get(self.key))
+        self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = self.validate_settings()
+        logger.info("Torrentio initialized!")
 
     def validate_settings(self) -> bool:
         """Validate the Torrentio settings."""

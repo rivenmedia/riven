@@ -19,7 +19,7 @@ class PlexWatchlist:
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
-        self.settings = PlexWatchlistConfig(**settings.get(self.key))
+        self.settings = PlexWatchlistConfig(**settings.get(f"content.{self.key}"))
         self.media_items = media_items
         self.prev_count = 0
         self.updater = Trakt()

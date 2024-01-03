@@ -11,12 +11,12 @@ class Scraping:
     def __init__(self, _):
         self.key = "scraping"
         self.initialized = False
-        self.sm = ServiceManager(None, Torrentio, Orionoid, Jackett)
-        while not any(service.initialized for service in self.sm.services):
+        self.sm = ServiceManager(None, False, Torrentio, Orionoid, Jackett)
+        if not any(service.initialized for service in self.sm.services):
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"
             )
-            time.sleep(5)
+            return
         self.initialized = True
 
     def run(self, item) -> None:

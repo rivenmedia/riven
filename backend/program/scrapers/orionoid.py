@@ -21,7 +21,7 @@ class Orionoid:
 
     def __init__(self, _):
         self.key = "orionoid"
-        self.settings = OrionoidConfig(**settings_manager.get(self.key))
+        self.settings = OrionoidConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.is_premium = False
         self.initialized = False
 

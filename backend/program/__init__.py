@@ -30,7 +30,7 @@ class Program(threading.Thread):
             os.mkdir(self.data_path)
         self.pickly = Pickly(self.media_items, self.data_path)
         self.pickly.start()
-        self.core_manager = ServiceManager(self.media_items, Content, Plex, Scraping, Debrid, Symlinker)
+        self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker)
         if self.validate():
             logger.info("Iceberg started!")
         else:
@@ -55,6 +55,9 @@ class Program(threading.Thread):
         return all(service.initialized for service in self.core_manager.services)
 
     def stop(self):
+        for service in self.core_manager.services:
+            if getattr(service, "running", False):
+                service.stop()
         self.pickly.stop()
         settings.save()
         self.running = False

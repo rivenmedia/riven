@@ -21,7 +21,7 @@ class Jackett:
     def __init__(self, _):
         self.key = "jackett"
         self.initialized = False
-        self.settings = JackettConfig(**settings_manager.get(self.key))
+        self.settings = JackettConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         if self.validate_settings():

@@ -45,9 +45,10 @@ class SettingsManager(Observable):
         """Get setting with key"""
         return _get_nested_attr(self.settings, key)
 
-    def set(self, key, value):
+    def set(self, data):
         """Set setting value with key"""
-        _set_nested_attr(self.settings, key, value)
+        for setting in data:
+            _set_nested_attr(self.settings, setting.key, setting.value)
         self.notify_observers()
 
     def get_all(self):

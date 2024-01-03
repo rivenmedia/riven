@@ -25,8 +25,9 @@ class Server(uvicorn.Server):
                 time.sleep(1e-3)
             yield
         finally:
+            app.program.stop()
             self.should_exit = True
-            thread.join()
+            sys.exit(0)
 
 app = FastAPI()
 app.program = Program()
@@ -51,5 +52,4 @@ with server.run_in_thread():
         app.program.start()
         app.program.run()
     except KeyboardInterrupt:
-        app.program.stop()
-        sys.exit()
+        pass

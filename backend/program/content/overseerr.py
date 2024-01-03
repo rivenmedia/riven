@@ -19,7 +19,7 @@ class Overseerr:
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "overseerr"
-        self.settings = OverseerrConfig(**settings_manager.get(self.key))
+        self.settings = OverseerrConfig(**settings_manager.get(f"content.{self.key}"))
         if not self.settings.enabled:
             logger.debug("Overseerr is set to disabled.")
             return

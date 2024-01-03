@@ -13,33 +13,37 @@
     "token": "",
     "url": "http://localhost:32400"
   },
-  "plex_watchlist": {
-    "enabled": false,
-    "watchlist": "",
-    "update_interval": 80
+  "content": {
+    "plex_watchlist": {
+      "enabled": false,
+      "watchlist": "",
+      "update_interval": 80
+    },
+    "mdblist": {
+      "enabled": false,
+      "lists": [""],
+      "api_key": "",
+      "update_interval": 80
+    },
+    "overseerr": {
+      "enabled": true,
+      "url": "http://localhost:5055",
+      "api_key": ""
+    }
   },
-  "mdblist": {
-    "enabled": false,
-    "lists": [""],
-    "api_key": "",
-    "update_interval": 80
-  },
-  "overseerr": {
-    "enabled": true,
-    "url": "http://localhost:5055",
-    "api_key": ""
-  },
-  "torrentio": {
-    "enabled": true,
-    "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
-  },
-  "orionoid": {
-    "enabled": false,
-    "api_key": ""  
-  },
-  "jackett": {
-    "enabled": false,
-    "url": "http://localhost:9117",
-    "api_key": ""
+  "scraping": {
+    "torrentio": {
+      "enabled": true,
+      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+    },
+    "orionoid": {
+      "enabled": false,
+      "api_key": ""  
+    },
+    "jackett": {
+      "enabled": false,
+      "url": "http://localhost:9117",
+      "api_key": ""
+    }
   }
 }
