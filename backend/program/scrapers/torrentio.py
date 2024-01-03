@@ -24,10 +24,10 @@ class Torrentio:
 
     def validate_settings(self) -> bool:
         """Validate the Torrentio settings."""
-        if self.settings.enabled:
-            return True
-        logger.info("Torrentio is not enabled and will not be used.")
-        return False
+        if not self.settings.enabled:
+            logger.debug("Torrentio is set to disabled.")
+            return False
+        return True
 
     def run(self, item) -> None:
         """Scrape the torrentio site for the given media items

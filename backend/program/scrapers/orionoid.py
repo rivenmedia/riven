@@ -12,6 +12,7 @@ KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
 class OrionoidConfig(BaseModel):
+    enabled: bool
     api_key: Optional[str]
 
 
@@ -36,6 +37,9 @@ class Orionoid:
 
     def validate_settings(self) -> bool:
         """Validate the Orionoid class_settings."""
+        if not self.settings.enabled:
+            logger.debug("Orionoid is set to disabled.")
+            return False
         if self.settings.api_key:
             return True
         logger.info("Orionoid is not configured and will not be used.")

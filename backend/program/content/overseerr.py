@@ -9,6 +9,7 @@ from program.updaters.trakt import Updater as Trakt
 
 
 class OverseerrConfig(BaseModel):
+    enabled: bool
     api_key: str
     url: str
 
@@ -33,6 +34,9 @@ class Overseerr:
         self.initialized = True
 
     def _validate_settings(self):
+        if not self.settings.enabled:
+            logger.debug("Overseerr is set to disabled.")
+            return False
         try:
             response = ping(
                 self.settings.url + "/api/v1/auth/me",

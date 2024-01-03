@@ -1,4 +1,5 @@
 """Plex Watchlist Module"""
+from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.request import get, ping
 from utils.logger import logger
@@ -8,31 +9,38 @@ from program.updaters.trakt import Updater as Trakt
 import json
 
 
+class PlexWatchlistConfig(BaseModel):
+    enabled: bool
+    watchlist: str
+
 class PlexWatchlist:
     """Class for managing Plex watchlist"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
-        self.url = settings.get("plex.watchlist_url")
-        self.initialized = False
+        self.settings = PlexWatchlistConfig(**settings.get("plex.watchlist_url"))
+        self.initialized = self.validate_settings()
         self.media_items = media_items
         self.previous_added_items_count = 0
-        if not self.url or not self._validate_settings():
-            logger.info("Plex Watchlist is not configured and will not be used.")
-            return
         self.updater = Trakt()
         self.initialized = True
 
-    def _validate_settings(self):
-        if self.url == "":
+    def validate_settings(self):
+        if not self.settings.enabled:
+            logger.debug("Plex Watchlist is set to disabled.")
+            return False
+        if self.settings.watchlist == "":
             return False
         try:
             response = ping(
-                self.url,
+                self.settings.watchlist,
                 timeout=10,
             )
-            return response.ok
+            return True
         except ConnectTimeout:
+            return False
+        except Exception as e:
+            logger.error(f"Plex Watchlist configuration error: {e}")
             return False
 
     def run(self):
@@ -58,7 +66,7 @@ class PlexWatchlist:
 
     def _get_items_from_plex_watchlist(self) -> list:
         """Fetch media from Plex watchlist"""
-        response_obj = get(self.url, timeout=30)
+        response_obj = get(self.settings.watchlist, timeout=30)
         watchlist_data = json.loads(response_obj.response.content)
         items = watchlist_data.get("items", [])
         ids = []

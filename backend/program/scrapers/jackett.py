@@ -10,6 +10,7 @@ from utils.request import get, RateLimiter
 
 
 class JackettConfig(BaseModel):
+    enabled: bool
     url: Optional[str]
     api_key: Optional[str]
 
@@ -28,6 +29,9 @@ class Jackett:
 
     def validate_settings(self) -> bool:
         """Validate the Jackett settings."""
+        if not self.settings.enabled:
+            logger.debug("Jackett is set to disabled.")
+            return False
         if len(self.settings.api_key) == 32 and self.settings.url:
             try:
                 response = get(

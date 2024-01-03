@@ -10,6 +10,7 @@ from program.updaters.trakt import Updater as Trakt
 
 
 class MdblistConfig(BaseModel):
+    enabled: bool
     api_key: Optional[str]
     lists: Optional[list]
 
@@ -30,12 +31,15 @@ class Mdblist:
         self.initialized = True
 
     def _validate_settings(self):
+        if not self.settings.enabled:
+            logger.debug("Mdblist is set to disabled.")
+            return False
         if self.settings.api_key == "":
-            logger.debug("mdblist api key is not set")
+            logger.debug("Mdblist api key is not set.")
             return False
         response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
         if "Invalid API key!" in response.text:
-            logger.debug("mdblist api key is invalid")
+            logger.debug("Mdblist api key is invalid.")
             return False
         return True
 
