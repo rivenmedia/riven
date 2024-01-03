@@ -34,7 +34,13 @@ class Program(threading.Thread):
         self.extras_manager = ServiceManager(None, Scraping, Debrid, Symlinker)
         super().start()
         self.running = True
-        logger.info("Iceberg started!")
+        if self.validate():
+            logger.info("Iceberg started!")
+        else:
+            logger.info("----------------------------------------------")
+            logger.info("Iceberg is waiting for configuration to start!")
+            logger.info("----------------------------------------------")
+
 
     def run(self):
         while self.running:
