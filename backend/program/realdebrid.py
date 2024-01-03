@@ -26,7 +26,7 @@ class Debrid:
         # Realdebrid class library is a necessity
         self.initialized = False
         while True:
-            self.key = "realdebrid"
+            self.key = "real_debrid"
             self.settings = DebridConfig(**settings_manager.get(self.key))
             self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
             self.running = False

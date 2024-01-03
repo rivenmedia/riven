@@ -21,7 +21,7 @@ class Unknown(MediaItemState):
 
 class Content(MediaItemState):
     def perform_action(self, modules):
-        scraper = next(module for module in modules if module.key == "scrape")
+        scraper = next(module for module in modules if module.key == "scraping")
         if self.context.type in ["movie", "season", "episode"]:
             scraper.run(self.context)
         if self.context.type == "show":
@@ -35,7 +35,7 @@ class Content(MediaItemState):
 
 class Scrape(MediaItemState):
     def perform_action(self, modules):
-        debrid = next(module for module in modules if module.key == "realdebrid")
+        debrid = next(module for module in modules if module.key == "real_debrid")
         if self.context.type in ["movie", "season", "episode"]:
             debrid.run(self.context)
         if self.context.type == "show":

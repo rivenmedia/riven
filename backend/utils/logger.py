@@ -9,7 +9,7 @@ from .settings import settings_manager as settings
 
 def get_data_path():
     main_dir = os.path.dirname(os.path.abspath(sys.modules["__main__"].__file__))
-    return os.path.join(main_dir, os.pardir, "data")
+    return os.path.join(os.path.dirname(main_dir), "data")
 
 
 class RedactSensitiveInfo(logging.Filter):

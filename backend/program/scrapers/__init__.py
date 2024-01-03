@@ -9,7 +9,7 @@ from .jackett import Jackett
 
 class Scraping:
     def __init__(self):
-        self.key = "scrape"
+        self.key = "scraping"
         self.initialized = False
         self.sm = ServiceManager(None, Torrentio, Orionoid, Jackett)
         while not any(service.initialized for service in self.sm.services):

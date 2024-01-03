@@ -54,7 +54,6 @@ class SettingsManager(Observable):
         """Return all settings"""
         return self.settings
 
-
 def _get_nested_attr(obj, key):
     if "." in key:
         parts = key.split(".", 1)

@@ -5,20 +5,17 @@ import os
 import threading
 import time
 import uuid
-import requests
-from typing import List, Optional
+from typing import Optional
 from plexapi import exceptions
 from plexapi.server import PlexServer
 from requests.exceptions import ConnectionError
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from utils.logger import logger
 from utils.settings import settings_manager as settings
-from program.updaters.trakt import get_imdbid_from_tvdb
 from program.media.container import MediaItemContainer
 from program.media.state import Symlink, Library
 from utils.request import get, post
 from program.media.item import (
-    MediaItem,
     Movie,
     Show,
     Season,
