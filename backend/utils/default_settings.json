@@ -22,6 +22,7 @@
     "api_key": ""
   },
   "torrentio": {
+    "enabled": true,
     "filter": "sort=qualitysize%7Cqualityfilter=480p,other,scr,cam,unknown"
   },
   "orionoid": {

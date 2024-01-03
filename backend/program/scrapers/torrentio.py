@@ -8,6 +8,7 @@ from utils.utils import parser
 
 
 class TorrentioConfig(BaseModel):
+    enabled: bool
     filter: str
 
 
@@ -19,7 +20,14 @@ class Torrentio:
         self.settings = TorrentioConfig(**settings_manager.get(self.key))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-        self.initialized = True
+        self.initialized = self.validate_settings()
+
+    def validate_settings(self) -> bool:
+        """Validate the Torrentio settings."""
+        if self.settings.enabled:
+            return True
+        logger.info("Torrentio is not enabled and will not be used.")
+        return False
 
     def run(self, item) -> None:
         """Scrape the torrentio site for the given media items
