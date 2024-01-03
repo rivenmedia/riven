@@ -10,6 +10,7 @@ from utils.service_manager import ServiceManager
 class Content(threading.Thread):
     def __init__(self, media_items):
         super().__init__(name="Content")
+        self.initialized = False
         self.key = "content"
         self.running = False
         self.sm = ServiceManager(media_items, Mdblist, Overseerr, PlexWatchlist)
@@ -20,6 +21,7 @@ class Content(threading.Thread):
             time.sleep(2)
 
         self._get_content()
+        self.initialized = True
 
     def validate(self):
         return any(service.initialized for service in self.services)

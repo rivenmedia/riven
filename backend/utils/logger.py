@@ -79,22 +79,22 @@ class Logger(logging.Logger):
             os.mkdir(os.path.join(data_path, "logs"))
 
         self.addFilter(RedactSensitiveInfo())
-        file_handler = logging.FileHandler(
-            os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
-        )
 
         log_level = logging.INFO
         if settings.get("debug"):
             log_level = logging.DEBUG
 
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
+        if settings.get("log"):
+            file_handler = logging.FileHandler(
+                os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
+            )
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(formatter)
+            self.addHandler(file_handler)
 
         console_handler = logging.StreamHandler()
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
-
-        self.addHandler(file_handler)
         self.addHandler(console_handler)
 
 

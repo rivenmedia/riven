@@ -32,7 +32,7 @@ class Symlinker(threading.Thread):
         super().__init__(name="Symlinker")
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
-
+        self.initialized = False
         while True:
             self.library_path = os.path.join(
                 os.path.dirname(self.settings.host_path), "library"
@@ -45,6 +45,7 @@ class Symlinker(threading.Thread):
             else:
                 logger.error("Rclone mount not found, retrying in 2...")
                 time.sleep(2)
+        self.initialized = True
 
     def _create_init_folders(self):
         movies = os.path.join(self.library_path_movies)

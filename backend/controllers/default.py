@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import requests
 from utils.settings import settings_manager
 
@@ -35,14 +35,19 @@ async def get_rd_user():
 
 
 @router.get("/services")
-async def get_services():
+async def get_services(request: Request):
+    data = {}
+    for service in request.app.program.core_manager.services:
+        data[service.key] = service.initialized
+        if getattr(service, "sm", False):
+            for sub_service in service.sm.services:
+                data[sub_service.key] = sub_service.initialized
+    for service in request.app.program.extras_manager.services:
+        data[service.key] = service.initialized
+        if getattr(service, "sm", False):
+            for sub_service in service.sm.services:
+                data[sub_service.key] = sub_service.initialized
     return {
         "success": True,
-        "data": {
-            "plex": settings_manager.get("plex"),
-            "mdblist": settings_manager.get("mdblist"),
-            "overseerr": settings_manager.get("overseerr"),
-            "torrentio": settings_manager.get("torrentio"),
-            "realdebrid": settings_manager.get("realdebrid"),
-        },
+        "data": data
     }

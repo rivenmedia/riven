@@ -24,6 +24,7 @@ class Debrid:
 
     def __init__(self):
         # Realdebrid class library is a necessity
+        self.initialized = False
         while True:
             self.key = "realdebrid"
             self.settings = DebridConfig(**settings_manager.get(self.key))
@@ -36,6 +37,7 @@ class Debrid:
                 "Realdebrid settings incorrect or not premium, retrying in 2..."
             )
             time.sleep(2)
+        self.initialized = True
 
     def _validate_settings(self):
         try:

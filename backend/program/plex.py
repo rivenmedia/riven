@@ -38,6 +38,7 @@ class Plex(threading.Thread):
     def __init__(self, media_items: MediaItemContainer):
         super().__init__(name="Plex")
         self.key = "plex"
+        self.initialized = False
         self.library_path = os.path.abspath(
             os.path.dirname(settings.get("symlink.container_path"))
         )
@@ -66,6 +67,7 @@ class Plex(threading.Thread):
             except Exception as e:
                 logger.error("Unknown error: %s", str(e), exc_info=True)
             time.sleep(2)
+        self.initialized = True
 
     def run(self):
         while self.running:

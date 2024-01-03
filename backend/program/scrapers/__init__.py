@@ -17,6 +17,7 @@ class Scraping:
                 "You have no scraping services enabled, please enable at least one!"
             )
             time.sleep(5)
+        self.initialized = True
 
     def run(self, item) -> None:
         if self._can_we_scrape(item):
