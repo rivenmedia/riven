@@ -12,8 +12,8 @@
 			path: '/settings/general'
 		},
 		{
-			name: 'Plex',
-			path: '/settings/plex'
+			name: 'Media Server',
+			path: '/settings/mediaserver'
 		},
 		{
 			name: 'Content',

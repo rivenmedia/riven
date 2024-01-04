@@ -5,19 +5,17 @@ export const generalSettingsSchema = z.object({
 	container_path: z.string().min(1),
 	realdebrid_api_key: z.string().min(1),
 	torrentio_filter: z.string().optional().default(''),
-	torrentio_enabled: z.boolean(),
+	torrentio_enabled: z.boolean().default(false),
 	orionoid_api_key: z.string().optional().default(''),
-	orionoid_enabled: z.boolean(),
+	orionoid_enabled: z.boolean().default(false),
 	jackett_api_key: z.string().optional().default(''),
 	jackett_url: z.string().url().optional().default('http://localhost:9117'),
-	jackett_enabled: z.boolean()
+	jackett_enabled: z.boolean().default(false)
 });
 
-export const plexSettingsSchema = z.object({
-	user: z.string().min(1),
-	token: z.string().min(1),
-	url: z.string().url().min(1),
-	watchlist: z.string().optional().default('')
+export const mediaServerSettingsSchema = z.object({
+	plex_token: z.string().optional().default(''),
+	plex_url: z.string().url().optional().default('')
 });
 
 export const contentSettingsSchema = z.object({
@@ -29,5 +27,5 @@ export const contentSettingsSchema = z.object({
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
-export type PlexSettingsSchema = typeof plexSettingsSchema;
+export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 export type ContentSettingsSchema = typeof contentSettingsSchema;
