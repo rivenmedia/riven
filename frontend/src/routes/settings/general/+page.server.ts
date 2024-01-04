@@ -7,7 +7,7 @@ import { saveSettings } from '$lib/helpers';
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const toGet = ['version', 'symlink', 'real_debrid', 'scraping'];
+			const toGet = ['symlink', 'real_debrid', 'scraping'];
 			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
@@ -19,8 +19,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	let toPassToSchema: any = await getPartialSettings();
 	console.log(JSON.stringify(toPassToSchema, null, 1));
 	toPassToSchema = {
-		host_mount: toPassToSchema.data.symlink.host_mount,
-		container_mount: toPassToSchema.data.symlink.container_mount,
+		host_path: toPassToSchema.data.symlink.host_path,
+		container_path: toPassToSchema.data.symlink.container_path,
 		realdebrid_api_key: toPassToSchema.data.real_debrid.api_key,
 		torrentio_filter: toPassToSchema.data.scraping.torrentio?.filter || '',
 		torrentio_enabled: toPassToSchema.data.scraping.torrentio.enabled,
@@ -49,8 +49,8 @@ export const actions: Actions = {
 			{
 				key: 'symlink',
 				value: {
-					host_mount: form.data.host_mount,
-					container_mount: form.data.container_mount
+					host_path: form.data.host_path,
+					container_path: form.data.container_path
 				}
 			},
 			{

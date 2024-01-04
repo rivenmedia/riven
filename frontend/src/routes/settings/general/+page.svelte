@@ -36,39 +36,39 @@
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 			<Label
 				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-				for="host_mount">Host Mount</Label
+				for="host_path">Host Path</Label
 			>
 			<Input
 				spellcheck="false"
 				class="text-sm md:text-base"
 				type="text"
-				id="host_mount"
-				name="host_mount"
-				bind:value={$form.host_mount}
-				{...$constraints.host_mount}
+				id="host_path"
+				name="host_path"
+				bind:value={$form.host_path}
+				{...$constraints.host_path}
 			/>
 		</div>
-		{#if $errors.host_mount}
-			<small class="text-sm md:text-base text-red-500">{$errors.host_mount}</small>
+		{#if $errors.host_path}
+			<small class="text-sm md:text-base text-red-500">{$errors.host_path}</small>
 		{/if}
 
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 			<Label
 				class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-				for="container_mount">Container Mount</Label
+				for="container_path">Container Path</Label
 			>
 			<Input
 				spellcheck="false"
 				class="text-sm md:text-base"
 				type="text"
-				id="container_mount"
-				name="container_mount"
-				bind:value={$form.container_mount}
-				{...$constraints.container_mount}
+				id="container_path"
+				name="container_path"
+				bind:value={$form.container_path}
+				{...$constraints.container_path}
 			/>
 		</div>
-		{#if $errors.container_mount}
-			<p class="text-sm md:text-base text-red-500">{$errors.container_mount}</p>
+		{#if $errors.container_path}
+			<p class="text-sm md:text-base text-red-500">{$errors.container_path}</p>
 		{/if}
 
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">

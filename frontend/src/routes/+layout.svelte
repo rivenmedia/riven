@@ -42,9 +42,9 @@
 	<slot />
 </div>
 
-<Command.Dialog class="font-primary" bind:open>
-	<Command.Input class="text-base lg:text-lg" placeholder="Type a command or search..." />
-	<Command.List>
+<Command.Dialog bind:open>
+	<Command.Input class="text-base lg:text-lg font-primary" placeholder="Type a command or search..." />
+	<Command.List class="font-primary">
 		<Command.Empty class="lg:text-base">No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">
 			<Command.Item
