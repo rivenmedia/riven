@@ -99,31 +99,25 @@
 			<div class="flex flex-wrap gap-4">
 				<div class="flex flex-wrap items-center gap-2">
 					<Checkbox
-						class="text-sm md:text-base"
 						id="torrentio_enabled"
 						name="torrentio_enabled"
 						bind:checked={$form.torrentio_enabled}
-						{...$constraints.torrentio_enabled}
 					/>
 					<Label class="text-sm md:text-base" for="torrentio_enabled">Torrentio</Label>
 				</div>
 				<div class="flex flex-wrap items-center gap-2">
 					<Checkbox
-						class="text-sm md:text-base"
 						id="orionoid_enabled"
 						name="orionoid_enabled"
 						bind:checked={$form.orionoid_enabled}
-						{...$constraints.orionoid_enabled}
 					/>
 					<Label class="text-sm md:text-base" for="orionoid_enabled">Orionoid</Label>
 				</div>
 				<div class="flex flex-wrap items-center gap-2">
 					<Checkbox
-						class="text-sm md:text-base"
 						id="jackett_enabled"
 						name="jackett_enabled"
 						bind:checked={$form.jackett_enabled}
-						{...$constraints.jackett_enabled}
 					/>
 					<Label class="text-sm md:text-base" for="jackett_enabled">Jackett</Label>
 				</div>

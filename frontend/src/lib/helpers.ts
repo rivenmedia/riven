@@ -84,7 +84,7 @@ export async function saveSettings(fetch: any, toSet: any) {
 	});
 
 	const loadSettings = await fetch('http://127.0.0.1:8080/settings/load', {
-		method: 'POST'
+		method: 'GET'
 	});
 
 	return {

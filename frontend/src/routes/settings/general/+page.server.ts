@@ -17,6 +17,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	let toPassToSchema: any = await getPartialSettings();
+	console.log(JSON.stringify(toPassToSchema, null, 1));
 	toPassToSchema = {
 		host_mount: toPassToSchema.data.symlink.host_mount,
 		container_mount: toPassToSchema.data.symlink.container_mount,
@@ -43,7 +44,7 @@ export const actions: Actions = {
 				form
 			});
 		}
-		console.log(typeof form.data.torrentio_enabled)
+		console.log(form.data.torrentio_enabled, typeof form.data.torrentio_enabled)
 		const toSet = [
 			{
 				key: 'symlink',
@@ -77,6 +78,7 @@ export const actions: Actions = {
 				}
 			}
 		];
+		console.log(JSON.stringify(toSet, null, 1));
 
 		try {
 			const data = await saveSettings(event.fetch, toSet);
