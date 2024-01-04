@@ -19,11 +19,16 @@ export const mediaServerSettingsSchema = z.object({
 });
 
 export const contentSettingsSchema = z.object({
+	overseerr_enabled: z.boolean().default(false),
 	overseerr_url: z.string().url().optional().default(''),
 	overseerr_api_key: z.string().optional().default(''),
+	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
-	mdblist_update_interval: z.number().int().min(1).default(80),
-	mdblist_lists: z.string().array().default([''])
+	mdblist_update_interval: z.number().int().optional().default(80),
+	mdblist_lists: z.string().array().optional().default(['']),
+	plex_watchlist_enabled: z.boolean().default(false),
+	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
+	plex_watchlist_update_interval: z.number().int().optional().default(80)
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
