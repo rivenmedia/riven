@@ -24,6 +24,7 @@ class Program(threading.Thread):
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings.get("version"))
+        self.initialized = False
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
         if not os.path.exists(self.data_path):
@@ -38,6 +39,7 @@ class Program(threading.Thread):
             logger.info("Iceberg is waiting for configuration to start!")
             logger.info("----------------------------------------------")
         super().start()
+        self.initialized = True
         self.running = True
 
 
