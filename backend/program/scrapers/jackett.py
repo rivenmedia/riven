@@ -82,6 +82,8 @@ class Jackett:
         response = get(url=url, retry_if_failed=False, timeout=30)
         if response.is_ok:
             data = {}
+            if not hasattr(response.data['rss']['channel'], "item"):
+                return {}
             for stream in response.data['rss']['channel']['item']:
                 title = stream.get('title')
                 for attr in stream.get('torznab:attr', []):
