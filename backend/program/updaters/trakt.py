@@ -46,9 +46,13 @@ class Updater:
                 get_items.append(self.trakt_data.get_item("imdb_id", imdb_id))
 
         added_items = self.trakt_data.extend(new_items)
-        if len(added_items) > 0:
-            for added_item in added_items:
-                logger.debug("Added %s", added_item.title)
+        length = len(added_items)
+        if length >= 1 and length <= 5:
+            for item in added_items:
+                logger.debug("Updated metadata for %s", item.log_string)
+        elif length > 5:
+            logger.debug("Updated metadata for %s items", len(added_items))
+        if length > 0:
             self.trakt_data.extend(added_items)
             self.trakt_data.save(self.pkl_file)
 

@@ -3,7 +3,7 @@ import time
 from utils.logger import logger
 from .mdblist import Mdblist
 from .overseerr import Overseerr
-from .plex_watchlist import PlexWatchlist
+from .plex_rss import PlexRss
 from utils.service_manager import ServiceManager
 
 
@@ -13,7 +13,7 @@ class Content(threading.Thread):
         self.initialized = False
         self.key = "content"
         self.running = False
-        self.sm = ServiceManager(media_items, False, Mdblist, Overseerr, PlexWatchlist)
+        self.sm = ServiceManager(media_items, False, Mdblist, Overseerr, PlexRss)
         if not self.validate():
             logger.error("You have no content services enabled, please enable at least one!")
             return

@@ -60,18 +60,11 @@ class Jackett:
     def _scrape_item(self, item):
         """Scrape the given media item"""
         data = self.api_scrape(item)
-        log_string = item.title
-        if item.type == "season":
-            log_string = f"{item.parent.title} S{item.number}"
-        if item.type == "episode":
-            log_string = (
-                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
-            )
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams for %s", len(data), log_string)
+            logger.debug("Found %s streams for %s", len(data), item.log_string)
         else:
-            logger.debug("Could not find streams for %s", log_string)
+            logger.debug("Could not find streams for %s", item.log_string)
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""

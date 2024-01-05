@@ -100,10 +100,7 @@ class Symlinker():
                 os.path.join(self.settings.container_path, item.folder, item.file),
                 destination,
             )
-            log_string = item.title
-            if item.type == "episode":
-                log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
-            logger.debug("Created symlink for %s", log_string)
+            logger.debug("Created symlink for %s", item.log_string)
             item.symlinked = True
         else:
             logger.debug(

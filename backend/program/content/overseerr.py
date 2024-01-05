@@ -53,8 +53,12 @@ class Overseerr:
         for item in container:
             item.set("requested_by", "Overseerr")
         added_items = self.media_items.extend(container)
-        if len(added_items) > 0:
-            logger.info("Added %s items", len(added_items))
+        length = len(added_items)
+        if length >= 1 and length <= 5:
+            for item in added_items:
+                logger.info("Added %s", item.log_string)
+        elif length > 5:
+            logger.info("Added %s items", length)
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""

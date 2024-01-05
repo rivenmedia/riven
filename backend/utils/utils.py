@@ -91,5 +91,4 @@ class Parser:
             and parse["language"] in self.language
         )
 
-
 parser = Parser()

@@ -94,8 +94,12 @@ class Plex(threading.Thread):
                     self.last_fetch_times[section.key] = datetime.now()
                 processed_sections.add(section.key)
         
-        if len(items) > 0:
-            logger.info("Found %s items from plex", len(items))
+        length = len(items)
+        if length >= 1 and length <= 5:
+            for item in items:
+                logger.info("Found %s from plex", item.log_string)
+        elif length > 5:
+            logger.info("Found %s items from plex", length)
 
     def update_item_section(self, item):
         """Update plex library section for a single item"""
@@ -106,20 +110,16 @@ class Plex(threading.Thread):
             if section.type != item_type:
                 continue
 
-            log_string = self._update_section(section, item)
-
-            if log_string:
-                logger.debug("Updated section %s for %s", section.title, log_string)
+            if self._update_section(section, item):
+                logger.debug("Updated section %s for %s", section.title, item.log_string)
     
     def _update_section(self, section, item):
         if item.state == Symlink and item.get("update_folder") != "updated":
             update_folder = item.update_folder
-            log_string = item.title
-            if item.type == "episode":
-                log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
             section.update(update_folder)
             item.set("update_folder", "updated")
-            return log_string
+            return True
+        return False
 
     def _create_and_match_item(self, item):
         new_item = self._create_item(item)

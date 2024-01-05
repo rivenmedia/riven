@@ -14,9 +14,9 @@
     "url": "http://localhost:32400"
   },
   "content": {
-    "plex_watchlist": {
+    "plex_rss": {
       "enabled": false,
-      "watchlist": "",
+      "rss": "",
       "update_interval": 80
     },
     "mdblist": {

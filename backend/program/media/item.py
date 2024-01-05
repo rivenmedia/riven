@@ -139,7 +139,6 @@ class MediaItem:
         """Set item attribute"""
         _set_nested_attr(self, key, value)
 
-
 class Movie(MediaItem):
     """Movie class"""
 
@@ -150,7 +149,10 @@ class Movie(MediaItem):
 
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.__class__.__name__}"
-
+    
+    @property
+    def log_string(self):
+        return self.title
 
 class Show(MediaItem):
     """Show class"""
@@ -186,6 +188,10 @@ class Show(MediaItem):
         """Add season to show"""
         self.seasons.append(season)
         season.parent = self
+    
+    @property
+    def log_string(self):
+        return self.title
 
 
 class Season(MediaItem):
@@ -227,6 +233,10 @@ class Season(MediaItem):
         self.episodes.append(episode)
         episode.parent = self
 
+    @property
+    def log_string(self):
+        return self.parent.title + " S" + str(self.number).zfill(2)
+
 
 class Episode(MediaItem):
     """Episode class"""
@@ -246,6 +256,10 @@ class Episode(MediaItem):
 
     def get_file_episodes(self):
         return parser.episodes(self.file)
+    
+    @property
+    def log_string(self):
+        return self.parent.parent.title + " S" + str(self.parent.number).zfill(2) + "E" + str(self.number).zfill(2)
 
 
 def _set_nested_attr(obj, key, value):
