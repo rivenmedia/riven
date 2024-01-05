@@ -32,6 +32,9 @@
     }
   },
   "scraping": {
+    "after_2": 0.5,
+    "after_5": 2,
+    "after_10": 24,
     "torrentio": {
       "enabled": true,
       "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"

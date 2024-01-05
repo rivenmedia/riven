@@ -21,7 +21,8 @@ class MediaItem:
     def __init__(self, item):
         self._lock = threading.Lock()
         self.itemid = item_id.get_next_value()
-        self.scraped_at = 0
+        self.scraped_at = datetime(1970, 1, 1)
+        self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
         self.symlinked = False
@@ -103,6 +104,8 @@ class MediaItem:
             "guid": self.guid,
             "requested_at": self.requested_at,
             "requested_by": self.requested_by,
+            "scraped_at": self.scraped_at,
+            "scraped_times": self.scraped_times,
         }
 
     def to_extended_dict(self):
