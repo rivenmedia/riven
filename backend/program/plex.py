@@ -49,7 +49,7 @@ class Plex(threading.Thread):
             self.running = False
             self.log_worker_count = False
             self.media_items = media_items
-            self._update_items()
+            self._update_items(init=True)
         except Exception as e:
             logger.error("Plex is not configured!")
             return
@@ -72,7 +72,7 @@ class Plex(threading.Thread):
     def _get_last_fetch_time(self, section):
         return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
-    def _update_items(self):
+    def _update_items(self, init=False):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
@@ -84,7 +84,10 @@ class Plex(threading.Thread):
                 if not section.refreshing:
                     # Fetch only items that have been added or updated since the last fetch
                     last_fetch_time = self._get_last_fetch_time(section)
-                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(filters={"addedAt>>": last_fetch_time})}
+                    filters = {"addedAt>>": last_fetch_time}
+                    if init:
+                        filters = {}
+                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(filters=filters)}
                     for future in concurrent.futures.as_completed(future_items):
                         media_item = future.result()
                         items.append(media_item)
