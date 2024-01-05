@@ -84,7 +84,7 @@ class Orionoid:
         else:
             logger.debug("Could not find streams for %s", item.log_string)
 
-    def construct_url(self, media_type, imdb_id, season, episode) -> str:
+    def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""
         base_url = "https://api.orionoid.com"
         params = {
@@ -125,7 +125,7 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok:
+            if response.is_ok and response.data.result.status != "error":
                 data = {}
                 for stream in response.data.data.streams:
                     title = stream.file.name
