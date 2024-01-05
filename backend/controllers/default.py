@@ -17,10 +17,10 @@ async def root():
 
 
 @router.get("/health")
-async def health(request: Request):
+async def health():
     return {
         "success": True,
-        "message": request.app.program.initialized,
+        "message": "Iceburg is running!",
     }
 
 
