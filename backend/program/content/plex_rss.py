@@ -20,10 +20,12 @@ class PlexRss:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_rss"
         self.settings = PlexRssConfig(**settings.get(f"content.{self.key}"))
+        self.initialized = self.validate_settings()
+        if not self.initialized:
+            return
         self.media_items = media_items
         self.prev_count = 0
         self.updater = Trakt()
-        self.initialized = self.validate_settings()
 
     def validate_settings(self):
         if not self.settings.enabled:
@@ -33,10 +35,7 @@ class PlexRss:
             logger.warning("Plex rss is enabled but no URL is set.")
             return False
         try:
-            response = ping(
-                self.settings.rss,
-                timeout=10,
-            )
+            response = ping(self.settings.rss)
             if response.ok:
                 return True
         except ConnectTimeout:
@@ -68,7 +67,7 @@ class PlexRss:
             logger.info("Added %s items", length)
 
     def _get_items_from_plex_rss(self) -> list:
-        """Fetch media from Plex rss"""
+        """Fetch media from Plex RSS Feed"""
         response_obj = get(self.settings.rss, timeout=30)
         rss_data = json.loads(response_obj.response.content)
         items = rss_data.get("items", [])

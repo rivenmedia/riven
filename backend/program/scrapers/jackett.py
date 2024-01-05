@@ -3,10 +3,9 @@ from typing import Optional
 from pydantic import BaseModel
 from requests import RequestException
 from utils.logger import logger
-from utils.request import RateLimitExceeded, get
 from utils.settings import settings_manager
 from utils.utils import parser
-from utils.request import get, RateLimiter
+from utils.request import RateLimitExceeded, get, ping, RateLimiter
 
 
 class JackettConfig(BaseModel):
@@ -31,19 +30,16 @@ class Jackett:
     def validate_settings(self) -> bool:
         """Validate the Jackett settings."""
         if not self.settings.enabled:
-            logger.debug("Jackett is set to disabled.")
             return False
         if len(self.settings.api_key) == 32 and self.settings.url:
-            try:
-                response = get(
-                    f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.settings.api_key}&t=search&q=test"
-                    , timeout=30)
-                if response.is_ok:
-                    return True
-            except Exception as e:
-                logger.error(f"Jackett configuration error: {e}")
+            response = ping(
+                url=f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.settings.api_key}&t=search&cat=2030,2040&q=big+buck+bunny"
+            )
+            if response.ok:
+                return True
         else:
             logger.info("Jackett is not configured and will not be used.")
+            return False
 
     def run(self, item):
         """Scrape the jackett site for the given media items
@@ -77,7 +73,7 @@ class Jackett:
             query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
 
         url = (
-            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.settings.api_key}{query}"
+            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab/api?apikey={self.settings.api_key}{query}"
         )
         response = get(url=url, retry_if_failed=False, timeout=30)
         if response.is_ok:

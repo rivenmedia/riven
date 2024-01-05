@@ -60,7 +60,7 @@ update:
 
 frontend:
 	@echo Starting Frontend...
-	@cd frontend && npm install && npm run build && npm run preview --host
+	@cd frontend && pnpm install && pnpm run build && pnpm run preview --host
 
 backend:
 	@echo Starting Backend...

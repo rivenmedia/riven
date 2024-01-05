@@ -33,6 +33,9 @@ class Mdblist:
         if not self.settings.enabled:
             logger.debug("Mdblist is set to disabled.")
             return False
+        if len(self.settings.lists) == 0:
+            logger.error("Mdblist lists are not set.")
+            return False
         if self.settings.api_key == "":
             logger.error("Mdblist api key is not set.")
             return False
