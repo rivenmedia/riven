@@ -40,6 +40,8 @@ class ResponseObject:
         if len(response.content) > 0:
             if "handler error" not in response.text:
                 content_type = response.headers.get("Content-Type")
+                if "application/rss+xml" in content_type:
+                    return xmltodict.parse(response.content)
                 if "text/xml" in content_type:
                     if self.response_type == dict:
                         return xmltodict.parse(response.content)

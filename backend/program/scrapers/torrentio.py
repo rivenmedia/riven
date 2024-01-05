@@ -22,6 +22,8 @@ class Torrentio:
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = self.validate_settings()
+        if not self.initialized:
+            return
         logger.info("Torrentio initialized!")
 
     def validate_settings(self) -> bool:

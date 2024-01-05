@@ -20,12 +20,13 @@ class Jackett:
 
     def __init__(self, _):
         self.key = "jackett"
-        self.initialized = False
         self.settings = JackettConfig(**settings_manager.get(f"scraping.{self.key}"))
+        self.initialized = self.validate_settings()
+        if not self.initialized:
+            return
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-        if self.validate_settings():
-            self.initialized = True
+        logger.info("Jackett initialized!")
 
     def validate_settings(self) -> bool:
         """Validate the Jackett settings."""
@@ -59,7 +60,13 @@ class Jackett:
     def _scrape_item(self, item):
         """Scrape the given media item"""
         data = self.api_scrape(item)
-        log_string = self._build_log_string(item)
+        log_string = item.title
+        if item.type == "season":
+            log_string = f"{item.parent.title} S{item.number}"
+        if item.type == "episode":
+            log_string = (
+                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
+            )
         if len(data) > 0:
             item.streams.update(data)
             logger.debug("Found %s streams for %s", len(data), log_string)
@@ -84,11 +91,9 @@ class Jackett:
             data = {}
             for stream in response.data['rss']['channel']['item']:
                 title = stream.get('title')
-                infohash = None
                 for attr in stream.get('torznab:attr', []):
                     if attr.get('@name') == 'infohash':
                         infohash = attr.get('@value')
-                        break
                 if parser.parse(title) and infohash:
                     data[infohash] = {"name": title}
             if len(data) > 0:

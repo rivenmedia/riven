@@ -24,16 +24,17 @@ class Orionoid:
         self.settings = OrionoidConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.is_premium = False
         self.initialized = False
-
         if self.validate_settings():
             self.is_premium = self.check_premium()
             self.initialized = True
-
+        else:
+            return
         self.max_calls = 50 if not self.is_premium else 999999
         self.minute_limiter = RateLimiter(
             max_calls=self.max_calls, period=86400, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
+        logger.info("Orionoid initialized!")
 
     def validate_settings(self) -> bool:
         """Validate the Orionoid class_settings."""
