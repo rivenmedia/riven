@@ -17,7 +17,7 @@ class OrionoidConfig(BaseModel):
 
 
 class Orionoid:
-    """Scraper for Orionoid"""
+    """Scraper for `Orionoid`"""
 
     def __init__(self, _):
         self.key = "orionoid"
@@ -66,15 +66,14 @@ class Orionoid:
     def run(self, item):
         """Scrape the Orionoid site for the given media items
         and update the object with scraped streams"""
-        if self._can_we_scrape(item):
-            try:
-                self._scrape_item(item)
-            except RequestException as e:
-                self.minute_limiter.limit_hit()
-                raise e
-            except RateLimitExceeded as e:
-                self.minute_limiter.limit_hit()
-                raise e
+        try:
+            self._scrape_item(item)
+        except RequestException:
+            self.minute_limiter.limit_hit()
+            return
+        except RateLimitExceeded:
+            self.minute_limiter.limit_hit()
+            return
 
     def _scrape_item(self, item):
         data = self.api_scrape(item)

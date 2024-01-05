@@ -45,17 +45,16 @@ class Jackett:
             logger.info("Jackett is not configured and will not be used.")
 
     def run(self, item):
-        """Scrape the torrentio site for the given media items
+        """Scrape the jackett site for the given media items
         and update the object with scraped streams"""
-        if self._can_we_scrape(item):
-            try:
-                self._scrape_item(item)
-            except RequestException:
-                self.minute_limiter.limit_hit()
-                return
-            except RateLimitExceeded:
-                self.minute_limiter.limit_hit()
-                return
+        try:
+            self._scrape_item(item)
+        except RequestException:
+            self.minute_limiter.limit_hit()
+            return
+        except RateLimitExceeded:
+            self.minute_limiter.limit_hit()
+            return
 
     def _scrape_item(self, item):
         """Scrape the given media item"""

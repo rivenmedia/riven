@@ -127,7 +127,7 @@ class Debrid:
             logger.debug("Found cached release for %s", log_string)
         else:
             logger.debug("No cached release found for %s", log_string)
-            item.streams = {}
+            item.set("streams", {})
         return False
 
     def _check_stream_availability(self, item):
