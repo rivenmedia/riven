@@ -26,9 +26,9 @@ export const contentSettingsSchema = z.object({
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().int().optional().default(80),
 	mdblist_lists: z.string().array().optional().default(['']),
-	plex_watchlist_enabled: z.boolean().default(false),
-	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
-	plex_watchlist_update_interval: z.number().int().optional().default(80)
+	plex_rss_enabled: z.boolean().default(false),
+	plex_rss_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
+	plex_rss_update_interval: z.number().int().optional().default(80)
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;

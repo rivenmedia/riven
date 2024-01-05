@@ -83,10 +83,10 @@
 						</div>
 					</Form.Field>
 
-					<Form.Field {config} name="plex_watchlist_enabled">
+					<Form.Field {config} name="plex_rss_enabled">
 						<div class="flex flex-wrap items-center gap-2">
 							<Form.Checkbox />
-							<Form.Label class="text-sm md:text-base">Plex Watchlist</Form.Label>
+							<Form.Label class="text-sm md:text-base">Plex RSS</Form.Label>
 						</div>
 					</Form.Field>
 				</div>
@@ -127,14 +127,14 @@
 				</div>
 			{/if}
 
-			{#if $form.plex_watchlist_enabled}
+			{#if $form.plex_rss_enabled}
 				<div transition:slide>
-					<Form.Field {config} name="plex_watchlist_rss">
+					<Form.Field {config} name="plex_rss_rss">
 						<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 							<Form.Label
 								class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
 							>
-								Plex Watchlist RSS
+								Plex RSS
 							</Form.Label>
 							<Form.Input class="text-sm md:text-base" spellcheck="false" />
 						</Form.Item>
@@ -143,12 +143,12 @@
 				</div>
 
 				<div transition:slide>
-					<Form.Field {config} name="plex_watchlist_update_interval">
+					<Form.Field {config} name="plex_rss_update_interval">
 						<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 							<Form.Label
 								class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
 							>
-								Plex Watchlist Update Interval
+								Plex RSS Update Interval
 							</Form.Label>
 							<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
 						</Form.Item>
