@@ -157,6 +157,21 @@
 				</div>
 			{/if}
 
+			<!--h-0 overflow-hidden instead of hidden because it prevents `required` from operating, outside of if to persist-->
+			<div class="h-0 overflow-hidden">
+				<select
+					multiple
+					id="mdblist_lists"
+					name="mdblist_lists"
+					bind:value={$mdblistListsValues}
+					tabindex="-1"
+				>
+					{#each $mdblistListsValues as list}
+						<option value={list}>{list}</option>
+					{/each}
+				</select>
+			</div>
+
 			{#if $form.mdblist_enabled}
 				<div transition:slide>
 					<Form.Field {config} name="mdblist_api_key">
@@ -191,25 +206,11 @@
 					</Form.Field>
 				</div>
 
-				<!--h-0 overflow-hidden instead of hidden because it prevents `required` from operating-->
-				<div class="h-0 overflow-hidden">
-					<select
-						multiple
-						id="mdblist_lists"
-						name="mdblist_lists"
-						bind:value={$mdblistListsValues}
-						tabindex="-1"
-					>
-						{#each $mdblistListsValues as list}
-							<option value={list}>{list}</option>
-						{/each}
-					</select>
-				</div>
 				{#if $mdblistListsErrors}
 					<small class="text-sm md:text-base text-red-500">{$mdblistListsErrors}</small>
 				{/if}
 
-				<div class="flex flex-col md:flex-row items-start max-w-6xl">
+				<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
 					<Label
 						class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
 						for="mdblist_lists">Mdblist Lists</Label
