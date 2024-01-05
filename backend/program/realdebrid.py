@@ -60,12 +60,12 @@ class Debrid:
         """Download movie from real-debrid.com"""
         downloaded = 0
         self._check_stream_availability(item)
-        self._determine_best_stream(item)
-        if not self._is_downloaded(item):
-            downloaded = self._download_item(item)
-        self._update_torrent_info(item)
-        self._set_file_paths(item)
-        return downloaded
+        if self._determine_best_stream(item):
+            if not self._is_downloaded(item):
+                downloaded = self._download_item(item)
+            self._update_torrent_info(item)
+            self._set_file_paths(item)
+            return downloaded
 
     def _is_downloaded(self, item):
         if not item.get("active_stream", None):
@@ -125,10 +125,11 @@ class Debrid:
 
         if item.get("active_stream", None):
             logger.debug("Found cached release for %s", log_string)
+            return True
         else:
             logger.debug("No cached release found for %s", log_string)
             item.set("streams", {})
-        return False
+            return False
 
     def _check_stream_availability(self, item):
         if len(item.streams) == 0:
