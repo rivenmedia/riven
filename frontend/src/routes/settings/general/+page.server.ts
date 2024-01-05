@@ -7,7 +7,7 @@ import { saveSettings } from '$lib/helpers';
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const toGet = ['symlink', 'real_debrid', 'scraping'];
+			const toGet = ['symlink', 'real_debrid'];
 			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
@@ -20,14 +20,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	toPassToSchema = {
 		host_path: toPassToSchema.data.symlink.host_path,
 		container_path: toPassToSchema.data.symlink.container_path,
-		realdebrid_api_key: toPassToSchema.data.real_debrid.api_key,
-		torrentio_filter: toPassToSchema.data.scraping.torrentio?.filter || '',
-		torrentio_enabled: toPassToSchema.data.scraping.torrentio.enabled,
-		orionoid_api_key: toPassToSchema.data.scraping.orionoid?.api_key || '',
-		orionoid_enabled: toPassToSchema.data.scraping.orionoid.enabled,
-		jackett_api_key: toPassToSchema.data.scraping.jackett?.api_key || '',
-		jackett_url: toPassToSchema.data.scraping.jackett?.url || '',
-		jackett_enabled: toPassToSchema.data.scraping.jackett.enabled
+		realdebrid_api_key: toPassToSchema.data.real_debrid.api_key
 	};
 
 	const form = await superValidate(toPassToSchema, generalSettingsSchema);
@@ -55,24 +48,6 @@ export const actions: Actions = {
 				key: 'real_debrid',
 				value: {
 					api_key: form.data.realdebrid_api_key
-				}
-			},
-			{
-				key: 'scraping',
-				value: {
-					torrentio: {
-						enabled: form.data.torrentio_enabled,
-						filter: form.data.torrentio_filter
-					},
-					orionoid: {
-						enabled: form.data.orionoid_enabled,
-						api_key: form.data.orionoid_api_key
-					},
-					jackett: {
-						enabled: form.data.jackett_enabled,
-						url: form.data.jackett_url,
-						api_key: form.data.jackett_api_key
-					}
 				}
 			}
 		];

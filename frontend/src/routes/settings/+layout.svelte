@@ -16,6 +16,10 @@
 			path: '/settings/mediaserver'
 		},
 		{
+			name: 'Scrapers',
+			path: '/settings/scrapers'
+		},
+		{
 			name: 'Content',
 			path: '/settings/content'
 		},

@@ -22,9 +22,9 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-2xl md:text-3xl font-semibold">General Settings</h2>
+	<h2 class="text-2xl md:text-3xl font-semibold">Media Server Settings</h2>
 	<p class="text-base md:text-lg text-muted-foreground">
-		Configure global and default settings for Iceberg.
+		Configure media server settings for Iceberg.
 	</p>
 
 	<Form.Root

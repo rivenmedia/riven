@@ -4,13 +4,19 @@ export const generalSettingsSchema = z.object({
 	host_path: z.string().min(1),
 	container_path: z.string().min(1),
 	realdebrid_api_key: z.string().min(1),
-	torrentio_filter: z.string().optional().default(''),
+});
+
+export const scrapersSettingsSchema = z.object({
+	after_2: z.number().nonnegative().default(0.5),
+	after_5: z.number().nonnegative().default(2),
+	after_10: z.number().nonnegative().default(24),
 	torrentio_enabled: z.boolean().default(false),
-	orionoid_api_key: z.string().optional().default(''),
 	orionoid_enabled: z.boolean().default(false),
+	jackett_enabled: z.boolean().default(false),
+	torrentio_filter: z.string().optional().default(''),
+	orionoid_api_key: z.string().optional().default(''),
 	jackett_api_key: z.string().optional().default(''),
-	jackett_url: z.string().url().optional().default('http://localhost:9117'),
-	jackett_enabled: z.boolean().default(false)
+	jackett_url: z.string().url().optional().default('http://localhost:9117')
 });
 
 export const mediaServerSettingsSchema = z.object({
@@ -24,13 +30,14 @@ export const contentSettingsSchema = z.object({
 	overseerr_api_key: z.string().optional().default(''),
 	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
-	mdblist_update_interval: z.number().int().optional().default(80),
+	mdblist_update_interval: z.number().nonnegative().int().optional().default(80),
 	mdblist_lists: z.string().array().optional().default(['']),
 	plex_rss_enabled: z.boolean().default(false),
 	plex_rss_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
-	plex_rss_update_interval: z.number().int().optional().default(80)
+	plex_rss_update_interval: z.number().nonnegative().int().optional().default(80)
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
+export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
 export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 export type ContentSettingsSchema = typeof contentSettingsSchema;
