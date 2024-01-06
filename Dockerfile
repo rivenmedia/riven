@@ -18,8 +18,8 @@ RUN apk --update add python3 py3-pip bash shadow vim nano rclone && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /iceberg
-ENV NODE_ENV production
-ENV PORT 3000 8080
+ENV ORIGIN http://localhost:3000
+ARG ORIGIN=http://localhost:3000
 EXPOSE 3000 8080
 
 # Frontend
