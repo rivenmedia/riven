@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { PlexDebridItem, StatusInterface } from '$lib/types';
+	import type { IcebergItem, StatusInterface } from '$lib/types';
 	import { formatWords, formatDate } from '$lib/helpers';
 	import { Badge } from '$lib/components/ui/badge';
 
-	export let plexDebridItem: PlexDebridItem;
+	export let plexDebridItem: IcebergItem;
 	export let itemState: StatusInterface;
 
 	let fallback = 'https://via.placeholder.com/198x228.png?text=No+thumbnail';

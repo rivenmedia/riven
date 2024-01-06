@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import type { PlexDebridItem } from '$lib/types';
+import type { IcebergItem } from '$lib/types';
 
 // only works with real-debrid dates because of CET format provided by RD
 export function formatRDDate(inputDate: string, format: string = 'long'): string {
@@ -57,8 +57,8 @@ export function formatWords(words: string) {
 		.join(' ');
 }
 
-export function convertPlexDebridItemsToObject(items: PlexDebridItem[]) {
-	const result: { [key: string]: PlexDebridItem[] } = {};
+export function convertPlexDebridItemsToObject(items: IcebergItem[]) {
+	const result: { [key: string]: IcebergItem[] } = {};
 
 	for (const item of items) {
 		if (!result[item.state]) {
