@@ -6,8 +6,9 @@
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
 	import { setContext } from 'svelte';
+	import { dev } from '$app/environment';
 
-	setContext('formDebug', true);
+	setContext('formDebug', dev);
 
 	const settingsItems: NavItem[] = [
 		{
