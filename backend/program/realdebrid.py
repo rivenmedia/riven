@@ -1,7 +1,6 @@
 """Realdebrid module"""
 import os
-import re
-import time
+from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout
@@ -118,12 +117,14 @@ class Debrid:
                 if len(provider_list) == 0:
                     continue
                 for containers in provider_list.values():
-                    if len(containers) > 0:
-                        item.set(
-                            "active_stream",
-                            {"hash": stream_hash, "files": {}, "id": None},
-                        )
-                        return True
+                    for container in containers:
+                        for file in container.values():
+                            if Path(file["filename"]).suffix in WANTED_FORMATS:
+                                item.set(
+                                    "active_stream",
+                                    {"hash": stream_hash, "files": {}, "id": None},
+                                )
+                                return True
         return False
 
     def _set_file_paths(self, item):
@@ -135,11 +136,20 @@ class Debrid:
             self._handle_episode_paths(item)
 
     def _handle_movie_paths(self, item):
+        def is_wanted(file: str, item):
+            if Path(file).stem == item.active_stream["name"]:
+                item.set("file", file)
+                return True
+
         item.set("folder", item.active_stream.get("name"))
-        item.set(
-            "file",
-            next(iter(item.active_stream["files"].values())).get("filename"),
-        )
+        for file in item.active_stream["files"].values():
+            if type(file) == dict:
+                for sub_file in file.values():
+                    if is_wanted(sub_file, item):
+                        return
+            else:
+                if is_wanted(file, item):
+                    return
 
     def _handle_season_paths(self, season):
         for file in season.active_stream["files"].values():

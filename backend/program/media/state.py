@@ -43,7 +43,7 @@ class Scrape(MediaItemState):
             debrid.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
-                if season.aired_at and self.context.state == Scrape:
+                if season.aired_at and season.state == Scrape:
                     season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
