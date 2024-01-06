@@ -1,6 +1,5 @@
 """Mdblist content module"""
 from typing import Optional
-
 from pydantic import BaseModel
 from utils.settings import settings_manager
 from utils.logger import logger
