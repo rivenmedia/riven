@@ -42,10 +42,8 @@ class PlexWatchlist:
                 else:
                     logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
                     return True
-            except ConnectTimeout:
-                return True
-            except Exception:
-                return True
+            except Exception as e:
+                return False
         return True
 
     def run(self):
