@@ -28,7 +28,7 @@ export function formatDate(
 	format: string = 'long',
 	relative: boolean = false
 ): string {
-	let date = DateTime.fromISO(inputDate, { zone: 'utc' });
+	let date = DateTime.fromISO(inputDate);
 	date = date.setZone('local');
 
 	let formattedDate;
