@@ -9,10 +9,7 @@ from program.media.state import (
     Library,
     LibraryPartial,
 )
-from utils.utils import parser
-from program.scrapers import Scraping
-from program.realdebrid import Debrid
-from program.symlink import Symlinker
+from utils.parser import parser
 
 
 class MediaItem:

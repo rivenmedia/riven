@@ -40,7 +40,6 @@ class Program(threading.Thread):
         super().start()
         self.running = True
 
-
     def run(self):
         while self.running:
             if self.validate():
