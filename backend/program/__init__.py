@@ -24,6 +24,7 @@ class Program(threading.Thread):
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings.get("version"))
+        self.initialized = False
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
         if not os.path.exists(self.data_path):
@@ -39,7 +40,7 @@ class Program(threading.Thread):
             logger.info("----------------------------------------------")
         super().start()
         self.running = True
-
+        self.initialized = True
 
     def run(self):
         while self.running:
