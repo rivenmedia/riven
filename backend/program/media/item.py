@@ -211,9 +211,7 @@ class Season(MediaItem):
                 return Symlink()
             if all(episode.file and episode.folder for episode in self.episodes):
                 return Download()
-            if self.is_scraped() or any(
-                episode.state == Scrape for episode in self.episodes
-            ):
+            if self.is_scraped():
                 return Scrape()
             if any(episode.state == Content for episode in self.episodes):
                 return Content()

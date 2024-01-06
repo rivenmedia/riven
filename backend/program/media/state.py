@@ -24,6 +24,9 @@ class Content(MediaItemState):
         scraper = next(module for module in modules if module.key == "scraping")
         if self.context.type in ["movie", "season", "episode"]:
             scraper.run(self.context)
+            if self.context.state == Content and self.context.type == "season":
+                for episode in self.context.episodes:
+                    episode.state.perform_action(modules)
         if self.context.type == "show":
             for season in self.context.seasons:
                 if season.aired_at:
@@ -40,7 +43,7 @@ class Scrape(MediaItemState):
             debrid.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
-                if season.aired_at:
+                if season.aired_at and self.context.state == Scrape:
                     season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
