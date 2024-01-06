@@ -10,6 +10,9 @@
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/schemas/setting';
+	import { getContext } from 'svelte';
+
+	let formDebug: boolean = getContext('formDebug');
 
 	export let data: PageData;
 	const generalForm = superForm(data.form);
@@ -28,7 +31,13 @@
 		Configure global and default settings for Iceberg.
 	</p>
 
-	<Form.Root schema={generalSettingsSchema} controlled form={generalForm} let:config debug={false}>
+	<Form.Root
+		schema={generalSettingsSchema}
+		controlled
+		form={generalForm}
+		let:config
+		debug={formDebug}
+	>
 		<div class="flex flex-col my-4 gap-4">
 			<Form.Field {config} name="host_path">
 				<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">

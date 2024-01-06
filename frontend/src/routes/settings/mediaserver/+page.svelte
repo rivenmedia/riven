@@ -9,6 +9,9 @@
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/schemas/setting';
+	import { getContext } from 'svelte';
+
+	let formDebug: boolean = getContext('formDebug');
 
 	export let data: PageData;
 	const mediaServerForm = superForm(data.form);
@@ -32,7 +35,7 @@
 		controlled
 		form={mediaServerForm}
 		let:config
-		debug={false}
+		debug={formDebug}
 	>
 		<div class="flex flex-col my-4 gap-4">
 			<Form.Field {config} name="plex_url">

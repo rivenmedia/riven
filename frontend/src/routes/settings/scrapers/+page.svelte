@@ -10,6 +10,9 @@
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/schemas/setting';
+	import { getContext } from 'svelte';
+
+	let formDebug: boolean = getContext('formDebug');
 
 	export let data: PageData;
 	const scrapersForm = superForm(data.form);
@@ -28,7 +31,7 @@
 		Configure scraper settings for Iceberg.
 	</p>
 
-	<Form.Root schema={scrapersSettingsSchema} controlled form={scrapersForm} let:config debug={false}>
+	<Form.Root schema={scrapersSettingsSchema} controlled form={scrapersForm} let:config debug={formDebug}>
 		<div class="flex flex-col my-4 gap-4">
 			<Form.Field {config} name="after_2">
 				<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">

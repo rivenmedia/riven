@@ -12,6 +12,9 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Form from '$lib/components/ui/form';
 	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/schemas/setting';
+	import { getContext } from 'svelte';
+
+	let formDebug: boolean = getContext('formDebug');
 
 	export let data: PageData;
 	const contentForm = superForm(data.form);
@@ -62,7 +65,13 @@
 	<h2 class="text-2xl md:text-3xl font-semibold">Content Settings</h2>
 	<p class="text-base md:text-lg text-muted-foreground">Configure content providers for Iceberg.</p>
 
-	<Form.Root schema={contentSettingsSchema} controlled form={contentForm} let:config debug={false}>
+	<Form.Root
+		schema={contentSettingsSchema}
+		controlled
+		form={contentForm}
+		let:config
+		debug={formDebug}
+	>
 		<div class="flex flex-col my-4 gap-4">
 			<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 				<p class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
