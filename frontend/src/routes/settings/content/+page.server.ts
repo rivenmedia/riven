@@ -25,10 +25,10 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		mdblist_api_key: toPassToSchema.data.content.mdblist?.api_key || '',
 		mdblist_update_interval: toPassToSchema.data.content.mdblist?.update_interval || 80,
 		mdblist_lists: toPassToSchema.data.content.mdblist?.lists || [''],
-		plex_rss_enabled: toPassToSchema.data.content.plex_rss.enabled,
-		plex_rss_rss: toPassToSchema.data.content.plex_rss?.rss || '',
-		plex_rss_update_interval:
-			toPassToSchema.data.content.plex_rss?.update_interval || 80
+		plex_watchlist_enabled: toPassToSchema.data.content.plex_watchlist.enabled,
+		plex_watchlist_rss: toPassToSchema.data.content.plex_watchlist?.rss || '',
+		plex_watchlist_update_interval:
+			toPassToSchema.data.content.plex_watchlist?.update_interval || 80
 	};
 
 	const form = await superValidate(toPassToSchema, contentSettingsSchema);
@@ -59,10 +59,10 @@ export const actions: Actions = {
 						update_interval: form.data.mdblist_update_interval,
 						lists: form.data.mdblist_lists
 					},
-					plex_rss: {
-						enabled: form.data.plex_rss_enabled,
-						rss: form.data.plex_rss_rss,
-						update_interval: form.data.plex_rss_update_interval
+					plex_watchlist: {
+						enabled: form.data.plex_watchlist_enabled,
+						rss: form.data.plex_watchlist_rss,
+						update_interval: form.data.plex_watchlist_update_interval
 					}
 				}
 			}

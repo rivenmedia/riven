@@ -26,7 +26,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		jackett_enabled: toPassToSchema.data.scraping.jackett.enabled,
 		torrentio_filter: toPassToSchema.data.scraping.torrentio?.filter || '',
 		orionoid_api_key: toPassToSchema.data.scraping.orionoid?.api_key || '',
-		jackett_api_key: toPassToSchema.data.scraping.jackett?.api_key || '',
 		jackett_url: toPassToSchema.data.scraping.jackett?.url || ''
 	};
 
@@ -61,7 +60,6 @@ export const actions: Actions = {
 					jackett: {
 						enabled: form.data.jackett_enabled,
 						url: form.data.jackett_url,
-						api_key: form.data.jackett_api_key
 					}
 				}
 			}

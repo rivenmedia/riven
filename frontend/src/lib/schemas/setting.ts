@@ -13,9 +13,8 @@ export const scrapersSettingsSchema = z.object({
 	torrentio_enabled: z.boolean().default(false),
 	orionoid_enabled: z.boolean().default(false),
 	jackett_enabled: z.boolean().default(false),
-	torrentio_filter: z.string().optional().default(''),
+	torrentio_filter: z.string().optional().default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	orionoid_api_key: z.string().optional().default(''),
-	jackett_api_key: z.string().optional().default(''),
 	jackett_url: z.string().url().optional().default('http://localhost:9117')
 });
 
@@ -32,9 +31,9 @@ export const contentSettingsSchema = z.object({
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().nonnegative().int().optional().default(80),
 	mdblist_lists: z.string().array().optional().default(['']),
-	plex_rss_enabled: z.boolean().default(false),
-	plex_rss_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
-	plex_rss_update_interval: z.number().nonnegative().int().optional().default(80)
+	plex_watchlist_enabled: z.boolean().default(false),
+	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
+	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80)
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;

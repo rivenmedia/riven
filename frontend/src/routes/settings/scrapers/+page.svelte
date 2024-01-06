@@ -133,24 +133,6 @@
 
 			{#if $form.jackett_enabled}
 				<div transition:slide>
-					<Form.Field {config} name="jackett_api_key">
-						<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-							<Form.Label
-								class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-							>
-								Jackett API Key
-							</Form.Label>
-							<Form.Input
-								class={clsx('transition-all duration-300 text-sm md:text-base', {
-									'blur-sm hover:blur-none focus:blur-none': $form.jackett_api_key.length > 0
-								})}
-								spellcheck="false"
-							/>
-						</Form.Item>
-						<Form.Validation class="text-sm md:text-base text-red-500" />
-					</Form.Field>
-				</div>
-				<div transition:slide>
 					<Form.Field {config} name="jackett_url">
 						<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 							<Form.Label

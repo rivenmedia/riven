@@ -14,7 +14,7 @@
     "url": "http://localhost:32400"
   },
   "content": {
-    "plex_rss": {
+    "plex_watchlist": {
       "enabled": false,
       "rss": "",
       "update_interval": 80
