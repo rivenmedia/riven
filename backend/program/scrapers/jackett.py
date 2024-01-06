@@ -73,7 +73,7 @@ class Jackett:
             query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
 
         url = (
-            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab/api?apikey={self.settings.api_key}{query}"
+            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.settings.api_key}{query}"
         )
         response = get(url=url, retry_if_failed=False, timeout=30)
         if response.is_ok:

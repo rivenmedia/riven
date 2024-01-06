@@ -14,13 +14,10 @@
     "url": "http://localhost:32400"
   },
   "content": {
-    "plex_watchlist": {
+    "plex_rss": {
       "enabled": false,
-      "update_interval": 80,
-      "rss": {
-        "enabled": false,
-        "url": [""]
-      }
+      "rss": "",
+      "update_interval": 80
     },
     "mdblist": {
       "enabled": false,
