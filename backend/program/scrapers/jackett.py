@@ -1,6 +1,6 @@
 """ Jackett scraper module """
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests import RequestException
 from utils.logger import logger
 from utils.settings import settings_manager
@@ -11,7 +11,6 @@ from utils.request import RateLimitExceeded, get, ping, RateLimiter
 class JackettConfig(BaseModel):
     enabled: bool
     url: Optional[str]
-    api_key: Optional[str]
 
 
 class Jackett:
@@ -19,9 +18,10 @@ class Jackett:
 
     def __init__(self, _):
         self.key = "jackett"
+        self.api_key = None
         self.settings = JackettConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.initialized = self.validate_settings()
-        if not self.initialized:
+        if not self.initialized or not self.api_key:
             return
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=1)
@@ -31,18 +31,17 @@ class Jackett:
         """Validate the Jackett settings."""
         if not self.settings.enabled:
             return False
-        if len(self.settings.api_key) == 32 and self.settings.url:
-            response = ping(
-                url=f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.settings.api_key}&t=search&cat=2030,2040&q=big+buck+bunny"
-            )
-            if response.ok:
+        if self.settings.url:
+            url = f"{self.settings.url}/api/v2.0/server/config"
+            response = get(url=url, retry_if_failed=False)
+            if response.is_ok:
+                self.api_key = response.data.api_key
                 return True
-        else:
-            logger.info("Jackett is not configured and will not be used.")
-            return False
+        logger.info("Jackett is not configured and will not be used.")
+        return False
 
     def run(self, item):
-        """Scrape the jackett site for the given media items
+        """Scrape the Jackett API for the given media items
         and update the object with scraped streams"""
         try:
             self._scrape_item(item)
@@ -73,7 +72,7 @@ class Jackett:
             query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
 
         url = (
-            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.settings.api_key}{query}"
+            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}"
         )
         response = get(url=url, retry_if_failed=False, timeout=30)
         if response.is_ok:

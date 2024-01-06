@@ -45,8 +45,7 @@
     },
     "jackett": {
       "enabled": false,
-      "url": "http://localhost:9117",
-      "api_key": ""
+      "url": "http://localhost:9117"
     }
   }
 }

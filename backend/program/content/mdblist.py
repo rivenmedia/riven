@@ -33,10 +33,10 @@ class Mdblist:
         if not self.settings.enabled:
             logger.debug("Mdblist is set to disabled.")
             return False
-        if len(self.settings.lists) == 0:
-            logger.error("Mdblist lists are not set.")
+        if self.settings.lists == [""]:
+            logger.error("Mdblist is enabled, but list is empty.")
             return False
-        if self.settings.api_key == "":
+        if self.settings.api_key == "" or len(self.settings.api_key) != 25:
             logger.error("Mdblist api key is not set.")
             return False
         response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
