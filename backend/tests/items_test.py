@@ -18,7 +18,7 @@ def test_get_states():
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
-        "states": [state.name for state in MediaItemStates],
+        "states": [state for state in MediaItemStates],
     }
 
 

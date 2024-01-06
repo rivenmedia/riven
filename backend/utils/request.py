@@ -40,6 +40,8 @@ class ResponseObject:
         if len(response.content) > 0:
             if "handler error" not in response.text:
                 content_type = response.headers.get("Content-Type")
+                if "application/rss+xml" in content_type:
+                    return xmltodict.parse(response.content)
                 if "text/xml" in content_type:
                     if self.response_type == dict:
                         return xmltodict.parse(response.content)
@@ -165,6 +167,7 @@ class RateLimitExceeded(Exception):
 import time
 from threading import Lock
 
+
 class RateLimiter:
     """
     A rate limiter class that limits the number of calls within a specified period.
@@ -172,7 +175,7 @@ class RateLimiter:
     Args:
         max_calls (int): The maximum number of calls allowed within the specified period.
         period (float): The time period (in seconds) within which the calls are limited.
-        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded. 
+        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded.
             Defaults to False.
 
     Attributes:

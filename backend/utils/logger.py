@@ -4,11 +4,12 @@ import logging
 import os
 import re
 import sys
+from .settings import settings_manager as settings
 
 
 def get_data_path():
     main_dir = os.path.dirname(os.path.abspath(sys.modules["__main__"].__file__))
-    return os.path.join(main_dir, os.pardir, "data")
+    return os.path.join(os.path.dirname(main_dir), "data")
 
 
 class RedactSensitiveInfo(logging.Filter):
@@ -78,17 +79,22 @@ class Logger(logging.Logger):
             os.mkdir(os.path.join(data_path, "logs"))
 
         self.addFilter(RedactSensitiveInfo())
-        file_handler = logging.FileHandler(
-            os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
+
+        log_level = logging.INFO
+        if settings.get("debug"):
+            log_level = logging.DEBUG
+
+        if settings.get("log"):
+            file_handler = logging.FileHandler(
+                os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
+            )
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(formatter)
+            self.addHandler(file_handler)
 
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
+        console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
-
-        self.addHandler(file_handler)
         self.addHandler(console_handler)
 
 

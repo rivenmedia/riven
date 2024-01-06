@@ -39,37 +39,3 @@ export interface StatusInterface {
 export interface StatusInfo {
 	[key: string]: StatusInterface;
 }
-
-export interface PlexService {
-	user: string;
-	token: string;
-	url: string;
-	watchlist?: string;
-}
-
-export interface MdblistService {
-	lists: string[];
-	api_key: string;
-	update_interval: number;
-}
-
-export interface OverseerrService {
-	url: string;
-	api_key: string;
-}
-
-export interface TorrentioService {
-	filter: string;
-}
-
-export interface RealdebridService {
-	api_key: string;
-}
-
-export interface IcebergServices {
-	plex: PlexService;
-	mdblist?: MdblistService;
-	overseerr?: OverseerrService;
-	torrentio?: TorrentioService;
-	realdebrid: RealdebridService;
-}

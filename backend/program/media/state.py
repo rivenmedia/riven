@@ -1,7 +1,4 @@
 from enum import Enum
-from program.scrapers import scraper as scrape
-from program.realdebrid import debrid
-from program.symlink import symlink
 
 
 class MediaItemState:
@@ -13,103 +10,92 @@ class MediaItemState:
     def set_context(self, context):
         self.context = context
 
-    def perform_action(self):
+    def perform_action(self, _):
         pass
 
 
 class Unknown(MediaItemState):
-    def __init__(self):
-        self.name = "Unknown"
-
-    def perform_action(self):
+    def perform_action(self, _):
         pass
 
 
 class Content(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "Content"
-
-    def perform_action(self):
+    def perform_action(self, modules):
+        scraper = next(module for module in modules if module.key == "scraping")
         if self.context.type in ["movie", "season", "episode"]:
-            scrape.run(self.context)
+            scraper.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
                 if season.aired_at:
-                    season.state.perform_action()
+                    season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
-                        episode.state.perform_action()
+                        episode.state.perform_action(modules)
 
 
 class Scrape(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "Scrape"
-
-    def perform_action(self):
+    def perform_action(self, modules):
+        debrid = next(module for module in modules if module.key == "real_debrid")
         if self.context.type in ["movie", "season", "episode"]:
             debrid.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
                 if season.aired_at:
-                    season.state.perform_action()
+                    season.state.perform_action(modules)
                 else:
                     for episode in season.episodes:
-                        episode.state.perform_action()
+                        episode.state.perform_action(modules)
         if self.context.type == "season":
-            self.context.state.perform_action()
+            self.context.state.perform_action(modules)
 
 
 class Download(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "Download"
-
-    def perform_action(self):
+    def perform_action(self, modules):
+        symlink = next(module for module in modules if module.key == "symlink")
         if self.context.type in ["movie", "episode"]:
             symlink.run(self.context)
         if self.context.type == "show":
             for season in self.context.seasons:
                 for episode in season.episodes:
-                    episode.state.perform_action()
+                    episode.state.perform_action(modules)
         if self.context.type == "season":
             for episode in self.context.episodes:
-                episode.state.perform_action()
+                episode.state.perform_action(modules)
 
 
 class Symlink(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "Symlink"
-
-    def perform_action(self):
-        pass
-
+    def perform_action(self, modules):
+        library = next(module for module in modules if module.key == "plex")
+        if self.context.type == "show":
+            for season in self.context.seasons:
+                season.state.perform_action(modules)
+        elif self.context.type == "season":
+            for episode in self.context.episodes:
+                episode.state.perform_action(modules)
+        else:
+            library.update_item_section(self.context)
 
 class Library(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "Library"
-
-    def perform_action(self):
+    def perform_action(self, _):
         pass
 
 
 class LibraryPartial(MediaItemState):
-    def __init__(self) -> None:
-        self.name = "LibraryPartial"
-
-    def perform_action(self):
+    def perform_action(self, modules):
         if self.context.type == "show":
             for season in self.context.seasons:
-                season.state.perform_action()
+                season.state.perform_action(modules)
         if self.context.type == "season":
             for episode in self.context.episodes:
-                episode.state.perform_action()
+                episode.state.perform_action(modules)
 
 
 # This for api to get states, not for program
 class MediaItemStates(Enum):
-    Unknown = Unknown()
-    Content = Content()
-    Scrape = Scrape()
-    Download = Download()
-    Symlink = Symlink()
-    Library = Library()
-    LibraryPartial = LibraryPartial()
+    Unknown = Unknown.__name__
+    Content = Content.__name__
+    Scrape = Scrape.__name__
+    Download = Download.__name__
+    Symlink = Symlink.__name__
+    Library = Library.__name__
+    LibraryPartial = LibraryPartial.__name__

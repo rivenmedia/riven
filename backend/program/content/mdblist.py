@@ -1,4 +1,7 @@
 """Mdblist content module"""
+from typing import Optional
+
+from pydantic import BaseModel
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get, ping
@@ -6,26 +9,41 @@ from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
+class MdblistConfig(BaseModel):
+    enabled: bool
+    api_key: Optional[str]
+    lists: Optional[list]
+
 class Mdblist:
     """Content class for mdblist"""
 
     def __init__(self, media_items: MediaItemContainer):
-        self.initialized = False
-        self.media_items = media_items
-        self.settings = settings_manager.get("mdblist")
-        if not self._validate_settings():
-            logger.info("mdblist is not configured and will not be used.")
+        self.key = "mdblist"
+        self.settings = MdblistConfig(**settings_manager.get(f"content.{self.key}"))
+        self.initialized = self.validate_settings()
+        if not self.initialized:
             return
+        self.media_items = media_items
         self.updater = Trakt()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
-        self.initialized = True
+        logger.info("mdblist initialized")
 
-    def _validate_settings(self):
-        response = ping(
-            f"https://mdblist.com/api/user?apikey={self.settings['api_key']}"
-        )
-        return not "Invalid API key!" in response.text
+    def validate_settings(self):
+        if not self.settings.enabled:
+            logger.debug("Mdblist is set to disabled.")
+            return False
+        if self.settings.lists == [""]:
+            logger.error("Mdblist is enabled, but list is empty.")
+            return False
+        if self.settings.api_key == "" or len(self.settings.api_key) != 25:
+            logger.error("Mdblist api key is not set.")
+            return False
+        response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
+        if "Invalid API key!" in response.text:
+            logger.error("Mdblist api key is invalid.")
+            return False
+        return True
 
     def run(self):
         """Fetch media from mdblist and add them to media_items attribute
@@ -33,18 +51,22 @@ class Mdblist:
         try:
             with self.rate_limiter:
                 items = []
-                for list_id in self.settings["lists"]:
+                for list_id in self.settings.lists:
                     if list_id:
                         items += self._get_items_from_list(
-                            list_id, self.settings["api_key"]
+                            list_id, self.settings.api_key
                         )
                 new_items = [item for item in items if item not in self.media_items]
                 container = self.updater.create_items(new_items)
                 for item in container:
                     item.set("requested_by", "Mdblist")
                 added_items = self.media_items.extend(container)
-                if len(added_items) > 0:
-                    logger.info("Added %s items", len(added_items))
+                length = len(added_items)
+                if length >= 1 and length <= 5:
+                    for item in added_items:
+                        logger.info("Added %s", item.log_string)
+                elif length > 5:
+                    logger.info("Added %s items", length)
         except RateLimitExceeded:
             pass
 
@@ -52,7 +74,7 @@ class Mdblist:
         return [item.imdb_id for item in list_items(list_id, api_key)]
 
     def _calculate_request_time(self):
-        limits = my_limits(self.settings["api_key"]).limits
+        limits = my_limits(self.settings.api_key).limits
         daily_requests = limits.api_requests
         requests_per_2_minutes = daily_requests / 24 / 60 * 2
         return requests_per_2_minutes

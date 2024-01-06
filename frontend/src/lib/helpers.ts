@@ -70,44 +70,26 @@ export function convertPlexDebridItemsToObject(items: PlexDebridItem[]) {
 	return result;
 }
 
-export async function getSettings(fetch: any, toGet: string[]) {
-	const promises = toGet.map(async (item) => {
-		const res = await fetch(`http://127.0.0.1:8080/settings/get/${item}`);
-		if (res.ok) {
-			return await res.json();
-		}
-		return null;
+export async function saveSettings(fetch: any, toSet: any) {
+	const data = await fetch('http://127.0.0.1:8080/settings/set', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(toSet)
 	});
-
-	const results = (await Promise.all(promises)).reduce((acc, item, index) => {
-		acc[toGet[index]] = item;
-		return acc;
-	}, {});
-
-	return results;
-}
-
-export async function setSettings(fetch: any, toSet: any) {
-	const promises = Object.keys(toSet).map(async (item) => {
-		const res = await fetch('http://127.0.0.1:8080/settings/set', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({ key: item, value: toSet[item] })
-		});
-		if (res.ok) {
-			return await res.json();
-		}
-		return null;
-	});
-
-	const resp = await Promise.all(promises);
 
 	const saveSettings = await fetch('http://127.0.0.1:8080/settings/save', {
 		method: 'POST'
 	});
-	const loadSettings = await fetch('http://127.0.0.1:8080/settings/load');
 
-	return { resp, saveSettings, loadSettings };
+	const loadSettings = await fetch('http://127.0.0.1:8080/settings/load', {
+		method: 'GET'
+	});
+
+	return {
+		data,
+		saveSettings,
+		loadSettings
+	};
 }

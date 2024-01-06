@@ -22,7 +22,6 @@ class Pickly(threading.Thread):
     def stop(self) -> None:
         self.save()
         self.running = False
-        return super().join()
 
     def load(self) -> None:
         self.media_items.load(os.path.join(self.data_path, "media.pkl"))
@@ -91,6 +90,5 @@ class Parser:
             parse["resolution"] in self.resolution
             and parse["language"] in self.language
         )
-
 
 parser = Parser()

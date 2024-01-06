@@ -2,7 +2,8 @@
 import os
 import re
 import time
-import requests
+from typing import Optional
+from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
@@ -14,31 +15,27 @@ WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 
-def get_user():
-    api_key = settings_manager.get("realdebrid")["api_key"]
-    headers = {"Authorization": f"Bearer {api_key}"}
-    response = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user", headers=headers
-    )
-    return response.json()
+class DebridConfig(BaseModel):
+    api_key: Optional[str]
 
 
 class Debrid:
     """Real-Debrid API Wrapper"""
 
-    def __init__(self):
+    def __init__(self, _):
         # Realdebrid class library is a necessity
-        while True:
-            self.settings = settings_manager.get("realdebrid")
-            self.auth_headers = {"Authorization": f'Bearer {self.settings["api_key"]}'}
-            self.running = False
-            if self._validate_settings():
-                self._torrents = {}
-                break
+        self.initialized = False
+        self.key = "real_debrid"
+        self.settings = DebridConfig(**settings_manager.get(self.key))
+        self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.running = False
+        if not self._validate_settings():
             logger.error(
-                "Realdebrid settings incorrect or not premium, retrying in 2..."
+                "Realdebrid settings incorrect or not premium!"
             )
-            time.sleep(2)
+            return
+        logger.info("Real Debrid initialized!")
+        self.initialized = True
 
     def _validate_settings(self):
         try:
@@ -63,12 +60,12 @@ class Debrid:
         """Download movie from real-debrid.com"""
         downloaded = 0
         self._check_stream_availability(item)
-        self._determine_best_stream(item)
-        if not self._is_downloaded(item):
-            downloaded = self._download_item(item)
-        self._update_torrent_info(item)
-        self._set_file_paths(item)
-        return downloaded
+        if self._determine_best_stream(item):
+            if not self._is_downloaded(item):
+                downloaded = self._download_item(item)
+            self._update_torrent_info(item)
+            self._set_file_paths(item)
+            return downloaded
 
     def _is_downloaded(self, item):
         if not item.get("active_stream", None):
@@ -77,13 +74,13 @@ class Debrid:
         for torrent in torrents:
             if torrent.hash == item.active_stream.get("hash"):
                 item.set("active_stream.id", torrent.id)
-                logger.debug("Torrent already downloaded")
+                logger.debug("Torrent for %s already downloaded", item.log_string)
                 return True
         return False
 
     def _update_torrent_info(self, item):
         info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["name"] = info.original_filename
+        item.active_stream["name"] = info.filename
 
     def _download_item(self, item):
         request_id = self.add_magnet(item)
@@ -91,17 +88,7 @@ class Debrid:
         time.sleep(0.3)
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
-
-        if item.type == "movie":
-            log_string = item.title
-        if item.type == "season":
-            log_string = f"{item.parent.title} S{item.number}"
-        if item.type == "episode":
-            log_string = (
-                f"{item.parent.parent.title} S{item.parent.number}E{item.number}"
-            )
-
-        logger.debug("Downloaded %s", log_string)
+        logger.debug("Downloaded %s", item.log_string)
         return 1
 
     def _get_torrent_info(self, request_id):
@@ -116,68 +103,69 @@ class Debrid:
                 item.set("active_stream", stream)
                 item.set("active_stream.hash", hash)
                 break
-        match (item.type):
-            case "movie":
-                log_string = item.title
-            case "season":
-                log_string = f"{item.parent.title} season {item.number}"
-            case "episode":
-                log_string = f"{item.parent.parent.title} season {item.parent.number} episode {item.number}"
-            case _:
-                log_string = ""
 
         if item.get("active_stream", None):
-            logger.debug("Found cached release for %s", log_string)
+            logger.debug("Found cached release for %s", item.log_string)
+            return True
         else:
-            logger.debug("No cached release found for %s", log_string)
-            item.streams = {}
-        return False
+            logger.debug("No cached release found for %s", item.log_string)
+            item.set("streams", {})
+            return False
 
     def _check_stream_availability(self, item):
         if len(item.streams) == 0:
             return
-        streams = "/".join(list(item.streams))
-        response = get(
-            f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
-            additional_headers=self.auth_headers,
-            response_type=dict,
-        )
-        cached = False
-        for stream_hash, provider_list in response.data.items():
-            if len(provider_list) == 0:
-                continue
-            for containers in provider_list.values():
-                for container in containers:
-                    wanted_files = {
-                        file_id: file
-                        for file_id, file in container.items()
-                        if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
-                    }
-                    if len(wanted_files) >= 1:
-                        cached = False
-                        if item.type == "season":
-                            episodes = []
-                            for file in wanted_files.values():
-                                episodes += parser.episodes_in_season(
-                                    item.number, file["filename"]
-                                )
-                            if len(episodes) >= len(item.episodes):
-                                cached = True
-                        if item.type == "movie":
-                            if len(wanted_files) == 1:
-                                cached = True
-                        if item.type == "episode":
-                            for file in wanted_files.values():
-                                episodes = parser.episodes_in_season(
-                                    item.parent.number, file["filename"]
-                                )
-                                if item.number in episodes:
+
+        # Split the streams into chunks of 5
+        # The api call is slow and we don't want to wait for it for too long
+        def chunks(lst, n):
+            for i in range(0, len(lst), n):
+                yield lst[i:i + n]
+        stream_chunks = list(chunks(list(item.streams), 5))
+
+        for stream_chunk in stream_chunks:
+            streams = "/".join(stream_chunk)
+            response = get(
+                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
+                additional_headers=self.auth_headers,
+                response_type=dict,
+            )
+            cached = False
+            for stream_hash, provider_list in response.data.items():
+                if len(provider_list) == 0:
+                    continue
+                for containers in provider_list.values():
+                    for container in containers:
+                        wanted_files = {
+                            file_id: file
+                            for file_id, file in container.items()
+                            if os.path.splitext(file["filename"])[1] in WANTED_FORMATS
+                        }
+                        if len(wanted_files) >= 1:
+                            cached = False
+                            if item.type == "season":
+                                episodes = []
+                                for file in wanted_files.values():
+                                    episodes += parser.episodes_in_season(
+                                        item.number, file["filename"]
+                                    )
+                                if len(episodes) >= len(item.episodes):
                                     cached = True
-                                    break
-                    item.streams[stream_hash]["files"] = wanted_files
-                    item.streams[stream_hash]["cached"] = cached
-                    if cached:
-                        return
+                            if item.type == "movie":
+                                if len(wanted_files) == 1:
+                                    cached = True
+                            if item.type == "episode":
+                                for file in wanted_files.values():
+                                    episodes = parser.episodes_in_season(
+                                        item.parent.number, file["filename"]
+                                    )
+                                    if item.number in episodes:
+                                        cached = True
+                                        break
+                        item.streams[stream_hash]["files"] = wanted_files
+                        item.streams[stream_hash]["cached"] = cached
+                        if cached:
+                            return
 
     def _real_episode_count(self, files):
         def count_episodes(episode_numbers):
@@ -277,6 +265,3 @@ class Debrid:
         )
         if response.is_ok:
             return response.data
-
-
-debrid = Debrid()

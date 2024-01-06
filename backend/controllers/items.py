@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from program.media.state import MediaItemStates
 
-
 router = APIRouter(
     prefix="/items",
     tags=["items"],
@@ -13,7 +12,7 @@ router = APIRouter(
 async def get_states(request: Request):
     return {
         "success": True,
-        "states": [state.name for state in MediaItemStates],
+        "states": [state for state in MediaItemStates],
     }
 
 

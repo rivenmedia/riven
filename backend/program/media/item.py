@@ -10,6 +10,9 @@ from program.media.state import (
     LibraryPartial,
 )
 from utils.utils import parser
+from program.scrapers import Scraping
+from program.realdebrid import Debrid
+from program.symlink import Symlinker
 
 
 class MediaItem:
@@ -18,7 +21,8 @@ class MediaItem:
     def __init__(self, item):
         self._lock = threading.Lock()
         self.itemid = item_id.get_next_value()
-        self.scraped_at = 0
+        self.scraped_at = datetime(1970, 1, 1)
+        self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
         self.symlinked = False
@@ -43,13 +47,12 @@ class MediaItem:
         # Plex related
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
-        self.updated = None
-
+        self.update_folder = item.get("update_folder", None)
         self.state.set_context(self)
 
-    def perform_action(self):
+    def perform_action(self, modules):
         with self._lock:
-            self.state.perform_action()
+            self.state.perform_action(modules)
 
     @property
     def state(self):
@@ -58,7 +61,7 @@ class MediaItem:
         return _state
 
     def _determine_state(self):
-        if self.key:
+        if self.key or self.update_folder == "updated":
             return Library()
         if self.symlinked:
             return Symlink()
@@ -94,13 +97,15 @@ class MediaItem:
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.state.name,
+            "state": self.state.__class__.__name__,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": self.requested_at,
             "requested_by": self.requested_by,
+            "scraped_at": self.scraped_at,
+            "scraped_times": self.scraped_times,
         }
 
     def to_extended_dict(self):
@@ -134,7 +139,6 @@ class MediaItem:
         """Set item attribute"""
         _set_nested_attr(self, key, value)
 
-
 class Movie(MediaItem):
     """Movie class"""
 
@@ -144,8 +148,11 @@ class Movie(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Movie:{self.title}:{self.state.name}"
-
+        return f"Movie:{self.title}:{self.state.__class__.__name__}"
+    
+    @property
+    def log_string(self):
+        return self.title
 
 class Show(MediaItem):
     """Show class"""
@@ -164,6 +171,8 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return LibraryPartial()
+        if any(season.state == Symlink for season in self.seasons):
+            return Symlink()
         if any(season.state == Download for season in self.seasons):
             return Download()
         if any(season.state == Scrape for season in self.seasons):
@@ -173,12 +182,16 @@ class Show(MediaItem):
         return Unknown()
 
     def __repr__(self):
-        return f"Show:{self.title}:{self.state.name}"
+        return f"Show:{self.title}:{self.state.__class__.__name__}"
 
     def add_season(self, season):
         """Add season to show"""
         self.seasons.append(season)
         season.parent = self
+    
+    @property
+    def log_string(self):
+        return self.title
 
 
 class Season(MediaItem):
@@ -201,7 +214,9 @@ class Season(MediaItem):
                 return Symlink()
             if all(episode.file and episode.folder for episode in self.episodes):
                 return Download()
-            if self.is_scraped() or any(episode.state == Scrape for episode in self.episodes):
+            if self.is_scraped() or any(
+                episode.state == Scrape for episode in self.episodes
+            ):
                 return Scrape()
             if any(episode.state == Content for episode in self.episodes):
                 return Content()
@@ -211,12 +226,16 @@ class Season(MediaItem):
         return self.number == other.number
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
+        return f"Season:{self.number}:{self.state.__class__.__name__}"
 
     def add_episode(self, episode):
         """Add episode to season"""
         self.episodes.append(episode)
         episode.parent = self
+
+    @property
+    def log_string(self):
+        return self.parent.title + " S" + str(self.number).zfill(2)
 
 
 class Episode(MediaItem):
@@ -233,10 +252,14 @@ class Episode(MediaItem):
         return self.number == other.number
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
+        return f"Episode:{self.number}:{self.state.__class__.__name__}"
 
     def get_file_episodes(self):
         return parser.episodes(self.file)
+    
+    @property
+    def log_string(self):
+        return self.parent.parent.title + " S" + str(self.parent.number).zfill(2) + "E" + str(self.number).zfill(2)
 
 
 def _set_nested_attr(obj, key, value):

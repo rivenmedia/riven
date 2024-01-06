@@ -59,9 +59,9 @@ update:
 	@make start
 
 frontend:
-	@echo "Starting Frontend..."
-	@cd frontend && npm install && npm run build && npm start
+	@echo Starting Frontend...
+	@cd frontend && pnpm install && pnpm run build && pnpm run preview --host
 
 backend:
-	@echo "Starting Backend..."
+	@echo Starting Backend...
 	@cd backend && python main.py

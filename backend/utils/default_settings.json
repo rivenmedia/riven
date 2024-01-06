@@ -1,31 +1,51 @@
 {
-  "version": "0.3.0",
-  "debug": false,
+  "version": "0.4.0",
+  "debug": true,
   "log": true,
-  "host_mount": "",
-  "container_mount": "",
+  "symlink": {
+    "host_path": "",
+    "container_path": ""
+  },
+  "real_debrid": {
+    "api_key": ""
+  },
   "plex": {
-    "user": "",
     "token": "",
-    "url": "http://localhost:32400",
-    "watchlist": ""
+    "url": "http://localhost:32400"
   },
-  "mdblist": {
-    "lists": [""],
-    "api_key": "",
-    "update_interval": 80
+  "content": {
+    "plex_watchlist": {
+      "enabled": false,
+      "rss": "",
+      "update_interval": 80
+    },
+    "mdblist": {
+      "enabled": false,
+      "lists": [""],
+      "api_key": "",
+      "update_interval": 80
+    },
+    "overseerr": {
+      "enabled": true,
+      "url": "http://localhost:5055",
+      "api_key": ""
+    }
   },
-  "overseerr": {
-    "url": "http://localhost:5055",
-    "api_key": ""
-  },
-  "torrentio": {
-    "filter": "sort=qualitysize%7Cqualityfilter=480p,other,scr,cam,unknown"
-  },
-  "orionoid": {
-    "api_key": ""  
-  },
-  "realdebrid": {
-    "api_key": ""
+  "scraping": {
+    "after_2": 0.5,
+    "after_5": 2,
+    "after_10": 24,
+    "torrentio": {
+      "enabled": true,
+      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+    },
+    "orionoid": {
+      "enabled": false,
+      "api_key": ""  
+    },
+    "jackett": {
+      "enabled": false,
+      "url": "http://localhost:9117"
+    }
   }
 }

@@ -1,23 +1,21 @@
 """Plex library module"""
 import concurrent.futures
+from datetime import datetime
 import os
 import threading
 import time
 import uuid
-import requests
-from typing import List, Optional
+from typing import Optional
 from plexapi import exceptions
 from plexapi.server import PlexServer
 from requests.exceptions import ConnectionError
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from utils.logger import logger
 from utils.settings import settings_manager as settings
-from program.updaters.trakt import get_imdbid_from_tvdb
 from program.media.container import MediaItemContainer
 from program.media.state import Symlink, Library
 from utils.request import get, post
 from program.media.item import (
-    MediaItem,
     Movie,
     Show,
     Season,
@@ -28,8 +26,7 @@ from program.media.item import (
 class PlexConfig(BaseModel):
     user: Optional[str] = None
     token: Optional[str] = None
-    url: Optional[HttpUrl] = None
-    watchlist_url: Optional[str] = None
+    url: Optional[str] = None
 
 
 class Plex(threading.Thread):
@@ -37,38 +34,33 @@ class Plex(threading.Thread):
 
     def __init__(self, media_items: MediaItemContainer):
         super().__init__(name="Plex")
-        # Plex class library is a necessity
-        while True:
-            try:
-                temp_settings = settings.get("plex")
-                self.library_path = os.path.abspath(
-                    os.path.join(settings.get("container_mount"), os.pardir, "library")
-                )
-                self.plex = PlexServer(
-                    temp_settings["url"], temp_settings["token"], timeout=60
-                )
-                self.running = False
-                self.log_worker_count = False
-                self.media_items = media_items
-                self._update_items()
-                break
-            except exceptions.Unauthorized:
-                logger.error("Wrong plex token, retrying in 2...")
-            except ConnectionError:
-                logger.error("Couldnt connect to plex, retrying in 2...")
-            except TimeoutError as e:
-                logger.warn(
-                    "Plex timed out: retrying in 2 seconds... %s", str(e), exc_info=True
-                )
-            except Exception as e:
-                logger.error("Unknown error: %s",str(e) , exc_info=True)
-            time.sleep(2)
+        self.key = "plex"
+        self.initialized = False
+        self.library_path = os.path.abspath(
+            os.path.dirname(settings.get("symlink.container_path"))
+        )
+        self.last_fetch_times = {}
+
+        try:
+            self.settings = PlexConfig(**settings.get(self.key))
+            self.plex = PlexServer(
+                self.settings.url, self.settings.token, timeout=60
+            )
+            self.running = False
+            self.log_worker_count = False
+            self.media_items = media_items
+            self._update_items(init=True)
+        except Exception as e:
+            logger.error("Plex is not configured!")
+            return
+        logger.info("Plex initialized!")
+        self.initialized = True
 
     def run(self):
         while self.running:
-            self._update_sections()
             self._update_items()
-            time.sleep(1)
+            for i in range(10):
+                time.sleep(i)
 
     def start(self):
         self.running = True
@@ -76,90 +68,64 @@ class Plex(threading.Thread):
 
     def stop(self):
         self.running = False
-        super().join()
+    
+    def _get_last_fetch_time(self, section):
+        return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
-    def _update_items(self):
+    def _update_items(self, init=False):
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
-        max_workers = os.cpu_count() + 1
-        for section in sections:
-            if section.key in processed_sections and not self._is_wanted_section(
-                section
-            ):
-                continue
-
-            try:
+        max_workers = os.cpu_count() / 2
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Plex") as executor:
+            for section in sections:
+                if section.key in processed_sections or not self._is_wanted_section(section):
+                    continue
                 if not section.refreshing:
-                    with concurrent.futures.ThreadPoolExecutor(
-                        max_workers=max_workers, thread_name_prefix="Plex"
-                    ) as executor:
-                        future_items = {
-                            executor.submit(self._create_item, item)
-                            for item in section.all()
-                        }
-                        for future in concurrent.futures.as_completed(future_items):
-                            media_item = future.result()
-                            if media_item:
-                                items.append(media_item)
-            except requests.exceptions.ReadTimeout as e:
-                logger.error(
-                    "Timeout occurred when accessing section %s with Reason: %s",
-                    section.title, str(e)
-                )
-                continue
-            except requests.exceptions.ConnectionError as e:
-                logger.error(
-                    "Connection aborted. Remote end closed connection with response: %s for item %s",
-                    str(e), section.title
-                )
-                continue
+                    # Fetch only items that have been added or updated since the last fetch
+                    last_fetch_time = self._get_last_fetch_time(section)
+                    filters = {"addedAt>>": last_fetch_time}
+                    if init:
+                        filters = {}
+                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(filters=filters)}
+                    for future in concurrent.futures.as_completed(future_items):
+                        media_item = future.result()
+                        items.append(media_item)
+                    self.last_fetch_times[section.key] = datetime.now()
+                processed_sections.add(section.key)
+        
+        length = len(items)
+        if length >= 1 and length <= 5:
+            for item in items:
+                logger.info("Found %s from plex", item.log_string)
+        elif length > 5:
+            logger.info("Found %s items from plex", length)
 
-            processed_sections.add(section.key)
-        matched_items = self.match_items(items)
-
-        if matched_items > 0:
-            logger.info(f"Found {matched_items} new items")
-
-    def _update_sections(self):
-        """Update plex library section"""
+    def update_item_section(self, item):
+        """Update plex library section for a single item"""
+        item_type = item.type
+        if item.type == "episode":
+            item_type = "show"
         for section in self.plex.library.sections():
-            for item in self.media_items:
-                log_string = None
-                if section.type == item.type:
-                    if item.type == "movie":
-                        if (
-                            item.state == Symlink
-                            and item.get("update_folder") != "updated"
-                        ):
-                            section.update(item.update_folder)
-                            item.set("update_folder", "updated")
-                            log_string = item.title
-                            break
-                    if item.type == "show":
-                        for season in item.seasons:
-                            if (
-                                season.state == Symlink
-                                and season.get("update_folder") != "updated"
-                            ):
-                                section.update(season.episodes[0].update_folder)
-                                season.set("update_folder", "updated")
-                                log_string = f"{item.title} season {season.number}"
-                                break
-                            else:
-                                for episode in season.episodes:
-                                    if (
-                                        episode.state == Symlink
-                                        and episode.get("update_folder") != "updated"
-                                        and episode.parent.get("update_folder")
-                                        != "updated"
-                                    ):
-                                        section.update(episode.update_folder)
-                                        episode.set("update_folder", "updated")
-                                        log_string = f"{item.title} season {season.number} episode {episode.number}"
-                                        break
-            if log_string:
-                logger.debug("Updated section %s for %s", section.title, log_string)
+            if section.type != item_type:
+                continue
+
+            if self._update_section(section, item):
+                logger.debug("Updated section %s for %s", section.title, item.log_string)
+    
+    def _update_section(self, section, item):
+        if item.state == Symlink and item.get("update_folder") != "updated":
+            update_folder = item.update_folder
+            section.update(update_folder)
+            item.set("update_folder", "updated")
+            return True
+        return False
+
+    def _create_and_match_item(self, item):
+        new_item = self._create_item(item)
+        if new_item:
+            self.match_item(new_item)
+        return new_item
 
     def _create_item(self, item):
         new_item = _map_item_from_data(item)
@@ -177,26 +143,16 @@ class Plex(threading.Thread):
                         new_item.seasons.append(new_season)
         return new_item
 
-    def match_items(self, found_items: List[MediaItem]):
-        """Matches items in given mediacontainer that are not in library
-        to items that are in library"""
-        items_to_update = 0
-
-        for item in self.media_items:
-            if type(item.state) != Library:
-                for found_item in found_items:
-                    if found_item.imdb_id == item.imdb_id:
-                        items_to_update += self._update_item(item, found_item)
-                        break
-            # Leaving this here as a reminder to not forget about deleting items that are removed from plex, needs to be revisited
-            # if item.state is MediaItemState.LIBRARY and item not in found_items:
-            #     self.media_items.remove(item)
-        return items_to_update
-
-    def _update_item(self, item: MediaItem, library_item: MediaItem):
-        """Internal method to use with match_items
-        It does some magic to update media items according to library
-        items found"""
+    def match_item(self, new_item):
+        for existing_item in self.media_items:
+            if existing_item.imdb_id == new_item.imdb_id:
+                self._update_item(existing_item, new_item)
+                break
+        # Leaving this here as a reminder to not forget about deleting items that are removed from plex, needs to be revisited
+        # if item.state is MediaItemState.LIBRARY and item not in found_items:
+        #     self.media_items.remove(item)
+    
+    def _update_item(self, item, library_item):
         items_updated = 0
         item.set("guid", library_item.guid)
         item.set("key", library_item.key)
@@ -204,20 +160,18 @@ class Plex(threading.Thread):
             for season in item.seasons:
                 for episode in season.episodes:
                     if episode.state != Library:
-                        for found_season in library_item.seasons:
-                            if found_season.number == season.number:
-                                for found_episode in found_season.episodes:
-                                    if found_episode.number == episode.number:
-                                        episode.set("guid", found_episode.guid)
-                                        episode.set("key", found_episode.key)
-                                        items_updated += 1
-                                        break
-                                break
+                        found_season = next((s for s in library_item.seasons if s.number == season.number), None)
+                        if found_season:
+                            found_episode = next((e for e in found_season.episodes if e.number == episode.number), None)
+                            if found_episode:
+                                episode.set("guid", found_episode.guid)
+                                episode.set("key", found_episode.key)
+                                items_updated += 1
         return items_updated
 
     def _is_wanted_section(self, section):
         return any(self.library_path in location for location in section.locations)
-    
+
     def _oauth(self):
         random_uuid = uuid.uuid4()
         response = get(
@@ -225,9 +179,9 @@ class Plex(threading.Thread):
             additional_headers={
                 "X-Plex-Product": "Iceberg",
                 "X-Plex-Client-Identifier": random_uuid,
-                "X-Plex-Token": settings.get("plex.token")
-                },
-            )
+                "X-Plex-Token": settings.get("plex.token"),
+            },
+        )
         if not response.ok:
             data = post(
                 url="https://plex.tv/api/v2/pins",
@@ -235,7 +189,7 @@ class Plex(threading.Thread):
                     "strong": "true",
                     "X-Plex-Product": "Iceberg",
                     "X-Plex-Client-Identifier": random_uuid,
-                    },
+                },
             )
             if data.ok:
                 pin = data.id
