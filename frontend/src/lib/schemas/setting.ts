@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const generalSettingsSchema = z.object({
+	debug: z.boolean().default(true),
+	log: z.boolean().default(true),
 	host_path: z.string().min(1),
 	container_path: z.string().min(1),
 	realdebrid_api_key: z.string().min(1),

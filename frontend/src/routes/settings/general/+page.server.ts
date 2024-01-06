@@ -7,7 +7,7 @@ import { saveSettings } from '$lib/helpers';
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const toGet = ['symlink', 'real_debrid'];
+			const toGet = ['debug', 'log', 'symlink', 'real_debrid'];
 			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
@@ -18,6 +18,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 
 	let toPassToSchema: any = await getPartialSettings();
 	toPassToSchema = {
+		debug: toPassToSchema.data.debug,
+		log: toPassToSchema.data.log,
 		host_path: toPassToSchema.data.symlink.host_path,
 		container_path: toPassToSchema.data.symlink.container_path,
 		realdebrid_api_key: toPassToSchema.data.real_debrid.api_key
@@ -37,6 +39,14 @@ export const actions: Actions = {
 			});
 		}
 		const toSet = [
+			{
+				key: 'debug',
+				value: form.data.debug
+			},
+			{
+				key: 'log',
+				value: form.data.log
+			},
 			{
 				key: 'symlink',
 				value: {

@@ -30,6 +30,9 @@
 	<p class="text-base md:text-lg text-muted-foreground">
 		Configure global and default settings for Iceberg.
 	</p>
+	<p class="text-sm md:text-base text-muted-foreground">
+		* These settings require a restart to take effect.
+	</p>
 
 	<Form.Root
 		schema={generalSettingsSchema}
@@ -39,6 +42,30 @@
 		debug={formDebug}
 	>
 		<div class="flex flex-col my-4 gap-4">
+			<Form.Field {config} name="debug">
+				<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+					<Form.Label
+						class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+					>
+						Debug *
+					</Form.Label>
+					<Form.Checkbox class="text-sm md:text-base" />
+				</Form.Item>
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			</Form.Field>
+
+			<Form.Field {config} name="log">
+				<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+					<Form.Label
+						class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
+					>
+						Log *
+					</Form.Label>
+					<Form.Checkbox class="text-sm md:text-base" />
+				</Form.Item>
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			</Form.Field>
+
 			<Form.Field {config} name="host_path">
 				<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 					<Form.Label
