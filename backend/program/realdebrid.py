@@ -50,10 +50,6 @@ class Debrid:
         self.download(item)
 
     def download(self, item):
-        """Download given media items from real-debrid.com"""
-        self._download(item)
-
-    def _download(self, item):
         """Download movie from real-debrid.com"""
         downloaded = 0
         if self.is_cached(item):
