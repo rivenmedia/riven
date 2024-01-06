@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ModeWatcher } from 'mode-watcher';
-	import { Toaster } from 'svelte-sonner';
+	import { Toaster } from "$lib/components/ui/sonner";
 	import '../app.pcss';
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
