@@ -1,14 +1,12 @@
 """Plex library module"""
 import concurrent.futures
-from datetime import datetime
 import os
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Optional
-from plexapi import exceptions
 from plexapi.server import PlexServer
-from requests.exceptions import ConnectionError
 from pydantic import BaseModel
 from utils.logger import logger
 from utils.settings import settings_manager as settings

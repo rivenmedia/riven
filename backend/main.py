@@ -1,15 +1,14 @@
-import contextlib
-import sys
-import os
-import threading
-import time
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from controllers.settings import router as settings_router
 from controllers.items import router as items_router
 from controllers.default import router as default_router
+import contextlib
+import sys
+import threading
+import time
+import uvicorn
 
 
 class Server(uvicorn.Server):

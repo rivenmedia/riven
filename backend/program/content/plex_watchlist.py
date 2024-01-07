@@ -42,7 +42,7 @@ class PlexWatchlist:
                 else:
                     logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
                     return True
-            except Exception as e:
+            except Exception:
                 return False
         return True
 

@@ -8,7 +8,7 @@ from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
 from utils.settings import settings_manager
-from utils.utils import parser
+from utils.parser import parser
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]

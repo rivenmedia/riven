@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import concurrent.futures
 from program.scrapers import Scraping
 from program.realdebrid import Debrid
 from program.symlink import Symlinker
@@ -11,7 +12,6 @@ from program.plex import Plex
 from program.content import Content
 from utils.utils import Pickly
 from utils.settings import settings_manager as settings
-import concurrent.futures
 from utils.service_manager import ServiceManager
 
 

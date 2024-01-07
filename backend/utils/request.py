@@ -1,14 +1,15 @@
 """Requests wrapper"""
-import json
-import logging
 from multiprocessing import Lock
-import time
 from types import SimpleNamespace
-import requests
 from lxml import etree
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
+import json
+import logging
+import requests
+import time
 import xmltodict
+
 
 logger = logging.getLogger(__name__)
 

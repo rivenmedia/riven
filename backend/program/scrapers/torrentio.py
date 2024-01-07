@@ -5,7 +5,7 @@ from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
 from utils.settings import settings_manager
-from utils.utils import parser
+from utils.parser import parser
 
 
 class TorrentioConfig(BaseModel):

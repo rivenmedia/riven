@@ -1,11 +1,11 @@
 """ Jackett scraper module """
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from requests import RequestException
 from utils.logger import logger
 from utils.settings import settings_manager
-from utils.utils import parser
-from utils.request import RateLimitExceeded, get, ping, RateLimiter
+from utils.parser import parser
+from utils.request import RateLimitExceeded, get, RateLimiter
 
 
 class JackettConfig(BaseModel):
