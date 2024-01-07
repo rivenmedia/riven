@@ -31,6 +31,7 @@ class Parser:
         return {
             "episodes": episodes or [],
             "resolution": resolution or [],
+            "quality": quality or [],
             "language": language or [],
             "extended": extended,
             "season": season,
