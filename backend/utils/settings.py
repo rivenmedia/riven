@@ -1,8 +1,8 @@
 """Settings manager"""
+from utils.observable import Observable
 import json
 import os
 import shutil
-from utils.observable import Observable
 
 
 class SettingsManager(Observable):

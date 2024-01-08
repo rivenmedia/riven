@@ -1,7 +1,6 @@
 """Mdblist content module"""
 from typing import Optional
 from pydantic import BaseModel
-from requests import ConnectTimeout
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
@@ -14,34 +13,38 @@ class OverseerrConfig(BaseModel):
     url: Optional[str]
     api_key: Optional[str]
 
+
 class Overseerr:
     """Content class for overseerr"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "overseerr"
         self.settings = OverseerrConfig(**settings_manager.get(f"content.{self.key}"))
-        if not self.settings.enabled:
-            logger.debug("Overseerr is set to disabled.")
-            return
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate_settings()
         if not self.initialized:
-            logger.info("Overseerr is not configured and will not be used.")
             return
-        self.updater = Trakt()
         self.media_items = media_items
+        self.updater = Trakt()
         self.not_found_ids = []
         logger.info("Overseerr initialized!")
 
-    def validate_settings(self):
+    def validate_settings(self) -> bool:
+        if not self.settings.enabled:
+            logger.debug("Overseerr is set to disabled.")
+            return False
+        if self.settings.api_key == "" or len(self.settings.api_key) != 68:
+            logger.error("Overseerr api key is not set.")
+            return False
         try:
             response = ping(
                 self.settings.url + "/api/v1/auth/me",
                 additional_headers=self.headers,
-                timeout=1,
+                timeout=15,
             )
             return response.ok
-        except ConnectTimeout:
+        except Exception:
+            logger.error("Overseerr url is not reachable.")
             return False
 
     def run(self):

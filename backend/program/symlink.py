@@ -1,9 +1,6 @@
 """Symlinking module"""
 import os
-import threading
-import time
 from typing import Optional
-
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
 from utils.logger import logger

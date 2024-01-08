@@ -1,14 +1,12 @@
 """Plex library module"""
 import concurrent.futures
-from datetime import datetime
 import os
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Optional
-from plexapi import exceptions
 from plexapi.server import PlexServer
-from requests.exceptions import ConnectionError
 from pydantic import BaseModel
 from utils.logger import logger
 from utils.settings import settings_manager as settings
@@ -50,7 +48,7 @@ class Plex(threading.Thread):
             self.log_worker_count = False
             self.media_items = media_items
             self._update_items(init=True)
-        except Exception as e:
+        except Exception:
             logger.error("Plex is not configured!")
             return
         logger.info("Plex initialized!")
@@ -87,7 +85,7 @@ class Plex(threading.Thread):
                     filters = {"addedAt>>": last_fetch_time}
                     if init:
                         filters = {}
-                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(filters=filters)}
+                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(libtype = section.type, filters=filters)}
                     for future in concurrent.futures.as_completed(future_items):
                         media_item = future.result()
                         items.append(media_item)
@@ -170,7 +168,7 @@ class Plex(threading.Thread):
         return items_updated
 
     def _is_wanted_section(self, section):
-        return any(self.library_path in location for location in section.locations)
+        return any(self.library_path in location for location in section.locations) and section.type in ["movie", "show"]
 
     def _oauth(self):
         random_uuid = uuid.uuid4()

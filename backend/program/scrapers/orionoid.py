@@ -1,12 +1,11 @@
 """ Orionoid scraper module """
-from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
 from utils.settings import settings_manager
-from utils.utils import parser
+from utils.parser import parser
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 

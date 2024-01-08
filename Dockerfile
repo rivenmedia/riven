@@ -18,6 +18,9 @@ RUN apk --update add python3 py3-pip bash shadow vim nano rclone && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /iceberg
+ENV ORIGIN http://localhost:3000
+ARG ORIGIN=http://localhost:3000
+EXPOSE 3000 8080
 
 # Frontend
 COPY --from=frontend --chown=node:node /app/build /iceberg/frontend/build
@@ -32,6 +35,5 @@ RUN source /venv/bin/activate && pip install -r /iceberg/requirements.txt
 
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
-ENTRYPOINT ["/iceberg/entrypoint.sh"]
 
-EXPOSE 3000 8080
+ENTRYPOINT ["/iceberg/entrypoint.sh"]

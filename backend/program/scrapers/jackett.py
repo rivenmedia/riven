@@ -1,11 +1,11 @@
 """ Jackett scraper module """
 from typing import Optional
-from pydantic import BaseModel, Field
-from requests import RequestException
+from pydantic import BaseModel
+from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from utils.settings import settings_manager
-from utils.utils import parser
-from utils.request import RateLimitExceeded, get, ping, RateLimiter
+from utils.parser import parser
+from utils.request import RateLimitExceeded, get, RateLimiter
 
 
 class JackettConfig(BaseModel):
@@ -32,11 +32,16 @@ class Jackett:
         if not self.settings.enabled:
             return False
         if self.settings.url:
-            url = f"{self.settings.url}/api/v2.0/server/config"
-            response = get(url=url, retry_if_failed=False)
-            if response.is_ok:
-                self.api_key = response.data.api_key
+            try:
+                url = f"{self.settings.url}/api/v2.0/server/config"
+                response = get(url=url, retry_if_failed=False, timeout=60)
+                if response.is_ok:
+                    self.api_key = response.data.api_key
+                    return True
+            except ReadTimeout:
                 return True
+            except Exception:
+                return False
         logger.info("Jackett is not configured and will not be used.")
         return False
 
@@ -72,20 +77,24 @@ class Jackett:
             query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
 
         url = (
-            f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}"
+            f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}{query}"
         )
-        response = get(url=url, retry_if_failed=False, timeout=30)
-        if response.is_ok:
-            data = {}
-            if not hasattr(response.data['rss']['channel'], "item"):
-                return {}
-            for stream in response.data['rss']['channel']['item']:
-                title = stream.get('title')
-                for attr in stream.get('torznab:attr', []):
-                    if attr.get('@name') == 'infohash':
-                        infohash = attr.get('@value')
-                if parser.parse(title) and infohash:
-                    data[infohash] = {"name": title}
-            if len(data) > 0:
-                return data
-        return {}
+        try:
+            response = get(url=url, retry_if_failed=False, timeout=60)
+            if response.is_ok:
+                data = {}
+                if not hasattr(response.data['rss']['channel'], "item"):
+                    return {}
+                for stream in response.data['rss']['channel']['item']:
+                    title = stream.get('title')
+                    for attr in stream.get('torznab:attr', []):
+                        if attr.get('@name') == 'infohash':
+                            infohash = attr.get('@value')
+                    if parser.parse(title) and infohash:
+                        data[infohash] = {"name": title}
+                if len(data) > 0:
+                    return data
+            return {}
+        except ReadTimeout:
+            logger.debug("Jackett timed out for %s", item.log_string)
+            return {}

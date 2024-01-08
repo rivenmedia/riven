@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import concurrent.futures
 from program.scrapers import Scraping
 from program.realdebrid import Debrid
 from program.symlink import Symlinker
@@ -11,7 +12,6 @@ from program.plex import Plex
 from program.content import Content
 from utils.utils import Pickly
 from utils.settings import settings_manager as settings
-import concurrent.futures
 from utils.service_manager import ServiceManager
 
 
@@ -24,6 +24,7 @@ class Program(threading.Thread):
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings.get("version"))
+        self.initialized = False
         self.media_items = MediaItemContainer(items=[])
         self.data_path = get_data_path()
         if not os.path.exists(self.data_path):
@@ -39,7 +40,7 @@ class Program(threading.Thread):
             logger.info("----------------------------------------------")
         super().start()
         self.running = True
-
+        self.initialized = True
 
     def run(self):
         while self.running:
