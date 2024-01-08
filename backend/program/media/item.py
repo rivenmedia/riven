@@ -73,11 +73,6 @@ class MediaItem:
             return Content()
         return Unknown()
 
-    def is_cached(self):
-        if self.streams:
-            return any(stream.get("cached", None) for stream in self.streams.values())
-        return False
-
     def is_scraped(self):
         return len(self.streams) > 0
 
@@ -118,9 +113,6 @@ class MediaItem:
         dict["country"] = (self.country if hasattr(self, "country") else None,)
         dict["network"] = (self.network if hasattr(self, "network") else None,)
         return dict
-
-    def is_not_cached(self):
-        return not self.is_cached()
 
     def __iter__(self):
         for attr, _ in vars(self).items():

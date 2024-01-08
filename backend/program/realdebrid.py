@@ -1,6 +1,7 @@
 """Realdebrid module"""
 import os
 from pathlib import Path
+import time
 from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout
@@ -55,6 +56,8 @@ class Debrid:
         if self.is_cached(item):
             if not self._is_downloaded(item):
                 downloaded = self._download_item(item)
+            else:
+                downloaded = True
             self._set_file_paths(item)
             return downloaded
 
@@ -62,6 +65,11 @@ class Debrid:
         torrents = self.get_torrents()
         for torrent in torrents:
             if torrent.hash == item.active_stream.get("hash"):
+                info = self.get_torrent_info(torrent.id)
+                if item.type == "episode":
+                    if not any(file for file in info.files if file.selected == 1 and item.number in parser.episodes_in_season(item.parent.number, Path(file.path).name)):
+                        return False
+
                 item.set("active_stream.id", torrent.id)
                 self.set_active_files(item)
                 logger.debug("Torrent for %s already downloaded", item.log_string)
@@ -72,6 +80,7 @@ class Debrid:
         request_id = self.add_magnet(item)
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
+        time.sleep(0.5)
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
         logger.debug("Downloaded %s", item.log_string)
@@ -84,13 +93,8 @@ class Debrid:
 
     def set_active_files(self, item):
         info = self.get_torrent_info(item.get("active_stream")["id"])
+        item.active_stream["alternative_name"] = info.original_filename
         item.active_stream["name"] = info.filename
-
-        for file in info.files:
-            extension = os.path.splitext(file.path)[1]
-            if extension in WANTED_FORMATS:
-                filename = os.path.basename(file.path)
-                item.active_stream["files"][str(file.id)] = {"filename": filename}
 
     def is_cached(self, item):
         if len(item.streams) == 0:
@@ -114,13 +118,19 @@ class Debrid:
                     continue
                 for containers in provider_list.values():
                     for container in containers:
-                        for file in container.values():
-                            if Path(file["filename"]).suffix in WANTED_FORMATS:
-                                item.set(
-                                    "active_stream",
-                                    {"hash": stream_hash, "files": {}, "id": None},
-                                )
-                                return True
+                        wanted_files = {}
+                        if item.type == "movie" and all(file["filesize"] > 200000 for file in container.values()):
+                            wanted_files = container
+                        if item.type == "season" and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                            wanted_files = container
+                        if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                            wanted_files = container
+                        if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
+                            item.set(
+                                "active_stream",
+                                {"hash": stream_hash, "files": wanted_files, "id": None},
+                            )
+                            return True
         return False
 
     def _set_file_paths(self, item):
@@ -132,20 +142,9 @@ class Debrid:
             self._handle_episode_paths(item)
 
     def _handle_movie_paths(self, item):
-        def is_wanted(file: str, item):
-            if Path(file).stem == item.active_stream["name"]:
-                item.set("file", file)
-                return True
-
         item.set("folder", item.active_stream.get("name"))
-        for file in item.active_stream["files"].values():
-            if type(file) == dict:
-                for sub_file in file.values():
-                    if is_wanted(sub_file, item):
-                        return
-            else:
-                if is_wanted(file, item):
-                    return
+        item.set("alternative_folder", item.active_stream.get("alternative_name"))
+        item.set("file", next(file for file in item.active_stream.get("files").values())["filename"])
 
     def _handle_season_paths(self, season):
         for file in season.active_stream["files"].values():
@@ -154,15 +153,16 @@ class Debrid:
                     season.episodes[episode - 1].set(
                         "folder", season.active_stream.get("name")
                     )
+                    season.episodes[episode - 1].set(
+                        "alternative_folder", season.active_stream.get("alternative_name")
+                    )
                     season.episodes[episode - 1].set("file", file["filename"])
 
     def _handle_episode_paths(self, episode):
-        for file in episode.active_stream["files"].values():
-            for episode_number in parser.episodes(file["filename"]):
-                if episode.number == episode_number:
-                    episode.set("folder", episode.active_stream.get("name"))
-                    episode.set("file", file["filename"])
-                    return
+        file = next(file for file in episode.active_stream.get("files").values() if episode.number in parser.episodes_in_season(episode.parent.number, file["filename"]))
+        episode.set("folder", episode.active_stream.get("name"))
+        episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
+        episode.set("file", file["filename"])
 
     def add_magnet(self, item) -> str:
         """Add magnet link to real-debrid.com"""
