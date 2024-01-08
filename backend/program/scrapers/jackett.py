@@ -92,6 +92,7 @@ class Jackett:
                             infohash = attr.get('@value')
                     if parser.parse(title) and infohash:
                         data[infohash] = {"name": title}
+                # TODO: Sort data using parser and user preferences
                 if len(data) > 0:
                     return data
             return {}

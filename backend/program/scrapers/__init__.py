@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from utils.service_manager import ServiceManager
 from utils.settings import settings_manager as settings
 from utils.logger import logger
+from utils.parser import parser
 from .torrentio import Torrentio
 from .orionoid import Orionoid
 from .jackett import Jackett

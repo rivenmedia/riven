@@ -131,6 +131,7 @@ class Orionoid:
                     infoHash = stream.file.hash
                     if parser.parse(title) and infoHash:
                         data[infoHash] = {"name": title}
+                # TODO: Sort data using parser and user preferences
                 if len(data) > 0:
                     return data
             return {}

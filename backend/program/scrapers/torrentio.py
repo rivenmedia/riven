@@ -80,10 +80,12 @@ class Torrentio:
             if response.is_ok:
                 data = {}
                 for stream in response.data.streams:
-                    if parser.parse(stream.title):
+                    title = stream.title.split("\n👤")[0]
+                    if parser.parse(title):
                         data[stream.infoHash] = {
-                            "name": stream.title.split("\n👤")[0],
+                            "name": title,
                         }
+                    # TODO: Sort data using parser and user preferences
                 if len(data) > 0:
                     return data
             return {}
