@@ -1,36 +1,29 @@
 # Iceberg
 
-The idea behind this was to make a simple and functional rewrite of plex debrid that seemed to get a bit clustered.
+Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc.
 
 Rewrite of [plex_debrid](https://github.com/itsToggle/plex_debrid) project.
 
-Currently:
-- Services include: Plex, Mdblist, Torrentio and Real Debrid
-
-TODO:
-- Implement uncached download in real-rebrid, dont know if we need this, movies seem to work ok...
-- Implement updating quality of fetched items if below something
-- Add frontend, ongoing... (adding api endpoints as we go along)
+Services currently supported:
+- [x] Real Debrid
+- [x] Plex
+- [x] Overseerr
+- [x] Mdblist
+- [x] Plex Watchlist RSS
+- [x] Torrentio
+- [x] Orionoid
+- [x] Jackett
+- [ ] and more to come!
 
 Check out out [Project Board](https://github.com/users/dreulavelle/projects/2) to stay informed!
-
-COMPLETED:
-- ~~Update plex libraries for changes, ongoing...~~ (functional but we need to be more specific when to update)
-- ~~Real-debrid should download only one file per stream, lets avoid collections~~
-- ~~Add overseerr support, mostly done~~ still need to mark items as available?
-- ~~Add support for shows, ongoing...~~ (Functionalish, needs work...)
-- ~~Modify scraping logic to try scaping once a day if not found?~~
-- ~~Store data with pickle~~
-- ~~Improve logging...~~
-- And more..
 
 Please add feature requests and issues over on our [Issue Tracker](https://github.com/dreulavelle/iceberg/issues)!
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
-Enjoy!
-
 ## Docker Compose
+
+Create a `docker-compose.yml` file with the following contents:
 
 ```yml
 version: '3.8'
@@ -43,22 +36,39 @@ services:
     environment:
       PUID: "1000"
       PGID: "1000"
+      ORIGIN: "http://localhost:3000" # read below for more info
     ports:
       - "3000:3000"
     volumes:
       - ./data:/iceberg/data
 ```
 
+Then run `docker compose up -d` to start the container in the background. You can then access the web interface at `http://localhost:3000` or whatever port and origin you set in the `docker-compose.yml` file.
+
+#### What is ORIGIN ?
+`ORIGIN` is the URL of the frontend on which you will access it from anywhere. If you are hosting Iceberg on a vps with IP address `134.32.24.44` then you will need to set the `ORIGIN` to `http://134.32.24.44:3000` (no trailing slash). Similarly, if using a domain name, you will need to set the `ORIGIN` to `http://iceberg.mydomain.com:3000` (no trailing slash). If you change the port in the `docker-compose.yml` file, you will need to change it in the `ORIGIN` as well.
+
 ## Running outside of Docker
 
-First terminal:
+To run outside of docker you will need to have node (v18.13+) and python (3.10+) installed. Then clone the repository
 
 ```sh
 git clone https://github.com/dreulavelle/iceberg.git
-cd frontend && npm install && npm run dev
 ```
 
-Second terminal:
+and open two terminals in the root of the project and run the following commands in each.
+
+#### First terminal:
+
+```sh
+cd frontend
+npm install
+npm run build
+ORIGIN=http://localhost:3000 node build
+```
+Read above for more info on `ORIGIN`.
+
+#### Second terminal:
 
 ```sh
 pip install -r requirements.txt
@@ -94,3 +104,17 @@ make start
 ```
 
 You can also restart the container with `make restart`, or view the logs with `make logs`. 
+
+### Development without `make`
+If you don't want to use `make` and docker, you can use the following commands to run development environment.
+
+```sh
+pip install -r requirements.txt
+python backend/main.py
+```
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
