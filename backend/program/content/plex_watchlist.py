@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.request import get, ping
 from utils.logger import logger
-from utils.settings import settings_manager as settings
+from utils.settings import settings_manager
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 import json
@@ -14,17 +14,18 @@ class PlexWatchlistConfig(BaseModel):
     enabled: bool
     rss: Optional[str]
 
+
 class PlexWatchlist:
     """Class for managing Plex Watchlists"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
         self.rss_enabled = False
-        self.settings = PlexWatchlistConfig(**settings.get(f"content.{self.key}"))
+        self.settings = PlexWatchlistConfig(**settings_manager.get(f"content.{self.key}"))
         self.initialized = self.validate_settings()
-        self.token = settings.get("plex.token")
         if not self.initialized:
             return
+        self.token = settings_manager.get("plex.token")
         self.media_items = media_items
         self.prev_count = 0
         self.updater = Trakt()
@@ -35,7 +36,7 @@ class PlexWatchlist:
             return False
         if self.settings.rss:
             try:
-                response = ping(self.settings.rss, timeout=30)
+                response = ping(self.settings.rss, timeout=15)
                 if response.ok:
                     self.rss_enabled = True
                     return True
