@@ -21,6 +21,18 @@ Please add feature requests and issues over on our [Issue Tracker](https://githu
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
+---
+
+## Table of Contents
+- [Docker Compose](#docker-compose)
+  - [What is ORIGIN ?](#what-is-origin-)
+- [Running outside of Docker](#running-outside-of-docker)
+- [Symlinking settings](#symlinking-settings)
+- [Development](#development)
+  - [Development without `make`](#development-without-make)
+
+---
+
 ## Docker Compose
 
 Create a `docker-compose.yml` file with the following contents:
@@ -75,6 +87,8 @@ pip install -r requirements.txt
 python backend/main.py
 ```
 
+---
+
 ## Symlinking settings
 "host_mount" should point to your rclone mount that has your torrents on your host, if you are using native webdav set webdav-url to "https://dav.real-debrid.com/torrents"
 
@@ -87,6 +101,7 @@ Plex container volume configuration for rclone mount is "/iceberg/vfs:/media/vfs
 
 Plex libraries you want to add to sections: movies -> /media/library/movies, shows -> /media/library/shows
 
+---
 
 ## Development
 You can view the readme in `make` to get started!
@@ -118,3 +133,15 @@ cd frontend
 npm install
 npm run dev
 ```
+
+---
+
+## Contributing
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+We use Black for backend and Prettier for frontend. Please make sure to run the formatters before submitting a pull request. Also use CRLF line endings unless it is a shell script or something that requires LF line endings.
+
+---
+
+## License
+This project is licensed under the GNU GPLv3 License - see the [LICENSE](LICENSE) file for details
