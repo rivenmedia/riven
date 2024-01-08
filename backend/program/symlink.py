@@ -77,9 +77,16 @@ class Symlinker():
         return filename
 
     def _run(self, item):
-        if os.path.exists(
-            os.path.join(self.settings.host_path, item.folder, item.file)
-        ):
+        found = False
+        if os.path.exists(os.path.join(self.settings.host_path, item.folder, item.file)):
+            found = True
+        elif os.path.exists(os.path.join(self.settings.host_path, item.alternative_folder, item.file)):
+            item.set("folder", item.alternative_folder)
+            found = True
+        elif os.path.exists(os.path.join(self.settings.host_path, item.file, item.file)):
+            item.set("folder", item.file)
+            found = True
+        if found:
             self._symlink(item)
 
     def _symlink(self, item):
