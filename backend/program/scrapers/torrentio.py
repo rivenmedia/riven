@@ -87,5 +87,5 @@ class Torrentio:
                         }
                     # TODO: Sort data using parser and user preferences
                 if len(data) > 0:
-                    return data
+                    return parser.sort_and_filter_streams(data)
             return {}

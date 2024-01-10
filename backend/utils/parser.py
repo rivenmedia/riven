@@ -29,7 +29,7 @@ class Parser:
                         "Nickelodeon", "YouTube Premium", "Disney Plus", 
                         "DisneyNOW", "HBO Max", "HBO", "Hulu Networks", 
                         "DC Universe", "Adult Swim", "Comedy Central", 
-                        "Peacock", "AMC", "PBS", "Crunchyroll"]
+                        "Peacock", "AMC", "PBS", "Crunchyroll"]  # Will probably be used later in `Versions`
         self.validate_settings()
 
     def validate_settings(self):
@@ -108,7 +108,12 @@ class Parser:
         """Check if content has dual audio."""
         # TODO: This could use improvement.. untested.
         parse = self._parse(string)
-        return parse["audio"] == "Dual" or re.search(r"((dual.audio)|(english|eng)\W+(dub|audio))", string, flags=re.IGNORECASE)
+        if parse["audio"] == "Dual":
+            return True
+        elif re.search(r"((dual.audio)|(english|eng)\W+(dub|audio))", string, flags=re.IGNORECASE):
+            return True
+        else:
+            return False
 
     def remove_unwanted(self, string):
         """Filter out unwanted content."""
@@ -124,12 +129,12 @@ class Parser:
         # TODO: Sort scraped data based on user preferences
         # instead of scraping one item at a time.
         filtered_sorted_streams = []
-        for info_hash, stream_details in streams.items():
-            title = stream_details.get("name", "")
+        for info_hash, filename in streams.items():
+            title = filename.get("name", "")
             if self.remove_unwanted(title):
-                filtered_sorted_streams.append((info_hash, stream_details, self.has_dual_audio(title)))
+                filtered_sorted_streams.append((info_hash, filename, self.has_dual_audio(title)))
         filtered_sorted_streams.sort(key=lambda x: x[2], reverse=True)
-        sorted_data = {info_hash: details for info_hash, details, _ in filtered_sorted_streams}
+        sorted_data = {info_hash: name for info_hash, name, _ in filtered_sorted_streams}
         return sorted_data
 
     def parse(self, string):
