@@ -131,6 +131,7 @@ class Debrid:
                                 {"hash": stream_hash, "files": wanted_files, "id": None},
                             )
                             return True
+                        item.streams[stream_hash] = None
         return False
 
     def _set_file_paths(self, item):
