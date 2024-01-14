@@ -13,7 +13,7 @@ class Content(threading.Thread):
         self.initialized = False
         self.key = "content"
         self.running = False
-        self.sm = ServiceManager(media_items, False, Mdblist, Overseerr, PlexWatchlist)
+        self.sm = ServiceManager(media_items, False, Overseerr, Mdblist, PlexWatchlist)
         if not self.validate():
             logger.error("You have no content services enabled, please enable at least one!")
             return
