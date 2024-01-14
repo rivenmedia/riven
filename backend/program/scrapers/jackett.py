@@ -24,7 +24,7 @@ class Jackett:
         if not self.initialized or not self.api_key:
             return
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=3)
         logger.info("Jackett initialized!")
 
     def validate_settings(self) -> bool:
@@ -35,7 +35,7 @@ class Jackett:
             try:
                 url = f"{self.settings.url}/api/v2.0/server/config"
                 response = get(url=url, retry_if_failed=False, timeout=60)
-                if response.is_ok:
+                if response.is_ok and response.data.api_key is not None:
                     self.api_key = response.data.api_key
                     return True
             except ReadTimeout:
@@ -79,22 +79,17 @@ class Jackett:
         url = (
             f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}{query}"
         )
-        try:
+        with self.second_limiter:
             response = get(url=url, retry_if_failed=False, timeout=60)
-            if response.is_ok:
-                data = {}
-                if not hasattr(response.data['rss']['channel'], "item"):
-                    return {}
-                for stream in response.data['rss']['channel']['item']:
-                    title = stream.get('title')
-                    for attr in stream.get('torznab:attr', []):
-                        if attr.get('@name') == 'infohash':
-                            infohash = attr.get('@value')
-                    if parser.parse(title) and infohash:
-                        data[infohash] = {"name": title}
-                if len(data) > 0:
-                    return parser.sort_streams(data)
-            return {}
-        except ReadTimeout:
-            logger.debug("Jackett timed out for %s", item.log_string)
-            return
+        if response.is_ok:
+            data = {}
+            for stream in response.data['rss']['channel']['item']:
+                title = stream.get('title')
+                for attr in stream.get('torznab:attr', []):
+                    if attr.get('@name') == 'infohash':
+                        infohash = attr.get('@value')
+                if parser.parse(title) and infohash:
+                    data[infohash] = {"name": title}
+            if len(data) > 0:
+                return parser.sort_streams(data)
+        return {}

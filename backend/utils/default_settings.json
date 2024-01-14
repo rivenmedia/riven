@@ -54,6 +54,6 @@
     "highest_quality": false,
     "repack_proper": true,
     "dual_audio": true,
-    "av1_audio": false
+    "av1_audio": true
   }
 }

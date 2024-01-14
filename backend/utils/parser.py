@@ -67,6 +67,7 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
+        title = parse.get("title")
         season = parse.get("season")
         audio = parse.get("audio")
         codec = parse.get("codec")
@@ -85,6 +86,7 @@ class Parser:
         extended = parse.get("extended")
 
         return {
+            "title": title,
             "resolution": resolution or [],
             "quality": quality or [],
             "season": season,
@@ -96,7 +98,7 @@ class Parser:
             "remastered": remastered or False,
             "proper": proper or False,
             "repack": repack or False,
-            "subtitles": subtitles or [],
+            "subtitles": True if subtitles == "Available" else False,
             "language": language or [],
             "remux": remux or False,
             "extended": extended,
@@ -176,5 +178,10 @@ class Parser:
             and not parse["quality"] in self.unwanted_quality
             and not parse["codec"] in self.unwanted_codec
         )
+
+    def get_title(self, string) -> str:
+        """Get the `title` from the given string."""
+        parse = self._parse(string)
+        return parse["title"]
 
 parser = Parser()
