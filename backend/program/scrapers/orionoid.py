@@ -128,9 +128,8 @@ class Orionoid:
                 data = {}
                 for stream in response.data.data.streams:
                     title = stream.file.name
-                    infoHash = stream.file.hash
-                    if parser.parse(title) and infoHash:
-                        data[infoHash] = {"name": title}
+                    if parser.parse(title) and stream.file.hash:
+                        data[stream.file.hash] = {"name": title}
                 if len(data) > 0:
-                    return data
+                    return parser.sort_streams(data)
             return {}
