@@ -79,13 +79,14 @@ class Torrentio:
                 response = get(f"{url}.json", retry_if_failed=False)
             if response.is_ok:
                 data = {}
+                if len(response.data.streams) == 0:
+                    return data
                 for stream in response.data.streams:
                     title = stream.title.split("\n👤")[0]
                     if parser.parse(title):
                         data[stream.infoHash] = {
                             "name": title,
                         }
-                    # TODO: Sort data using parser and user preferences
                 if len(data) > 0:
-                    return parser.sort_and_filter_streams(data)
+                    return parser.sort_streams(data)
             return {}

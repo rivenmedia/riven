@@ -68,34 +68,35 @@ class Jackett:
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""
-        query = ""
-        if item.type == "movie":
-            query = f"&t=movie&imdbid={item.imdb_id}"
-        if item.type == "season":
-            query = f"&t=tv-search&imdbid={item.parent.imdb_id}&season={item.number}"
-        if item.type == "episode":
-            query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
+        with self.minute_limiter:
+            query = ""
+            if item.type == "movie":
+                query = f"&t=movie&imdbid={item.imdb_id}"
+            if item.type == "season":
+                query = f"&t=tv-search&imdbid={item.parent.imdb_id}&season={item.number}"
+            if item.type == "episode":
+                query = f"&t=tv-search&imdbid={item.parent.parent.imdb_id}&season={item.parent.number}&ep={item.number}"
 
-        url = (
-            f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}{query}"
-        )
-        try:
-            response = get(url=url, retry_if_failed=False, timeout=60)
-            if response.is_ok:
-                data = {}
-                if not hasattr(response.data['rss']['channel'], "item"):
-                    return {}
-                for stream in response.data['rss']['channel']['item']:
-                    title = stream.get('title')
-                    for attr in stream.get('torznab:attr', []):
-                        if attr.get('@name') == 'infohash':
-                            infohash = attr.get('@value')
-                    if parser.parse(title) and infohash:
-                        data[infohash] = {"name": title}
-                # TODO: Sort data using parser and user preferences
-                if len(data) > 0:
-                    return data
-            return {}
-        except ReadTimeout:
-            logger.debug("Jackett timed out for %s", item.log_string)
+            url = (
+                f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}{query}"
+            )
+            try:
+                with self.second_limiter:
+                    response = get(url=url, retry_if_failed=False, timeout=60)
+                if response.is_ok:
+                    data = {}
+                    if not hasattr(response.data['rss']['channel'], "item"):
+                        return {}
+                    for stream in response.data['rss']['channel']['item']:
+                        title = stream.get('title')
+                        for attr in stream.get('torznab:attr', []):
+                            if attr.get('@name') == 'infohash':
+                                infohash = attr.get('@value')
+                        if parser.parse(title) and infohash:
+                            data[infohash] = {"name": title}
+                    if len(data) > 0:
+                        return parser.sort_streams(data)
+                return {}
+            except ReadTimeout:
+                logger.debug("Jackett timed out for %s", item.log_string)
             return {}
