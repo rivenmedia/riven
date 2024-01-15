@@ -22,9 +22,12 @@
 	} else if ($message) {
 		toast.error($message);
 	}
+
+	export let actionUrl: string = "?/default"
 </script>
 
 <Form.Root
+	action={actionUrl}
 	schema={generalSettingsSchema}
 	controlled
 	form={generalForm}

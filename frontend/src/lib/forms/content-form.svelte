@@ -59,9 +59,12 @@
 			$mdblistListsValues = [''];
 		}
 	}
+
+	export let actionUrl: string = "?/default"
 </script>
 
 <Form.Root
+	action={actionUrl}
 	schema={contentSettingsSchema}
 	controlled
 	form={contentForm}

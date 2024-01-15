@@ -3,12 +3,12 @@ import { fail, error } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { generalSettingsSchema } from '$lib/schemas/setting';
 import { saveSettings } from '$lib/helpers';
+import { generalSettingsToGet, generalSettingsToPass, generalSettingsToSet } from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const toGet = ['debug', 'log', 'symlink', 'real_debrid'];
-			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
+			const results = await fetch(`http://127.0.0.1:8080/settings/get/${generalSettingsToGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
 			console.error(e);
@@ -16,17 +16,10 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	let toPassToSchema: any = await getPartialSettings();
-	toPassToSchema = {
-		debug: toPassToSchema.data.debug,
-		log: toPassToSchema.data.log,
-		host_path: toPassToSchema.data.symlink.host_path,
-		container_path: toPassToSchema.data.symlink.container_path,
-		realdebrid_api_key: toPassToSchema.data.real_debrid.api_key
-	};
+	let data: any = await getPartialSettings();
+	let toPassToSchema = generalSettingsToPass(data);
 
 	const form = await superValidate(toPassToSchema, generalSettingsSchema);
-
 	return { form };
 };
 
@@ -38,29 +31,7 @@ export const actions: Actions = {
 				form
 			});
 		}
-		const toSet = [
-			{
-				key: 'debug',
-				value: form.data.debug
-			},
-			{
-				key: 'log',
-				value: form.data.log
-			},
-			{
-				key: 'symlink',
-				value: {
-					host_path: form.data.host_path,
-					container_path: form.data.container_path
-				}
-			},
-			{
-				key: 'real_debrid',
-				value: {
-					api_key: form.data.realdebrid_api_key
-				}
-			}
-		];
+		const toSet = generalSettingsToSet(form);
 
 		try {
 			const data = await saveSettings(event.fetch, toSet);
