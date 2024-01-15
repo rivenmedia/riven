@@ -7,6 +7,7 @@ from utils.parser import parser
 from .torrentio import Torrentio
 from .orionoid import Orionoid
 from .jackett import Jackett
+from .torbox import TorBox
 
 
 class ScrapingConfig(BaseModel):
@@ -19,7 +20,7 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = ScrapingConfig(**settings.get(self.key))
-        self.sm = ServiceManager(None, False, Torrentio, Orionoid, Jackett)
+        self.sm = ServiceManager(None, False, Torrentio, Orionoid, TorBox, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"
@@ -56,13 +57,3 @@ class Scraping:
             > scrape_time
             or item.scraped_times == 0
         )
-    def _check_for_title_match(self, item, string) -> bool:
-        """Check if the title matches PTN title"""
-        parsed_title = parser.get_title(string)
-        if item.type == "movie":
-            return parsed_title == item.title
-        if item.type == "season":
-            return parsed_title == item.parent.title
-        if item.type == "episode":
-            return parsed_title == item.parent.parent.title
-        return False

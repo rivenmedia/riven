@@ -3,6 +3,7 @@ import PTN
 from typing import List
 from pydantic import BaseModel
 from utils.settings import settings_manager
+from thefuzz import fuzz
 
 
 class ParserConfig(BaseModel):
@@ -183,5 +184,18 @@ class Parser:
         """Get the `title` from the given string."""
         parse = self._parse(string)
         return parse["title"]
+
+    def check_for_title_match(self, item, string, threshold=90) -> bool:
+        """Check if the title matches PTN title using fuzzy matching."""
+        parsed_title = self.get_title(string)
+        if item.type == "movie":
+            target_title = item.title
+        elif item.type == "season":
+            target_title = item.parent.title
+        elif item.type == "episode":
+            target_title = item.parent.parent.title
+        else:
+            return False
+        return fuzz.ratio(parsed_title.lower(), target_title.lower()) >= threshold
 
 parser = Parser()

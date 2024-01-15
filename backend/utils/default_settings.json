@@ -46,6 +46,9 @@
     "jackett": {
       "enabled": false,
       "url": "http://localhost:9117"
+    },
+    "torbox": {
+      "enabled": false
     }
   },
   "parser": {
