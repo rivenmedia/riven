@@ -18,8 +18,8 @@ dependencies:
     specifier: ^0.4.2
     version: 0.4.2(svelte@4.2.8)(sveltekit-superforms@1.13.1)(zod@3.22.4)
   lucide-svelte:
-    specifier: ^0.307.0
-    version: 0.307.0(svelte@4.2.8)
+    specifier: ^0.309.0
+    version: 0.309.0(svelte@4.2.8)
   luxon:
     specifier: ^3.4.4
     version: 3.4.4
@@ -1887,8 +1887,8 @@ packages:
       yallist: 4.0.0
     dev: true
 
-  /lucide-svelte@0.307.0(svelte@4.2.8):
-    resolution: {integrity: sha512-9iGONh7UHEbA3xCTJlT5PYv9GuWrerX4429XWSoLTIjF9UnNCuOmYAu8sA72FmjehrwdJFbvHB+yT/HmCadL4A==}
+  /lucide-svelte@0.309.0(svelte@4.2.8):
+    resolution: {integrity: sha512-+t85+5Y696FVDoJHiiMhJGalv+UiWUX46gMudOQfYrVGjsyC2MGSZRNAGAHkdykA4RJSh/wUtSgnTgCmd0Swvw==}
     peerDependencies:
       svelte: '>=3 <5'
     dependencies:
