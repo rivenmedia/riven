@@ -1,7 +1,7 @@
 """Trakt updater module"""
-from datetime import datetime
 import math
 import concurrent.futures
+from datetime import datetime
 from os import path
 from utils.logger import get_data_path, logger
 from utils.request import get
@@ -18,7 +18,6 @@ class Updater:
         self.trakt_data = MediaItemContainer()
         self.pkl_file = path.join(get_data_path(), "trakt_data.pkl")
         self.ids = []
-
 
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
@@ -85,11 +84,13 @@ def _map_item_from_data(data, item_type):
     if getattr(data, "released", None):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
+    is_anime = "anime" in getattr(data, "genres", [])
     item = {
         "title": getattr(data, "title", None),              # 'Game of Thrones'
         "year": getattr(data, "year", None),                # 2011
         "status": getattr(data, "status", None),            # 'ended', 'released', 'returning series'
         "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)
+        "is_anime": is_anime,                               # True"
         "imdb_id": getattr(data.ids, "imdb", None),         # 'tt0496424'
         "tvdb_id": getattr(data.ids, "tvdb", None),         # 79488
         "tmdb_id": getattr(data.ids, "tmdb", None),         # 1399
@@ -157,5 +158,5 @@ def get_imdbid_from_tvdb(tvdb_id: str) -> str:
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
     if response.is_ok and len(response.data) > 0:
-            return response.data[0].show.ids.imdb
+        return response.data[0].show.ids.imdb
     return None

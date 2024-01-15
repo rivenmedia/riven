@@ -5,7 +5,7 @@ from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt
+from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tvdb
 
 
 class OverseerrConfig(BaseModel):
@@ -102,6 +102,11 @@ class Overseerr:
             imdb_id = response.data.externalIds.imdbId
             if imdb_id:
                 return imdb_id
+            if not imdb_id:
+                # I've seen a case where no imdbId was returned but a tvdbId was
+                imdb_id = get_imdbid_from_tvdb(response.data.externalIds.tvdbId)
+                if imdb_id:
+                    return imdb_id
             self.not_found_ids.append(f"{id_extension}{external_id}")
         title = getattr(response.data, "title", None) or getattr(
             response.data, "originalName", None
