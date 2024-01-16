@@ -25,6 +25,12 @@
       "api_key": "",
       "update_interval": 80
     },
+    "listrr": {
+      "enabled": false,
+      "movie_lists": [""],
+      "show_lists": [""],
+      "api_key": ""
+    },
     "overseerr": {
       "enabled": true,
       "url": "http://localhost:5055",
