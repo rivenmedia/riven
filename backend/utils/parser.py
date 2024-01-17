@@ -27,7 +27,6 @@ class Parser:
                                  "VODRip", "DVD-R", "DSRip", "BRRip"]
         self.quality = [None, "Blu-ray", "WEB-DL", "WEBRip", "HDRip", 
                         "HDTVRip", "BDRip", "Pay-Per-View Rip"]
-        self.audio = [None, "AAC", "AAC 2.0", "AAC 5.1", "FLAC", "AVC", "Custom"]
         self.network = ["Apple TV+", "Amazon Studios", "Netflix", 
                         "Nickelodeon", "YouTube Premium", "Disney Plus", 
                         "DisneyNOW", "HBO Max", "HBO", "Hulu Networks", 
@@ -40,12 +39,6 @@ class Parser:
     def validate_settings(self):
         if self.settings.highest_quality:
             self.resolution = ["UHD", "2160p", "4K", "1080p", "720p"]
-            self.audio += ["Dolby TrueHD", "Dolby Atmos",
-                          "Dolby Digital EX", "Dolby Digital Plus",
-                          "Dolby Digital 5.1", "Dolby Digital 7.1",
-                          "Dolby Digital Plus 5.1", "Dolby Digital Plus 7.1"
-                          "DTS-HD MA", "DTS-HD MA", "DTS-HD", "DTS-HD MA 5.1"
-                          "DTS-EX", "DTS:X", "DTS", "5.1", "7.1"]
         elif self.settings.include_4k:
             self.resolution = ["2160p", "4K", "1080p", "720p"]
         else:
@@ -128,7 +121,6 @@ class Parser:
             return any([
                 parsed.get("hdr", False),
                 parsed.get("remux", False),
-                parsed.get("audio", False) in self.audio,
                 parsed.get("resolution", False) in ["UHD", "2160p", "4K"],
                 parsed.get("upscaled", False)
             ])
@@ -175,7 +167,6 @@ class Parser:
         return (
             parse["resolution"] in self.resolution
             and parse["language"] in self.language
-            # and parse["audio"] in self.audio
             and not parse["quality"] in self.unwanted_quality
             and not parse["codec"] in self.unwanted_codec
         )
@@ -187,6 +178,8 @@ class Parser:
 
     def check_for_title_match(self, item, string, threshold=94) -> bool:
         """Check if the title matches PTN title using fuzzy matching."""
+        # TODO1: remove special chars from parsed_title and target_title. Could improve matching.
+        # TODO2: We should be checking aliases as well for titles. Anime only probably?
         parsed_title = self.get_title(string)
         if item.type == "movie":
             target_title = item.title
