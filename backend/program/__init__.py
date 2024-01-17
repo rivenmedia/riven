@@ -18,9 +18,10 @@ from utils.service_manager import ServiceManager
 class Program(threading.Thread):
     """Program class"""
 
-    def __init__(self):
+    def __init__(self, args):
         super().__init__(name="Iceberg")
         self.running = False
+        self.startup_args = args
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings.get("version"))
@@ -29,8 +30,9 @@ class Program(threading.Thread):
         self.data_path = get_data_path()
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
-        self.pickly = Pickly(self.media_items, self.data_path)
-        self.pickly.start()
+        if not self.startup_args.dev:
+            self.pickly = Pickly(self.media_items, self.data_path)
+            self.pickly.start()
         self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker)
         if self.validate():
             logger.info("Iceberg started!")

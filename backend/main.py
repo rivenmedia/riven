@@ -9,7 +9,11 @@ import sys
 import threading
 import time
 import uvicorn
+import argparse
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--dev', action='store_true', help='Enable development mode')
+args = parser.parse_args()
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -29,7 +33,7 @@ class Server(uvicorn.Server):
             sys.exit(0)
 
 app = FastAPI()
-app.program = Program()
+app.program = Program(args)
 
 app.add_middleware(
     CORSMiddleware,
