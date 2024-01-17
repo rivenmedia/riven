@@ -67,7 +67,7 @@ class Jackett:
             logger.debug("Could not find streams for %s", item.log_string)
 
     def api_scrape(self, item):
-        """Wrapper for torrentio scrape method"""
+        """Wrapper for `Jackett` scrape method"""
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
             query = ""
