@@ -70,11 +70,6 @@ class MediaItem:
             return Content()
         return Unknown()
 
-    def is_cached(self):
-        if self.streams:
-            return any(stream.get("cached", None) for stream in self.streams.values())
-        return False
-
     def is_scraped(self):
         return len(self.streams) > 0
 
@@ -115,9 +110,6 @@ class MediaItem:
         dict["country"] = (self.country if hasattr(self, "country") else None,)
         dict["network"] = (self.network if hasattr(self, "network") else None,)
         return dict
-
-    def is_not_cached(self):
-        return not self.is_cached()
 
     def __iter__(self):
         for attr, _ in vars(self).items():
@@ -211,9 +203,7 @@ class Season(MediaItem):
                 return Symlink()
             if all(episode.file and episode.folder for episode in self.episodes):
                 return Download()
-            if self.is_scraped() or any(
-                episode.state == Scrape for episode in self.episodes
-            ):
+            if self.is_scraped():
                 return Scrape()
             if any(episode.state == Content for episode in self.episodes):
                 return Content()
