@@ -72,7 +72,7 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                query = f"&cat=2010,2040,2045,2050,2080&t=movie&q={item.title}&year={item.year}"
+                query = f"&cat=2010,2040,2045,2050,2080&t=movie&q={item.title}&year={item.aired_at.year}"
             if item.type == "season":
                 query = f"&cat=5010,5020,5040,5045,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
             if item.type == "episode":
@@ -82,14 +82,15 @@ class Jackett:
                 response = get(url=url, retry_if_failed=False, timeout=60)
             if response.is_ok:
                 data = {}
-                for stream in response.data['rss']['channel']['item']:
+                for stream in response.data['rss']['channel'].get('item', []):
                     title = stream.get('title')
                     if parser.check_for_title_match(item, title):
                         if parser.parse(title):
-                            for attr in stream.get('torznab:attr', []):
-                                if attr.get('@name') == 'infohash':
-                                    infohash = attr.get('@value')
-                                    data[infohash] = {"name": title}
+                            attr = stream.get('torznab:attr', [])
+                            infohash_attr = next((a for a in attr if a.get('@name') == 'infohash'), None)
+                            if infohash_attr:
+                                infohash = infohash_attr.get('@value')
+                                data[infohash] = {"name": title}
                 if len(data) > 0:
                     return parser.sort_streams(data)
             return {}
