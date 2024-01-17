@@ -11,8 +11,6 @@ class ParserConfig(BaseModel):
     include_4k: bool
     highest_quality: bool
     repack_proper: bool
-    dual_audio: bool
-    av1_audio: bool
 
 
 class Parser:
@@ -27,13 +25,6 @@ class Parser:
                                  "VODRip", "DVD-R", "DSRip", "BRRip"]
         self.quality = [None, "Blu-ray", "WEB-DL", "WEBRip", "HDRip", 
                         "HDTVRip", "BDRip", "Pay-Per-View Rip"]
-        self.network = ["Apple TV+", "Amazon Studios", "Netflix", 
-                        "Nickelodeon", "YouTube Premium", "Disney Plus", 
-                        "DisneyNOW", "HBO Max", "HBO", "Hulu Networks", 
-                        "DC Universe", "Adult Swim", "Comedy Central", 
-                        "Peacock", "AMC", "PBS", "Crunchyroll", 
-                        "Syndication", "Hallmark", "BBC", "VICE",
-                        "MSNBC", "Crave"]  # Will probably be used later in `Versions`
         self.validate_settings()
 
     def validate_settings(self):
@@ -43,8 +34,6 @@ class Parser:
             self.resolution = ["2160p", "4K", "1080p", "720p"]
         else:
             self.resolution = ["1080p", "720p"]
-        if not self.settings.av1_audio:
-            self.unwanted_codec += ["AV1"]  # Not all devices support this codec
 
     def _parse(self, string):
         parse = PTN.parse(string)
@@ -134,15 +123,21 @@ class Parser:
 
     def _is_dual_audio(self, string) -> bool:
         """Check if content is `dual audio`."""
-        if self.settings.dual_audio:
-            parsed = self._parse(string)
-            return parsed.get("audio") == "Dual" or \
-                   re.search(r"((dual.audio)|(english|eng)\W+(dub|audio))", string, flags=re.IGNORECASE) is not None
+        parsed = self._parse(string)
+        return parsed.get("audio") == "Dual" or \
+                re.search(r"((dual.audio)|(english|eng)\W+(dub|audio))", string, flags=re.IGNORECASE) is not None
 
     def _is_network(self, string) -> bool:
         """Check if content is from a `network`."""
         parsed = self._parse(string)
-        return parsed.get("network", False) in self.network
+        network = ["Apple TV+", "Amazon Studios", "Netflix", 
+                "Nickelodeon", "YouTube Premium", "Disney Plus", 
+                "DisneyNOW", "HBO Max", "HBO", "Hulu Networks", 
+                "DC Universe", "Adult Swim", "Comedy Central", 
+                "Peacock", "AMC", "PBS", "Crunchyroll", 
+                "Syndication", "Hallmark", "BBC", "VICE",
+                "MSNBC", "Crave"]  # Will probably be used later in `Versions`
+        return (parsed.get("network", False)) in network
 
     def sort_streams(self, streams: dict) -> dict:
         """Sorts streams based on user preferences."""
