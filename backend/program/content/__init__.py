@@ -1,10 +1,11 @@
 import threading
 import time
 from utils.logger import logger
+from utils.service_manager import ServiceManager
 from .mdblist import Mdblist
 from .overseerr import Overseerr
 from .plex_watchlist import PlexWatchlist
-from utils.service_manager import ServiceManager
+from .listrr import Listrr
 
 
 class Content(threading.Thread):
@@ -13,7 +14,7 @@ class Content(threading.Thread):
         self.initialized = False
         self.key = "content"
         self.running = False
-        self.sm = ServiceManager(media_items, False, Overseerr, Mdblist, PlexWatchlist)
+        self.sm = ServiceManager(media_items, False, Overseerr, PlexWatchlist, Listrr, Mdblist)
         if not self.validate():
             logger.error("You have no content services enabled, please enable at least one!")
             return

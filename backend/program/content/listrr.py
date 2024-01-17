@@ -1,9 +1,11 @@
 """Mdblist content module"""
+from time import time
 from typing import Optional
 from pydantic import BaseModel
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
+from requests.exceptions import HTTPError
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
@@ -13,6 +15,7 @@ class ListrrConfig(BaseModel):
     movie_lists: Optional[list]
     show_lists: Optional[list]
     api_key: Optional[str]
+    update_interval: int  # in seconds
 
 
 class Listrr:
@@ -28,8 +31,7 @@ class Listrr:
             return
         self.media_items = media_items
         self.updater = Trakt()
-        self.unique_ids = set()
-        self.not_found_ids = []
+        self.next_run_time = 0
         logger.info("Listrr initialized!")
 
     def validate_settings(self) -> bool:
@@ -40,22 +42,21 @@ class Listrr:
             logger.error("Listrr api key is not set.")
             return False
         try:
-            response = ping(
-                self.settings.url + "/List/My/1",
-                additional_headers=self.headers,
-                timeout=15,
-            )
+            response = ping("https://listrr.pro/", additional_headers=self.headers)
             return response.ok
         except Exception:
             logger.error("Listrr url is not reachable.")
             return False
 
     def run(self):
-        """Fetch media from Listrr and add them to media_items attribute
-        if they are not already there"""
-        items = self._get_items_from_Listrr(10000)
-        new_items = [item for item in items if item not in self.media_items]
-        container = self.updater.create_items(new_items)
+        """Fetch media from Listrr and add them to media_items attribute."""
+        if time() < self.next_run_time:
+            return
+        self.next_run_time = time() + self.settings.update_interval
+        movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
+        show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
+        items = list(set(movie_items + show_items))
+        container = self.updater.create_items(items)
         for item in container:
             item.set("requested_by", "Listrr")
         added_items = self.media_items.extend(container)
@@ -66,25 +67,49 @@ class Listrr:
         elif length > 5:
             logger.info("Added %s items", length)
 
-    def _get_items_from_Listrr(self, show_list):
-        """Fetch unique IMDb IDs from Listrr"""
-        page = 1
-        total_pages = 1
-        while page <= total_pages:
-            response = get(
-                self.settings.url + f"/List/Shows/{self.show_lists}/ReleaseDate/Descending/{page}",
-                headers=self.headers,
-            )
-            if response.ok:
-                data = response.json()
-                total_pages = data['pages']
-                for item in data['items']:
-                    imdb_id = item.get('imDbId')
-                    if imdb_id:
-                        self.unique_ids.add(imdb_id)
-            else:
-                print(f"Failed to fetch data for page {page}")
-                break
-            page += 1
-        return list(self.unique_ids)
-
+    def _get_items_from_Listrr(self, content_type, content_lists):
+        """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
+        unique_ids = set()
+        for list_id in content_lists:
+            page = 1
+            total_pages = 1
+            while page <= total_pages:
+                if list_id == "":
+                    break
+                try:
+                    response = get(
+                        self.url + f"/List/{content_type}/{list_id}/ReleaseDate/Descending/{page}",
+                        additional_headers=self.headers,
+                    )
+                    if response.is_ok:
+                        total_pages = response.data.pages
+                        for item in response.data.items:
+                            imdb_id = item.imDbId
+                            if imdb_id:
+                                unique_ids.add(imdb_id)
+                            elif content_type == "Shows" and item.tvDbId:
+                                logger.warning(f"Listrr returned a show without an IMDb ID: {item.title}")
+                                # unique_ids.add(item.tvDbId)
+                            elif content_type == "Movies" and item.tmDbId:
+                                logger.warning(f"Listrr returned a movie without an IMDb ID: {item.title}")
+                                # unique_ids.add(item.tmDbId)
+                            else:
+                                logger.error(f"Listrr returned an item without any ID: {item.title}")
+                    else:
+                        logger.error(f"Failed to fetch data for {content_type} list {list_id}, page {page}. HTTP status: {response.status_code}")
+                        break
+                except HTTPError as e:
+                    if e.response.status_code == 404:
+                        break
+                    if e.response.status_code in [429, 500]:
+                        logger.warning("Listrr rate limit hit.")
+                        break
+                    if e.response.status_code == 400:
+                        # This list is the wrong content_type or doesn't exist.
+                        # Should we remove it from the settings?
+                        break
+                except Exception as e:
+                    logger.error(f"An error occurred: {e}")
+                    break
+                page += 1
+        return list(unique_ids)

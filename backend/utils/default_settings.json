@@ -29,7 +29,8 @@
       "enabled": false,
       "movie_lists": [""],
       "show_lists": [""],
-      "api_key": ""
+      "api_key": "",
+      "update_interval": 80
     },
     "overseerr": {
       "enabled": true,

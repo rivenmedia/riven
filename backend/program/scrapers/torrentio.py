@@ -20,7 +20,7 @@ class Torrentio:
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=3)
         self.initialized = self.validate_settings()
         if not self.initialized:
             return
@@ -76,7 +76,7 @@ class Torrentio:
             if identifier:
                 url += f"{identifier}"
             with self.second_limiter:
-                response = get(f"{url}.json", retry_if_failed=False)
+                response = get(f"{url}.json", retry_if_failed=False, timeout=30)
             if response.is_ok:
                 data = {}
                 if len(response.data.streams) == 0:
