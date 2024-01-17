@@ -11,7 +11,7 @@ class ParserConfig(BaseModel):
     include_4k: bool
     highest_quality: bool
     repack_proper: bool
-    dual_audio: bool   # This sometimes doesnt work depending on if other audio is in the title
+    dual_audio: bool
     av1_audio: bool
 
 
@@ -43,8 +43,6 @@ class Parser:
             self.resolution = ["2160p", "4K", "1080p", "720p"]
         else:
             self.resolution = ["1080p", "720p"]
-        if self.settings.dual_audio:
-            self.audio += ["Dual"]
         if not self.settings.av1_audio:
             self.unwanted_codec += ["AV1"]  # Not all devices support this codec
 
