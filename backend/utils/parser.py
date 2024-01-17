@@ -175,7 +175,7 @@ class Parser:
         return (
             parse["resolution"] in self.resolution
             and parse["language"] in self.language
-            and parse["audio"] in self.audio
+            # and parse["audio"] in self.audio
             and not parse["quality"] in self.unwanted_quality
             and not parse["codec"] in self.unwanted_codec
         )
