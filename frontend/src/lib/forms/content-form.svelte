@@ -18,7 +18,7 @@
 
 	export let data: SuperValidated<ContentSettingsSchema>;
 	const contentForm = superForm(data);
-	const { form, message, delayed } = contentForm;
+	const { form, message, delayed, errors } = contentForm;
 
 	const { values: mdblistListsValues, errors: mdblistListsErrors } = arrayProxy(
 		contentForm,
@@ -60,7 +60,7 @@
 		}
 	}
 
-	export let actionUrl: string = "?/default"
+	export let actionUrl: string = '?/default';
 </script>
 
 <Form.Root
@@ -111,7 +111,9 @@
 						</Form.Label>
 						<Form.Input class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.overseerr_url}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 
@@ -130,7 +132,9 @@
 							spellcheck="false"
 						/>
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.overseerr_api_key}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 		{/if}
@@ -146,7 +150,9 @@
 						</Form.Label>
 						<Form.Input class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.plex_watchlist_rss}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 
@@ -160,7 +166,9 @@
 						</Form.Label>
 						<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.plex_watchlist_update_interval}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 		{/if}
@@ -196,7 +204,9 @@
 							spellcheck="false"
 						/>
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.mdblist_api_key}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 
@@ -210,7 +220,9 @@
 						</Form.Label>
 						<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.mdblist_update_interval}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 

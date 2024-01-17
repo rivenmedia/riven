@@ -9,6 +9,10 @@
 	import * as Command from '$lib/components/ui/command';
 	import { Settings, CircleDashed, SlidersHorizontal, Info, Layers, Tv } from 'lucide-svelte';
 	import { page } from '$app/stores';
+	import { setContext } from 'svelte';
+	import { dev } from '$app/environment';
+
+	setContext('formDebug', dev);
 
 	beforeNavigate(() => {
 		NProgress.start();

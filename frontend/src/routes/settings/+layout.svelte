@@ -5,10 +5,6 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
-	import { setContext } from 'svelte';
-	import { dev } from '$app/environment';
-
-	setContext('formDebug', dev);
 
 	const settingsItems: NavItem[] = [
 		{

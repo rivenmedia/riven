@@ -16,6 +16,6 @@
 	</div>
 	<div class="mt-4 flex flex-col w-full max-w-6xl">
 		<Separator class="mb-8" />
-		<GeneralForm data={data.form} />
+		<GeneralForm data={data.form} actionUrl="/settings/general?onboarding=true" />
 	</div>
 </div>

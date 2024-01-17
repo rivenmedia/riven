@@ -16,7 +16,7 @@
 
 	export let data: SuperValidated<ScrapersSettingsSchema>;
 	const scrapersForm = superForm(data);
-	const { form, message, delayed } = scrapersForm;
+	const { form, message, delayed, errors } = scrapersForm;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
@@ -43,7 +43,9 @@
 				</Form.Label>
 				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.after_2}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="after_5">
@@ -53,7 +55,9 @@
 				</Form.Label>
 				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.after_5}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="after_10">
@@ -63,7 +67,9 @@
 				</Form.Label>
 				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.after_10}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
@@ -105,7 +111,9 @@
 						</Form.Label>
 						<Form.Input class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.torrentio_filter}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 		{/if}
@@ -126,7 +134,9 @@
 							spellcheck="false"
 						/>
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.orionoid_api_key}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 		{/if}
@@ -142,7 +152,9 @@
 						</Form.Label>
 						<Form.Input class="text-sm md:text-base" spellcheck="false" />
 					</Form.Item>
-					<Form.Validation class="text-sm md:text-base text-red-500" />
+					{#if $errors.jackett_url}
+						<Form.Validation class="text-sm md:text-base text-red-500" />
+					{/if}
 				</Form.Field>
 			</div>
 		{/if}

@@ -15,7 +15,7 @@
 
 	export let data: SuperValidated<MediaServerSettingsSchema>;
 	const mediaServerForm = superForm(data);
-	const { form, message, delayed } = mediaServerForm;
+	const { form, message, delayed, errors } = mediaServerForm;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
@@ -42,7 +42,9 @@
 				</Form.Label>
 				<Form.Input class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.plex_url}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="plex_token">
@@ -57,7 +59,9 @@
 					spellcheck="false"
 				/>
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.plex_token}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Separator class=" mt-4" />

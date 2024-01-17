@@ -3,7 +3,7 @@ import { redirect, error } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 
 const onboarding: Handle = async ({ event, resolve }) => {
-	if (!event.url.pathname.startsWith('/onboarding')) {
+	if (!event.url.pathname.startsWith('/onboarding') && event.request.method === 'GET') {
 		const res = await event.fetch('http://127.0.0.1:8080/services');
 		const data = await res.json();
 		if (!data.success || !data.data) {

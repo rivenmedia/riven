@@ -15,7 +15,7 @@
 
 	export let data: SuperValidated<GeneralSettingsSchema>;
 	const generalForm = superForm(data);
-	const { form, message, delayed } = generalForm;
+	const { form, message, delayed, errors } = generalForm;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
@@ -23,7 +23,7 @@
 		toast.error($message);
 	}
 
-	export let actionUrl: string = "?/default"
+	export let actionUrl: string = '?/default';
 </script>
 
 <Form.Root
@@ -42,7 +42,9 @@
 				</Form.Label>
 				<Form.Checkbox class="text-sm md:text-base" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.debug}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="log">
@@ -52,7 +54,9 @@
 				</Form.Label>
 				<Form.Checkbox class="text-sm md:text-base" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.log}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="host_path">
@@ -62,7 +66,9 @@
 				</Form.Label>
 				<Form.Input class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.host_path}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="container_path">
@@ -72,7 +78,9 @@
 				</Form.Label>
 				<Form.Input class="text-sm md:text-base" spellcheck="false" />
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.container_path}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="realdebrid_api_key">
@@ -87,7 +95,9 @@
 					spellcheck="false"
 				/>
 			</Form.Item>
-			<Form.Validation class="text-sm md:text-base text-red-500" />
+			{#if $errors.realdebrid_api_key}
+				<Form.Validation class="text-sm md:text-base text-red-500" />
+			{/if}
 		</Form.Field>
 
 		<Separator class=" mt-4" />
