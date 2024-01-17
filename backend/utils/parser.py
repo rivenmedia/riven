@@ -185,7 +185,7 @@ class Parser:
         parse = self._parse(string)
         return parse["title"]
 
-    def check_for_title_match(self, item, string, threshold=90) -> bool:
+    def check_for_title_match(self, item, string, threshold=94) -> bool:
         """Check if the title matches PTN title using fuzzy matching."""
         parsed_title = self.get_title(string)
         if item.type == "movie":

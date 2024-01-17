@@ -158,5 +158,7 @@ def get_imdbid_from_tvdb(tvdb_id: str) -> str:
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
     if response.is_ok and len(response.data) > 0:
+        # noticing there are multiple results for some TVDB IDs
+        # TODO: Need to check item.type and compare to the resulting types..
         return response.data[0].show.ids.imdb
     return None

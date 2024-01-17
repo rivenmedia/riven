@@ -7,7 +7,6 @@ from utils.parser import parser
 from .torrentio import Torrentio
 from .orionoid import Orionoid
 from .jackett import Jackett
-from .torbox import TorBox
 
 
 class ScrapingConfig(BaseModel):
@@ -20,7 +19,7 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = ScrapingConfig(**settings.get(self.key))
-        self.sm = ServiceManager(None, False, Torrentio, Orionoid, TorBox, Jackett)
+        self.sm = ServiceManager(None, False, Torrentio, Orionoid, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"
