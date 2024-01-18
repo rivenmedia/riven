@@ -56,13 +56,3 @@ class Scraping:
             > scrape_time
             or item.scraped_times == 0
         )
-    def _check_for_title_match(self, item, string) -> bool:
-        """Check if the title matches PTN title"""
-        parsed_title = parser.get_title(string)
-        if item.type == "movie":
-            return parsed_title == item.title
-        if item.type == "season":
-            return parsed_title == item.parent.title
-        if item.type == "episode":
-            return parsed_title == item.parent.parent.title
-        return False
