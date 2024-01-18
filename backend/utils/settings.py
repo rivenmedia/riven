@@ -14,6 +14,9 @@ class SettingsManager(Observable):
             os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
         )
         self.settings_file = os.path.join(self.config_dir, self.filename)
+        self.default_settings_file = os.path.join(
+                os.path.dirname(__file__), "default_settings.json"
+            )
         self.settings = {}
         self.observers = []
         self.load()
@@ -28,13 +31,31 @@ class SettingsManager(Observable):
     def load(self):
         """Load settings from file"""
         if not os.path.exists(self.settings_file):
-            default_settings_path = os.path.join(
-                os.path.dirname(__file__), "default_settings.json"
-            )
-            shutil.copy(default_settings_path, self.settings_file)
+            shutil.copy(self.default_settings_file, self.settings_file)
         with open(self.settings_file, "r", encoding="utf-8") as file:
-            self.settings = json.loads(file.read())
+            current_settings = json.loads(file.read())
+        self.settings = self.check_settings(current_settings)
+        self.save()
         self.notify_observers()
+
+    def check_settings(self, current_settings):
+        default_settings = None
+        with open(self.default_settings_file, "r", encoding="utf-8") as file:
+            default_settings = json.loads(file.read())
+        if current_settings is None:
+            current_settings = {}
+        self.check_setting_keys(default_settings, current_settings)
+        current_settings["version"] = default_settings["version"]
+        return current_settings
+
+    def check_setting_keys(self, default, user):
+        for key, default_value in default.items():
+            user_value = user.get(key, None)
+
+            if user_value is None:
+                user[key] = default_value
+            elif isinstance(default_value, dict) and isinstance(user_value, dict):
+                self.check_setting_keys(default_value, user_value)
 
     def save(self):
         """Save settings to file"""
