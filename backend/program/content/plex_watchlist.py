@@ -51,7 +51,7 @@ class PlexWatchlist:
         """Fetch media from Plex Watchlist and add them to media_items attribute
         if they are not already there"""
         items = self._create_unique_list()
-        new_items = [item for item in items if item not in self.media_items]
+        new_items = [item for item in items if item not in self.media_items] or []
         container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Plex Watchlist")

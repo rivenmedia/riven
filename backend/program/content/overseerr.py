@@ -51,7 +51,7 @@ class Overseerr:
         """Fetch media from overseerr and add them to media_items attribute
         if they are not already there"""
         items = self._get_items_from_overseerr(10000)
-        new_items = [item for item in items if item not in self.media_items]
+        new_items = [item for item in items if item not in self.media_items] or []
         container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Overseerr")
