@@ -1,7 +1,7 @@
 """Trakt updater module"""
-from datetime import datetime
 import math
 import concurrent.futures
+from datetime import datetime
 from os import path
 from utils.logger import get_data_path, logger
 from utils.request import get
@@ -117,7 +117,6 @@ def _map_item_from_data(data, item_type):
 
 # API METHODS
 
-
 def get_show(imdb_id: str):
     """Wrapper for trakt.tv API show method"""
     url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
@@ -129,7 +128,6 @@ def get_show(imdb_id: str):
         if response.data:
             return response.data
     return []
-
 
 def create_item_from_imdb_id(imdb_id: str):
     """Wrapper for trakt.tv API search method"""
@@ -158,4 +156,15 @@ def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     )
     if response.is_ok and len(response.data) > 0:
             return response.data[0].show.ids.imdb
+    return None
+
+def get_imdbid_from_tmdb(tmdb_id: str) -> str:
+    """Get IMDb ID from TMDB ID in Trakt"""
+    url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?extended=full"
+    response = get(
+        url,
+        additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
+    )
+    if response.is_ok and len(response.data) > 0:
+            return response.data[0].movie.ids.imdb
     return None
