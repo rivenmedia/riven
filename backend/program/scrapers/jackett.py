@@ -72,11 +72,11 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                query = f"&cat=2010,2040,2045,2050,2080&t=movie&q={item.title}&year={item.aired_at.year}"
+                query = f"&cat=2010,2020,2030,2040,2045,2050,2080&t=movie&q={item.title} {item.aired_at.year}"
             if item.type == "season":
-                query = f"&cat=5010,5020,5040,5045,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
+                query = f"&cat=5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
             if item.type == "episode":
-                query = f"&cat=5010,5020,5040,5045,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
+                query = f"&cat=5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
             url = (f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}")
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
