@@ -55,7 +55,7 @@ class Mdblist:
                         items += self._get_items_from_list(
                             list_id, self.settings.api_key
                         )
-                new_items = [item for item in items if item not in self.media_items]
+                new_items = [item for item in items if item not in self.media_items] or []
                 container = self.updater.create_items(new_items)
                 for item in container:
                     item.set("requested_by", "Mdblist")
