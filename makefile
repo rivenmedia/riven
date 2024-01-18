@@ -65,3 +65,7 @@ frontend:
 backend:
 	@echo Starting Backend...
 	@cd backend && python main.py
+
+test:
+	@echo Starting Tests...
+	@cd backend && pytest -vv
