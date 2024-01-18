@@ -7,7 +7,7 @@ from utils.logger import logger
 from utils.request import get, ping
 from requests.exceptions import HTTPError
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt
+from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb, get_imdbid_from_tvdb
 
 
 class ListrrConfig(BaseModel):
@@ -88,25 +88,17 @@ class Listrr:
                             if imdb_id:
                                 unique_ids.add(imdb_id)
                             elif content_type == "Shows" and item.tvDbId:
-                                logger.warning(f"Listrr returned a show without an IMDb ID: {item.title}")
-                                # unique_ids.add(item.tvDbId)
+                                imdb_id = get_imdbid_from_tvdb(item.tvDbId)
+                                if imdb_id:
+                                    unique_ids.add(imdb_id)
                             elif content_type == "Movies" and item.tmDbId:
-                                logger.warning(f"Listrr returned a movie without an IMDb ID: {item.title}")
-                                # unique_ids.add(item.tmDbId)
+                                imdb_id = get_imdbid_from_tmdb(item.tmDbId)
+                                if imdb_id:
+                                    unique_ids.add(imdb_id)
                             else:
-                                logger.error(f"Listrr returned an item without any ID: {item.title}")
-                    else:
-                        logger.error(f"Failed to fetch data for {content_type} list {list_id}, page {page}. HTTP status: {response.status_code}")
-                        break
+                                break
                 except HTTPError as e:
-                    if e.response.status_code == 404:
-                        break
-                    if e.response.status_code in [429, 500]:
-                        logger.warning("Listrr rate limit hit.")
-                        break
-                    if e.response.status_code == 400:
-                        # This list is the wrong content_type or doesn't exist.
-                        # Should we remove it from the settings?
+                    if e.response.status_code in [400, 404, 429, 500]:
                         break
                 except Exception as e:
                     logger.error(f"An error occurred: {e}")
