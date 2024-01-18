@@ -20,9 +20,6 @@ class Parser:
         self.language = self.settings.language or ["English"]
         self.resolution = ["1080p", "720p"]
         self.unwanted_codec = ["H.263", "Xvid"]  # Bad for transcoding
-        self.unwanted_quality = ["Cam", "Telesync", "Telecine", "Screener", 
-                                 "DVDSCR", "Workprint", "DVD-Rip", "TVRip", 
-                                 "VODRip", "DVD-R", "DSRip", "BRRip"]
         self.quality = [None, "Blu-ray", "WEB-DL", "WEBRip", "HDRip", 
                         "HDTVRip", "BDRip", "Pay-Per-View Rip"]
         self.validate_settings()
@@ -139,6 +136,22 @@ class Parser:
                 "MSNBC", "Crave"]  # Will probably be used later in `Versions`
         return (parsed.get("network", False)) in network
 
+    def _is_unwanted_quality(string) -> bool:
+        """Check if string has an `unwanted` quality."""
+        patterns = [
+            re.compile(r"(?:HD)?CAM(?:-?Rip)?", re.IGNORECASE),
+            re.compile(r"(?:HD)?TS|TELESYNC|PDVD|PreDVDRip", re.IGNORECASE),
+            re.compile(r"(?:HD)?TC|TELECINE", re.IGNORECASE),
+            re.compile(r"WEB[ -]?Cap", re.IGNORECASE),
+            re.compile(r"WP|WORKPRINT", re.IGNORECASE),
+            re.compile(r"(?:DVD)?SCR(?:EENER)?|BDSCR", re.IGNORECASE),
+            re.compile(r"DVD-?(?:Rip|Mux)", re.IGNORECASE),
+            re.compile(r"DVDR|DVD-Full|Full-rip", re.IGNORECASE),
+            re.compile(r"D?TVRip|DVBRip", re.IGNORECASE),
+            re.compile(r"VODR(?:ip)?", re.IGNORECASE)
+        ]
+        return any(pattern.search(string) for pattern in patterns)
+
     def sort_streams(self, streams: dict) -> dict:
         """Sorts streams based on user preferences."""
         def sorting_key(item):
@@ -161,7 +174,7 @@ class Parser:
             parse["resolution"] in self.resolution
             and parse["language"] in self.language
             and not parse["quality"] in self.unwanted_quality
-            and not parse["codec"] in self.unwanted_codec
+            and not self._is_unwanted_quality(string)
         )
 
     def get_title(self, string) -> str:
