@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import Rocket from 'lucide-svelte/icons/rocket';
+	import Mountain from 'lucide-svelte/icons/mountain';
 
 	let rootElement: HTMLElement;
 	let inView = false;
@@ -41,6 +42,9 @@
 	class="flex flex-col p-8 md:px-24 lg:px-32 overflow-x-hidden h-svh w-full"
 >
 	<div class:opacity-0={!inView} class="flex w-full items-center justify-center flex-col h-full">
+		<div class="flex items-center justify-center slide-up">
+			<Mountain class="w-16 h-16" />
+		</div>
 		<h1 class="text-4xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
 		<p class="text-lg md:text-xl text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl">
 			Before you can start using Iceberg, you need to configure some services first.

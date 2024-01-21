@@ -10,6 +10,7 @@
 	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/schemas/setting';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
+	import { v4 as uuidv4 } from 'uuid';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -23,7 +24,80 @@
 		toast.error($message);
 	}
 
-	export let actionUrl: string = "?/default"
+	export let actionUrl: string = '?/default';
+
+	let ongoingAuth: boolean = false;
+	let clientIdentifier: string;
+	let genClientIdentifier = () => {
+		clientIdentifier = uuidv4();
+		return clientIdentifier;
+	};
+	let appName = 'Iceberg';
+	let plexId: string;
+	let plexCode: string;
+	let pollingInterval: any;
+
+	async function genPlexPin() {
+		let data = await fetch('https://plex.tv/api/v2/pins?strong=true', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json',
+				'X-Plex-Product': appName,
+				code: plexCode,
+				'X-Plex-Client-Identifier': genClientIdentifier()
+			}
+		});
+
+		return await data.json();
+	}
+
+	async function pollPlexPin() {
+		let data = await fetch(`https://plex.tv/api/v2/pins/${plexId}`, {
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json',
+				'X-Plex-Product': appName,
+				'X-Plex-Client-Identifier': clientIdentifier
+			}
+		});
+
+		let json = await data.json();
+		if ('errors' in json) {
+			toast.error(json.errors[0].message);
+			ongoingAuth = false;
+			clearInterval(pollingInterval);
+		}
+
+		if (json.authToken) {
+			$form.plex_token = json.authToken;
+			clearInterval(pollingInterval);
+			ongoingAuth = false;
+		}
+	}
+
+	async function startLogin(): Promise<void> {
+		ongoingAuth = true;
+		try {
+			const pin = await genPlexPin();
+			if ('errors' in pin) {
+				toast.error(pin.errors[0].message);
+				ongoingAuth = false;
+				return;
+			}
+			plexId = pin.id;
+			plexCode = pin.code;
+
+			window.open(
+				`https://app.plex.tv/auth#?clientID=${clientIdentifier}&code=${plexCode}&context%5Bdevice%5D%5Bproduct%5D=${appName}`
+			);
+
+			pollingInterval = setInterval(pollPlexPin, 2000);
+		} catch (e) {
+			console.error(e);
+		}
+	}
 </script>
 
 <Form.Root
@@ -52,12 +126,30 @@
 				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
 					Plex Token
 				</Form.Label>
-				<Form.Input
+				<!-- <Form.Input
 					class={clsx('transition-all duration-300 text-sm md:text-base', {
 						'blur-sm hover:blur-none focus:blur-none': $form.plex_token.length > 0
 					})}
 					spellcheck="false"
-				/>
+				/> -->
+				<input type="hidden" name="plex_token" id="plex_token" />
+				<Button
+					on:click={async () => {
+						await startLogin();
+					}}
+					disabled={ongoingAuth}
+					size="sm"
+					class="w-full md:max-w-max"
+				>
+					{#if ongoingAuth}
+						<Loader2 class="w-4 h-4 animate-spin mr-2" />
+					{/if}
+					{#if $form.plex_token.length > 0}
+						Reauthenticate with Plex
+					{:else}
+						Authenticate with Plex
+					{/if}
+				</Button>
 			</Form.Item>
 			{#if $errors.plex_token}
 				<Form.Validation class="text-sm md:text-base text-red-500" />
@@ -70,7 +162,7 @@
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes
+				Save changes <span class="ml-1" class:hidden={actionUrl === '?/default'}>and continue</span>
 			</Button>
 		</div>
 	</div>

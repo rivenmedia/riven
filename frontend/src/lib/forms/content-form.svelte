@@ -266,7 +266,7 @@
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes
+				Save changes <span class="ml-1" class:hidden={actionUrl === '?/default'}>and continue</span>
 			</Button>
 		</div>
 	</div>
