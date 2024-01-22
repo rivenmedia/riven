@@ -35,17 +35,25 @@ class Listrr:
         logger.info("Listrr initialized!")
 
     def validate_settings(self) -> bool:
+        """Validate Listrr settings."""
         if not self.settings.enabled:
             logger.debug("Listrr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
-            logger.error("Listrr api key is not set.")
+            logger.error("Listrr api key is not set or invalid.")
             return False
+        for list_name, content_list in [('movie_lists', self.settings.movie_lists), 
+                                        ('show_lists', self.settings.show_lists)]:
+            if content_list is not None:
+                for item in content_list:
+                    if len(item) != 24:
+                        logger.error(f"{list_name} contains an item with invalid length: {item}")
+                        return False
         try:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             return response.ok
         except Exception:
-            logger.error("Listrr url is not reachable.")
+            logger.error("Listrr Error - %s: %s ", response.status_code, response.reason)
             return False
 
     def run(self):
@@ -56,7 +64,8 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         items = list(set(movie_items + show_items))
-        container = self.updater.create_items(items)
+        new_items = [item for item in items if item not in self.media_items]
+        container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Listrr")
         added_items = self.media_items.extend(container)

@@ -124,12 +124,17 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok and response.data.result.status != "error":
+            
+            parsed_data_list = []
+            if response.is_ok and len(response.data.data.streams) > 0:
                 data = {}
                 for stream in response.data.data.streams:
                     title = stream.file.name
-                    if parser.parse(title) and stream.file.hash:
+                    parsed_data = parser.parse(item, title)
+                    if parsed_data["fetch"] and stream.file.hash:
                         data[stream.file.hash] = {"name": title}
+                        parsed_data_list.append(parsed_data)
                 if len(data) > 0:
-                    return parser.sort_streams(data)
+                    item.parsed_data = parsed_data_list
+                    return data
             return {}

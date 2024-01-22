@@ -27,6 +27,8 @@ class MediaItem:
         self.requested_by = item.get("requested_by", None)
         self.file = None
         self.folder = None
+        self.parsed = False
+        self.parsed_data = item.get("parsed_data", [])
 
         # Media related
         self.title = item.get("title", None)
@@ -236,7 +238,8 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __eq__(self, other):
-        return self.number == other.number
+        if type(self) == type(other) and self.parent == other.parent:
+            return self.number == other.number
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.__class__.__name__}"

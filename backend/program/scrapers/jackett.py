@@ -21,7 +21,7 @@ class Jackett:
         self.api_key = None
         self.settings = JackettConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.initialized = self.validate_settings()
-        if not self.initialized or not self.api_key:
+        if not self.initialized and not self.api_key:
             return
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=3)
@@ -72,25 +72,29 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                query = f"&cat=2010,2020,2030,2040,2045,2050,2080&t=movie&q={item.title} {item.aired_at.year}"
+                query = f"&cat=2000,2010,2020,2030,2040,2045,2050,2080&t=movie&q={item.title}&year{item.aired_at.year}"
             if item.type == "season":
-                query = f"&cat=5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
+                query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
             if item.type == "episode":
-                query = f"&cat=5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
+                query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
             url = (f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}")
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
+            
             if response.is_ok:
                 data = {}
-                for stream in response.data['rss']['channel'].get('item', []):
-                    title = stream.get('title')
-                    if parser.check_for_title_match(item, title):
-                        if parser.parse(title):
-                            attr = stream.get('torznab:attr', [])
-                            infohash_attr = next((a for a in attr if a.get('@name') == 'infohash'), None)
-                            if infohash_attr:
-                                infohash = infohash_attr.get('@value')
-                                data[infohash] = {"name": title}
+                parsed_data_list = []
+                for stream in response.data["rss"]["channel"].get("item", []):
+                    title = stream.get("title")
+                    parsed_data = parser.parse(item, title)
+                    if parsed_data.get("fetch", True) and parsed_data.get("title_match", False):
+                        attr = stream.get("torznab:attr", [])
+                        infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
+                        if infohash_attr:
+                            infohash = infohash_attr.get("@value")
+                            data[infohash] = {"name": title}
+                            parsed_data_list.append(parsed_data)
                 if len(data) > 0:
-                    return parser.sort_streams(data)
+                    item.parsed_data = parsed_data_list
+                    return data
             return {}
