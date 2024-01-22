@@ -1,7 +1,7 @@
 """Plex Watchlist Module"""
 from typing import Optional
 from pydantic import BaseModel
-from requests import ConnectTimeout
+from requests import ConnectTimeout, HTTPError
 from utils.request import get, ping
 from utils.logger import logger
 from utils.settings import settings_manager
@@ -36,11 +36,18 @@ class PlexWatchlist:
             return False
         if self.settings.rss:
             try:
-                response = ping(self.settings.rss, timeout=15)
+                response = ping(self.settings.rss)
                 if response.ok:
                     self.rss_enabled = True
                     return True
                 else:
+                    logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
+                    return True
+            except HTTPError as e:
+                if e.response.status_code in [404]:
+                    logger.error("Plex RSS URL is invalid. Falling back to normal Watchlist.")
+                    return True
+                if e.response.status_code >= 400 and e.response.status_code <= 500:
                     logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
                     return True
             except Exception:

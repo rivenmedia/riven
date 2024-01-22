@@ -142,8 +142,15 @@ def create_item_from_imdb_id(imdb_id: str):
             media_type = response.data[0].type
             if media_type == "movie":
                 data = response.data[0].movie
-            else:
+            elif media_type == "show":
                 data = response.data[0].show
+            elif media_type == "season":
+                data = response.data[0].season
+            elif media_type == "episode":
+                data = response.data[0].episode
+            else:
+                logger.debug("Unknown item %s with type %s", imdb_id, media_type)
+                return None
             if data:
                 return _map_item_from_data(data, media_type)
     return None

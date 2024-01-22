@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 from plexapi.server import PlexServer
 from pydantic import BaseModel
+from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
 from utils.settings import settings_manager as settings
 from program.media.container import MediaItemContainer
@@ -220,16 +221,16 @@ def _map_item_from_data(item):
         # This is due to season 0 (specials) not having imdb ids.
         # Attempt to get the imdb id from the tvdb id if we don't have it.
         # Needs more testing..
-        # if not imdb_id:
-        #     logger.debug("Unable to find imdb, trying tvdb for %s", title)
-        #     tvdb_id = next(
-        #         (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
-        #     )
-        #     if tvdb_id:
-        #         logger.debug("Unable to find imdb, but found tvdb: %s", tvdb_id)
-        #         imdb_id = get_imdbid_from_tvdb(tvdb_id)
-        #         if imdb_id:
-        #             logger.debug("Found imdb from tvdb: %s", imdb_id)
+        if not imdb_id:
+            logger.debug("Unable to find imdb, trying tvdb for %s", title)
+            tvdb_id = next(
+                (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
+            )
+            if tvdb_id:
+                logger.debug("Unable to find imdb, but found tvdb: %s", tvdb_id)
+                imdb_id = get_imdbid_from_tvdb(tvdb_id)
+                if imdb_id:
+                    logger.debug("Found imdb from tvdb: %s", imdb_id)
 
     media_item_data = {
         "title": title,

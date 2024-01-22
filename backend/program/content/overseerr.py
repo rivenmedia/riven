@@ -65,7 +65,6 @@ class Overseerr:
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""
-
         response = get(
             self.settings.url + f"/api/v1/request?take={amount}",
             additional_headers=self.headers,
@@ -79,7 +78,6 @@ class Overseerr:
                         ids.append(imdb_id)
                 else:
                     ids.append(item.media.imdbId)
-
         return ids
 
     def get_imdb_id(self, overseerr_item):

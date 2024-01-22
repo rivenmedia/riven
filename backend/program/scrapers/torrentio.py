@@ -1,6 +1,7 @@
 """ Torrentio scraper module """
 from typing import Optional
 from pydantic import BaseModel
+from requests import HTTPError, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
@@ -20,7 +21,7 @@ class Torrentio:
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=3)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate_settings()
         if not self.initialized:
             return
@@ -43,10 +44,11 @@ class Torrentio:
             return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.debug("Torrentio rate limit hit for item: %s", item.log_string)
             return
 
     def _scrape_item(self, item):
-        data = self.api_scrape(item)
+        data = self.api_scrape(item)  # Unpack the tuple to get data and stream_count
         if len(data) > 0:
             item.streams.update(data)
             logger.debug("Found %s streams for %s", len(data), item.log_string)
@@ -74,19 +76,20 @@ class Torrentio:
                 + f"/stream/{scrape_type}/{imdb_id}"
             )
             if identifier:
-                url += f"{identifier}"
+                url += identifier
             with self.second_limiter:
-                response = get(f"{url}.json", retry_if_failed=False, timeout=30)
-            if response.is_ok:
+                response = get(f"{url}.json", retry_if_failed=False, timeout=60)
+
+            parsed_data_list = []
+            if response.is_ok and len(response.data.streams) > 0:
                 data = {}
-                if len(response.data.streams) == 0:
-                    return data
                 for stream in response.data.streams:
-                    title = stream.title.split("\n👤")[0]
-                    if parser.parse(title):
-                        data[stream.infoHash] = {
-                            "name": title,
-                        }
+                    torrent = stream.title.split("\n👤")[0]
+                    parsed_data = parser.parse(item, torrent)
+                    if parsed_data.get("fetch", False):
+                        data[stream.infoHash] = {"name": torrent}
+                        parsed_data_list.append(parsed_data)
                 if len(data) > 0:
-                    return parser.sort_streams(data)
+                    item.parsed_data = parsed_data_list
+                    return data
             return {}
