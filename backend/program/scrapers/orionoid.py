@@ -28,11 +28,10 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.max_calls = 50 if not self.is_premium else 999999
-        self.minute_limiter = RateLimiter(
-            max_calls=self.max_calls, period=86400, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.max_calls = 50 if not self.is_premium else 60
+        self.period = 86400 if not self.is_premium else 60
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Orionoid initialized!")
 
     def validate_settings(self) -> bool:
