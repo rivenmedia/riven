@@ -79,17 +79,17 @@ class Torrentio:
                 url += identifier
             with self.second_limiter:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
-
-            parsed_data_list = []
             if response.is_ok and len(response.data.streams) > 0:
-                data = {}
-                for stream in response.data.streams:
-                    torrent = stream.title.split("\n👤")[0]
-                    parsed_data = parser.parse(item, torrent)
-                    if parsed_data.get("fetch", False):
-                        data[stream.infoHash] = {"name": torrent}
-                        parsed_data_list.append(parsed_data)
-                if len(data) > 0:
+                parsed_data_list = [
+                    parser.parse(item, stream.title.split("\n👤")[0])
+                    for stream in response.data.streams
+                ]
+                data = {
+                    stream.infoHash: {"name": stream.title.split("\n👤")[0]}
+                    for stream, parsed_data in zip(response.data.streams, parsed_data_list)
+                    if parsed_data.get("fetch", False)
+                }
+                if data:
                     item.parsed_data = parsed_data_list
                     return data
             return {}

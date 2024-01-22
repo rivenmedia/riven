@@ -80,21 +80,18 @@ class Jackett:
             url = (f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}")
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
-            
             if response.is_ok:
                 data = {}
-                parsed_data_list = []
-                for stream in response.data["rss"]["channel"].get("item", []):
-                    title = stream.get("title")
-                    parsed_data = parser.parse(item, title)
+                streams = response.data["rss"]["channel"].get("item", [])
+                parsed_data_list = [parser.parse(item, stream.get("title")) for stream in streams]
+                for stream, parsed_data in zip(streams, parsed_data_list):
                     if parsed_data.get("fetch", True) and parsed_data.get("title_match", False):
                         attr = stream.get("torznab:attr", [])
                         infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
-                            data[infohash] = {"name": title}
-                            parsed_data_list.append(parsed_data)
-                if len(data) > 0:
+                            data[infohash] = {"name": stream.get("title")}
+                if data:
                     item.parsed_data = parsed_data_list
                     return data
-            return {}
+                return {}
