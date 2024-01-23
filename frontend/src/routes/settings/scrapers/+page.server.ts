@@ -1,5 +1,5 @@
 import type { PageServerLoad, Actions } from './$types';
-import { fail, error } from '@sveltejs/kit';
+import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { scrapersSettingsSchema } from '$lib/schemas/setting';
 import { saveSettings } from '$lib/helpers';
@@ -40,6 +40,10 @@ export const actions: Actions = {
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
+		}
+
+		if (event.url.searchParams.get('onboarding') === 'true') {
+			redirect(302, '/?onboarding=true');
 		}
 
 		return message(form, 'Settings saved!');

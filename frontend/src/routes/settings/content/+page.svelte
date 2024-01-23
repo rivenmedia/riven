@@ -9,5 +9,5 @@
 	<h2 class="text-2xl md:text-3xl font-semibold">Content Settings</h2>
 	<p class="text-base md:text-lg text-muted-foreground">Configure content providers for Iceberg.</p>
 
-	<ContentForm data={data.form} />
+	<ContentForm data={data.form} actionUrl="/settings/content" />
 </div>

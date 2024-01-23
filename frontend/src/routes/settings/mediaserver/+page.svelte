@@ -10,5 +10,5 @@
 		Configure media server settings for Iceberg.
 	</p>
 
-	<MediaServerForm data={data.form} />
+	<MediaServerForm data={data.form} actionUrl="/settings/mediaserver" />
 </div>

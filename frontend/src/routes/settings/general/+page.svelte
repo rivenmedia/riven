@@ -27,5 +27,5 @@
 		* These settings require a restart to take effect.
 	</p>
 
-	<GeneralForm data={data.form} />
+	<GeneralForm data={data.form} actionUrl="/settings/general"/>
 </div>

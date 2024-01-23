@@ -9,5 +9,5 @@
 	<h2 class="text-2xl md:text-3xl font-semibold">Scraper Settings</h2>
 	<p class="text-base md:text-lg text-muted-foreground">Configure scraper settings for Iceberg.</p>
 
-	<ScrapersForm data={data.form} />
+	<ScrapersForm data={data.form} actionUrl="/settings/scrapers"/>
 </div>
