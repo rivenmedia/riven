@@ -35,7 +35,12 @@ export const contentSettingsSchema = z.object({
 	mdblist_lists: z.string().array().optional().default(['']),
 	plex_watchlist_enabled: z.boolean().default(false),
 	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
-	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80)
+	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80),
+	listrr_enabled: z.boolean().default(false),
+	listrr_api_key: z.string().optional().default(''),
+	listrr_update_interval: z.number().nonnegative().int().optional().default(80),
+	listrr_movie_lists: z.string().array().optional().default(['']),
+	listrr_show_lists: z.string().array().optional().default([''])
 });
 
 export type GeneralSettingsSchema = typeof generalSettingsSchema;

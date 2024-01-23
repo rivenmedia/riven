@@ -60,7 +60,12 @@ export function contentSettingsToPass(data:any) {
 		plex_watchlist_enabled: data.data.content.plex_watchlist.enabled,
 		plex_watchlist_rss: data.data.content.plex_watchlist?.rss || '',
 		plex_watchlist_update_interval:
-			data.data.content.plex_watchlist?.update_interval || 80
+			data.data.content.plex_watchlist?.update_interval || 80,
+		listrr_enabled: data.data.content.listrr.enabled,
+		listrr_api_key: data.data.content.listrr?.api_key || '',
+		listrr_update_interval: data.data.content.listrr?.update_interval || 80,
+		listrr_movie_lists: data.data.content.listrr?.movie_lists || [''],
+		listrr_show_lists: data.data.content.listrr?.show_lists || ['']
 	}
 }
 
@@ -84,6 +89,13 @@ export function contentSettingsToSet(form: SuperValidated<ContentSettingsSchema>
 					enabled: form.data.plex_watchlist_enabled,
 					rss: form.data.plex_watchlist_rss,
 					update_interval: form.data.plex_watchlist_update_interval
+				},
+				listrr: {
+					enabled: form.data.listrr_enabled,
+					api_key: form.data.listrr_api_key,
+					update_interval: form.data.listrr_update_interval,
+					movie_lists: form.data.listrr_movie_lists,
+					show_lists: form.data.listrr_show_lists
 				}
 			}
 		}

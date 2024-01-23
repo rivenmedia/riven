@@ -132,7 +132,7 @@
 					})}
 					spellcheck="false"
 				/> -->
-				<input type="hidden" name="plex_token" id="plex_token" />
+				<input type="hidden" name="plex_token" id="plex_token" value={$form.plex_token} />
 				<Button
 					on:click={async () => {
 						await startLogin();
