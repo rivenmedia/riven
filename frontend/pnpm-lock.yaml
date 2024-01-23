@@ -37,7 +37,7 @@ dependencies:
     version: 0.3.6(svelte@4.2.8)
   sveltekit-superforms:
     specifier: ^1.13.1
-    version: 1.13.1(@sveltejs/kit@2.3.2)(svelte@4.2.8)(zod@3.22.4)
+    version: 1.13.1(@sveltejs/kit@2.4.2)(svelte@4.2.8)(zod@3.22.4)
   tailwind-merge:
     specifier: ^2.2.0
     version: 2.2.0
@@ -54,10 +54,10 @@ dependencies:
 devDependencies:
   '@sveltejs/adapter-auto':
     specifier: ^3.0.0
-    version: 3.0.0(@sveltejs/kit@2.3.2)
+    version: 3.0.0(@sveltejs/kit@2.4.2)
   '@sveltejs/adapter-node':
     specifier: ^3.0.1
-    version: 3.0.1(@sveltejs/kit@2.3.2)
+    version: 3.0.1(@sveltejs/kit@2.4.2)
   '@sveltejs/kit':
     specifier: ^2.3.2
     version: 2.3.2(@sveltejs/vite-plugin-svelte@3.0.1)(svelte@4.2.8)(vite@5.0.12)
@@ -693,7 +693,7 @@ packages:
     resolution: {integrity: sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA==}
     dev: true
 
-  /@sveltejs/adapter-auto@3.0.0(@sveltejs/kit@2.3.2):
+  /@sveltejs/adapter-auto@3.0.0(@sveltejs/kit@2.4.2):
     resolution: {integrity: sha512-UNWSs/rOReBRfI/xFwSO2WYF1a7PT74SrWOHJmSNLY3Lq+zbH0uuvnlP+TmrTUBvOTkou3WJDjL6lK3n6aOUgQ==}
     peerDependencies:
       '@sveltejs/kit': ^2.0.0
@@ -702,7 +702,7 @@ packages:
       import-meta-resolve: 4.0.0
     dev: true
 
-  /@sveltejs/adapter-node@3.0.1(@sveltejs/kit@2.3.2):
+  /@sveltejs/adapter-node@3.0.1(@sveltejs/kit@2.4.2):
     resolution: {integrity: sha512-w1NE6K60WQ7JcNa4IyrhzoyH6MIuGdBL9Bd3EaRNcSYdvCG4mOzXI6kLI3kUhLI8krKGoQeOxLhchC5xLnqo6Q==}
     peerDependencies:
       '@sveltejs/kit': ^2.0.0
@@ -1675,7 +1675,7 @@ packages:
       zod: ^3.22.2
     dependencies:
       svelte: 4.2.8
-      sveltekit-superforms: 1.13.1(@sveltejs/kit@2.3.2)(svelte@4.2.8)(zod@3.22.4)
+      sveltekit-superforms: 1.13.1(@sveltejs/kit@2.4.2)(svelte@4.2.8)(zod@3.22.4)
       zod: 3.22.4
     dev: false
 
@@ -2804,7 +2804,7 @@ packages:
       magic-string: 0.30.5
       periscopic: 3.1.0
 
-  /sveltekit-superforms@1.13.1(@sveltejs/kit@2.3.2)(svelte@4.2.8)(zod@3.22.4):
+  /sveltekit-superforms@1.13.1(@sveltejs/kit@2.4.2)(svelte@4.2.8)(zod@3.22.4):
     resolution: {integrity: sha512-aWHAV6t6+7g37IGFNLRtbRIoqfC3a56Hf4/tTUNFZfwO2mOQGfeMb49WWBLdZZTrFRPGngfNRUxQzeoO3GspnQ==}
     peerDependencies:
       '@sveltejs/kit': 1.x || 2.x
