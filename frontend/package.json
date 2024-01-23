@@ -40,7 +40,7 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"bits-ui": "^0.14.0",
+		"bits-ui": "^0.15.1",
 		"clsx": "^2.0.0",
 		"cmdk-sv": "^0.0.12",
 		"formsnap": "^0.4.2",
