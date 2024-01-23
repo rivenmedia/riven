@@ -13,9 +13,6 @@
 		"format": "prettier --write ."
 	},
 	"devDependencies": {
-		"@melt-ui/pp": "^0.3.0",
-		"@melt-ui/svelte": "^0.70.0",
-		"@sveltejs/adapter-auto": "^3.0.0",
 		"@sveltejs/adapter-node": "^3.0.1",
 		"@sveltejs/kit": "^2.4.2",
 		"@sveltejs/vite-plugin-svelte": "^3.0.0",
