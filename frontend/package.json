@@ -44,7 +44,7 @@
 		"clsx": "^2.0.0",
 		"cmdk-sv": "^0.0.12",
 		"formsnap": "^0.4.2",
-		"lucide-svelte": "^0.309.0",
+		"lucide-svelte": "^0.314.0",
 		"luxon": "^3.4.4",
 		"mode-watcher": "^0.1.2",
 		"motion": "^10.17.0",
