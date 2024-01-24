@@ -1,9 +1,11 @@
-<a align="center" href="https://github.com/dreulavelle/iceberg">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-dark.png">
-    <img alt="Iceberg" src="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-light.png">
-  </picture>
-</a>
+<div align="center">
+  <a href="https://github.com/dreulavelle/iceberg">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-dark.png">
+      <img alt="Iceberg" src="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-light.png">
+    </picture>
+  </a>
+</div>
 
 <div align="center">
   <a href="https://github.com/dreulavelle/iceberg/stargazers"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/dreulavelle/iceberg"></a>
