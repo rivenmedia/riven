@@ -15,18 +15,22 @@ export interface UserResponse {
 	expiration: string;
 }
 
-export interface PlexDebridItem {
+export interface IcebergItem {
 	item_id: number;
 	title: string;
 	type: string;
-	imdb_id: string;
+	imdb_id: string | null;
+	tvdb_id: number | null;
+	tmdb_id: number | null;
 	state: string;
 	imdb_link: string;
 	aired_at: string;
 	genres: string[];
-	guid: string;
+	guid: string | null;
 	requested_at: string;
 	requested_by: string;
+	scraped_at: string | null;
+	scraped_times: number | null;
 }
 
 export interface StatusInterface {
