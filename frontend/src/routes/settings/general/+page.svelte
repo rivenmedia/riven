@@ -2,6 +2,8 @@
 	import type { PageData } from './$types';
 	import * as Accordion from '$lib/components/ui/accordion';
 	import GeneralForm from '$lib/forms/general-form.svelte';
+	import * as Accordion from '$lib/components/ui/accordion';
+	import GeneralForm from '$lib/forms/general-form.svelte';
 
 	export let data: PageData;
 </script>
