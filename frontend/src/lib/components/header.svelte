@@ -29,9 +29,9 @@
 
 <header class="flex items-center justify-between w-full p-8 md:px-24 lg:px-32">
 	<a href="/" class="flex items-center gap-2">
-		<Mountain class="h-8 w-8" />
-		<h1 class="text-3xl font-semibold tracking-wider">Iceberg</h1>
-		<div class="ml-2 hidden lg:flex items-center p-2 px-4 bg-slate-100 dark:bg-slate-900 rounded-md">
+		<Mountain class="size-6 md:size-8" />
+		<h1 class="text-xl md:text-2xl font-semibold">Iceberg</h1>
+		<div class="ml-2 hidden lg:flex items-center p-2 px-4 bg-slate-100 dark:bg-slate-900 rounded-md text-sm font-medium">
 			<div class="flex items-center">
 				<Command class="h-4 w-4" />
 				<span>K</span>

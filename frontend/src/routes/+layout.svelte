@@ -91,7 +91,7 @@
 <ModeWatcher track={true} />
 <Toaster richColors closeButton />
 
-<div class="font-primary flex flex-col w-full h-full overflow-x-hidden">
+<div class="font-primary font-medium flex flex-col w-full h-full overflow-x-hidden">
 	{#if !$page.url.pathname.startsWith('/onboarding')}
 		<Header />
 	{/if}
@@ -100,15 +100,15 @@
 
 <Command.Dialog bind:open>
 	<Command.Input
-		class="text-base lg:text-lg font-primary"
+		class="font-medium font-primary"
 		placeholder="Type a command or search..."
 	/>
-	<Command.List class="font-primary">
-		<Command.Empty class="lg:text-base">No results found.</Command.Empty>
+	<Command.List class="font-primary font-medium">
+		<Command.Empty>No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">
 			{#each suggestedItems as item}
 				<Command.Item
-					class="lg:text-base"
+					class="text-sm"
 					onSelect={async () => {
 						open = false;
 						await goto(item.href);
@@ -123,7 +123,7 @@
 		<Command.Group heading="All">
 			{#each commandItems as item}
 				<Command.Item
-					class="lg:text-base"
+					class="text-sm"
 					onSelect={async () => {
 						open = false;
 						await goto(item.href);

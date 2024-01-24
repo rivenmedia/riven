@@ -111,27 +111,19 @@
 	<div class="flex flex-col my-4 gap-4">
 		<Form.Field {config} name="plex_url">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
-					Plex URL
-				</Form.Label>
-				<Form.Input class="text-sm md:text-base" spellcheck="false" />
+				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">Plex URL</Form.Label>
+				<Form.Input spellcheck="false" />
 			</Form.Item>
 			{#if $errors.plex_url}
-				<Form.Validation class="text-sm md:text-base text-red-500" />
+				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="plex_token">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 					Plex Token
 				</Form.Label>
-				<!-- <Form.Input
-					class={clsx('transition-all duration-300 text-sm md:text-base', {
-						'blur-sm hover:blur-none focus:blur-none': $form.plex_token.length > 0
-					})}
-					spellcheck="false"
-				/> -->
 				<input type="hidden" name="plex_token" id="plex_token" value={$form.plex_token} />
 				<Button
 					on:click={async () => {
@@ -139,7 +131,7 @@
 					}}
 					disabled={ongoingAuth}
 					size="sm"
-					class="w-full md:max-w-max"
+					class="w-full md:max-w-max text-xs font-semibold"
 				>
 					{#if ongoingAuth}
 						<Loader2 class="w-4 h-4 animate-spin mr-2" />
@@ -152,17 +144,17 @@
 				</Button>
 			</Form.Item>
 			{#if $errors.plex_token}
-				<Form.Validation class="text-sm md:text-base text-red-500" />
+				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
-			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max">
+			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max text-xs font-semibold">
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes <span class="ml-1" class:hidden={actionUrl === '?/default'}>and continue</span>
+				Save changes <span class="ml-1" class:hidden={$page.url.pathname === '/settings/mediaserver'}>and continue</span>
 			</Button>
 		</div>
 	</div>

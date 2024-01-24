@@ -56,7 +56,7 @@ const config = {
 			},
 			fontFamily: {
 				sans: [...fontFamily.sans],
-				primary: ['Afacad', ...fontFamily.sans],
+				primary: ['Montserrat', ...fontFamily.sans],
 			}
 		}
 	},
