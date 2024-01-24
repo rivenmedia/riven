@@ -220,17 +220,16 @@ def _map_item_from_data(item):
         # All movies have imdb, but not all shows do.
         # This is due to season 0 (specials) not having imdb ids.
         # Attempt to get the imdb id from the tvdb id if we don't have it.
-        # Needs more testing..
-        # if not imdb_id:
-        #     logger.debug("Unable to find imdb, trying tvdb for %s", title)
-        #     tvdb_id = next(
-        #         (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
-        #     )
-        #     if tvdb_id:
-        #         logger.debug("Unable to find imdb, but found tvdb: %s", tvdb_id)
-        #         imdb_id = get_imdbid_from_tvdb(tvdb_id)
-        #         if imdb_id:
-        #             logger.debug("Found imdb from tvdb: %s", imdb_id)
+        # Uses Trakt to get the imdb id from the tvdb id.
+        if not imdb_id:
+            tvdb_id = next(
+                (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
+            )
+            if tvdb_id:
+                imdb_id = get_imdbid_from_tvdb(tvdb_id)
+                if imdb_id:
+                    logger.debug("%s was missing IMDb ID, found IMDb ID from TVdb ID: %s", title, imdb_id)
+                # If we still don't have an imdb id, we could check TMdb or use external services like cinemeta.
 
     media_item_data = {
         "title": title,
