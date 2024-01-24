@@ -75,10 +75,10 @@ class Orionoid:
             return
 
     def _scrape_item(self, item):
-        data = self.api_scrape(item)
+        data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams for %s", len(data), item.log_string)
+            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s", item.log_string)
 
@@ -123,7 +123,6 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-
             if response.is_ok and len(response.data.data.streams) > 0:
                 parsed_data_list = [
                     parser.parse(item, stream.file.name)
@@ -136,6 +135,6 @@ class Orionoid:
                     if parsed_data["fetch"]
                 }
                 if data:
-                    item.parsed_data = parsed_data_list
-                    return data
-            return {}
+                    item.parsed_data.extend(parsed_data_list)
+                    return data, len(response.data.data.streams)
+            return {}, len(response.data.data.streams) or 0

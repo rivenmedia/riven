@@ -1,7 +1,7 @@
 """ Torrentio scraper module """
 from typing import Optional
 from pydantic import BaseModel
-from requests import HTTPError, ReadTimeout
+from requests import ConnectTimeout, HTTPError, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
@@ -39,21 +39,26 @@ class Torrentio:
         and update the object with scraped streams"""
         try:
             self._scrape_item(item)
-        except RequestException:
-            self.minute_limiter.limit_hit()
-            return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.debug("Torrentio rate limit hit for item: %s", item.log_string)
             return
+        except ConnectTimeout:
+            self.minute_limiter.limit_hit()
+            logger.debug("Torrentio connection timeout for item: %s", item.log_string)
+            return
+        except RequestException as e:
+            self.minute_limiter.limit_hit()
+            logger.debug("Torrentio request status %s exception: %s", e.response.status_code, e.response.reason)
+            return
 
     def _scrape_item(self, item):
-        data = self.api_scrape(item)  # Unpack the tuple to get data and stream_count
+        data, stream_count = self.api_scrape(item)  # Unpack the tuple to get data and stream_count
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams for %s", len(data), item.log_string)
+            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
-            logger.debug("Could not find streams for %s", item.log_string)
+            logger.debug("Could not find streams for %s out of %s", item.log_string, stream_count)
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""
@@ -81,15 +86,15 @@ class Torrentio:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
             if response.is_ok and len(response.data.streams) > 0:
                 parsed_data_list = [
-                    parser.parse(item, stream.title.split("\n👤")[0])
-                    for stream in response.data.streams
+                    parser.parse(item, stream.title.split("\n👤")[0].split("\n")[0]) for stream in response.data.streams
                 ]
                 data = {
-                    stream.infoHash: {"name": stream.title.split("\n👤")[0]}
+                    stream.infoHash: {"name": stream.title.split("\n👤")[0].split("\n")[0]}
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
                     if parsed_data.get("fetch", False)
                 }
                 if data:
-                    item.parsed_data = parsed_data_list
-                    return data
-            return {}
+                    item.parsed_data.extend(parsed_data_list)
+                    item.parsed = True
+                    return data, len(response.data.streams)
+            return {}, len(response.data.streams) or 0
