@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ModeWatcher } from 'mode-watcher';
-	import { Toaster } from 'svelte-sonner';
+	import { Toaster } from '$lib/components/ui/sonner';
 	import '../app.pcss';
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
@@ -8,6 +8,11 @@
 	import Header from '$lib/components/header.svelte';
 	import * as Command from '$lib/components/ui/command';
 	import { Settings, CircleDashed, SlidersHorizontal, Info, Layers, Tv } from 'lucide-svelte';
+	import { page } from '$app/stores';
+	import { setContext } from 'svelte';
+	import { dev } from '$app/environment';
+
+	setContext('formDebug', dev);
 
 	beforeNavigate(() => {
 		NProgress.start();
@@ -38,12 +43,17 @@
 <Toaster richColors closeButton />
 
 <div class="font-primary flex flex-col w-full h-full overflow-x-hidden">
-	<Header />
+	{#if !$page.url.pathname.startsWith('/onboarding')}
+		<Header />
+	{/if}
 	<slot />
 </div>
 
 <Command.Dialog bind:open>
-	<Command.Input class="text-base lg:text-lg font-primary" placeholder="Type a command or search..." />
+	<Command.Input
+		class="text-base lg:text-lg font-primary"
+		placeholder="Type a command or search..."
+	/>
 	<Command.List class="font-primary">
 		<Command.Empty class="lg:text-base">No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">

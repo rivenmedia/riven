@@ -1,5 +1,5 @@
 import type { PageServerLoad, Actions } from './$types';
-import { fail, error, redirect } from '@sveltejs/kit';
+import { fail, error } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { mediaServerSettingsSchema } from '$lib/schemas/setting';
 import { saveSettings } from '$lib/helpers';
@@ -25,33 +25,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	let data: any = await getPartialSettings();
 	let toPassToSchema = mediaServerSettingsToPass(data);
 
-	const form = await superValidate(toPassToSchema, mediaServerSettingsSchema);
+	const form = await superValidate(toPassToSchema, mediaServerSettingsSchema, { errors: false });
 	return { form };
-};
-
-export const actions: Actions = {
-	default: async (event) => {
-		const form = await superValidate(event, mediaServerSettingsSchema);
-		if (!form.valid) {
-			return fail(400, {
-				form
-			});
-		}
-		const toSet = mediaServerSettingsToSet(form);
-
-		try {
-			const data = await saveSettings(event.fetch, toSet);
-		} catch (e) {
-			console.error(e);
-			return message(form, 'Unable to save settings. API is down.', {
-				status: 400
-			});
-		}
-
-		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/3');
-		}
-
-		return message(form, 'Settings saved!');
-	}
 };
