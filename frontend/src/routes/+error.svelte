@@ -6,4 +6,5 @@
 	<h1 class="text-3xl font-bold text-center">Something went wrong</h1>
 	<p class="text-base text-muted-foreground">Error code: {$page.status}</p>
 	<p class="text-sm text-muted-foreground">Error message: {$page.error?.message}</p>
+	
 </div>
