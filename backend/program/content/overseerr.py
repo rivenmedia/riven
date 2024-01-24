@@ -5,7 +5,7 @@ from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tvdb
+from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb, get_imdbid_from_tvdb
 
 
 class OverseerrConfig(BaseModel):
@@ -65,7 +65,6 @@ class Overseerr:
 
     def _get_items_from_overseerr(self, amount: int):
         """Fetch media from overseerr"""
-
         response = get(
             self.settings.url + f"/api/v1/request?take={amount}",
             additional_headers=self.headers,
@@ -98,18 +97,31 @@ class Overseerr:
             self.settings.url + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
-        if response.is_ok:
+        if response.is_ok and response.data.externalIds:
             imdb_id = response.data.externalIds.imdbId
             if imdb_id:
                 return imdb_id
-            if not imdb_id:
-                # I've seen a case where no imdbId was returned but a tvdbId was
+            elif not imdb_id and response.data.externalIds.tvdbId:
                 imdb_id = get_imdbid_from_tvdb(response.data.externalIds.tvdbId)
                 if imdb_id:
+                    logger.debug(
+                        "Could not find imdbId for %s but found it from tvdbId %s", 
+                        overseerr_item.title, 
+                        response.data.externalIds.tvdbId
+                        )
+                    return imdb_id
+            elif not imdb_id and response.data.externalIds.tmdbId:
+                imdb_id = get_imdbid_from_tmdb(response.data.externalIds.tmdbId)
+                if imdb_id:
+                    logger.debug(
+                        "Could not find imdbId for %s but found it from tmdbId %s", 
+                        overseerr_item.title, 
+                        response.data.externalIds.tmdbId
+                        )
                     return imdb_id
             self.not_found_ids.append(f"{id_extension}{external_id}")
         title = getattr(response.data, "title", None) or getattr(
             response.data, "originalName", None
         )
-        logger.debug("Could not get imdbId for %s", title)
+        logger.debug("Could not get imdbId for %s, or match with external id", title)
         return None
