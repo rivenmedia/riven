@@ -71,15 +71,15 @@
 	{#await data.items}
 		<div class="flex items-center gap-1 w-full justify-center">
 			<Loader2 class="animate-spin w-4 h-4" />
-			<p class="text-lg text-muted-foreground">Loading library items...</p>
+			<p class="text-muted-foreground">Loading library items...</p>
 		</div>
 	{:then items}
 		<div class="flex flex-row items-center justify-between">
 			<div class="flex flex-col items-start">
-				<h1 class="text-3xl md:text-4xl font-semibold">
-					Status <span class="text-xl md:text-2xl">({items.items.length})</span>
+				<h1 class="text-2xl md:text-3xl font-semibold">
+					Status <span class="text-lg md:text-xl">({items.items.length})</span>
 				</h1>
-				<p class="md:text-lg text-muted-foreground">
+				<p class="text-muted-foreground">
 					This page shows the status of your library items.
 				</p>
 			</div>
@@ -127,13 +127,13 @@
 		<Accordion.Root>
 			<Accordion.Item value="item-1">
 				<Accordion.Trigger>
-					<div class="flex items-center gap-2 md:text-lg">
+					<div class="flex items-center gap-2 text-sm">
 						<Info class="h-4 w-4" />
 						<p>Learn more about status badges</p>
 					</div>
 				</Accordion.Trigger>
 				<Accordion.Content>
-					<ul class="list-disc list-inside md:text-lg">
+					<ul class="list-disc list-inside">
 						{#each Object.keys(statusInfo) as key (key)}
 							<li>
 								<span class="font-semibold {statusInfo[key].color}">
@@ -156,8 +156,8 @@
 		{/each}
 	{:catch error}
 		<div class="flex flex-col items-center justify-center w-full h-full font-primary">
-			<h1 class="text-4xl font-bold text-center">Something went wrong</h1>
-			<p class="text-lg text-muted-foreground">Error message: {error.message}</p>
+			<h1 class="text-3xl font-bold text-center">Something went wrong</h1>
+			<p class="text-base text-muted-foreground">Error message: {error.message}</p>
 		</div>
 	{/await}
 </div>

@@ -6,8 +6,8 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-2xl md:text-3xl font-semibold">Content Settings</h2>
-	<p class="text-base md:text-lg text-muted-foreground">Configure content providers for Iceberg.</p>
+	<h2 class="text-xl md:text-2xl font-semibold">Content Settings</h2>
+	<p class="text-sm md:text-base text-muted-foreground">Configure content providers for Iceberg.</p>
 
 	<ContentForm data={data.form} actionUrl="/settings/content" />
 </div>

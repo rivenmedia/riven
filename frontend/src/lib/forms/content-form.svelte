@@ -10,7 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Form from '$lib/components/ui/form';
-	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/schemas/setting';
+	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 
@@ -126,35 +126,33 @@
 >
 	<div class="flex flex-col my-4 gap-4">
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-			<p class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
-				Content Providers
-			</p>
+			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Content Providers</p>
 			<div class="flex flex-wrap gap-4">
 				<Form.Field {config} name="overseerr_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Overseerr</Form.Label>
+						<Form.Label>Overseerr</Form.Label>
 					</div>
 				</Form.Field>
 
 				<Form.Field {config} name="mdblist_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Mdblist</Form.Label>
+						<Form.Label>Mdblist</Form.Label>
 					</div>
 				</Form.Field>
 
 				<Form.Field {config} name="plex_watchlist_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Plex Watchlists</Form.Label>
+						<Form.Label>Plex Watchlists</Form.Label>
 					</div>
 				</Form.Field>
 
 				<Form.Field {config} name="listrr_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Listrr</Form.Label>
+						<Form.Label>Listrr</Form.Label>
 					</div>
 				</Form.Field>
 			</div>
@@ -164,15 +162,13 @@
 			<div transition:slide>
 				<Form.Field {config} name="overseerr_url">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Overseerr URL
 						</Form.Label>
-						<Form.Input class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input spellcheck="false" />
 					</Form.Item>
 					{#if $errors.overseerr_url}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -180,20 +176,18 @@
 			<div transition:slide>
 				<Form.Field {config} name="overseerr_api_key">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Overseerr API Key
 						</Form.Label>
 						<Form.Input
-							class={clsx('transition-all duration-300 text-sm md:text-base', {
+							class={clsx('transition-all duration-300', {
 								'blur-sm hover:blur-none focus:blur-none': $form.overseerr_api_key.length > 0
 							})}
 							spellcheck="false"
 						/>
 					</Form.Item>
 					{#if $errors.overseerr_api_key}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -203,15 +197,13 @@
 			<div transition:slide>
 				<Form.Field {config} name="plex_watchlist_rss">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Plex RSS URL
 						</Form.Label>
-						<Form.Input class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input spellcheck="false" />
 					</Form.Item>
 					{#if $errors.plex_watchlist_rss}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -219,15 +211,13 @@
 			<div transition:slide>
 				<Form.Field {config} name="plex_watchlist_update_interval">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Plex RSS Update Interval
 						</Form.Label>
-						<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input type="number" spellcheck="false" />
 					</Form.Item>
 					{#if $errors.plex_watchlist_update_interval}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -252,20 +242,18 @@
 			<div transition:slide>
 				<Form.Field {config} name="mdblist_api_key">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Mdblist API Key
 						</Form.Label>
 						<Form.Input
-							class={clsx('transition-all duration-300 text-sm md:text-base', {
+							class={clsx('transition-all duration-300', {
 								'blur-sm hover:blur-none focus:blur-none': $form.mdblist_api_key.length > 0
 							})}
 							spellcheck="false"
 						/>
 					</Form.Item>
 					{#if $errors.mdblist_api_key}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -273,27 +261,24 @@
 			<div transition:slide>
 				<Form.Field {config} name="mdblist_update_interval">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Mdblist Update Interval
 						</Form.Label>
-						<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input type="number" spellcheck="false" />
 					</Form.Item>
 					{#if $errors.mdblist_update_interval}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
 
 			{#if $mdblistListsErrors}
-				<small class="text-sm md:text-base text-red-500">{$mdblistListsErrors}</small>
+				<small class="text-sm text-red-500">{$mdblistListsErrors}</small>
 			{/if}
 
 			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
-				<Label
-					class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-					for="mdblist_lists">Mdblist Lists</Label
+				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="mdblist_lists"
+					>Mdblist Lists</Label
 				>
 				<form
 					on:submit={() => {
@@ -303,7 +288,6 @@
 				>
 					<Input
 						placeholder="Enter list numbers one at a time"
-						class="text-sm md:text-base"
 						type="number"
 						bind:value={current_mdb_add_list}
 					/>
@@ -357,20 +341,18 @@
 			<div transition:slide>
 				<Form.Field {config} name="listrr_api_key">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Listrr API Key
 						</Form.Label>
 						<Form.Input
-							class={clsx('transition-all duration-300 text-sm md:text-base', {
+							class={clsx('transition-all duration-300', {
 								'blur-sm hover:blur-none focus:blur-none': $form.listrr_api_key.length > 0
 							})}
 							spellcheck="false"
 						/>
 					</Form.Item>
 					{#if $errors.listrr_api_key}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -378,30 +360,27 @@
 			<div transition:slide>
 				<Form.Field {config} name="listrr_update_interval">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Listrr Update Interval
 						</Form.Label>
-						<Form.Input type="number" class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input type="number" spellcheck="false" />
 					</Form.Item>
 					{#if $errors.listrr_update_interval}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
 
 			{#if $listrrMovieListsErrors}
-				<small class="text-sm md:text-base text-red-500">{$listrrMovieListsErrors}</small>
+				<small class="text-sm text-red-500">{$listrrMovieListsErrors}</small>
 			{/if}
 			{#if $listrrShowListsErrors}
-				<small class="text-sm md:text-base text-red-500">{$listrrShowListsErrors}</small>
+				<small class="text-sm text-red-500">{$listrrShowListsErrors}</small>
 			{/if}
 
 			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
-				<Label
-					class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-					for="listrr_movie_lists">Listrr Movie Lists</Label
+				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="listrr_movie_lists"
+					>Listrr Movie Lists</Label
 				>
 				<form
 					on:submit={() => {
@@ -411,7 +390,6 @@
 				>
 					<Input
 						placeholder="Enter list numbers one at a time"
-						class="text-sm md:text-base"
 						type="number"
 						bind:value={current_listrr_movie_add_list}
 					/>
@@ -433,9 +411,8 @@
 			</div>
 
 			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
-				<Label
-					class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-					for="listrr_show_lists">Listrr Show Lists</Label
+				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="listrr_show_lists"
+					>Listrr Show Lists</Label
 				>
 				<form
 					on:submit={() => {
@@ -445,7 +422,6 @@
 				>
 					<Input
 						placeholder="Enter list numbers one at a time"
-						class="text-sm md:text-base"
 						type="number"
 						bind:value={current_listrr_show_add_list}
 					/>
@@ -469,11 +445,19 @@
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
-			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max">
+			<Button
+				disabled={$delayed}
+				type="submit"
+				size="sm"
+				class="w-full md:max-w-max font-medium text-xs"
+			>
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes <span class="ml-1" class:hidden={actionUrl === '?/default'}>and continue</span>
+				Save changes
+				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/content'}
+					>and continue</span
+				>
 			</Button>
 		</div>
 	</div>

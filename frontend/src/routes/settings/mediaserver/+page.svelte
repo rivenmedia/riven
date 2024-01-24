@@ -5,8 +5,8 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-2xl md:text-3xl font-semibold">Media Server Settings</h2>
-	<p class="text-base md:text-lg text-muted-foreground">
+	<h2 class="text-xl md:text-2xl font-semibold">Media Server Settings</h2>
+	<p class="text-sm md:text-base text-muted-foreground">
 		Configure media server settings for Iceberg.
 	</p>
 

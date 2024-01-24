@@ -45,7 +45,7 @@
 				(settingsItems.find((item) => item.path === $page.url.pathname) || {}).name || 'Not found'
 		}}
 	>
-		<Select.Trigger class="text-base lg:hidden">
+		<Select.Trigger class="text-sm lg:hidden">
 			<Select.Value placeholder="Select settings type" />
 		</Select.Trigger>
 		<Select.Content>
@@ -56,7 +56,7 @@
 	</Select.Root>
 
 	<div
-		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-1 gap-2 rounded-md text-base"
+		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-1 gap-2 rounded-md text-sm"
 	>
 		{#each settingsItems as item}
 			<a

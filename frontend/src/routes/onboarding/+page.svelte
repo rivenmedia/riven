@@ -45,12 +45,12 @@
 		<div class="flex items-center justify-center slide-up">
 			<Mountain class="w-16 h-16" />
 		</div>
-		<h1 class="text-4xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
-		<p class="text-lg md:text-xl text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl">
+		<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
+		<p class="text-base md:text-lg text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl">
 			Before you can start using Iceberg, you need to configure some services first.
 		</p>
 		<Button
-			class="mt-4 slide-up font-semibold md:text-base w-full md:max-w-max"
+			class="mt-4 slide-up font-semibold w-full md:max-w-max"
 			href="/onboarding/1"
 		>
 			<Rocket class="w-4 h-4 mr-2" />
