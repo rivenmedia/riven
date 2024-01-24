@@ -28,14 +28,14 @@
 	<title>Iceberg | Home</title>
 </svelte:head>
 
-<div class="flex flex-col w-full p-8 md:px-24 lg:px-32">
+<div class="flex flex-col w-full p-8 md:px-24 lg:px-32 font-medium">
 	{#if 'error' in data.user || !data.user}
-		<p class="md:text-lg text-red-500">Failed to fetch user data.</p>
-		<p class="md:text-lg text-red-500">Error: {data.user?.error || 'Unknown'}</p>
+		<p class="text-red-500">Failed to fetch user data.</p>
+		<p class="text-red-500">Error: {data.user?.error || 'Unknown'}</p>
 	{:else}
-		<h1 class="text-xl md:text-2xl font-semibold">Welcome {data.user?.username}</h1>
-		<p class="md:text-lg text-muted-foreground">{data.user?.email}</p>
-		<p class="md:text-lg text-muted-foreground break-words">
+		<h1 class="text-lg md:text-xl font-semibold">Welcome {data.user?.username}</h1>
+		<p class="text-muted-foreground">{data.user?.email}</p>
+		<p class="text-muted-foreground break-words">
 			Premium expires on {formatRDDate(data.user?.expiration, 'short')}
 		</p>
 	{/if}
@@ -44,18 +44,18 @@
 	{#await data.services}
 		<div class="flex gap-1 items-center mt-2">
 			<Loader2 class="w-4 h-4 animate-spin" />
-			<p class="md:text-lg text-muted-foreground">Fetching services status</p>
+			<p class="text-muted-foreground">Fetching services status</p>
 		</div>
 	{:then services}
-		<h2 class="text-xl md:text-2xl font-semibold">Core services</h2>
+		<h2 class="text-lg md:text-xl font-semibold">Core services</h2>
 		<ServiceStatus statusData={sortServices(MandatoryServices, services.data)} />
 		<br />
-		<h2 class="text-xl md:text-2xl font-semibold">Content services</h2>
+		<h2 class="text-lg md:text-xl font-semibold">Content services</h2>
 		<ServiceStatus statusData={sortServices(ContentServices, services.data)} />
 		<br />
-		<h2 class="text-xl md:text-2xl font-semibold">Scraping services</h2>
+		<h2 class="text-lg md:text-xl font-semibold">Scraping services</h2>
 		<ServiceStatus statusData={sortServices(ScrapingServices, services.data)} />
 	{:catch}
-		<p class="md:text-lg text-muted-foreground">Failed to fetch services status</p>
+		<p class="text-muted-foreground">Failed to fetch services status</p>
 	{/await}
 </div>

@@ -32,11 +32,11 @@
 				/>
 			</a>
 			<div class="flex flex-col">
-				<p class="text-xl lg:text-2xl font-semibold md:text-ellipsis md:line-clamp-1">
+				<p class="text-lg lg:text-xl font-semibold md:text-ellipsis md:line-clamp-1">
 					{plexDebridItem.title}
 				</p>
-				<p>Aired {formatDate(plexDebridItem.aired_at, 'short')}</p>
-				<div class="flex flex-wrap gap-1 items-center mt-1">
+				<p class="text-sm">Aired {formatDate(plexDebridItem.aired_at, 'short')}</p>
+				<div class="flex flex-wrap gap-1 items-center mt-1 text-xs">
 					{#each plexDebridItem.genres as genre}
 						<Badge variant="secondary">
 							{formatWords(genre)}
@@ -47,18 +47,18 @@
 		</div>
 		<div class="z-[1] flex flex-col items-start w-full md:w-1/3 lg:w-1/4 xl:w-1/5 2xl:w-1/6">
 			<div class="flex gap-2 items-center">
-				<p class="text-lg font-semibold">Status</p>
-				<Badge class="{itemState.bg} tracking-wider text-black">
+				<p class="text-base font-semibold">Status</p>
+				<Badge class="{itemState.bg} tracking-wider text-black text-xs">
 					{itemState.text ?? formatWords(plexDebridItem.state)}
 				</Badge>
 			</div>
 			<div class="flex gap-2 items-center">
-				<p class="text-lg font-semibold">Requested</p>
-				<p>{formatDate(plexDebridItem.requested_at, 'long', true)}</p>
+				<p class="text-base font-semibold">Requested</p>
+				<p class="text-sm">{formatDate(plexDebridItem.requested_at, 'long', true)}</p>
 			</div>
 			<div class="flex gap-2 items-center">
-				<p class="text-lg font-semibold">Requested by</p>
-				<p>{plexDebridItem.requested_by}</p>
+				<p class="text-base font-semibold">Requested by</p>
+				<p class="text-sm">{plexDebridItem.requested_by}</p>
 			</div>
 		</div>
 	</div>

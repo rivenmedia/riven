@@ -39,24 +39,24 @@
 </svelte:head>
 
 <div class="flex flex-col">
-	<Alert.Root class="text-lg">
+	<Alert.Root class="text-sm">
 		<Alert.Title>Heads up!</Alert.Title>
-		<Alert.Description class="text-base"
-			>Iceberg is in rapid development. Expect bugs.</Alert.Description
+		<Alert.Description class=""
+			>Iceberg is in rapid development. Expect bugs and breaking changes.</Alert.Description
 		>
 	</Alert.Root>
 
-	<h2 class="text-2xl md:text-3xl font-semibold mt-2">About</h2>
-	<p class="text-base md:text-lg text-muted-foreground mb-2">Know what you're running.</p>
+	<h2 class="text-xl md:text-2xl font-semibold mt-2">About</h2>
+	<p class="text-sm md:text-base text-muted-foreground mb-2">Know what you're running.</p>
 	<div class="flex flex-col gap-4 w-full">
 		{#each Object.keys(aboutData) as key}
 			<Separator />
 			<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-				<h3 class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<h3 class="text-sm md:text-base font-semibold w-48 min-w-48 text-muted-foreground">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<p class="text-sm md:text-base break-words p-2 rounded-md bg-slate-100 dark:bg-slate-900">
+					<p class="text-xs md:text-sm break-words p-2 rounded-md bg-slate-100 dark:bg-slate-900">
 						{aboutData[key]}
 					</p>
 				</div>
@@ -64,19 +64,19 @@
 		{/each}
 	</div>
 
-	<h2 class="text-2xl md:text-3xl font-semibold mt-2">Support</h2>
-	<p class="text-base md:text-lg text-muted-foreground mb-2">
+	<h2 class="text-xl md:text-2xl font-semibold mt-2">Support</h2>
+	<p class="text-sm md:text-base text-muted-foreground mb-2">
 		Need help? Join the Discord server or open an issue on GitHub.
 	</p>
 	<div class="flex flex-col gap-4 w-full">
 		{#each Object.keys(supportData) as key}
 			<Separator />
 			<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-				<h3 class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<h3 class="text-sm md:text-base font-semibold w-48 min-w-48 text-muted-foreground">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<a href={supportData[key]} class="text-sm md:text-base break-words underline">
+					<a href={supportData[key]} class="text-xs md:text-sm break-words underline">
 						{supportData[key]}
 					</a>
 				</div>

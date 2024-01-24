@@ -8,7 +8,7 @@
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
-	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/schemas/setting';
+	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 
@@ -38,63 +38,61 @@
 	<div class="flex flex-col my-4 gap-4">
 		<Form.Field {config} name="after_2">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 					Retry After 2 Times (hr)
 				</Form.Label>
-				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
+				<Form.Input type="number" step="0.01" spellcheck="false" />
 			</Form.Item>
 			{#if $errors.after_2}
-				<Form.Validation class="text-sm md:text-base text-red-500" />
+				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="after_5">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 					Retry After 5 Times (hr)
 				</Form.Label>
-				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
+				<Form.Input type="number" step="0.01" spellcheck="false" />
 			</Form.Item>
 			{#if $errors.after_5}
-				<Form.Validation class="text-sm md:text-base text-red-500" />
+				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
 
 		<Form.Field {config} name="after_10">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
+				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 					Retry After 10 Times (hr)
 				</Form.Label>
-				<Form.Input type="number" step="0.01" class="text-sm md:text-base" spellcheck="false" />
+				<Form.Input type="number" step="0.01" spellcheck="false" />
 			</Form.Item>
 			{#if $errors.after_10}
-				<Form.Validation class="text-sm md:text-base text-red-500" />
+				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
 
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-			<p class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground">
-				Scrapers Enabled
-			</p>
+			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Scrapers Enabled</p>
 			<div class="flex flex-wrap gap-4">
 				<Form.Field {config} name="torrentio_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Torrentio</Form.Label>
+						<Form.Label>Torrentio</Form.Label>
 					</div>
 				</Form.Field>
 
 				<Form.Field {config} name="orionoid_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Orionoid</Form.Label>
+						<Form.Label>Orionoid</Form.Label>
 					</div>
 				</Form.Field>
 
 				<Form.Field {config} name="jackett_enabled">
 					<div class="flex flex-wrap items-center gap-2">
 						<Form.Checkbox />
-						<Form.Label class="text-sm md:text-base">Jackett</Form.Label>
+						<Form.Label>Jackett</Form.Label>
 					</div>
 				</Form.Field>
 			</div>
@@ -104,15 +102,13 @@
 			<div transition:slide>
 				<Form.Field {config} name="torrentio_filter">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Torrentio Filter
 						</Form.Label>
-						<Form.Input class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input spellcheck="false" />
 					</Form.Item>
 					{#if $errors.torrentio_filter}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -122,20 +118,18 @@
 			<div transition:slide>
 				<Form.Field {config} name="orionoid_api_key">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Orionoid API Key
 						</Form.Label>
 						<Form.Input
-							class={clsx('transition-all duration-300 text-sm md:text-base', {
+							class={clsx('transition-all duration-300', {
 								'blur-sm hover:blur-none focus:blur-none': $form.orionoid_api_key.length > 0
 							})}
 							spellcheck="false"
 						/>
 					</Form.Item>
 					{#if $errors.orionoid_api_key}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -145,15 +139,13 @@
 			<div transition:slide>
 				<Form.Field {config} name="jackett_url">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label
-							class="text-base md:text-lg font-semibold w-48 min-w-48 text-muted-foreground"
-						>
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
 							Jackett URL
 						</Form.Label>
-						<Form.Input class="text-sm md:text-base" spellcheck="false" />
+						<Form.Input spellcheck="false" />
 					</Form.Item>
 					{#if $errors.jackett_url}
-						<Form.Validation class="text-sm md:text-base text-red-500" />
+						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
 			</div>
@@ -161,11 +153,19 @@
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
-			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max">
+			<Button
+				disabled={$delayed}
+				type="submit"
+				size="sm"
+				class="w-full md:max-w-max font-semibold text-xs"
+			>
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes <span class="ml-1" class:hidden={actionUrl === '?/default'}>and continue</span>
+				Save changes
+				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/scrapers'}
+					>and continue</span
+				>
 			</Button>
 		</div>
 	</div>

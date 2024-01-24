@@ -1,9 +1,9 @@
 import type { PageServerLoad, Actions } from './$types';
 import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { contentSettingsSchema } from '$lib/schemas/setting';
 import { saveSettings } from '$lib/helpers';
 import {
+	contentSettingsSchema,
 	contentSettingsToGet,
 	contentSettingsToPass,
 	contentSettingsToSet
