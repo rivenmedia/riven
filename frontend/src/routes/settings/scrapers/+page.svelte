@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import ScrapersForm from '$lib/forms/scrapers-form.svelte';
-	import ScrapersForm from '$lib/forms/scrapers-form.svelte';
 
 	export let data: PageData;
 </script>

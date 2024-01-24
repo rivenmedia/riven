@@ -1,6 +1,5 @@
 import type { PageServerLoad, Actions } from './$types';
 import { fail, error, redirect } from '@sveltejs/kit';
-import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { saveSettings } from '$lib/helpers';
 import {
@@ -16,9 +15,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			const results = await fetch(
 				`http://127.0.0.1:8080/settings/get/${contentSettingsToGet.join(',')}`
 			);
-			const results = await fetch(
-				`http://127.0.0.1:8080/settings/get/${contentSettingsToGet.join(',')}`
-			);
 			return await results.json();
 		} catch (e) {
 			console.error(e);
@@ -26,8 +22,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	let data: any = await getPartialSettings();
-	const toPassToSchema = contentSettingsToPass(data);
 	let data: any = await getPartialSettings();
 	const toPassToSchema = contentSettingsToPass(data);
 
@@ -44,7 +38,6 @@ export const actions: Actions = {
 			});
 		}
 		const toSet = contentSettingsToSet(form);
-		const toSet = contentSettingsToSet(form);
 
 		try {
 			const data = await saveSettings(event.fetch, toSet);
@@ -53,10 +46,6 @@ export const actions: Actions = {
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
-		}
-
-		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/4');
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {

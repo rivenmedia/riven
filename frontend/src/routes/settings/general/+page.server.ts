@@ -1,6 +1,5 @@
 import type { PageServerLoad, Actions } from './$types';
 import { fail, error, redirect } from '@sveltejs/kit';
-import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { saveSettings } from '$lib/helpers';
 import {
@@ -25,8 +24,6 @@ export const load: PageServerLoad = async ({ fetch }) => {
 
 	let data: any = await getPartialSettings();
 	let toPassToSchema = generalSettingsToPass(data);
-	let data: any = await getPartialSettings();
-	let toPassToSchema = generalSettingsToPass(data);
 
 	const form = await superValidate(toPassToSchema, generalSettingsSchema);
 	return { form };
@@ -43,7 +40,6 @@ export const actions: Actions = {
 			});
 		}
 		const toSet = generalSettingsToSet(form);
-		const toSet = generalSettingsToSet(form);
 
 		try {
 			const data = await saveSettings(event.fetch, toSet);
@@ -52,10 +48,6 @@ export const actions: Actions = {
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
-		}
-
-		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/2');
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {

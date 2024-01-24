@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from '$lib/components/ui/sonner';
-	import { Toaster } from '$lib/components/ui/sonner';
 	import '../app.pcss';
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
@@ -100,10 +99,7 @@
 </div>
 
 <Command.Dialog bind:open>
-	<Command.Input
-		class="font-medium font-primary"
-		placeholder="Type a command or search..."
-	/>
+	<Command.Input class="font-medium font-primary" placeholder="Type a command or search..." />
 	<Command.List class="font-primary font-medium">
 		<Command.Empty>No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">
