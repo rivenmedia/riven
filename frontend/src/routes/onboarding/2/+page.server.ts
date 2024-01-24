@@ -1,12 +1,10 @@
 import type { PageServerLoad, Actions } from './$types';
-import { fail, error } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
-import { mediaServerSettingsSchema } from '$lib/schemas/setting';
-import { saveSettings } from '$lib/helpers';
+import { error } from '@sveltejs/kit';
+import { superValidate } from 'sveltekit-superforms/server';
+import { mediaServerSettingsSchema } from '$lib/forms/helpers';
 import {
 	mediaServerSettingsToGet,
 	mediaServerSettingsToPass,
-	mediaServerSettingsToSet
 } from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {

@@ -10,7 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Form from '$lib/components/ui/form';
-	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/schemas/setting';
+	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 

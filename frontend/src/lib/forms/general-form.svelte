@@ -7,7 +7,7 @@
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
-	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/schemas/setting';
+	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 

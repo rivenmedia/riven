@@ -8,7 +8,7 @@
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
-	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/schemas/setting';
+	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 

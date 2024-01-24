@@ -7,7 +7,7 @@
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
-	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/schemas/setting';
+	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import { v4 as uuidv4 } from 'uuid';
