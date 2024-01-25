@@ -134,8 +134,8 @@ class Orionoid:
                     for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
                     if parsed_data["fetch"]
                 }
-                for parsed_data in parsed_data_list:
-                    logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                # for parsed_data in parsed_data_list:
+                #     logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})

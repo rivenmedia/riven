@@ -43,8 +43,8 @@
     "after_5": 2,
     "after_10": 24,
     "torrentio": {
-      "enabled": true,
-      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+      "enabled": false,
+      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     },
     "orionoid": {
       "enabled": false,

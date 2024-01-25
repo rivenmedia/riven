@@ -21,7 +21,7 @@ class Torrentio:
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=7)
         self.initialized = self.validate_settings()
         if not self.initialized:
             return
@@ -97,8 +97,8 @@ class Torrentio:
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
                     if parsed_data.get("fetch", False) and parsed_data.get("string", False)
                 }
-                for parsed_data in parsed_data_list:
-                    logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                # for parsed_data in parsed_data_list:
+                #     logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})
