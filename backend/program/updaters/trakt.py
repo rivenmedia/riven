@@ -89,8 +89,7 @@ def _map_item_from_data(data, item_type):
         "title": getattr(data, "title", None),              # 'Game of Thrones'
         "year": getattr(data, "year", None),                # 2011
         "status": getattr(data, "status", None),            # 'ended', 'released', 'returning series'
-        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)
-        "is_anime": is_anime,                               # True"
+        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)                             # True"
         "imdb_id": getattr(data.ids, "imdb", None),         # 'tt0496424'
         "tvdb_id": getattr(data.ids, "tvdb", None),         # 79488
         "tmdb_id": getattr(data.ids, "tmdb", None),         # 1399
@@ -100,10 +99,13 @@ def _map_item_from_data(data, item_type):
         "language": getattr(data, "language", None),        # 'en'
         "requested_at": datetime.now(),                     # datetime.datetime(2021, 4, 17, 0, 0)
     }
+
     match item_type:
         case "movie":
+            item["is_anime"] = is_anime
             return_item = Movie(item)
         case "show":
+            item["is_anime"] = is_anime
             return_item = Show(item)
         case "season":
             item["number"] = getattr(data, "number")
@@ -112,6 +114,7 @@ def _map_item_from_data(data, item_type):
             item["number"] = getattr(data, "number")
             return_item = Episode(item)
         case _:
+            logger.debug("Unknown item type %s for %s", item_type, data.title)
             return_item = None
     return return_item
 
@@ -148,11 +151,9 @@ def create_item_from_imdb_id(imdb_id: str):
                 data = response.data[0].season
             elif media_type == "episode":
                 data = response.data[0].episode
-            else:
-                logger.debug("Unknown item %s with type %s", imdb_id, media_type)
-                return None
             if data:
                 return _map_item_from_data(data, media_type)
+    logger.debug("Unknown item %s with type %s", imdb_id, media_type)
     return None
 
 def get_imdbid_from_tvdb(tvdb_id: str) -> str:

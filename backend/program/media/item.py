@@ -27,6 +27,7 @@ class MediaItem:
         self.requested_by = item.get("requested_by", None)
         self.file = None
         self.folder = None
+        self.is_anime = False
         self.parsed = False
         self.parsed_data = item.get("parsed_data", [])
 
