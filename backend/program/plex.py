@@ -49,8 +49,9 @@ class Plex(threading.Thread):
             self.log_worker_count = False
             self.media_items = media_items
             self._update_items(init=True)
-        except Exception:
+        except Exception as e:
             logger.error("Plex is not configured!")
+            logger.error("Error: %s", e)
             return
         logger.info("Plex initialized!")
         self.initialized = True
@@ -201,6 +202,7 @@ def _map_item_from_data(item):
     if item.type in ["movie", "episode"]:
         file = getattr(item, "locations", [None])[0].split("/")[-1]
     genres = [genre.tag for genre in getattr(item, "genres", [])]
+    is_anime = "anime" in genres
     title = getattr(item, "title", None)
     key = getattr(item, "key", None)
     season_number = getattr(item, "seasonNumber", None)
@@ -241,6 +243,7 @@ def _map_item_from_data(item):
         "guid": guid,
         "art_url": art_url,
         "file": file,
+        "is_anime": is_anime,
     }
 
     # Instantiate the appropriate subclass based on 'item_type'

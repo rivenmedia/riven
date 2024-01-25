@@ -1,7 +1,7 @@
 """ Torrentio scraper module """
 from typing import Optional
 from pydantic import BaseModel
-from requests import ConnectTimeout, HTTPError, ReadTimeout
+from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter
@@ -47,6 +47,10 @@ class Torrentio:
             self.minute_limiter.limit_hit()
             logger.debug("Torrentio connection timeout for item: %s", item.log_string)
             return
+        except ReadTimeout:
+            self.minute_limiter.limit_hit()
+            logger.debug("Torrentio read timeout for item: %s", item.log_string)
+            return
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.debug("Torrentio request status %s exception: %s", e.response.status_code, e.response.reason)
@@ -91,10 +95,13 @@ class Torrentio:
                 data = {
                     stream.infoHash: {"name": stream.title.split("\n👤")[0].split("\n")[0]}
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
-                    if parsed_data.get("fetch", False)
+                    if parsed_data.get("fetch", False) and parsed_data.get("string", False)
                 }
+                for parsed_data in parsed_data_list:
+                    logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
+                    item.parsed_data.append({self.key: True})
                     item.parsed = True
                     return data, len(response.data.streams)
             return {}, len(response.data.streams) or 0

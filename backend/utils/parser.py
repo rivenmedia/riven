@@ -2,6 +2,7 @@ import re
 import PTN
 from typing import List
 from pydantic import BaseModel
+from utils.logger import logger
 from utils.settings import settings_manager
 from thefuzz import fuzz
 
@@ -30,13 +31,12 @@ class Parser:
 
     def parse(self, item, string) -> dict:
         """Parse the given string and return True if it matches the user settings."""
+        if len(item.parsed_data) != 0 or item.parsed:
+            return item.parsed_data
         return self._parse(item, string)
 
     def _parse(self, item, string) -> dict:
         """Parse the given string and return the parsed data."""
-        if len(item.parsed_data) != 0:
-            return item.parsed_data
-
         parse = PTN.parse(string)
         parsed_title = parse.get("title", "")
 
@@ -60,10 +60,11 @@ class Parser:
             "string": string,
             "parsed_title": parsed_title,
             "title_match": title_match,
+            "fetch": False,
             "is_4k": is_4k,
             "is_dual_audio": is_dual_audio,
             "is_complete": is_complete,
-            "_is_unwanted_quality": _is_unwanted_quality,
+            "is_unwanted_quality": _is_unwanted_quality,
             "year": parse.get("year", False),
             "resolution": parse.get("resolution", []),
             "quality": parse.get("quality", []),
@@ -82,7 +83,7 @@ class Parser:
             "extended": parse.get("extended", [])
         }
 
-        parsed_data["fetch"] = self._should_fetch(parsed_data)
+        parsed_data["fetch"] = self._should_fetch(item, parsed_data=parsed_data)
         return parsed_data
 
     def episodes(self, string) -> List[int]:
@@ -97,32 +98,25 @@ class Parser:
             return parse["episodes"]
         return []
 
-    def _should_fetch(self, item, parsed_data: list) -> bool:
+    def _should_fetch(self, item, parsed_data: dict) -> bool:
         """Determine if the parsed content should be fetched."""
         # This is where we determine if the item should be fetched
         # based on the user settings and predefined rules.
         # Edit with caution. All have to match for the item to be fetched.
-        item_language = [self._get_item_language(item)]
+        # item_language = self._get_item_language(item)
         return (
             parsed_data["resolution"] in self.resolution and
-            any(lang in parsed_data.get("language", item_language) for lang in self.language) and
-            not parsed_data["is_unwanted"]
+            # any(lang in parsed_data.get("language", item_language) for lang in self.language) and
+            not parsed_data["is_unwanted_quality"]
         )
 
-    def _is_highest_quality(self, parsed_data: list) -> bool:
+    def _is_highest_quality(self, parsed_data: dict) -> bool:
         """Check if content is `highest quality`."""
         return any(
             parsed.get("resolution") in ["UHD", "2160p", "4K"] or
             parsed.get("hdr", False) or
             parsed.get("remux", False) or
             parsed.get("upscaled", False)
-            for parsed in parsed_data
-        )
-
-    def _is_repack_or_proper(self, parsed_data: list) -> bool:
-        """Check if content is `repack` or `proper`."""
-        return any(
-            parsed.get("proper", False) or parsed.get("repack", False)
             for parsed in parsed_data
         )
 
@@ -174,7 +168,7 @@ class Parser:
             re.compile(r"\bR5\b", re.IGNORECASE),
             re.compile(r"\b(DivX|XviD)\b", re.IGNORECASE),
         ]
-        return not any(pattern.search(string) for pattern in unwanted_patterns)
+        return any(pattern.search(string) for pattern in unwanted_patterns)
 
     def check_for_title_match(self, item, parsed_title, threshold=90) -> bool:
         """Check if the title matches PTN title using fuzzy matching."""
@@ -190,16 +184,24 @@ class Parser:
 
     def _get_item_language(self, item) -> str:
         """Get the language of the item."""
+        # This is crap. Need to switch to using a dict instead.
         if item.type == "season":
             if item.parent.language == "en":
-                return "English"
+                if item.parent.is_anime:
+                    return ["English", "Japanese"]
+            return ["English"]
         elif item.type == "episode":
             if item.parent.parent.language == "en":
-                return "English"
+                if item.parent.parent.is_anime:
+                    return ["English", "Japanese"]
+            return ["English"]
         if item.language == "en":
-            return "English"
-        # This is crap. Need to switch to using a dict instead.
-        return "English"
+            if item.is_anime:
+                return ["English", "Japanese"]
+            return ["English"]
+        if item.is_anime:
+            return ["English", "Japanese"]
+        return ["English"]
 
 
 # def sort_streams(streams: dict, parser: Parser) -> dict:
