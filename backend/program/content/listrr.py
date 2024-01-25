@@ -42,18 +42,25 @@ class Listrr:
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
             logger.error("Listrr api key is not set or invalid.")
             return False
+        valid_list_found = False
         for list_name, content_list in [('movie_lists', self.settings.movie_lists), 
                                         ('show_lists', self.settings.show_lists)]:
-            if content_list is not None:
-                for item in content_list:
-                    if len(item) != 24:
-                        logger.error(f"{list_name} contains an item with invalid length: {item}")
-                        return False
+            if content_list is None or not any(content_list):
+                continue
+            for item in content_list:
+                if item == "" or len(item) != 24:
+                    return False
+            valid_list_found = True
+        if not valid_list_found:
+            logger.error("Both Movie and Show lists are empty or not set.")
+            return False
         try:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
+            if not response.ok:
+                logger.error(f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}")
             return response.ok
-        except Exception:
-            logger.error("Listrr Error - %s: %s ", response.status_code, response.reason)
+        except Exception as e:
+            logger.error(f"Listrr ping exception: {e}")
             return False
 
     def run(self):
