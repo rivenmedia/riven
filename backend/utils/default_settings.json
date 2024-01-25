@@ -33,7 +33,7 @@
       "update_interval": 80
     },
     "overseerr": {
-      "enabled": true,
+      "enabled": false,
       "url": "http://localhost:5055",
       "api_key": ""
     }
