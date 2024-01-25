@@ -91,8 +91,8 @@ class Jackett:
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
                             data[infohash] = {"name": stream.get("title")}
-                for parsed_data in parsed_data_list:
-                    logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                # for parsed_data in parsed_data_list:
+                #     logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})
