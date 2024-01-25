@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ModeWatcher } from 'mode-watcher';
-	import { Toaster } from 'svelte-sonner';
+	import { Toaster } from '$lib/components/ui/sonner';
 	import '../app.pcss';
 	import { onMount } from 'svelte';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
@@ -8,6 +8,13 @@
 	import Header from '$lib/components/header.svelte';
 	import * as Command from '$lib/components/ui/command';
 	import { Settings, CircleDashed, SlidersHorizontal, Info, Layers, Tv } from 'lucide-svelte';
+	import type { ComponentType } from 'svelte';
+	import type { Icon } from 'lucide-svelte';
+	import { page } from '$app/stores';
+	import { setContext } from 'svelte';
+	import { dev } from '$app/environment';
+
+	setContext('formDebug', dev);
 
 	beforeNavigate(() => {
 		NProgress.start();
@@ -32,84 +39,97 @@
 			document.removeEventListener('keydown', handleKeydown);
 		};
 	});
+
+	type CommandItem = {
+		name: string;
+		href: string;
+		icon: ComponentType<Icon>;
+	};
+
+	const suggestedItems: CommandItem[] = [
+		{
+			name: 'Settings',
+			href: '/settings',
+			icon: Settings
+		},
+		{
+			name: 'Status',
+			href: '/status',
+			icon: CircleDashed
+		}
+	];
+
+	const commandItems: CommandItem[] = [
+		{
+			name: 'General',
+			href: '/settings/general',
+			icon: SlidersHorizontal
+		},
+		{
+			name: 'Media Server',
+			href: '/settings/mediaserver',
+			icon: Tv
+		},
+		{
+			name: 'Content',
+			href: '/settings/content',
+			icon: Layers
+		},
+		{
+			name: 'Scrapers',
+			href: '/settings/scrapers',
+			icon: Layers
+		},
+		{
+			name: 'About',
+			href: '/settings/about',
+			icon: Info
+		}
+	];
 </script>
 
 <ModeWatcher track={true} />
 <Toaster richColors closeButton />
 
-<div class="font-primary flex flex-col w-full h-full overflow-x-hidden">
-	<Header />
+<div class="font-primary font-medium flex flex-col w-full h-full overflow-x-hidden">
+	{#if !$page.url.pathname.startsWith('/onboarding')}
+		<Header />
+	{/if}
 	<slot />
 </div>
 
 <Command.Dialog bind:open>
-	<Command.Input class="text-base lg:text-lg font-primary" placeholder="Type a command or search..." />
-	<Command.List class="font-primary">
-		<Command.Empty class="lg:text-base">No results found.</Command.Empty>
+	<Command.Input class="font-medium font-primary" placeholder="Type a command or search..." />
+	<Command.List class="font-primary font-medium">
+		<Command.Empty>No results found.</Command.Empty>
 		<Command.Group heading="Suggestions">
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/settings');
-				}}
-			>
-				<Settings class="mr-2 h-4 w-4" />
-				<span>Settings</span>
-			</Command.Item>
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/status');
-				}}
-			>
-				<CircleDashed class="mr-2 h-4 w-4" />
-				<span>Status</span>
-			</Command.Item>
+			{#each suggestedItems as item}
+				<Command.Item
+					class="text-sm"
+					onSelect={async () => {
+						open = false;
+						await goto(item.href);
+					}}
+				>
+					<svelte:component this={item.icon} class="mr-2 h-4 w-4" />
+					<span>{item.name}</span>
+				</Command.Item>
+			{/each}
 		</Command.Group>
 		<Command.Separator />
-		<Command.Group heading="Settings">
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/settings/general');
-				}}
-			>
-				<SlidersHorizontal class="mr-2 h-4 w-4" />
-				<span>General</span>
-			</Command.Item>
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/settings/plex');
-				}}
-			>
-				<Tv class="mr-2 h-4 w-4" />
-				<span>Plex</span>
-			</Command.Item>
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/settings/content');
-				}}
-			>
-				<Layers class="mr-2 h-4 w-4" />
-				<span>Content</span>
-			</Command.Item>
-			<Command.Item
-				class="lg:text-base"
-				onSelect={async () => {
-					open = false;
-					await goto('/settings/about');
-				}}
-			>
-				<Info class="mr-2 h-4 w-4" />
-				<span>About</span>
-			</Command.Item>
+		<Command.Group heading="All">
+			{#each commandItems as item}
+				<Command.Item
+					class="text-sm"
+					onSelect={async () => {
+						open = false;
+						await goto(item.href);
+					}}
+				>
+					<svelte:component this={item.icon} class="mr-2 h-4 w-4" />
+					<span>{item.name}</span>
+				</Command.Item>
+			{/each}
 		</Command.Group>
 	</Command.List>
 </Command.Dialog>

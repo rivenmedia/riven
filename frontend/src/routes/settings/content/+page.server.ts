@@ -1,14 +1,20 @@
 import type { PageServerLoad, Actions } from './$types';
-import { fail, error } from '@sveltejs/kit';
+import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { contentSettingsSchema } from '$lib/schemas/setting';
 import { saveSettings } from '$lib/helpers';
+import {
+	contentSettingsSchema,
+	contentSettingsToGet,
+	contentSettingsToPass,
+	contentSettingsToSet
+} from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const toGet = ['content'];
-			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
+			const results = await fetch(
+				`http://127.0.0.1:8080/settings/get/${contentSettingsToGet.join(',')}`
+			);
 			return await results.json();
 		} catch (e) {
 			console.error(e);
@@ -16,23 +22,10 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	let toPassToSchema: any = await getPartialSettings();
-	toPassToSchema = {
-		overseerr_enabled: toPassToSchema.data.content.overseerr.enabled,
-		overseerr_url: toPassToSchema.data.content.overseerr?.url || '',
-		overseerr_api_key: toPassToSchema.data.content.overseerr?.api_key || '',
-		mdblist_enabled: toPassToSchema.data.content.mdblist.enabled,
-		mdblist_api_key: toPassToSchema.data.content.mdblist?.api_key || '',
-		mdblist_update_interval: toPassToSchema.data.content.mdblist?.update_interval || 80,
-		mdblist_lists: toPassToSchema.data.content.mdblist?.lists || [''],
-		plex_watchlist_enabled: toPassToSchema.data.content.plex_watchlist.enabled,
-		plex_watchlist_rss: toPassToSchema.data.content.plex_watchlist?.rss || '',
-		plex_watchlist_update_interval:
-			toPassToSchema.data.content.plex_watchlist?.update_interval || 80
-	};
+	let data: any = await getPartialSettings();
+	const toPassToSchema = contentSettingsToPass(data);
 
 	const form = await superValidate(toPassToSchema, contentSettingsSchema);
-
 	return { form };
 };
 
@@ -44,29 +37,7 @@ export const actions: Actions = {
 				form
 			});
 		}
-		const toSet = [
-			{
-				key: 'content',
-				value: {
-					overseerr: {
-						enabled: form.data.overseerr_enabled,
-						url: form.data.overseerr_url,
-						api_key: form.data.overseerr_api_key
-					},
-					mdblist: {
-						enabled: form.data.mdblist_enabled,
-						api_key: form.data.mdblist_api_key,
-						update_interval: form.data.mdblist_update_interval,
-						lists: form.data.mdblist_lists
-					},
-					plex_watchlist: {
-						enabled: form.data.plex_watchlist_enabled,
-						rss: form.data.plex_watchlist_rss,
-						update_interval: form.data.plex_watchlist_update_interval
-					}
-				}
-			}
-		];
+		const toSet = contentSettingsToSet(form);
 
 		try {
 			const data = await saveSettings(event.fetch, toSet);
@@ -75,6 +46,10 @@ export const actions: Actions = {
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
+		}
+
+		if (event.url.searchParams.get('onboarding') === 'true') {
+			redirect(302, '/onboarding/4');
 		}
 
 		return message(form, 'Settings saved!');
