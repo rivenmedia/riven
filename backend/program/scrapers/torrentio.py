@@ -25,6 +25,7 @@ class Torrentio:
         self.initialized = self.validate_settings()
         if not self.initialized:
             return
+        self.parse_logging = False
         logger.info("Torrentio initialized!")
 
     def validate_settings(self) -> bool:
@@ -97,8 +98,9 @@ class Torrentio:
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
                     if parsed_data.get("fetch", False) and parsed_data.get("string", False)
                 }
-                # for parsed_data in parsed_data_list:
-                #     logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                if self.parse_logging:
+                    for parsed_data in parsed_data_list:
+                        logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})

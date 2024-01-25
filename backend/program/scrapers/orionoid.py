@@ -28,6 +28,7 @@ class Orionoid:
             self.initialized = True
         else:
             return
+        self.parse_logging = False
         self.max_calls = 50 if not self.is_premium else 60
         self.period = 86400 if not self.is_premium else 60
         self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
@@ -134,8 +135,9 @@ class Orionoid:
                     for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
                     if parsed_data["fetch"]
                 }
-                # for parsed_data in parsed_data_list:
-                #     logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                if self.parse_logging:
+                    for parsed_data in parsed_data_list:
+                        logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})
