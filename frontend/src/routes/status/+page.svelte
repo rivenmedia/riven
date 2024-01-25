@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { convertPlexDebridItemsToObject, formatWords } from '$lib/helpers';
+	import { convertIcebergItemsToObject, formatDate, formatWords } from '$lib/helpers';
 	import { goto, invalidate } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
@@ -22,42 +22,28 @@
 
 	const statusInfo: StatusInfo = {
 		Unknown: {
-			color: 'text-red-500',
-			bg: 'bg-red-500',
 			description: 'Unknown status'
 		},
 		Content: {
 			text: 'Requested',
-			color: 'text-purple-500',
-			bg: 'bg-purple-500',
-			description: 'Item is requested from external service'
+			description: 'Items which are requested from content providers'
 		},
 		Scrape: {
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is scraped and will be downloaded'
+			description: 'Items which are scraped from content providers and will be downloaded soon'
 		},
 		Download: {
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is currently downloading'
+			description: 'Items which are currently downloading'
 		},
 		Symlink: {
-			color: 'text-yellow-500',
-			bg: 'bg-yellow-500',
-			description: 'Item is currently being symmlinked'
+			description: 'Items which are undergoing symlink'
 		},
 		Library: {
 			text: 'In Library',
-			color: 'text-green-400',
-			bg: 'bg-green-400',
-			description: 'Item is in your library'
+			description: 'Items which are in your plex library'
 		},
 		LibraryPartial: {
 			text: 'In Library (Partial)',
-			color: 'text-blue-400',
-			bg: 'bg-blue-400',
-			description: 'Item is in your library and is ongoing'
+			description: 'Items which are in your plex library but are missing some files'
 		}
 	};
 </script>
@@ -121,34 +107,40 @@
 			</div>
 		</div>
 
-		{@const plexDebridItems = convertPlexDebridItemsToObject(items.items)}
+		{@const icebergItems = convertIcebergItemsToObject(items.items)}
 		<div class="flex flex-col gap-12 mt-4 w-full">
-			{#each Object.keys(plexDebridItems) as key (key)}
-				<Carousel.Root
-					opts={{
-						align: 'start',
-						dragFree: true
-					}}
-					class="flex flex-col gap-2 w-full"
-				>
+			{#each Object.keys(icebergItems) as key (key)}
+				<Carousel.Root opts={{ dragFree: true }} class="w-full max-w-full flex flex-col gap-4">
 					<div class="flex items-center justify-between">
-						<h3 class="text-xl md:text-2xl font-semibold">{formatWords(key)}</h3>
-						<div class="flex items-center justify-center gap-2">
+						<div class="flex flex-col">
+							<h3 class="text-xl md:text-2xl font-semibold">
+								{statusInfo[key].text ?? formatWords(key)}
+							</h3>
+							<p class="text-muted-foreground text-sm">{statusInfo[key].description}</p>
+						</div>
+						<div class="flex items-center justify-center gap-2 mt-6">
 							<Carousel.Previous class="rounded-md static h-8 w-8" />
 							<Carousel.Next class="rounded-md static h-8 w-8" />
 						</div>
 					</div>
-					<Carousel.Content class="flex items-center gap-4">
-						{#each plexDebridItems[key] as icebergItem}
-							<Carousel.Item
-								on:click={() => {
-									console.log(icebergItem);
-									goto(`/status/${icebergItem.imdb_id}`);
-								}}
-								style="background-image: url(https://images.metahub.space/poster/small/{icebergItem.imdb_id}/img);"
-								class="bg-cover bg-center min-w-36 w-36 md:w-48 md:min-w-48 h-72 border max-w-max cursor-pointer"
-							>
-								...
+					<Carousel.Content class="flex flex-row h-full w-full">
+						{#each icebergItems[key] as item}
+							<Carousel.Item class="flex-none mr-2 min-w-0 max-w-max w-full h-full group/item">
+								<div class="flex flex-col w-full h-full max-w-[144px] md:max-w-[176px]">
+									<img
+										alt={item.imdb_id}
+										class="bg-cover bg-center h-[216px] w-[144px] md:w-[176px] md:h-[264px] rounded-md border-muted group-hover/item:scale-105 duration-300 transition-all ease-in-out"
+										src={`https://images.metahub.space/poster/small/${item.imdb_id}/img`}
+									/>
+									<a
+										href="/status/item/{item.item_id}"
+										class="text-start text-sm mt-2 text-ellipsis line-clamp-1 group-hover/item:underline focus:underline"
+										>{item.title}</a
+									>
+									<p class="text-muted-foreground text-xs mt-1">
+										{formatDate(item.aired_at, 'year')}
+									</p>
+								</div>
 							</Carousel.Item>
 						{/each}
 					</Carousel.Content>

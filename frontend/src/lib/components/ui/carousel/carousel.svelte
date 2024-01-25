@@ -63,7 +63,6 @@
 
 	function onInit(event: CustomEvent<CarouselAPI>) {
 		api = event.detail;
-		console.log(api.slideNodes());
 		apiStore.set(api);
 	}
 
