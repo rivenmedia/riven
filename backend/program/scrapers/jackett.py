@@ -23,6 +23,7 @@ class Jackett:
         self.initialized = self.validate_settings()
         if not self.initialized and not self.api_key:
             return
+        self.parse_logging = False
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=3)
         logger.info("Jackett initialized!")
@@ -91,8 +92,9 @@ class Jackett:
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
                             data[infohash] = {"name": stream.get("title")}
-                # for parsed_data in parsed_data_list:
-                #     logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                if self.parse_logging:
+                    for parsed_data in parsed_data_list:
+                        logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     item.parsed_data.append({self.key: True})
