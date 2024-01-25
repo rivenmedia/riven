@@ -72,7 +72,7 @@
 			{/if}
 		</Form.Field>
 
-		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl gap-2">
 			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Scrapers Enabled</p>
 			<div class="flex flex-wrap gap-4">
 				<Form.Field {config} name="torrentio_enabled">
