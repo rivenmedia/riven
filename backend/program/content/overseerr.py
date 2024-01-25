@@ -101,8 +101,6 @@ class Overseerr:
             return None
 
         title = getattr(response.data, "title", None) or getattr(response.data, "originalName", None)
-
-        # Try to get IMDb ID directly
         imdb_id = getattr(response.data.externalIds, 'imdbId', None)
         if imdb_id:
             return imdb_id
@@ -118,7 +116,6 @@ class Overseerr:
                     logger.debug(f"Found imdbId for {title} from {id_attr}: {external_id_value}")
                     return new_imdb_id
 
-        # Log and append to not found if IMDb ID is still not found
         self.not_found_ids.append(f"{id_extension}{external_id}")
         logger.debug(f"Could not get imdbId for {title}, or match with external id")
         return None
