@@ -108,7 +108,8 @@ class Overseerr:
             return imdb_id
 
         # Try alternate IDs if IMDb ID is not available
-        alternate_ids = [('tvdbId', get_imdbid_from_tvdb), ('tmdbId', get_imdbid_from_tmdb)]
+        # alternate_ids = [('tvdbId', get_imdbid_from_tvdb), ('tmdbId', get_imdbid_from_tmdb)]
+        alternate_ids = [('tmdbId', get_imdbid_from_tmdb)]
         for id_attr, fetcher in alternate_ids:
             external_id_value = getattr(response.data.externalIds, id_attr, None)
             if external_id_value:

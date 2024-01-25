@@ -96,11 +96,11 @@ class Listrr:
                             imdb_id = item.imDbId
                             if imdb_id:
                                 unique_ids.add(imdb_id)
-                            elif content_type == "Shows" and item.tvDbId:
-                                imdb_id = get_imdbid_from_tvdb(item.tvDbId)
-                                if imdb_id:
-                                    unique_ids.add(imdb_id)
-                            elif content_type == "Movies" and item.tmDbId:
+                            # elif content_type == "Shows" and item.tvDbId:
+                            #     imdb_id = get_imdbid_from_tvdb(item.tvDbId)
+                            #     if imdb_id:
+                            #         unique_ids.add(imdb_id)
+                            if not imdb_id and content_type == "Movies" and item.tmDbId:
                                 imdb_id = get_imdbid_from_tmdb(item.tmDbId)
                                 if imdb_id:
                                     unique_ids.add(imdb_id)
