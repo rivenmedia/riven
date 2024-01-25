@@ -60,7 +60,7 @@ class Torrentio:
         data, stream_count = self.api_scrape(item)  # Unpack the tuple to get data and stream_count
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s out of %s", item.log_string, stream_count)
 

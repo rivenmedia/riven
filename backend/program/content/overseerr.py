@@ -96,31 +96,28 @@ class Overseerr:
             self.settings.url + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
-        if response.is_ok and response.data.externalIds:
-            imdb_id = response.data.externalIds.imdbId
-            if imdb_id:
-                return imdb_id
-            elif not imdb_id and response.data.externalIds.tvdbId:
-                imdb_id = get_imdbid_from_tvdb(response.data.externalIds.tvdbId)
-                if imdb_id:
-                    logger.debug(
-                        "Could not find imdbId for %s but found it from tvdbId %s", 
-                        overseerr_item.title, 
-                        response.data.externalIds.tvdbId
-                        )
-                    return imdb_id
-            elif not imdb_id and response.data.externalIds.tmdbId:
-                imdb_id = get_imdbid_from_tmdb(response.data.externalIds.tmdbId)
-                if imdb_id:
-                    logger.debug(
-                        "Could not find imdbId for %s but found it from tmdbId %s", 
-                        overseerr_item.title, 
-                        response.data.externalIds.tmdbId
-                        )
-                    return imdb_id
-            self.not_found_ids.append(f"{id_extension}{external_id}")
-        title = getattr(response.data, "title", None) or getattr(
-            response.data, "originalName", None
-        )
-        logger.debug("Could not get imdbId for %s, or match with external id", title)
+        if not response.is_ok or not hasattr(response.data, "externalIds"):
+            logger.debug(f"Failed to fetch or no externalIds for {id_extension}{external_id}")
+            return None
+
+        title = getattr(response.data, "title", None) or getattr(response.data, "originalName", None)
+
+        # Try to get IMDb ID directly
+        imdb_id = getattr(response.data.externalIds, 'imdbId', None)
+        if imdb_id:
+            return imdb_id
+
+        # Try alternate IDs if IMDb ID is not available
+        alternate_ids = [('tvdbId', get_imdbid_from_tvdb), ('tmdbId', get_imdbid_from_tmdb)]
+        for id_attr, fetcher in alternate_ids:
+            external_id_value = getattr(response.data.externalIds, id_attr, None)
+            if external_id_value:
+                new_imdb_id = fetcher(external_id_value)
+                if new_imdb_id:
+                    logger.debug(f"Found imdbId for {title} from {id_attr}: {external_id_value}")
+                    return new_imdb_id
+
+        # Log and append to not found if IMDb ID is still not found
+        self.not_found_ids.append(f"{id_extension}{external_id}")
+        logger.debug(f"Could not get imdbId for {title}, or match with external id")
         return None

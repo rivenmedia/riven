@@ -78,7 +78,7 @@ class Orionoid:
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s", item.log_string)
 
