@@ -51,6 +51,7 @@ class Plex(threading.Thread):
             self.media_items = media_items
             self._update_items(init=True)
         except Exception:
+            logger.error("Plex is not configured!", exc_info=False)
             return
         logger.info("Plex initialized!")
         self.initialized = True
