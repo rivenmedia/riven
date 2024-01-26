@@ -17,25 +17,26 @@ class SymlinkModel(BaseModel):
     container_path: str = ""
 
 # Content Services
+class ContentBaseModel(BaseModel):
+    update_interval: int = 80
 
-class ListrrModel(BaseModel):
+class ListrrModel(ContentBaseModel):
     enabled: bool = False
     movie_lists: Optional[list[str]] = [""]
     show_lists: Optional[list[str]] = [""]
     api_key: Optional[str] = ""
-    update_interval: int = 80
 
-class MdblistModel(BaseModel):
+class MdblistModel(ContentBaseModel):
     enabled: bool = False
     api_key: Optional[str] = ""
     lists: Optional[list[str]] = [""]
 
-class OverseerrModel(BaseModel):
+class OverseerrModel(ContentBaseModel):
     enabled: bool = False
     url: Optional[str] = "http://localhost:5055"
     api_key: Optional[str] = ""
 
-class PlexWatchlistModel(BaseModel):
+class PlexWatchlistModel(ContentBaseModel):
     enabled: bool = False
     rss: Optional[str] = ""
 

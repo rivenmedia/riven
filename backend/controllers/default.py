@@ -43,12 +43,6 @@ async def get_services(request: Request):
             if getattr(service, "sm", False):
                 for sub_service in service.sm.services:
                     data[sub_service.key] = sub_service.initialized
-    if hasattr(request.app.program, "extras_manager"):
-        for service in request.app.program.extras_manager.services:
-            data[service.key] = service.initialized
-            if getattr(service, "sm", False):
-                for sub_service in service.sm.services:
-                    data[sub_service.key] = sub_service.initialized
     return {
         "success": True,
         "data": data
