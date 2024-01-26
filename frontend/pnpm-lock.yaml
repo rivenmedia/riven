@@ -14,6 +14,9 @@ dependencies:
   cmdk-sv:
     specifier: ^0.0.12
     version: 0.0.12(svelte@4.2.9)
+  embla-carousel-svelte:
+    specifier: 8.0.0-rc20
+    version: 8.0.0-rc20(svelte@4.2.9)
   formsnap:
     specifier: ^0.4.2
     version: 0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.4)
@@ -1367,6 +1370,28 @@ packages:
   /electron-to-chromium@1.4.642:
     resolution: {integrity: sha512-M4+u22ZJGpk4RY7tne6W+APkZhnnhmAH48FNl8iEFK2lEgob+U5rUQsIqQhvAwCXYpfd3H20pHK/ENsCvwTbsA==}
     dev: true
+
+  /embla-carousel-reactive-utils@8.0.0-rc20(embla-carousel@8.0.0-rc20):
+    resolution: {integrity: sha512-fE7IeSS8HqwDnTDMP8eo0i4pcYQAemmJq53zCLXnp3Yj/p5+IpB1nC7aKQjd2ug1dGOSwwNRFaPI3shlAVVW/A==}
+    peerDependencies:
+      embla-carousel: 8.0.0-rc20
+    dependencies:
+      embla-carousel: 8.0.0-rc20
+    dev: false
+
+  /embla-carousel-svelte@8.0.0-rc20(svelte@4.2.9):
+    resolution: {integrity: sha512-MpON0Pw1EcYMjJt1VCnDk+HXTQrNwyHTlhdQ/WFx5QrXOpqvSup1nXKiLYsjxKkwBv5vYU9e04akNdqEJQ3iIg==}
+    peerDependencies:
+      svelte: ^3.49.0 || ^4.0.0
+    dependencies:
+      embla-carousel: 8.0.0-rc20
+      embla-carousel-reactive-utils: 8.0.0-rc20(embla-carousel@8.0.0-rc20)
+      svelte: 4.2.9
+    dev: false
+
+  /embla-carousel@8.0.0-rc20:
+    resolution: {integrity: sha512-fhzhbIAcsjSpUsg5jWsg0+zVyJhY5x2SPXtuS4MPAWQWoVQpvkcbX9r0FvPBn6emTbgNFRtAcWczstJy2msdUw==}
+    dev: false
 
   /emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}

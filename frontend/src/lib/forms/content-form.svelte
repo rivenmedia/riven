@@ -125,7 +125,7 @@
 	debug={formDebug}
 >
 	<div class="flex flex-col my-4 gap-4">
-		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl gap-2">
 			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Content Providers</p>
 			<div class="flex flex-wrap gap-4">
 				<Form.Field {config} name="overseerr_enabled">
@@ -276,7 +276,7 @@
 				<small class="text-sm text-red-500">{$mdblistListsErrors}</small>
 			{/if}
 
-			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
+			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl gap-2">
 				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="mdblist_lists"
 					>Mdblist Lists</Label
 				>
@@ -378,7 +378,7 @@
 				<small class="text-sm text-red-500">{$listrrShowListsErrors}</small>
 			{/if}
 
-			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
+			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl gap-2">
 				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="listrr_movie_lists"
 					>Listrr Movie Lists</Label
 				>
@@ -390,7 +390,6 @@
 				>
 					<Input
 						placeholder="Enter list numbers one at a time"
-						type="number"
 						bind:value={current_listrr_movie_add_list}
 					/>
 					<div class="flex items-center w-full flex-wrap gap-2">
@@ -410,7 +409,7 @@
 				</form>
 			</div>
 
-			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl">
+			<div transition:slide class="flex flex-col md:flex-row items-start max-w-6xl gap-2">
 				<Label class="font-semibold w-48 min-w-48 text-muted-foreground" for="listrr_show_lists"
 					>Listrr Show Lists</Label
 				>
@@ -422,7 +421,6 @@
 				>
 					<Input
 						placeholder="Enter list numbers one at a time"
-						type="number"
 						bind:value={current_listrr_show_add_list}
 					/>
 					<div class="flex items-center w-full flex-wrap gap-2">
