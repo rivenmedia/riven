@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from plexapi.server import PlexServer
+from plexapi.exceptions import BadRequest
 from pydantic import BaseModel
 from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
@@ -49,8 +50,7 @@ class Plex(threading.Thread):
             self.log_worker_count = False
             self.media_items = media_items
             self._update_items(init=True)
-        except Exception as e:
-            logger.error("Plex is not configured - Status Code: %s Reason - %s", e.response.status_code, e.response.reason)
+        except Exception:
             return
         logger.info("Plex initialized!")
         self.initialized = True
@@ -218,8 +218,6 @@ def _map_item_from_data(item):
         )
         aired_at = getattr(item, "originallyAvailableAt", None)
 
-        # All movies have imdb, but not all shows do.
-        # This is due to season 0 (specials) not having imdb ids.
         # Attempt to get the imdb id from the tvdb id if we don't have it.
         # Uses Trakt to get the imdb id from the tvdb id.
         # if not imdb_id:
