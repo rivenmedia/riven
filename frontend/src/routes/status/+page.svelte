@@ -123,111 +123,121 @@
 
 		{@const icebergItems = convertIcebergItemsToObject(items.items)}
 		<div class="flex flex-col gap-12 mt-4 w-full">
-			{#each Object.keys(icebergItems) as key (key)}
-				<Carousel.Root opts={{ dragFree: true }} class="w-full max-w-full flex flex-col gap-4">
-					<div class="flex items-center justify-between">
-						<div class="flex flex-col">
-							<a href="/status/type/{key}" class="flex gap-1 items-center hover:underline">
-								<h3 class="text-xl md:text-2xl font-semibold">
-									{statusInfo[key].text ?? formatWords(key)}
-								</h3>
-								<MoveUpRight class="size-4 md:size-6" />
-							</a>
-							<p class="text-muted-foreground text-sm">{statusInfo[key].description}</p>
+			{#if Object.keys(icebergItems).length === 0}
+				<div class="flex flex-col w-full h-full font-primary">
+					<h3 class="text-xl font-semibold">No items found :(</h3>
+					<p class="text-sm text-muted-foreground">
+						You can request items from the content services configured.
+					</p>
+				</div>
+			{:else}
+				{#each Object.keys(icebergItems) as key (key)}
+					<Carousel.Root opts={{ dragFree: true }} class="w-full max-w-full flex flex-col gap-4">
+						<div class="flex items-center justify-between">
+							<div class="flex flex-col">
+								<a href="/status/type/{key}" class="flex gap-1 items-center hover:underline">
+									<h3 class="text-xl md:text-2xl font-semibold">
+										{statusInfo[key].text ?? formatWords(key)}
+									</h3>
+									<MoveUpRight class="size-4 md:size-6" />
+								</a>
+								<p class="text-muted-foreground text-sm">{statusInfo[key].description}</p>
+							</div>
+							<div class="flex items-center justify-center gap-2 mt-6">
+								<Carousel.Previous class="rounded-md static h-8 w-8" />
+								<Carousel.Next class="rounded-md static h-8 w-8" />
+							</div>
 						</div>
-						<div class="flex items-center justify-center gap-2 mt-6">
-							<Carousel.Previous class="rounded-md static h-8 w-8" />
-							<Carousel.Next class="rounded-md static h-8 w-8" />
-						</div>
-					</div>
-					<Carousel.Content class="flex flex-row h-full w-full">
-						{#each icebergItems[key] as item}
-							<Carousel.Item class="flex-none mr-2 min-w-0 max-w-max w-full h-full group/item">
-								<div class="flex flex-col w-full h-full max-w-[144px] md:max-w-[176px]">
-									<div class="relative h-full w-full">
-										<img
-											alt={item.imdb_id}
-											class="bg-cover bg-center h-[216px] w-[144px] md:w-[176px] md:h-[264px] rounded-md border-muted group-hover/item:scale-105 duration-300 transition-all ease-in-out"
-											src={`https://images.metahub.space/poster/small/${item.imdb_id}/img`}
-										/>
-										<div class="absolute top-2 left-2">
-											<Badge class="rounded-md bg-opacity-40 backdrop-blur-lg drop-shadow-lg">
-												{item.type === 'movie' ? 'Movie' : 'TV Show'}
-											</Badge>
+						<Carousel.Content class="flex flex-row h-full w-full">
+							{#each icebergItems[key] as item}
+								<Carousel.Item class="flex-none mr-2 min-w-0 max-w-max w-full h-full group/item">
+									<div class="flex flex-col w-full h-full max-w-[144px] md:max-w-[176px]">
+										<div class="relative h-full w-full">
+											<img
+												alt={item.imdb_id}
+												class="bg-cover bg-center h-[216px] w-[144px] md:w-[176px] md:h-[264px] rounded-md border-muted group-hover/item:scale-105 duration-300 transition-all ease-in-out"
+												src={`https://images.metahub.space/poster/small/${item.imdb_id}/img`}
+											/>
+											<div class="absolute top-2 left-2">
+												<Badge class="rounded-md bg-opacity-40 backdrop-blur-lg drop-shadow-lg">
+													{item.type === 'movie' ? 'Movie' : 'TV Show'}
+												</Badge>
+											</div>
 										</div>
-									</div>
 
-									<Dialog.Root
-										onOpenChange={async (open) => {
-											console.log(open);
-											if (open) {
-												await getExtendedData(item.item_id);
-											}
-										}}
-									>
-										<Dialog.Trigger>
-											<p
-												class="text-start text-sm mt-2 text-ellipsis line-clamp-1 group-hover/item:underline focus:underline"
-											>
-												{item.title}
-											</p>
-										</Dialog.Trigger>
-										<Dialog.Content>
-											<Dialog.Header>
-												<Dialog.Title>{item.title}</Dialog.Title>
-												<Dialog.Description class="flex flex-col gap-2">
-													<p class="text-muted-foreground text-sm">
-														Aired {formatDate(item.aired_at, 'short')}
-													</p>
-													<div
-														class="flex flex-wrap gap-2 w-full items-center justify-center md:justify-start"
-													>
-														{#each item.genres as genre}
-															<Badge variant="secondary">
-																{formatWords(genre)}
-															</Badge>
-														{/each}
-													</div>
-												</Dialog.Description>
-											</Dialog.Header>
-											{#if extendedDataLoading}
-												<div class="flex items-center gap-1 w-full justify-center">
-													<Loader2 class="animate-spin w-4 h-4" />
-													<p class="text-muted-foreground">Loading item data...</p>
-												</div>
-											{:else}
-												<div class="flex flex-col items-start">
-													<p>
-														The item was requested <span class="font-semibold"
-															>{formatDate(item.requested_at, 'long', true)}</span
-														>
-														by <span class="font-semibold">{item.requested_by}</span>.
-													</p>
-													{#if item.scraped_at}
-														<p>
-															Last scraped <span class="font-semibold"
-																>{formatDate(item.scraped_at, 'long', true)}</span
-															>
-															for a total of <span class="font-semibold">{item.scraped_times}</span>
-															times.
+										<Dialog.Root
+											onOpenChange={async (open) => {
+												console.log(open);
+												if (open) {
+													await getExtendedData(item.item_id);
+												}
+											}}
+										>
+											<Dialog.Trigger>
+												<p
+													class="text-start text-sm mt-2 text-ellipsis line-clamp-1 group-hover/item:underline focus:underline"
+												>
+													{item.title}
+												</p>
+											</Dialog.Trigger>
+											<Dialog.Content>
+												<Dialog.Header>
+													<Dialog.Title>{item.title}</Dialog.Title>
+													<Dialog.Description class="flex flex-col gap-2">
+														<p class="text-muted-foreground text-sm">
+															Aired {formatDate(item.aired_at, 'short')}
 														</p>
-													{/if}
-												</div>
-											{/if}
-										</Dialog.Content>
-									</Dialog.Root>
-									<p class="text-muted-foreground text-xs mt-1">
-										{formatDate(item.aired_at, 'year')}
-									</p>
-									<p class="text-muted-foreground text-xs mt-1">
-										Requested {formatDate(item.requested_at, 'long', true)}
-									</p>
-								</div>
-							</Carousel.Item>
-						{/each}
-					</Carousel.Content>
-				</Carousel.Root>
-			{/each}
+														<div
+															class="flex flex-wrap gap-2 w-full items-center justify-center md:justify-start"
+														>
+															{#each item.genres as genre}
+																<Badge variant="secondary">
+																	{formatWords(genre)}
+																</Badge>
+															{/each}
+														</div>
+													</Dialog.Description>
+												</Dialog.Header>
+												{#if extendedDataLoading}
+													<div class="flex items-center gap-1 w-full justify-center">
+														<Loader2 class="animate-spin w-4 h-4" />
+														<p class="text-muted-foreground">Loading item data...</p>
+													</div>
+												{:else}
+													<div class="flex flex-col items-start">
+														<p>
+															The item was requested <span class="font-semibold"
+																>{formatDate(item.requested_at, 'long', true)}</span
+															>
+															by <span class="font-semibold">{item.requested_by}</span>.
+														</p>
+														{#if item.scraped_at}
+															<p>
+																Last scraped <span class="font-semibold"
+																	>{formatDate(item.scraped_at, 'long', true)}</span
+																>
+																for a total of
+																<span class="font-semibold">{item.scraped_times}</span>
+																times.
+															</p>
+														{/if}
+													</div>
+												{/if}
+											</Dialog.Content>
+										</Dialog.Root>
+										<p class="text-muted-foreground text-xs mt-1">
+											{formatDate(item.aired_at, 'year')}
+										</p>
+										<p class="text-muted-foreground text-xs mt-1">
+											Requested {formatDate(item.requested_at, 'long', true)}
+										</p>
+									</div>
+								</Carousel.Item>
+							{/each}
+						</Carousel.Content>
+					</Carousel.Root>
+				{/each}
+			{/if}
 		</div>
 	{:catch error}
 		<div class="flex flex-col items-center justify-center w-full h-full font-primary">
