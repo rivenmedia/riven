@@ -2,8 +2,8 @@ from datetime import datetime
 from pydantic import BaseModel
 from utils.service_manager import ServiceManager
 from utils.settings import settings_manager as settings
+# from utils.parser import parser, sort_streams
 from utils.logger import logger
-from utils.parser import parser
 from .torrentio import Torrentio
 from .orionoid import Orionoid
 from .jackett import Jackett
@@ -34,6 +34,8 @@ class Scraping:
                     service.run(item)
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
+            # sorted_streams = sort_streams(item.streams, parser)
+            # item.set("streams", sorted_streams)
 
     def _can_we_scrape(self, item) -> bool:
         return self._is_released(item) and self._needs_new_scrape(item)

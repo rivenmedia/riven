@@ -28,11 +28,11 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.max_calls = 50 if not self.is_premium else 999999
-        self.minute_limiter = RateLimiter(
-            max_calls=self.max_calls, period=86400, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.parse_logging = False
+        self.max_calls = 50 if not self.is_premium else 60
+        self.period = 86400 if not self.is_premium else 60
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Orionoid initialized!")
 
     def validate_settings(self) -> bool:
@@ -76,10 +76,10 @@ class Orionoid:
             return
 
     def _scrape_item(self, item):
-        data = self.api_scrape(item)
+        data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams for %s", len(data), item.log_string)
+            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s", item.log_string)
 
@@ -124,12 +124,22 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok and response.data.result.status != "error":
-                data = {}
-                for stream in response.data.data.streams:
-                    title = stream.file.name
-                    if parser.parse(title) and stream.file.hash:
-                        data[stream.file.hash] = {"name": title}
-                if len(data) > 0:
-                    return parser.sort_streams(data)
-            return {}
+            if response.is_ok and len(response.data.data.streams) > 0:
+                parsed_data_list = [
+                    parser.parse(item, stream.file.name)
+                    for stream in response.data.data.streams
+                    if stream.file.hash
+                ]
+                data = {
+                    stream.file.hash: {"name": stream.file.name}
+                    for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
+                    if parsed_data["fetch"]
+                }
+                if self.parse_logging:
+                    for parsed_data in parsed_data_list:
+                        logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                if data:
+                    item.parsed_data.extend(parsed_data_list)
+                    item.parsed_data.append({self.key: True})
+                    return data, len(response.data.data.streams)
+            return {}, len(response.data.data.streams) or 0
