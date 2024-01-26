@@ -36,10 +36,10 @@ dependencies:
     specifier: ^0.2.0
     version: 0.2.0
   svelte-sonner:
-    specifier: ^0.3.6
+    specifier: ^0.3.11
     version: 0.3.11(svelte@4.2.9)
   sveltekit-superforms:
-    specifier: ^1.13.1
+    specifier: ^1.13.4
     version: 1.13.4(@sveltejs/kit@2.4.3)(svelte@4.2.9)(zod@3.22.4)
   tailwind-merge:
     specifier: ^2.2.0
