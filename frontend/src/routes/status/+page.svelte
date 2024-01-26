@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Loader2, ArrowUpRight, RotateCw, MoveUpRight } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
@@ -47,6 +48,18 @@
 			description: 'Items which are in your plex library but are missing some files'
 		}
 	};
+
+	let extendedDataLoading = false;
+	let extendedItem: any;
+
+	async function getExtendedData(id: number) {
+		extendedDataLoading = true;
+		const res = await fetch(`/api/items/${id}`);
+		const data = await res.json();
+		console.log(data);
+		extendedItem = data.item;
+		extendedDataLoading = false;
+	}
 </script>
 
 <svelte:head>
@@ -143,11 +156,66 @@
 											</Badge>
 										</div>
 									</div>
-									<p
-										class="text-start text-sm mt-2 text-ellipsis line-clamp-1 group-hover/item:underline focus:underline"
+
+									<Dialog.Root
+										onOpenChange={async (open) => {
+											console.log(open);
+											if (open) {
+												await getExtendedData(item.item_id);
+											}
+										}}
 									>
-										{item.title}
-									</p>
+										<Dialog.Trigger>
+											<p
+												class="text-start text-sm mt-2 text-ellipsis line-clamp-1 group-hover/item:underline focus:underline"
+											>
+												{item.title}
+											</p>
+										</Dialog.Trigger>
+										<Dialog.Content>
+											<Dialog.Header>
+												<Dialog.Title>{item.title}</Dialog.Title>
+												<Dialog.Description class="flex flex-col gap-2">
+													<p class="text-muted-foreground text-sm">
+														Aired {formatDate(item.aired_at, 'short')}
+													</p>
+													<div
+														class="flex flex-wrap gap-2 w-full items-center justify-center md:justify-start"
+													>
+														{#each item.genres as genre}
+															<Badge variant="secondary">
+																{formatWords(genre)}
+															</Badge>
+														{/each}
+													</div>
+												</Dialog.Description>
+											</Dialog.Header>
+											{#if extendedDataLoading}
+												<div class="flex items-center gap-1 w-full justify-center">
+													<Loader2 class="animate-spin w-4 h-4" />
+													<p class="text-muted-foreground">Loading item data...</p>
+												</div>
+											{:else}
+												<div class="flex flex-col items-start">
+													<p>
+														The item was requested <span class="font-semibold"
+															>{formatDate(item.requested_at, 'long', true)}</span
+														>
+														by <span class="font-semibold">{item.requested_by}</span>.
+													</p>
+													{#if item.scraped_at}
+														<p>
+															Last scraped <span class="font-semibold"
+																>{formatDate(item.scraped_at, 'long', true)}</span
+															>
+															for a total of <span class="font-semibold">{item.scraped_times}</span>
+															times.
+														</p>
+													{/if}
+												</div>
+											{/if}
+										</Dialog.Content>
+									</Dialog.Root>
 									<p class="text-muted-foreground text-xs mt-1">
 										{formatDate(item.aired_at, 'year')}
 									</p>
