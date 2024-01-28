@@ -198,7 +198,7 @@
 				<Form.Field {config} name="plex_watchlist_rss">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Plex RSS URL
+							Plex RSS URL (Optional)
 						</Form.Label>
 						<Form.Input spellcheck="false" />
 					</Form.Item>
