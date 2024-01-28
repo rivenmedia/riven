@@ -44,6 +44,7 @@
     "after_10": 24,
     "torrentio": {
       "enabled": false,
+      "url": "https://torrentio.strem.fun",
       "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     },
     "orionoid": {
@@ -52,7 +53,8 @@
     },
     "jackett": {
       "enabled": false,
-      "url": "http://localhost:9117"
+      "url": "http://localhost:9117",
+      "api_key": ""
     }
   },
   "parser": {

@@ -1,32 +1,54 @@
-"""Test the parser module."""
-import re
-import PTN
+import pytest
+from utils.parser import Parser
 
-string = 'Gold Rush S01 1080p AMZN WEB-DL DD+ 2.0 x264-QOQ'
 
-def _is_unwanted_quality(string) -> bool:
-    """Check if string has an 'unwanted' quality. Default to False."""
-    unwanted_patterns = [
-        re.compile(r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b", re.IGNORECASE),
-        re.compile(r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b", re.IGNORECASE),
-        re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?S(?:YNC)?(?:Rip)?\b", re.IGNORECASE),
-        re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?C(?:INE)?(?:Rip)?\b", re.IGNORECASE),
-        re.compile(r"\bP(?:re)?DVD(?:Rip)?\b", re.IGNORECASE),
-        re.compile(r"\b(?:DVD?|BD|BR)?[ .-]*Scr(?:eener)?\b", re.IGNORECASE),
-        re.compile(r"\bVHS\b", re.IGNORECASE),
-        re.compile(r"\bHD[ .-]*TV(?:Rip)?\b", re.IGNORECASE),
-        re.compile(r"\bDVB[ .-]*(?:Rip)?\b", re.IGNORECASE),
-        re.compile(r"\bSAT[ .-]*Rips?\b", re.IGNORECASE),
-        re.compile(r"\bTVRips?\b", re.IGNORECASE),
-        re.compile(r"\bR5\b", re.IGNORECASE),
-        re.compile(r"\b(DivX|XviD)\b", re.IGNORECASE),
-    ]
-    return any(pattern.search(string) for pattern in unwanted_patterns)
+@pytest.fixture
+def parser():
+    return Parser()
 
-data = {}
-data.update({"string": string})
-data.update({"is_unwanted_quality": _is_unwanted_quality(string)})
-data.update(PTN.parse(string))
+# Test parser
+def test_fetch_with_movie(parser):
+    # Use mocked movie item in parser test
+    parsed_data = parser.parse(item=None, string="Inception 2010 1080p BluRay x264")
+    assert parsed_data["fetch"] == True
+    # Add more assertions as needed
 
-for k, v in data.items():
-    print(f"{k}: {v}")
+def test_fetch_with_episode(parser):
+    # Use mocked episode item in parser test
+    parsed_data = parser.parse(item=None, string="Breaking Bad S01E01 720p BluRay x264")
+    assert parsed_data["fetch"] == True
+    # Add more assertions as needed
+
+def test_parse_resolution_4k(parser):
+    parsed_data = parser.parse(item=None, string="Movie.Name.2018.2160p.UHD.BluRay.x265")
+    assert parsed_data["is_4k"] == True
+    assert parsed_data["resolution"] == "2160p"
+
+def test_parse_resolution_1080p(parser):
+    parsed_data = parser.parse(item=None, string="Another.Movie.2019.1080p.WEB-DL.x264")
+    assert parsed_data["is_4k"] == False
+    assert parsed_data["resolution"] == "1080p"
+
+def test_parse_dual_audio_present(parser):
+    parsed_data = parser.parse(item=None, string="Series S01E01 720p BluRay x264 Dual-Audio")
+    assert parsed_data["is_dual_audio"] == True
+
+def test_parse_dual_audio_absent(parser):
+    parsed_data = parser.parse(item=None, string="Series S01E02 720p BluRay x264")
+    assert parsed_data["is_dual_audio"] == False
+
+def test_parse_complete_series_detected(parser):
+    parsed_data = parser.parse(item=None, string="The Complete Series Box Set 1080p")
+    assert parsed_data["is_complete"] == True
+
+def test_parse_complete_series_not_detected(parser):
+    parsed_data = parser.parse(item=None, string="Single.Movie.2020.1080p.BluRay")
+    assert parsed_data["is_complete"] == False
+
+def test_parse_unwanted_quality_detected(parser):
+    parsed_data = parser.parse(item=None, string="Low.Quality.Movie.CAM.2020")
+    assert parsed_data["is_unwanted_quality"] == True
+
+def test_parse_unwanted_quality_not_detected(parser):
+    parsed_data = parser.parse(item=None, string="High.Quality.Movie.1080p.2020")
+    assert parsed_data["is_unwanted_quality"] == False

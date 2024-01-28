@@ -11,6 +11,7 @@ from utils.request import RateLimitExceeded, get, RateLimiter
 class JackettConfig(BaseModel):
     enabled: bool
     url: Optional[str]
+    api_key: Optional[str]
 
 
 class Jackett:
@@ -25,7 +26,7 @@ class Jackett:
             return
         self.parse_logging = False
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=3)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
         logger.info("Jackett initialized!")
 
     def validate_settings(self) -> bool:
@@ -33,6 +34,18 @@ class Jackett:
         if not self.settings.enabled:
             logger.debug("Jackett is set to disabled.")
             return False
+        if self.settings.url and self.settings.api_key:
+            self.api_key = self.settings.api_key
+            try:
+                url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}&cat=2000&t=movie&q=test"
+                response = get(url=url, retry_if_failed=False, timeout=60)
+                if response.is_ok:
+                    return True
+            except ReadTimeout:
+                return True
+            except Exception as e:
+                logger.exception("Jackett failed to initialize with API Key: %s", e)
+                return False
         if self.settings.url:
             try:
                 url = f"{self.settings.url}/api/v2.0/server/config"
@@ -40,9 +53,12 @@ class Jackett:
                 if response.is_ok and response.data.api_key is not None:
                     self.api_key = response.data.api_key
                     return True
+                if not response.is_ok:
+                    return False
             except ReadTimeout:
                 return True
-            except Exception:
+            except Exception as e:
+                logger.exception("Jackett failed to initialize: %s", e)
                 return False
         logger.info("Jackett is not configured and will not be used.")
         return False
@@ -53,9 +69,11 @@ class Jackett:
             self._scrape_item(item)
         except RequestException:
             self.minute_limiter.limit_hit()
+            logger.debug("Jackett connection timeout for item: %s", item.log_string)
             return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.debug("Jackett rate limit hit for item: %s", item.log_string)
             return
 
     def _scrape_item(self, item):
@@ -78,7 +96,7 @@ class Jackett:
                 query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
             if item.type == "episode":
                 query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
-            url = (f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}")
+            url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}"
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
             if response.is_ok:

@@ -23,6 +23,8 @@ class Parser:
 
     def determine_resolution(self):
         """Determine the resolution to use based on user settings."""
+        if self.settings.highest_quality and self.settings.include_4k:
+            return ["UHD", "2160p", "4K", "1080p", "720p"]
         if self.settings.highest_quality:
             return ["UHD", "2160p", "4K", "1080p", "720p"]
         if self.settings.include_4k:
@@ -31,14 +33,14 @@ class Parser:
 
     def parse(self, item, string) -> dict:
         """Parse the given string and return True if it matches the user settings."""
-        if len(item.parsed_data) != 0 or item.parsed:
+        if item and hasattr(item, 'parsed_data') and item.parsed_data:
             return item.parsed_data
         return self._parse(item, string)
 
     def _parse(self, item, string) -> dict:
         """Parse the given string and return the parsed data."""
         parse = PTN.parse(string)
-        parsed_title = parse.get("title", "")
+        parsed_title = parse.get("title", False)
 
         # episodes
         episodes = []
@@ -50,11 +52,11 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
-        title_match = self.check_for_title_match(item, parsed_title)
+        title_match = self.check_for_title_match(item, parsed_title) if item and parsed_data else False
         is_4k = parse.get("resolution", False) in ["2160p", "4K", "UHD"]
-        is_complete = self._is_complete_series(string)
-        is_dual_audio = self._is_dual_audio(string)
-        _is_unwanted_quality = self._is_unwanted_quality(string)
+        is_complete = self._is_complete_series(string) if string else False
+        is_dual_audio = self._is_dual_audio(string) if string else False
+        _is_unwanted_quality = self._is_unwanted_quality(string) if string else False
 
         parsed_data = {
             "string": string,

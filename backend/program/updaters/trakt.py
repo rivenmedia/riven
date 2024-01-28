@@ -21,6 +21,9 @@ class Updater:
 
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
+        if len(imdb_ids) == 0:
+            return MediaItemContainer()
+
         self.trakt_data.load(self.pkl_file)
         new_items = MediaItemContainer()
         get_items = MediaItemContainer()
@@ -28,7 +31,7 @@ class Updater:
         existing_imdb_ids = {item.imdb_id for item in self.trakt_data.items if item}
 
         # This is to calculate 10% batch sizes to speed up the process
-        batch_size = math.ceil(len(imdb_ids) * 0.1)
+        batch_size = math.ceil(len(imdb_ids) * 0.1) if not len(imdb_ids) == 0 else 1
         imdb_id_batches = [imdb_ids[i:i + batch_size] for i in range(0, len(imdb_ids), batch_size)]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -54,7 +57,6 @@ class Updater:
         if length > 0:
             self.trakt_data.extend(added_items)
             self.trakt_data.save(self.pkl_file)
-
         return get_items
 
     def _create_item(self, imdb_id):
@@ -84,7 +86,7 @@ def _map_item_from_data(data, item_type):
     if getattr(data, "released", None):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
-    is_anime = "anime" in getattr(data, "genres", [])
+    is_anime = "anime" in getattr(data, "genres", False)
     item = {
         "title": getattr(data, "title", None),              # 'Game of Thrones'
         "year": getattr(data, "year", None),                # 2011

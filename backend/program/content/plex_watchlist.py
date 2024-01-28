@@ -50,8 +50,9 @@ class PlexWatchlist:
                 if e.response.status_code >= 400 and e.response.status_code <= 500:
                     logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
                     return True
-            except Exception:
-                return False
+            except Exception as e:
+                logger.exception("Failed to validate Plex RSS URL: %s", e)
+                return True
         return True
 
     def run(self):

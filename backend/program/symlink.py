@@ -1,5 +1,6 @@
 """Symlinking module"""
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
@@ -7,8 +8,8 @@ from utils.logger import logger
 
 
 class SymlinkConfig(BaseModel):
-    host_path: Optional[str]
-    container_path: Optional[str]
+    host_path: Path
+    container_path: Path
 
 
 class Symlinker():
@@ -23,40 +24,66 @@ class Symlinker():
         host_path (str): The absolute path of the host mount.
         symlink_path (str): The path where the symlinks will be created.
     """
-
     def __init__(self, _):
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = False
-        self.library_path = os.path.join(
-            os.path.dirname(self.settings.host_path), "library"
-        )
-        self.library_path_movies = os.path.join(self.library_path, "movies")
-        self.library_path_shows = os.path.join(self.library_path, "shows")
+
+        if (Path(self.settings.host_path) / "__all__").exists():
+            logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
+            self.settings.host_path = Path(self.settings.host_path) / "__all__"
+            settings.set(self.key, self.settings.host_path)
+        
+        self.library_path = self.settings.host_path.parent / "library"
+
         if not self.validate():
-            logger.error("Symlink is not configured and will not be used.")
+            logger.error("Symlink configuration is invalid. Please check the host and container paths.")
             return
-        self._create_init_folders()
+
+        self.initialize_library_paths()
+
+        if not self.create_initial_folders():
+            logger.error("Failed to create initial library folders.")
+            return
+
+        logger.info("Found rclone mount path: %s", self.settings.host_path)
+        logger.info("Symlinks will be placed in library path: %s", self.library_path)
+        logger.info("Plex will see the symlinks in: %s", self.settings.container_path.parent / "library")
         logger.info("Symlink initialized!")
         self.initialized = True
 
     def validate(self):
-        return os.path.exists(self.settings.host_path) and self.settings.host_path != "" and self.settings.container_path != ""
+        if not self.settings.host_path or not self.settings.container_path:
+            return False
+        host_path = Path(self.settings.host_path)
+        if not host_path.exists() or not host_path.is_dir():
+            logger.error(f"Invalid host path: {self.settings.host_path}")
+            return False
+        return True
 
-    def _create_init_folders(self):
-        movies = os.path.join(self.library_path_movies)
-        shows = os.path.join(self.library_path_shows)
-        if not os.path.exists(self.library_path):
-            os.mkdir(self.library_path)
-        if not os.path.exists(movies):
-            os.mkdir(movies)
-        if not os.path.exists(shows):
-            os.mkdir(shows)
+    def initialize_library_paths(self):
+        self.library_path_movies = self.library_path / "movies"
+        self.library_path_shows = self.library_path / "shows"
+        self.library_path_anime_movies = self.library_path / "anime_movies"
+        self.library_path_anime_shows = self.library_path / "anime_shows"
+
+    def create_initial_folders(self):
+        for library in [self.library_path_movies, 
+                        self.library_path_shows, 
+                        self.library_path_anime_movies, 
+                        self.library_path_anime_shows]:
+            try:
+                library.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Failed to create directory {library}: {e}")
+                return False
+        return True
 
     def run(self, item):
         self._run(item)
 
     def _determine_file_name(self, item):
+        """Determine the filename of the symlink."""
         filename = None
         if item.type == "movie":
             filename = (
@@ -77,6 +104,7 @@ class Symlinker():
         return filename
 
     def _run(self, item):
+        """Check if the media item exists and create a symlink if it does"""
         found = False
         if os.path.exists(os.path.join(self.settings.host_path, item.folder, item.file)):
             found = True
@@ -90,6 +118,7 @@ class Symlinker():
             self._symlink(item)
 
     def _symlink(self, item):
+        """Create a symlink for the given media item"""
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
 

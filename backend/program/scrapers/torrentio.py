@@ -1,4 +1,5 @@
 """ Torrentio scraper module """
+import os
 from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout, ReadTimeout
@@ -10,8 +11,9 @@ from utils.parser import parser
 
 
 class TorrentioConfig(BaseModel):
-    enabled: bool
-    filter: Optional[str]
+    enabled: bool = settings_manager.get("scraping.torrentio.enabled") if not os.environ.get("TORRENTIO_ENABLED") else os.environ.get("TORRENTIO_ENABLED")
+    url: Optional[str] = settings_manager.get("scraping.torrentio.url") if not os.environ.get("TORRENTIO_URL") else os.environ.get("TORRENTIO_URL")
+    filter: Optional[str] = settings_manager.get("scraping.torrentio.filter") if not os.environ.get("TORRENTIO_FILTER") else os.environ.get("TORRENTIO_FILTER")
 
 
 class Torrentio:
@@ -21,7 +23,7 @@ class Torrentio:
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=7)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate_settings()
         if not self.initialized:
             return
@@ -32,6 +34,14 @@ class Torrentio:
         """Validate the Torrentio settings."""
         if not self.settings.enabled:
             logger.debug("Torrentio is set to disabled.")
+            return False
+        try:
+            url = f"{self.settings.url}/{self.settings.filter}/stream/movie/tt0000000.json"
+            response = get(url=url, retry_if_failed=False, timeout=60)
+            if response.is_ok:
+                return True
+        except Exception:
+            logger.warning("Torrentio failed to initialize. Check your URL or filter settings.")
             return False
         return True
 
@@ -58,12 +68,14 @@ class Torrentio:
             return
 
     def _scrape_item(self, item):
-        data, stream_count = self.api_scrape(item)  # Unpack the tuple to get data and stream_count
+        """Scrape torrentio for the given media item"""
+        data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
             logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
-            logger.debug("Could not find streams for %s out of %s", item.log_string, stream_count)
+            if stream_count > 0:
+                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""
@@ -82,7 +94,7 @@ class Torrentio:
                 imdb_id = item.imdb_id
 
             url = (
-                f"https://torrentio.strem.fun/{self.settings.filter}"
+                f"{self.settings.url}/{self.settings.filter}"
                 + f"/stream/{scrape_type}/{imdb_id}"
             )
             if identifier:

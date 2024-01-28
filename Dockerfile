@@ -14,12 +14,22 @@ LABEL name="Iceberg" \
       description="Iceberg Debrid Downloader" \
       url="https://github.com/dreulavelle/iceberg"
 
-RUN apk --update add python3 py3-pip bash shadow vim nano rclone && \
+RUN apk --update add --no-cache python3 py3-pip tzdata bash shadow && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /iceberg
-ENV ORIGIN http://localhost:3000
-ARG ORIGIN=http://localhost:3000
+
+ARG ORIGIN
+ARG RD_API_KEY
+ARG PLEX_URL
+ARG PLEX_TOKEN
+
+ARG JACKETT_URL
+ARG JACKETT_API_KEY
+
+ENV ORIGIN=${ORIGIN:-http://localhost:3000}
+ENV TZ=${TZ:-America/New_York}
+
 EXPOSE 3000 8080
 
 # Frontend

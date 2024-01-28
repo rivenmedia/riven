@@ -9,7 +9,7 @@ from typing import Optional
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest
 from pydantic import BaseModel
-from program.updaters.trakt import get_imdbid_from_tvdb
+# from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
 from utils.settings import settings_manager as settings
 from program.media.container import MediaItemContainer
@@ -46,15 +46,18 @@ class Plex(threading.Thread):
             self.plex = PlexServer(
                 self.settings.url, self.settings.token, timeout=60
             )
-            self.running = False
-            self.log_worker_count = False
-            self.media_items = media_items
-            self._update_items(init=True)
-        except Exception:
-            logger.error("Plex is not configured!", exc_info=False)
+        except BadRequest as e:
+            logger.error("Plex is not configured correctly: %s", e)
             return
-        logger.info("Plex initialized!")
+        except Exception:
+            logger.error("Plex is not configured!")
+            return
+        self.running = False
+        self.log_worker_count = False
+        self.media_items = media_items
+        self._update_items(init=True)
         self.initialized = True
+        logger.info("Plex initialized!")
 
     def run(self):
         while self.running:

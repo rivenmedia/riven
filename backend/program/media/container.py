@@ -50,6 +50,13 @@ class MediaItemContainer:
                 return my_item
         return None
 
+    def get_item_by_imdb_id(self, imdb_id) -> MediaItem:
+        """Get item matching given item from container"""
+        for my_item in self.items:
+            if my_item.imdb_id == imdb_id:
+                return my_item
+        return None
+
     def get_item(self, attr, value) -> "MediaItemContainer":
         """Get items that match given items"""
         return next((item for item in self.items if getattr(item, attr) == value), None)
