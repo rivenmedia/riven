@@ -31,7 +31,7 @@ async def get_extended_item_info(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     return {
         "success": True,
-        "item": item.to_extended_dict(),  # Assuming this method exists
+        "item": item.to_extended_dict(),
     }
 
 
@@ -41,4 +41,15 @@ async def remove_item(request: Request, item: str):
     return {
         "success": True,
         "message": f"Removed {item}",
+    }
+
+
+@router.get("/imdb/{imdb_id}")
+async def get_imdb_info(request: Request, imdb_id: str):
+    item = request.app.program.media_items.get_item_by_imdb_id(imdb_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {
+        "success": True,
+        "item": item.to_extended_dict()
     }

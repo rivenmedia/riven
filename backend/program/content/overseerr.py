@@ -42,6 +42,11 @@ class Overseerr:
                 additional_headers=self.headers,
                 timeout=15,
             )
+            if response.status_code >= 201:
+                logger.error(
+                    f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
+                )
+                return False
             return response.ok
         except Exception:
             logger.error("Overseerr url is not reachable.")

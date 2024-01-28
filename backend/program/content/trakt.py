@@ -22,8 +22,8 @@ class Trakt:
     """Content class for Trakt"""
 
     def __init__(self, media_items: MediaItemContainer):
-        self.key = "listrr"
-        self.url = "https://listrr.pro/api"
+        self.key = "trakt"
+        self.url = None
         self.settings = TraktConfig(**settings_manager.get(f"content.{self.key}"))
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate_settings()

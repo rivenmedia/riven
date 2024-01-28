@@ -1,6 +1,7 @@
 """ Orionoid scraper module """
 from typing import Optional
 from pydantic import BaseModel
+from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
@@ -66,13 +67,21 @@ class Orionoid:
     def run(self, item):
         """Scrape the Orionoid site for the given media items
         and update the object with scraped streams"""
+        if item is None or not self.initialized:
+            return
         try:
             self._scrape_item(item)
+        except ConnectTimeout:
+            self.minute_limiter.limit_hit()
+            logger.debug("Orionoid connection timeout for item: %s", item.log_string)
+            return
         except RequestException:
             self.minute_limiter.limit_hit()
+            logger.debug("Orionoid request exception for item: %s", item.log_string)
             return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.debug("Orionoid rate limit hit for item: %s", item.log_string)
             return
 
     def _scrape_item(self, item):
