@@ -26,7 +26,7 @@ class Jackett:
             return
         self.parse_logging = False
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=10)
         logger.info("Jackett initialized!")
 
     def validate_settings(self) -> bool:
