@@ -75,6 +75,9 @@ class Jackett:
             self.minute_limiter.limit_hit()
             logger.debug("Jackett rate limit hit for item: %s", item.log_string)
             return
+        except Exception as e:
+            logger.exception("Jackett exception for item: %s - Exception: %s", item.log_string, e)
+            return
 
     def _scrape_item(self, item):
         """Scrape the given media item"""

@@ -52,7 +52,7 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
-        title_match = self.check_for_title_match(item, parsed_title) if item and parsed_data else False
+        title_match = self.check_for_title_match(item, parsed_title) if item and parsed_title else False
         is_4k = parse.get("resolution", False) in ["2160p", "4K", "UHD"]
         is_complete = self._is_complete_series(string) if string else False
         is_dual_audio = self._is_dual_audio(string) if string else False
