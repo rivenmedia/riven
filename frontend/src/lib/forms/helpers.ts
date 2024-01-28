@@ -162,12 +162,14 @@ export const scrapersSettingsSchema = z.object({
 	torrentio_enabled: z.boolean().default(false),
 	orionoid_enabled: z.boolean().default(false),
 	jackett_enabled: z.boolean().default(false),
+	torrentio_url: z.string().optional().default('https://torrentio.strem.fun'),
 	torrentio_filter: z
 		.string()
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	orionoid_api_key: z.string().optional().default(''),
-	jackett_url: z.string().url().optional().default('http://localhost:9117')
+	jackett_url: z.string().url().optional().default('http://localhost:9117'),
+	jackett_api_key: z.string().optional().default('')
 });
 export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
 
@@ -176,12 +178,14 @@ export function scrapersSettingsToPass(data: any) {
 		after_2: data.data.scraping.after_2,
 		after_5: data.data.scraping.after_5,
 		after_10: data.data.scraping.after_10,
+		torrentio_url: data.data.scraping.torrentio?.url || 'https://torrentio.strem.fun',
 		torrentio_enabled: data.data.scraping.torrentio.enabled,
 		orionoid_enabled: data.data.scraping.orionoid.enabled,
 		jackett_enabled: data.data.scraping.jackett.enabled,
 		torrentio_filter: data.data.scraping.torrentio?.filter || '',
 		orionoid_api_key: data.data.scraping.orionoid?.api_key || '',
-		jackett_url: data.data.scraping.jackett?.url || ''
+		jackett_url: data.data.scraping.jackett?.url || '',
+		jackett_api_key: data.data.scraping.jackett?.api_key || ''
 	};
 }
 
@@ -195,6 +199,7 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				after_10: form.data.after_10,
 				torrentio: {
 					enabled: form.data.torrentio_enabled,
+					url: form.data.torrentio_url,
 					filter: form.data.torrentio_filter
 				},
 				orionoid: {
@@ -203,7 +208,8 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				},
 				jackett: {
 					enabled: form.data.jackett_enabled,
-					url: form.data.jackett_url
+					url: form.data.jackett_url,
+					api_key: form.data.jackett_api_key
 				}
 			}
 		}

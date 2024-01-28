@@ -100,6 +100,20 @@
 
 		{#if $form.torrentio_enabled}
 			<div transition:slide>
+				<Form.Field {config} name="torrentio_url">
+					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
+							Torrentio URL
+						</Form.Label>
+						<Form.Input spellcheck="false" />
+					</Form.Item>
+					{#if $errors.torrentio_url}
+						<Form.Validation class="text-sm text-red-500" />
+					{/if}
+				</Form.Field>
+			</div>
+
+			<div transition:slide>
 				<Form.Field {config} name="torrentio_filter">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
@@ -145,6 +159,25 @@
 						<Form.Input spellcheck="false" />
 					</Form.Item>
 					{#if $errors.jackett_url}
+						<Form.Validation class="text-sm text-red-500" />
+					{/if}
+				</Form.Field>
+			</div>
+
+			<div transition:slide>
+				<Form.Field {config} name="jackett_api_key">
+					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
+						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
+							Jackett API Key
+						</Form.Label>
+						<Form.Input
+							class={clsx('transition-all duration-300', {
+								'blur-sm hover:blur-none focus:blur-none': $form.jackett_api_key.length > 0
+							})}
+							spellcheck="false"
+						/>
+					</Form.Item>
+					{#if $errors.jackett_api_key}
 						<Form.Validation class="text-sm text-red-500" />
 					{/if}
 				</Form.Field>
