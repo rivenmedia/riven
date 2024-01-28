@@ -68,7 +68,6 @@ services:
             PUID: "1000"
             PGID: "1000"
             ORIGIN: "http://localhost:3000" # read below for more info
-            TZ: "America/New_York"  
         ports:
             - "3000:3000"
         volumes:
