@@ -73,7 +73,7 @@
 		</Form.Field>
 
 		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl gap-2">
-			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Scrapers Enabled</p>
+			<p class="font-semibold w-48 min-w-48 text-sm text-muted-foreground">Scrapers Enabled</p>
 			<div class="flex flex-wrap gap-4">
 				<Form.Field {config} name="torrentio_enabled">
 					<div class="flex flex-wrap items-center gap-2">
@@ -168,7 +168,7 @@
 				<Form.Field {config} name="jackett_api_key">
 					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
 						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Jackett API Key
+							Jackett API Key (Optional)
 						</Form.Label>
 						<Form.Input
 							class={clsx('transition-all duration-300', {
