@@ -29,8 +29,10 @@ class Orionoid:
             self.initialized = True
         else:
             return
+        self.orionoid_limit = 0
+        self.orionoid_remaining = 0
         self.parse_logging = False
-        self.max_calls = 50 if not self.is_premium else 60
+        self.max_calls = 100 if not self.is_premium else 60
         self.period = 86400 if not self.is_premium else 60
         self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=10)
@@ -43,8 +45,20 @@ class Orionoid:
             return False
         if self.settings.api_key:
             return True
-        logger.info("Orionoid is not configured and will not be used.")
-        return False
+        try:
+            url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+            response = get(url, retry_if_failed=False)
+            if response.is_ok:
+                return True
+            if not response.data.result.status == "success":
+                logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
+                return False
+            if not response.is_ok:
+                logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
+                return False
+        except Exception as e:
+            logger.exception("Orionoid failed to initialize: %s", e)
+            return False
 
     def check_premium(self) -> bool:
         """
@@ -73,15 +87,19 @@ class Orionoid:
             self._scrape_item(item)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
-            logger.debug("Orionoid connection timeout for item: %s", item.log_string)
+            logger.warn("Orionoid connection timeout for item: %s", item.log_string)
             return
-        except RequestException:
+        except RequestException as e:
             self.minute_limiter.limit_hit()
-            logger.debug("Orionoid request exception for item: %s", item.log_string)
+            logger.exception("Orionoid request exception: %s", e)
             return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.debug("Orionoid rate limit hit for item: %s", item.log_string)
+            logger.warn("Orionoid rate limit hit for item: %s", item.log_string)
+            return
+        except Exception as e:
+            self.minute_limiter.limit_hit()
+            logger.exception("Orionoid exception for item: %s - Exception: %s", item.log_string, e)
             return
 
     def _scrape_item(self, item):
@@ -133,7 +151,14 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok and len(response.data.data.streams) > 0:
+            if response.is_ok and hasattr(response.data, "data"):
+
+                # Check and log Orionoid API limits
+                # self.orionoid_limit = response.data.data.requests.daily.limit
+                # self.orionoid_remaining = response.data.data.requests.daily.remaining
+                # if self.orionoid_remaining < 10:
+                #     logger.warning(f"Orionoid API limit is low. Limit: {self.orionoid_limit}, Remaining: {self.orionoid_remaining}")
+
                 parsed_data_list = [
                     parser.parse(item, stream.file.name)
                     for stream in response.data.data.streams
@@ -149,6 +174,5 @@ class Orionoid:
                         logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
-                    item.parsed_data.append({self.key: True})
                     return data, len(response.data.data.streams)
-            return {}, len(response.data.data.streams) or 0
+            return {}, 0

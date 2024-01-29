@@ -29,26 +29,32 @@ class PlexWatchlist:
         self.media_items = media_items
         self.prev_count = 0
         self.updater = Trakt()
+        self.not_found_ids = []
 
     def validate_settings(self):
         if not self.settings.enabled:
             logger.debug("Plex Watchlists is set to disabled.")
             return False
         if self.settings.rss:
+            logger.info("Found Plex RSS URL. Validating...")
             try:
                 response = ping(self.settings.rss)
                 if response.ok:
                     self.rss_enabled = True
+                    logger.info("Plex RSS URL is valid.")
                     return True
                 else:
-                    logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
+                    logger.info(f"Plex RSS URL is not valid. Falling back to watching user Watchlist.")
                     return True
             except HTTPError as e:
                 if e.response.status_code in [404]:
-                    logger.error("Plex RSS URL is invalid. Falling back to normal Watchlist.")
+                    logger.warn("Plex RSS URL is Not Found. Falling back to watching user Watchlist.")
                     return True
-                if e.response.status_code >= 400 and e.response.status_code <= 500:
-                    logger.warn(f"Plex RSS URL is not reachable. Falling back to normal Watchlist.")
+                if e.response.status_code >= 400 and e.response.status_code <= 499:
+                    logger.warn(f"Plex RSS URL is not reachable. Falling back to watching user Watchlist.")
+                    return True
+                if e.response.status_code >= 500:
+                    logger.error(f"Plex is having issues validating RSS feed. Falling back to watching user Watchlist.")
                     return True
             except Exception as e:
                 logger.exception("Failed to validate Plex RSS URL: %s", e)
@@ -60,6 +66,13 @@ class PlexWatchlist:
         if they are not already there"""
         items = self._create_unique_list()
         new_items = [item for item in items if item not in self.media_items] or []
+        if len(new_items) == 0:
+            logger.debug("No new items found in Plex Watchlist")
+            return
+        for check in new_items:
+            if check is None:
+                new_items.remove(check)
+                self.not_found_ids.append(check)
         container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Plex Watchlist")
@@ -76,6 +89,9 @@ class PlexWatchlist:
                 logger.info("Added %s", item.log_string)
         elif length > 5:
             logger.info("Added %s items", length)
+        if len(self.not_found_ids) >= 1 and len(self.not_found_ids) <= 5:
+            for item in self.not_found_ids:
+                logger.info("Failed to add %s", item)
 
     def _create_unique_list(self):
         """Create a unique list of items from Plex RSS and Watchlist"""
@@ -88,7 +104,7 @@ class PlexWatchlist:
     def _get_items_from_rss(self) -> list:
         """Fetch media from Plex RSS Feed"""
         try:
-            response_obj = get(self.settings.rss, timeout=30)
+            response_obj = get(self.settings.rss, timeout=60)
             data = json.loads(response_obj.response.content)
             items = data.get("items", [])
             ids = [

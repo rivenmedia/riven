@@ -2,7 +2,6 @@ import re
 import PTN
 from typing import List
 from pydantic import BaseModel
-from utils.logger import logger
 from utils.settings import settings_manager
 from thefuzz import fuzz
 
@@ -23,8 +22,6 @@ class Parser:
 
     def determine_resolution(self):
         """Determine the resolution to use based on user settings."""
-        if self.settings.highest_quality and self.settings.include_4k:
-            return ["UHD", "2160p", "4K", "1080p", "720p"]
         if self.settings.highest_quality:
             return ["UHD", "2160p", "4K", "1080p", "720p"]
         if self.settings.include_4k:
@@ -33,14 +30,12 @@ class Parser:
 
     def parse(self, item, string) -> dict:
         """Parse the given string and return True if it matches the user settings."""
-        if item and hasattr(item, 'parsed_data') and item.parsed_data:
-            return item.parsed_data
         return self._parse(item, string)
 
     def _parse(self, item, string) -> dict:
         """Parse the given string and return the parsed data."""
         parse = PTN.parse(string)
-        parsed_title = parse.get("title", False)
+        parsed_title = parse.get("title", "")
 
         # episodes
         episodes = []
@@ -52,11 +47,11 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
-        title_match = self.check_for_title_match(item, parsed_title) if item and parsed_title else False
+        title_match = self.check_for_title_match(item, parsed_title)
         is_4k = parse.get("resolution", False) in ["2160p", "4K", "UHD"]
-        is_complete = self._is_complete_series(string) if string else False
-        is_dual_audio = self._is_dual_audio(string) if string else False
-        _is_unwanted_quality = self._is_unwanted_quality(string) if string else False
+        is_complete = self._is_complete_series(string)
+        is_dual_audio = self._is_dual_audio(string)
+        _is_unwanted_quality = self._is_unwanted_quality(string)
 
         parsed_data = {
             "string": string,
@@ -82,10 +77,10 @@ class Parser:
             "subtitles": parse.get("subtitles") == "Available",
             "language": parse.get("language", []),
             "remux": parse.get("remux", False),
-            "extended": parse.get("extended", [])
+            "extended": parse.get("extended", False)
         }
 
-        parsed_data["fetch"] = self._should_fetch(item, parsed_data=parsed_data)
+        parsed_data["fetch"] = self._should_fetch(parsed_data)
         return parsed_data
 
     def episodes(self, string) -> List[int]:
@@ -100,7 +95,7 @@ class Parser:
             return parse["episodes"]
         return []
 
-    def _should_fetch(self, item, parsed_data: dict) -> bool:
+    def _should_fetch(self, parsed_data: dict) -> bool:
         """Determine if the parsed content should be fetched."""
         # This is where we determine if the item should be fetched
         # based on the user settings and predefined rules.

@@ -1,11 +1,12 @@
 """ Jackett scraper module """
+import traceback
 from typing import Optional
 from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from utils.settings import settings_manager
 from utils.parser import parser
-from utils.request import RateLimitExceeded, get, RateLimiter
+from utils.request import RateLimitExceeded, get, RateLimiter, ping
 
 
 class JackettConfig(BaseModel):
@@ -24,9 +25,9 @@ class Jackett:
         self.initialized = self.validate_settings()
         if not self.initialized and not self.api_key:
             return
-        self.parse_logging = False
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=10)
+        self.parse_logging = False
         logger.info("Jackett initialized!")
 
     def validate_settings(self) -> bool:
@@ -38,8 +39,8 @@ class Jackett:
             self.api_key = self.settings.api_key
             try:
                 url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}&cat=2000&t=movie&q=test"
-                response = get(url=url, retry_if_failed=False, timeout=60)
-                if response.is_ok:
+                response = ping(url=url, timeout=60)
+                if response.ok:
                     return True
             except ReadTimeout:
                 return True
@@ -65,18 +66,22 @@ class Jackett:
 
     def run(self, item):
         """Scrape Jackett for the given media items"""
+        if item is None or not self.initialized:
+            return
         try:
             self._scrape_item(item)
-        except RequestException:
+        except RateLimitExceeded as e:
             self.minute_limiter.limit_hit()
-            logger.debug("Jackett connection timeout for item: %s", item.log_string)
+            logger.warn("Jackett rate limit hit for item: %s", item.log_string)
             return
-        except RateLimitExceeded:
+        except RequestException as e:
             self.minute_limiter.limit_hit()
-            logger.debug("Jackett rate limit hit for item: %s", item.log_string)
+            logger.exception("Jackett request exception: %s", e, exc_info=True)
             return
         except Exception as e:
-            logger.exception("Jackett exception for item: %s - Exception: %s", item.log_string, e)
+            self.minute_limiter.limit_hit()
+            # logger.debug("Jackett exception for item: %s - Exception: %s", item.log_string, e.args[0], exc_info=True)
+            # logger.debug("Exception details: %s", traceback.format_exc())
             return
 
     def _scrape_item(self, item):
@@ -105,8 +110,11 @@ class Jackett:
             if response.is_ok:
                 data = {}
                 streams = response.data["rss"]["channel"].get("item", [])
-                parsed_data_list = [parser.parse(item, stream.get("title")) for stream in streams]
+                parsed_data_list = [parser.parse(item, stream.get("title")) for stream in streams if type(stream) != str]
                 for stream, parsed_data in zip(streams, parsed_data_list):
+                    if type(stream) == str:
+                        logger.debug("Found another string: %s", stream)
+                        continue
                     if parsed_data.get("fetch", True) and parsed_data.get("title_match", False):
                         attr = stream.get("torznab:attr", [])
                         infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
@@ -118,6 +126,5 @@ class Jackett:
                         logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
-                    item.parsed_data.append({self.key: True})
                     return data, len(streams)
-                return {}, len(streams) or 0
+                return {}, 0
