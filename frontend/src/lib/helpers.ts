@@ -42,6 +42,10 @@ export function formatDate(
 				month: 'short',
 				day: 'numeric'
 			});
+		} else if (format === 'year') {
+			formattedDate = date.toLocaleString({
+				year: 'numeric'
+			});
 		} else {
 			formattedDate = date.toLocaleString(DateTime.DATETIME_FULL);
 		}
@@ -57,7 +61,7 @@ export function formatWords(words: string) {
 		.join(' ');
 }
 
-export function convertPlexDebridItemsToObject(items: IcebergItem[]) {
+export function convertIcebergItemsToObject(items: IcebergItem[]) {
 	const result: { [key: string]: IcebergItem[] } = {};
 
 	for (const item of items) {

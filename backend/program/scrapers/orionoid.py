@@ -1,6 +1,7 @@
 """ Orionoid scraper module """
 from typing import Optional
 from pydantic import BaseModel
+from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
@@ -28,11 +29,13 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.max_calls = 50 if not self.is_premium else 999999
-        self.minute_limiter = RateLimiter(
-            max_calls=self.max_calls, period=86400, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.orionoid_limit = 0
+        self.orionoid_remaining = 0
+        self.parse_logging = False
+        self.max_calls = 100 if not self.is_premium else 60
+        self.period = 86400 if not self.is_premium else 60
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
+        self.second_limiter = RateLimiter(max_calls=1, period=10)
         logger.info("Orionoid initialized!")
 
     def validate_settings(self) -> bool:
@@ -42,8 +45,20 @@ class Orionoid:
             return False
         if self.settings.api_key:
             return True
-        logger.info("Orionoid is not configured and will not be used.")
-        return False
+        try:
+            url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+            response = get(url, retry_if_failed=False)
+            if response.is_ok:
+                return True
+            if not response.data.result.status == "success":
+                logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
+                return False
+            if not response.is_ok:
+                logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
+                return False
+        except Exception as e:
+            logger.exception("Orionoid failed to initialize: %s", e)
+            return False
 
     def check_premium(self) -> bool:
         """
@@ -66,20 +81,32 @@ class Orionoid:
     def run(self, item):
         """Scrape the Orionoid site for the given media items
         and update the object with scraped streams"""
+        if item is None or not self.initialized:
+            return
         try:
             self._scrape_item(item)
-        except RequestException:
+        except ConnectTimeout:
             self.minute_limiter.limit_hit()
+            logger.warn("Orionoid connection timeout for item: %s", item.log_string)
+            return
+        except RequestException as e:
+            self.minute_limiter.limit_hit()
+            logger.exception("Orionoid request exception: %s", e)
             return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.warn("Orionoid rate limit hit for item: %s", item.log_string)
+            return
+        except Exception as e:
+            self.minute_limiter.limit_hit()
+            logger.exception("Orionoid exception for item: %s - Exception: %s", item.log_string, e)
             return
 
     def _scrape_item(self, item):
-        data = self.api_scrape(item)
+        data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams for %s", len(data), item.log_string)
+            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s", item.log_string)
 
@@ -124,12 +151,28 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok and response.data.result.status != "error":
-                data = {}
-                for stream in response.data.data.streams:
-                    title = stream.file.name
-                    if parser.parse(title) and stream.file.hash:
-                        data[stream.file.hash] = {"name": title}
-                if len(data) > 0:
-                    return parser.sort_streams(data)
-            return {}
+            if response.is_ok and hasattr(response.data, "data"):
+
+                # Check and log Orionoid API limits
+                # self.orionoid_limit = response.data.data.requests.daily.limit
+                # self.orionoid_remaining = response.data.data.requests.daily.remaining
+                # if self.orionoid_remaining < 10:
+                #     logger.warning(f"Orionoid API limit is low. Limit: {self.orionoid_limit}, Remaining: {self.orionoid_remaining}")
+
+                parsed_data_list = [
+                    parser.parse(item, stream.file.name)
+                    for stream in response.data.data.streams
+                    if stream.file.hash
+                ]
+                data = {
+                    stream.file.hash: {"name": stream.file.name}
+                    for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
+                    if parsed_data["fetch"]
+                }
+                if self.parse_logging:
+                    for parsed_data in parsed_data_list:
+                        logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                if data:
+                    item.parsed_data.extend(parsed_data_list)
+                    return data, len(response.data.data.streams)
+            return {}, 0

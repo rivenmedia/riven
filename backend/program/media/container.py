@@ -2,6 +2,7 @@ import os
 import threading
 import dill
 from typing import List, Optional
+from utils.logger import logger
 from program.media.item import MediaItem
 
 
@@ -24,7 +25,12 @@ class MediaItemContainer:
         return self
 
     def sort(self, by, reverse):
-        self.items.sort(key=lambda item: item.get(by), reverse=reverse)
+        """Sort container by given attribute"""
+        try:
+            self.items.sort(key=lambda item: item.get(by), reverse=reverse)
+        except AttributeError as e:
+            logger.error("Failed to sort container: %s", e)
+            pass
 
     def __len__(self):
         """Get length of container"""
@@ -47,6 +53,13 @@ class MediaItemContainer:
         """Get item matching given item from container"""
         for my_item in self.items:
             if my_item.itemid == int(itemid):
+                return my_item
+        return None
+
+    def get_item_by_imdb_id(self, imdb_id) -> MediaItem:
+        """Get item matching given item from container"""
+        for my_item in self.items:
+            if my_item.imdb_id == imdb_id:
                 return my_item
         return None
 

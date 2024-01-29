@@ -62,7 +62,7 @@ version: "3.8"
 services:
     iceberg:
         image: spoked/iceberg:latest
-        container_name: Iceberg
+        container_name: iceberg
         restart: unless-stopped
         environment:
             PUID: "1000"
@@ -72,6 +72,7 @@ services:
             - "3000:3000"
         volumes:
             - ./data:/iceberg/data
+            - /mnt:/mnt
 ```
 
 Then run `docker compose up -d` to start the container in the background. You can then access the web interface at `http://localhost:3000` or whatever port and origin you set in the `docker-compose.yml` file.

@@ -35,17 +35,32 @@ class Listrr:
         logger.info("Listrr initialized!")
 
     def validate_settings(self) -> bool:
+        """Validate Listrr settings."""
         if not self.settings.enabled:
             logger.debug("Listrr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
-            logger.error("Listrr api key is not set.")
+            logger.error("Listrr api key is not set or invalid.")
+            return False
+        valid_list_found = False
+        for list_name, content_list in [('movie_lists', self.settings.movie_lists), 
+                                        ('show_lists', self.settings.show_lists)]:
+            if content_list is None or not any(content_list):
+                continue
+            for item in content_list:
+                if item == "" or len(item) != 24:
+                    return False
+            valid_list_found = True
+        if not valid_list_found:
+            logger.error("Both Movie and Show lists are empty or not set.")
             return False
         try:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
+            if not response.ok:
+                logger.error(f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}")
             return response.ok
-        except Exception:
-            logger.error("Listrr url is not reachable.")
+        except Exception as e:
+            logger.error(f"Listrr ping exception: {e}")
             return False
 
     def run(self):
@@ -56,7 +71,8 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         items = list(set(movie_items + show_items))
-        container = self.updater.create_items(items)
+        new_items = [item for item in items if item not in self.media_items]
+        container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Listrr")
         added_items = self.media_items.extend(container)
@@ -87,11 +103,11 @@ class Listrr:
                             imdb_id = item.imDbId
                             if imdb_id:
                                 unique_ids.add(imdb_id)
-                            elif content_type == "Shows" and item.tvDbId:
-                                imdb_id = get_imdbid_from_tvdb(item.tvDbId)
-                                if imdb_id:
-                                    unique_ids.add(imdb_id)
-                            elif content_type == "Movies" and item.tmDbId:
+                            # elif content_type == "Shows" and item.tvDbId:
+                            #     imdb_id = get_imdbid_from_tvdb(item.tvDbId)
+                            #     if imdb_id:
+                            #         unique_ids.add(imdb_id)
+                            if not imdb_id and content_type == "Movies" and item.tmDbId:
                                 imdb_id = get_imdbid_from_tmdb(item.tmDbId)
                                 if imdb_id:
                                     unique_ids.add(imdb_id)

@@ -58,9 +58,13 @@ class Program(threading.Thread):
         return all(service.initialized for service in self.core_manager.services)
 
     def stop(self):
-        for service in self.core_manager.services:
-            if getattr(service, "running", False):
-                service.stop()
-        self.pickly.stop()
-        settings.save()
-        self.running = False
+        try:
+            for service in self.core_manager.services:
+                if getattr(service, "running", False):
+                    service.stop()
+            self.pickly.stop()
+            settings.save()
+            self.running = False
+        except Exception as e:
+            logger.error("Iceberg stopping with exception: %s", e)
+            pass

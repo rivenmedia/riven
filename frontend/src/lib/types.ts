@@ -35,8 +35,6 @@ export interface IcebergItem {
 
 export interface StatusInterface {
 	text?: string;
-	color: string;
-	bg: string;
 	description: string;
 }
 

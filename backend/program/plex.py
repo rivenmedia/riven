@@ -7,7 +7,9 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from plexapi.server import PlexServer
+from plexapi.exceptions import BadRequest, Unauthorized
 from pydantic import BaseModel
+# from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
 from utils.settings import settings_manager as settings
 from program.media.container import MediaItemContainer
@@ -44,15 +46,21 @@ class Plex(threading.Thread):
             self.plex = PlexServer(
                 self.settings.url, self.settings.token, timeout=60
             )
-            self.running = False
-            self.log_worker_count = False
-            self.media_items = media_items
-            self._update_items(init=True)
-        except Exception:
-            logger.error("Plex is not configured!")
+        except Unauthorized:
+            logger.warn("Plex is not authorized!")
             return
-        logger.info("Plex initialized!")
+        except BadRequest as e:
+            logger.error("Plex is not configured correctly: %s", e)
+            return
+        except Exception as e:
+            logger.error("Plex exception thrown: %s", e)
+            return
+        self.running = False
+        self.log_worker_count = False
+        self.media_items = media_items
+        self._update_items(init=True)
         self.initialized = True
+        logger.info("Plex initialized!")
 
     def run(self):
         while self.running:
@@ -200,6 +208,7 @@ def _map_item_from_data(item):
     if item.type in ["movie", "episode"]:
         file = getattr(item, "locations", [None])[0].split("/")[-1]
     genres = [genre.tag for genre in getattr(item, "genres", [])]
+    is_anime = "anime" in genres
     title = getattr(item, "title", None)
     key = getattr(item, "key", None)
     season_number = getattr(item, "seasonNumber", None)
@@ -216,20 +225,17 @@ def _map_item_from_data(item):
         )
         aired_at = getattr(item, "originallyAvailableAt", None)
 
-        # All movies have imdb, but not all shows do.
-        # This is due to season 0 (specials) not having imdb ids.
         # Attempt to get the imdb id from the tvdb id if we don't have it.
-        # Needs more testing..
+        # Uses Trakt to get the imdb id from the tvdb id.
         # if not imdb_id:
-        #     logger.debug("Unable to find imdb, trying tvdb for %s", title)
         #     tvdb_id = next(
         #         (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
         #     )
         #     if tvdb_id:
-        #         logger.debug("Unable to find imdb, but found tvdb: %s", tvdb_id)
         #         imdb_id = get_imdbid_from_tvdb(tvdb_id)
         #         if imdb_id:
-        #             logger.debug("Found imdb from tvdb: %s", imdb_id)
+        #             logger.debug("%s was missing IMDb ID, found IMDb ID from TVdb ID: %s", title, imdb_id)
+                # If we still don't have an imdb id, we could check TMdb or use external services like cinemeta.
 
     media_item_data = {
         "title": title,
@@ -241,6 +247,7 @@ def _map_item_from_data(item):
         "guid": guid,
         "art_url": art_url,
         "file": file,
+        "is_anime": is_anime,
     }
 
     # Instantiate the appropriate subclass based on 'item_type'

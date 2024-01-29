@@ -17,23 +17,25 @@ class Parser:
     
     def __init__(self):
         self.settings = ParserConfig(**settings_manager.get("parser"))
-        self.language = self.settings.language or ["English"]
-        self.resolution = ["1080p", "720p"]
-        self.unwanted_codec = ["H.263", "Xvid"]  # Bad for transcoding
-        self.quality = [None, "Blu-ray", "WEB-DL", "WEBRip", "HDRip", 
-                        "HDTVRip", "BDRip", "Pay-Per-View Rip"]
-        self.validate_settings()
+        self.language = self.settings.language
+        self.resolution = self.determine_resolution()
 
-    def validate_settings(self):
+    def determine_resolution(self):
+        """Determine the resolution to use based on user settings."""
         if self.settings.highest_quality:
-            self.resolution = ["UHD", "2160p", "4K", "1080p", "720p"]
-        elif self.settings.include_4k:
-            self.resolution = ["2160p", "4K", "1080p", "720p"]
-        else:
-            self.resolution = ["1080p", "720p"]
+            return ["UHD", "2160p", "4K", "1080p", "720p"]
+        if self.settings.include_4k:
+            return ["2160p", "4K", "1080p", "720p"]
+        return ["1080p", "720p"]
 
-    def _parse(self, string):
+    def parse(self, item, string) -> dict:
+        """Parse the given string and return True if it matches the user settings."""
+        return self._parse(item, string)
+
+    def _parse(self, item, string) -> dict:
+        """Parse the given string and return the parsed data."""
         parse = PTN.parse(string)
+        parsed_title = parse.get("title", "")
 
         # episodes
         episodes = []
@@ -45,156 +47,178 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
-        title = parse.get("title")
-        season = parse.get("season")
-        audio = parse.get("audio")
-        codec = parse.get("codec")
-        resolution = parse.get("resolution")
-        quality = parse.get("quality")
-        subtitles = parse.get("subtitles")
-        language = parse.get("language")
-        hdr = parse.get("hdr")
-        upscaled = parse.get("upscaled")
-        remastered = parse.get("remastered")
-        proper = parse.get("proper")
-        repack = parse.get("repack")
-        remux = parse.get("remux")
-        if not language:
-            language = "English"
-        extended = parse.get("extended")
+        title_match = self.check_for_title_match(item, parsed_title)
+        is_4k = parse.get("resolution", False) in ["2160p", "4K", "UHD"]
+        is_complete = self._is_complete_series(string)
+        is_dual_audio = self._is_dual_audio(string)
+        _is_unwanted_quality = self._is_unwanted_quality(string)
 
-        return {
-            "title": title,
-            "resolution": resolution or [],
-            "quality": quality or [],
-            "season": season,
-            "episodes": episodes or [],
-            "codec": codec or [],
-            "audio": audio or [],
-            "hdr": hdr or False,
-            "upscaled": upscaled or False,
-            "remastered": remastered or False,
-            "proper": proper or False,
-            "repack": repack or False,
-            "subtitles": True if subtitles == "Available" else False,
-            "language": language or [],
-            "remux": remux or False,
-            "extended": extended,
+        parsed_data = {
+            "string": string,
+            "parsed_title": parsed_title,
+            "title_match": title_match,
+            "fetch": False,
+            "is_4k": is_4k,
+            "is_dual_audio": is_dual_audio,
+            "is_complete": is_complete,
+            "is_unwanted_quality": _is_unwanted_quality,
+            "year": parse.get("year", False),
+            "resolution": parse.get("resolution", []),
+            "quality": parse.get("quality", []),
+            "season": parse.get("season", []),
+            "episodes": episodes,
+            "codec": parse.get("codec", []),
+            "audio": parse.get("audio", []),
+            "hdr": parse.get("hdr", False),
+            "upscaled": parse.get("upscaled", False),
+            "remastered": parse.get("remastered", False),
+            "proper": parse.get("proper", False),
+            "repack": parse.get("repack", False),
+            "subtitles": parse.get("subtitles") == "Available",
+            "language": parse.get("language", []),
+            "remux": parse.get("remux", False),
+            "extended": parse.get("extended", False)
         }
 
+        parsed_data["fetch"] = self._should_fetch(parsed_data)
+        return parsed_data
+
     def episodes(self, string) -> List[int]:
+        """Return a list of episodes in the given string."""
         parse = self._parse(string)
         return parse["episodes"]
 
     def episodes_in_season(self, season, string) -> List[int]:
-        parse = self._parse(string)
+        """Return a list of episodes in the given season."""
+        parse = self._parse(string=string)
         if parse["season"] == season:
             return parse["episodes"]
         return []
 
-    def _is_4k(self, string) -> bool:
-        """Check if content is `4k`."""
-        if self.settings.include_4k:
-            parsed = self._parse(string)
-            return parsed.get("resolution", False) in ["2160p", "4K"]
-
-    def _is_highest_quality(self, string) -> bool:
-        """Check if content is `highest quality`."""
-        if self.settings.highest_quality:
-            parsed = self._parse(string)
-            return any([
-                parsed.get("hdr", False),
-                parsed.get("remux", False),
-                parsed.get("resolution", False) in ["UHD", "2160p", "4K"],
-                parsed.get("upscaled", False)
-            ])
-
-    def _is_repack_or_proper(self, string) -> bool:
-        """Check if content is `repack` or `proper`."""
-        if self.settings.repack_proper:
-            parsed = self._parse(string)
-            return any([
-                parsed.get("proper", False),
-                parsed.get("repack", False),
-            ])
-
-    def _is_dual_audio(self, string) -> bool:
-        """Check if content is `dual audio`."""
-        parsed = self._parse(string)
-        return parsed.get("audio") == "Dual" or \
-                re.search(r"((dual.audio)|(english|eng)\W+(dub|audio))", string, flags=re.IGNORECASE) is not None
-
-    def _is_network(self, string) -> bool:
-        """Check if content is from a `network`."""
-        parsed = self._parse(string)
-        network = ["Apple TV+", "Amazon Studios", "Netflix", 
-                "Nickelodeon", "YouTube Premium", "Disney Plus", 
-                "DisneyNOW", "HBO Max", "HBO", "Hulu Networks", 
-                "DC Universe", "Adult Swim", "Comedy Central", 
-                "Peacock", "AMC", "PBS", "Crunchyroll", 
-                "Syndication", "Hallmark", "BBC", "VICE",
-                "MSNBC", "Crave"]  # Will probably be used later in `Versions`
-        return (parsed.get("network", False)) in network
-
-    def _is_unwanted_quality(string) -> bool:
-        """Check if string has an `unwanted` quality."""
-        patterns = [
-            re.compile(r"(?:HD)?CAM(?:-?Rip)?", re.IGNORECASE),
-            re.compile(r"(?:HD)?TS|TELESYNC|PDVD|PreDVDRip", re.IGNORECASE),
-            re.compile(r"(?:HD)?TC|TELECINE", re.IGNORECASE),
-            re.compile(r"WEB[ -]?Cap", re.IGNORECASE),
-            re.compile(r"WP|WORKPRINT", re.IGNORECASE),
-            re.compile(r"(?:DVD)?SCR(?:EENER)?|BDSCR", re.IGNORECASE),
-            re.compile(r"DVD-?(?:Rip|Mux)", re.IGNORECASE),
-            re.compile(r"DVDR|DVD-Full|Full-rip", re.IGNORECASE),
-            re.compile(r"D?TVRip|DVBRip", re.IGNORECASE),
-            re.compile(r"VODR(?:ip)?", re.IGNORECASE)
-        ]
-        return any(pattern.search(string) for pattern in patterns)
-
-    def sort_streams(self, streams: dict) -> dict:
-        """Sorts streams based on user preferences."""
-        def sorting_key(item):
-            _, stream = item
-            title = stream['name']
-            return (
-                self._is_dual_audio(title),
-                self._is_repack_or_proper(title),
-                self._is_highest_quality(title),
-                self._is_4k(title),
-                self._is_network(title)
-            )
-        sorted_streams = sorted(streams.items(), key=sorting_key, reverse=True)
-        return dict(sorted_streams)
-
-    def parse(self, string) -> bool:
-        """Parse the given string and return True if it matches the user settings."""
-        parse = self._parse(string)
+    def _should_fetch(self, parsed_data: dict) -> bool:
+        """Determine if the parsed content should be fetched."""
+        # This is where we determine if the item should be fetched
+        # based on the user settings and predefined rules.
+        # Edit with caution. All have to match for the item to be fetched.
+        # item_language = self._get_item_language(item)
         return (
-            parse["resolution"] in self.resolution
-            and parse["language"] in self.language
-            and not parse["quality"] in self.unwanted_quality
-            and not self._is_unwanted_quality(string)
+            parsed_data["resolution"] in self.resolution and
+            # any(lang in parsed_data.get("language", item_language) for lang in self.language) and
+            not parsed_data["is_unwanted_quality"]
         )
 
-    def get_title(self, string) -> str:
-        """Get the `title` from the given string."""
-        parse = self._parse(string)
-        return parse["title"]
+    def _is_highest_quality(self, parsed_data: dict) -> bool:
+        """Check if content is `highest quality`."""
+        return any(
+            parsed.get("resolution") in ["UHD", "2160p", "4K"] or
+            parsed.get("hdr", False) or
+            parsed.get("remux", False) or
+            parsed.get("upscaled", False)
+            for parsed in parsed_data
+        )
 
-    def check_for_title_match(self, item, string, threshold=94) -> bool:
+    def _is_dual_audio(self, string) -> bool:
+        """Check if any content in parsed_data has dual audio."""
+        dual_audio_patterns = [
+            re.compile(r"\bmulti(?:ple)?[ .-]*(?:lang(?:uages?)?|audio|VF2)?\b", re.IGNORECASE),
+            re.compile(r"\btri(?:ple)?[ .-]*(?:audio|dub\w*)\b", re.IGNORECASE),
+            re.compile(r"\bdual[ .-]*(?:au?$|[aá]udio|line)\b", re.IGNORECASE),
+            re.compile(r"\bdual\b(?![ .-]*sub)", re.IGNORECASE),
+            re.compile(r"\b(?:audio|dub(?:bed)?)[ .-]*dual\b", re.IGNORECASE),
+            re.compile(r"\bengl?(?:sub[A-Z]*)?\b", re.IGNORECASE),
+            re.compile(r"\beng?sub[A-Z]*\b", re.IGNORECASE),
+            re.compile(r"\b(?:DUBBED|dublado|dubbing|DUBS?)\b", re.IGNORECASE),
+        ]
+        return any(pattern.search(string) for pattern in dual_audio_patterns)
+
+    @staticmethod
+    def _is_complete_series(string) -> bool:
+        """Check if string is a `complete series`."""
+        # Can be used on either movie or show item types
+        series_patterns = [
+            re.compile(r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b", re.IGNORECASE),
+            re.compile(r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bmini[ .-]?series\b", re.IGNORECASE),
+            re.compile(r"(?:\bthe\W)?(?:\bcomplete|full|all)\b.*\b(?:series|seasons|collection|episodes|set|pack|movies)\b", re.IGNORECASE),
+            re.compile(r"\b(?:series|seasons|movies?)\b.*\b(?:complete|collection)\b", re.IGNORECASE),
+            re.compile(r"(?:\bthe\W)?\bultimate\b[ .]\bcollection\b", re.IGNORECASE),
+            re.compile(r"\bcollection\b.*\b(?:set|pack|movies)\b", re.IGNORECASE),
+            re.compile(r"\bcollection\b", re.IGNORECASE),
+            re.compile(r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga", re.IGNORECASE)
+        ]
+        return any(pattern.search(string) for pattern in series_patterns)
+
+    @staticmethod
+    def _is_unwanted_quality(string) -> bool:
+        """Check if string has an 'unwanted' quality. Default to False."""
+        unwanted_patterns = [
+            re.compile(r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b", re.IGNORECASE),
+            re.compile(r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b", re.IGNORECASE),
+            re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?S(?:YNC)?(?:Rip)?\b", re.IGNORECASE),
+            re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?C(?:INE)?(?:Rip)?\b", re.IGNORECASE),
+            re.compile(r"\bP(?:re)?DVD(?:Rip)?\b", re.IGNORECASE),
+            re.compile(r"\b(?:DVD?|BD|BR)?[ .-]*Scr(?:eener)?\b", re.IGNORECASE),
+            re.compile(r"\bVHS\b", re.IGNORECASE),
+            re.compile(r"\bHD[ .-]*TV(?:Rip)?\b", re.IGNORECASE),
+            re.compile(r"\bDVB[ .-]*(?:Rip)?\b", re.IGNORECASE),
+            re.compile(r"\bSAT[ .-]*Rips?\b", re.IGNORECASE),
+            re.compile(r"\bTVRips?\b", re.IGNORECASE),
+            re.compile(r"\bR5\b", re.IGNORECASE),
+            re.compile(r"\b(DivX|XviD)\b", re.IGNORECASE),
+        ]
+        return any(pattern.search(string) for pattern in unwanted_patterns)
+
+    def check_for_title_match(self, item, parsed_title, threshold=90) -> bool:
         """Check if the title matches PTN title using fuzzy matching."""
-        # TODO1: remove special chars from parsed_title and target_title. Could improve matching.
-        # TODO2: We should be checking aliases as well for titles. Anime only probably?
-        parsed_title = self.get_title(string)
-        if item.type == "movie":
-            target_title = item.title
-        elif item.type == "season":
+        target_title = item.title
+        if item.type == "season":
             target_title = item.parent.title
         elif item.type == "episode":
             target_title = item.parent.parent.title
-        else:
-            return False
-        return fuzz.ratio(parsed_title.lower(), target_title.lower()) >= threshold
+        match_score = fuzz.ratio(parsed_title.lower(), target_title.lower())
+        if match_score >= threshold:
+            return True
+        return False
+
+    def _get_item_language(self, item) -> str:
+        """Get the language of the item."""
+        # This is crap. Need to switch to using a dict instead.
+        if item.type == "season":
+            if item.parent.language == "en":
+                if item.parent.is_anime:
+                    return ["English", "Japanese"]
+            return ["English"]
+        elif item.type == "episode":
+            if item.parent.parent.language == "en":
+                if item.parent.parent.is_anime:
+                    return ["English", "Japanese"]
+            return ["English"]
+        if item.language == "en":
+            if item.is_anime:
+                return ["English", "Japanese"]
+            return ["English"]
+        if item.is_anime:
+            return ["English", "Japanese"]
+        return ["English"]
+
+
+# def sort_streams(streams: dict, parser: Parser) -> dict:
+#     """Sorts streams based on user preferences."""
+#     def sorting_key(item):
+#         _, stream = item
+#         parsed_data = stream.get('parsed_data', {})
+
+#         points = 0
+#         if parser._is_dual_audio(parsed_data.get("string", "")):
+#             points += 5
+#         if parser._is_repack_or_proper(parsed_data):
+#             points += 3
+#         if parsed_data.get("is_4k", False) and (parser.settings.highest_quality or parser.settings.include_4k):
+#             points += 7
+#         if not parsed_data.get("is_unwanted", False):
+#             points -= 10  # Unwanted content should be pushed to the bottom
+#         return points
+#     sorted_streams = sorted(streams.items(), key=sorting_key, reverse=True)
+#     return dict(sorted_streams)
+
 
 parser = Parser()

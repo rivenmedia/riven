@@ -1,5 +1,5 @@
 {
-  "version": "0.4.3",
+  "version": "0.4.5",
   "debug": true,
   "log": true,
   "symlink": {
@@ -33,7 +33,7 @@
       "update_interval": 80
     },
     "overseerr": {
-      "enabled": true,
+      "enabled": false,
       "url": "http://localhost:5055",
       "api_key": ""
     }
@@ -43,8 +43,9 @@
     "after_5": 2,
     "after_10": 24,
     "torrentio": {
-      "enabled": true,
-      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+      "enabled": false,
+      "url": "https://torrentio.strem.fun",
+      "filter": "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     },
     "orionoid": {
       "enabled": false,
@@ -52,7 +53,8 @@
     },
     "jackett": {
       "enabled": false,
-      "url": "http://localhost:9117"
+      "url": "http://localhost:9117",
+      "api_key": ""
     }
   },
   "parser": {

@@ -1,5 +1,5 @@
-from datetime import datetime
 import threading
+from datetime import datetime
 from program.media.state import (
     Unknown,
     Content,
@@ -27,6 +27,9 @@ class MediaItem:
         self.requested_by = item.get("requested_by", None)
         self.file = None
         self.folder = None
+        self.is_anime = False
+        self.parsed = False
+        self.parsed_data = item.get("parsed_data", [])
 
         # Media related
         self.title = item.get("title", None)
@@ -109,6 +112,18 @@ class MediaItem:
         dict["language"] = (self.language if hasattr(self, "language") else None,)
         dict["country"] = (self.country if hasattr(self, "country") else None,)
         dict["network"] = (self.network if hasattr(self, "network") else None,)
+        dict["active_stream"] = (
+            self.active_stream if hasattr(self, "active_stream") else None
+        ,)
+        dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None,)
+        dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None,)
+        dict["parsed_data"] = (self.parsed_data if hasattr(self, "parsed_data") else None,)
+        dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None,)
+        dict["update_folder"] = (
+            self.update_folder if hasattr(self, "update_folder") else None
+        ,)
+        dict["file"] = (self.file if hasattr(self, "file") else None,)
+        dict["folder"] = (self.folder if hasattr(self, "folder") else None,)
         return dict
 
     def __iter__(self):
@@ -236,7 +251,8 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __eq__(self, other):
-        return self.number == other.number
+        if type(self) == type(other) and self.parent == other.parent:
+            return self.number == other.number
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.__class__.__name__}"
