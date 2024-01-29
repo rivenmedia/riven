@@ -5,15 +5,15 @@ from pydantic import BaseModel
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimitExceeded, get, RateLimiter
+from utils.request import RateLimitExceeded, get, RateLimiter, ping
 from utils.settings import settings_manager
 from utils.parser import parser
 
 
 class TorrentioConfig(BaseModel):
-    enabled: bool = settings_manager.get("scraping.torrentio.enabled") if not os.environ.get("TORRENTIO_ENABLED") else os.environ.get("TORRENTIO_ENABLED")
-    url: Optional[str] = settings_manager.get("scraping.torrentio.url") if not os.environ.get("TORRENTIO_URL") else os.environ.get("TORRENTIO_URL")
-    filter: Optional[str] = settings_manager.get("scraping.torrentio.filter") if not os.environ.get("TORRENTIO_FILTER") else os.environ.get("TORRENTIO_FILTER")
+    enabled: bool
+    url: Optional[str]
+    filter: Optional[str]
 
 
 class Torrentio:
@@ -35,36 +35,48 @@ class Torrentio:
         if not self.settings.enabled:
             logger.debug("Torrentio is set to disabled.")
             return False
+        if not self.settings.url:
+            logger.error("Torrentio URL is not configured and will not be used.")
+            return False
         try:
-            url = f"{self.settings.url}/{self.settings.filter}/stream/movie/tt0000000.json"
-            response = get(url=url, retry_if_failed=False, timeout=60)
-            if response.is_ok:
+            url = f"{self.settings.url}/{self.settings.filter}/stream/movie/tt0068646.json"
+            response = ping(url=url, timeout=10)
+            if response.ok:
                 return True
-        except Exception:
-            logger.warning("Torrentio failed to initialize. Check your URL or filter settings.")
+        except Exception as e:
+            logger.exception("Torrentio failed to initialize: %s", e)
             return False
         return True
 
-    def run(self, item) -> None:
+    def run(self, item):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
+        if item is None or not self.initialized:
+            return
         try:
             self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.debug("Torrentio rate limit hit for item: %s", item.log_string)
+            logger.warn("Torrentio rate limit hit for item: %s", item.log_string)
             return
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
-            logger.debug("Torrentio connection timeout for item: %s", item.log_string)
+            logger.warn("Torrentio connection timeout for item: %s", item.log_string)
             return
         except ReadTimeout:
             self.minute_limiter.limit_hit()
-            logger.debug("Torrentio read timeout for item: %s", item.log_string)
             return
         except RequestException as e:
             self.minute_limiter.limit_hit()
-            logger.debug("Torrentio request status %s exception: %s", e.response.status_code, e.response.reason)
+            logger.warn("Torrentio request exception: %s", e)
+            return
+        except AttributeError:
+            # TODO: will fix later
+            self.minute_limiter.limit_hit()
+            return
+        except Exception as e:
+            self.minute_limiter.limit_hit()
+            logger.warn("Torrentio failed to scrape item: %s", e)
             return
 
     def _scrape_item(self, item):
@@ -115,7 +127,5 @@ class Torrentio:
                         logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
                     item.parsed_data.extend(parsed_data_list)
-                    item.parsed_data.append({self.key: True})
-                    item.parsed = True
                     return data, len(response.data.streams)
-            return {}, len(response.data.streams) or 0
+            return {}, 0

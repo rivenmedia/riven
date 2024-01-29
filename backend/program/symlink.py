@@ -29,10 +29,14 @@ class Symlinker():
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = False
 
-        if (Path(self.settings.host_path) / "__all__").exists():
+        if (self.settings.host_path / "__all__").exists():
             logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-            self.settings.host_path = Path(self.settings.host_path) / "__all__"
             settings.set(self.key, self.settings.host_path)
+            self.settings.host_path = Path(self.settings.host_path) / "__all__"
+        elif (self.settings.host_path / "torrents").exists():
+            logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
+            settings.set(self.key, self.settings.host_path)
+            self.settings.host_path = Path(self.settings.host_path) / "torrents"
         
         self.library_path = self.settings.host_path.parent / "library"
 
@@ -75,7 +79,7 @@ class Symlinker():
             try:
                 library.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                logger.error(f"Failed to create directory {library}: {e}")
+                logger.error("Failed to create directory %s: %s", library, e)
                 return False
         return True
 

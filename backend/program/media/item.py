@@ -1,5 +1,5 @@
-from datetime import datetime
 import threading
+from datetime import datetime
 from program.media.state import (
     Unknown,
     Content,
@@ -112,19 +112,6 @@ class MediaItem:
         dict["language"] = (self.language if hasattr(self, "language") else None,)
         dict["country"] = (self.country if hasattr(self, "country") else None,)
         dict["network"] = (self.network if hasattr(self, "network") else None,)
-        dict["streams"] = (self.streams if hasattr(self, "streams") else None,)
-        dict["active_stream"] = (
-            self.active_stream if hasattr(self, "active_stream") else None
-        ,)
-        dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None,)
-        dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None,)
-        dict["parsed_data"] = (self.parsed_data if hasattr(self, "parsed_data") else None,)
-        dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None,)
-        dict["update_folder"] = (
-            self.update_folder if hasattr(self, "update_folder") else None
-        ,)
-        dict["file"] = (self.file if hasattr(self, "file") else None,)
-        dict["folder"] = (self.folder if hasattr(self, "folder") else None,)
         return dict
 
     def __iter__(self):

@@ -19,7 +19,7 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = ScrapingConfig(**settings.get(self.key))
-        self.sm = ServiceManager(None, False, Torrentio, Orionoid, Jackett)
+        self.sm = ServiceManager(None, False, Orionoid, Torrentio, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(
                 "You have no scraping services enabled, please enable at least one!"

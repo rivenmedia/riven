@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from plexapi.server import PlexServer
-from plexapi.exceptions import BadRequest
+from plexapi.exceptions import BadRequest, Unauthorized
 from pydantic import BaseModel
 # from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
@@ -46,11 +46,14 @@ class Plex(threading.Thread):
             self.plex = PlexServer(
                 self.settings.url, self.settings.token, timeout=60
             )
+        except Unauthorized:
+            logger.warn("Plex is not authorized!")
+            return
         except BadRequest as e:
             logger.error("Plex is not configured correctly: %s", e)
             return
-        except Exception:
-            logger.error("Plex is not configured!")
+        except Exception as e:
+            logger.error("Plex exception thrown: %s", e)
             return
         self.running = False
         self.log_worker_count = False

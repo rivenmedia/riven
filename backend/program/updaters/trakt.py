@@ -31,12 +31,12 @@ class Updater:
         existing_imdb_ids = {item.imdb_id for item in self.trakt_data.items if item}
 
         # This is to calculate 10% batch sizes to speed up the process
-        batch_size = math.ceil(len(imdb_ids) * 0.1) if not len(imdb_ids) == 0 else 1
+        batch_size = math.ceil(len(imdb_ids) * 0.1) or 1
         imdb_id_batches = [imdb_ids[i:i + batch_size] for i in range(0, len(imdb_ids), batch_size)]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             for imdb_id_batch in imdb_id_batches:
-                future_items = {executor.submit(self._create_item, imdb_id): imdb_id for imdb_id in imdb_id_batch if imdb_id not in existing_imdb_ids}
+                future_items = {executor.submit(self._create_item, imdb_id): imdb_id for imdb_id in imdb_id_batch if imdb_id not in existing_imdb_ids or imdb_id is not None}
                 for future in concurrent.futures.as_completed(future_items):
                     item = future.result()
                     if item:
@@ -61,6 +61,8 @@ class Updater:
 
     def _create_item(self, imdb_id):
         item = create_item_from_imdb_id(imdb_id)
+        if item is None:
+            return None
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:
@@ -75,6 +77,9 @@ class Updater:
 
 def _map_item_from_data(data, item_type):
     """Map trakt.tv API data to MediaItemContainer"""
+    if item_type not in ["movie", "show", "season", "episode"]:
+        logger.debug("Unknown item type %s for %s not found in list of acceptable objects", item_type, data.title)
+        return None
     formatted_aired_at = None
     if getattr(data, "first_aired", None) and (
         item_type == "show"
@@ -86,7 +91,7 @@ def _map_item_from_data(data, item_type):
     if getattr(data, "released", None):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
-    is_anime = "anime" in getattr(data, "genres", False)
+    is_anime = "anime" in getattr(data, "genres", [])
     item = {
         "title": getattr(data, "title", None),              # 'Game of Thrones'
         "year": getattr(data, "year", None),                # 2011
@@ -137,13 +142,16 @@ def get_show(imdb_id: str):
 
 def create_item_from_imdb_id(imdb_id: str):
     """Wrapper for trakt.tv API search method"""
+    if imdb_id is None:
+        logger.debug("Unable to create item from IMDb ID. No IMDb ID provided.")
+        return
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(
         url,
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
-    if response.is_ok:
-        if len(response.data) > 0:
+    if response.is_ok and len(response.data) > 0:
+        try:
             media_type = response.data[0].type
             if media_type == "movie":
                 data = response.data[0].movie
@@ -155,8 +163,11 @@ def create_item_from_imdb_id(imdb_id: str):
                 data = response.data[0].episode
             if data:
                 return _map_item_from_data(data, media_type)
-    logger.debug("Unknown item %s with type %s", imdb_id, media_type)
-    return None
+        except UnboundLocalError:
+            logger.error("Unknown item %s with response %s", imdb_id, response)
+            return
+    logger.error("Unable to create item from IMDb ID %s", imdb_id)
+    return
 
 def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     """Get IMDb ID from TVDB ID in Trakt"""
