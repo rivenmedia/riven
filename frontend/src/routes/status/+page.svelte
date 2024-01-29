@@ -6,10 +6,11 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { Loader2, ArrowUpRight, RotateCw, MoveUpRight } from 'lucide-svelte';
+	import { Loader2, ArrowUpRight, RotateCw, MoveUpRight, Info, Trash } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import type { StatusInfo } from '$lib/types';
 	import * as Carousel from '$lib/components/ui/carousel/index.js';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 
 	export let data: PageData;
 
@@ -54,9 +55,10 @@
 
 	async function getExtendedData(id: number) {
 		extendedDataLoading = true;
+		// sleep for 500ms to prevent flickering
+		// await new Promise((resolve) => setTimeout(resolve, 50000));
 		const res = await fetch(`/api/items/${id}`);
 		const data = await res.json();
-		console.log(data);
 		extendedItem = data.item;
 		extendedDataLoading = false;
 	}
@@ -155,8 +157,9 @@
 										<div class="relative h-full w-full">
 											<img
 												alt={item.imdb_id}
-												class="bg-cover bg-center h-[216px] w-[144px] md:w-[176px] md:h-[264px] rounded-md border-muted group-hover/item:scale-105 duration-300 transition-all ease-in-out"
+												loading="lazy"
 												src={`https://images.metahub.space/poster/small/${item.imdb_id}/img`}
+												class="bg-cover bg-center h-[216px] w-[144px] md:w-[176px] md:h-[264px] rounded-md border-muted group-hover/item:scale-105 duration-300 transition-all ease-in-out"
 											/>
 											<div class="absolute top-2 left-2">
 												<Badge class="rounded-md bg-opacity-40 backdrop-blur-lg drop-shadow-lg">
@@ -167,9 +170,10 @@
 
 										<Dialog.Root
 											onOpenChange={async (open) => {
-												console.log(open);
 												if (open) {
 													await getExtendedData(item.item_id);
+												} else {
+													extendedItem = null;
 												}
 											}}
 										>
@@ -180,30 +184,47 @@
 													{item.title}
 												</p>
 											</Dialog.Trigger>
-											<Dialog.Content>
-												<Dialog.Header>
-													<Dialog.Title>{item.title}</Dialog.Title>
-													<Dialog.Description class="flex flex-col gap-2">
-														<p class="text-muted-foreground text-sm">
-															Aired {formatDate(item.aired_at, 'short')}
-														</p>
-														<div
-															class="flex flex-wrap gap-2 w-full items-center justify-center md:justify-start"
-														>
-															{#each item.genres as genre}
-																<Badge variant="secondary">
-																	{formatWords(genre)}
-																</Badge>
-															{/each}
-														</div>
-													</Dialog.Description>
-												</Dialog.Header>
-												{#if extendedDataLoading}
-													<div class="flex items-center gap-1 w-full justify-center">
-														<Loader2 class="animate-spin w-4 h-4" />
-														<p class="text-muted-foreground">Loading item data...</p>
+											<Dialog.Content class="min-h-72 flex flex-col items-start justify-between">
+												{#if extendedDataLoading || !extendedItem}
+													<Dialog.Header class="w-full h-full">
+														<Dialog.Title>{item.title}</Dialog.Title>
+														<Dialog.Description class="w-full h-full">
+															<Skeleton class="w-full h-32 mt-1" />
+														</Dialog.Description>
+													</Dialog.Header>
+													<div class="flex flex-wrap items-center justify-start gap-2 mt-2">
+														<Button disabled={true} variant="outline">
+															<Info class="h-4 w-4 mr-2" />
+															Details
+														</Button>
+														<Button disabled={true} variant="destructive">
+															<Trash class="h-4 w-4 mr-2" />
+															Delete
+														</Button>
 													</div>
 												{:else}
+													<Dialog.Header>
+														<Dialog.Title>{item.title}</Dialog.Title>
+														<Dialog.Description class="flex flex-col gap-1">
+															{#if item.type != 'movie'}
+																<p class="text-muted-foreground text-sm">
+																	{extendedItem.seasons.length} seasons
+																</p>
+															{/if}
+															<p class="text-muted-foreground text-sm">
+																Aired {formatDate(item.aired_at, 'short')}
+															</p>
+															<div
+																class="flex flex-wrap gap-2 w-full items-center justify-center md:justify-start"
+															>
+																{#each item.genres as genre}
+																	<Badge variant="secondary">
+																		{formatWords(genre)}
+																	</Badge>
+																{/each}
+															</div>
+														</Dialog.Description>
+													</Dialog.Header>
 													<div class="flex flex-col items-start">
 														<p>
 															The item was requested <span class="font-semibold"
@@ -211,7 +232,7 @@
 															>
 															by <span class="font-semibold">{item.requested_by}</span>.
 														</p>
-														{#if item.scraped_at}
+														{#if item.scraped_at && item.scraped_at !== '1970-01-01T00:00:00'}
 															<p>
 																Last scraped <span class="font-semibold"
 																	>{formatDate(item.scraped_at, 'long', true)}</span
@@ -220,7 +241,27 @@
 																<span class="font-semibold">{item.scraped_times}</span>
 																times.
 															</p>
+														{:else}
+															<p>Has not been scraped yet.</p>
 														{/if}
+													</div>
+													<div class="flex flex-wrap items-start gap-2">
+														<Button
+															variant="outline"
+															class="mt-2 flex items-center"
+															href="/status/item/{item.item_id}"
+														>
+															<Info class="h-4 w-4 mr-2" />
+															Details
+														</Button>
+														<Button
+															disabled={true}
+															variant="destructive"
+															class="mt-2 flex items-center"
+														>
+															<Trash class="h-4 w-4 mr-2" />
+															Delete
+														</Button>
 													</div>
 												{/if}
 											</Dialog.Content>
@@ -229,7 +270,7 @@
 											{formatDate(item.aired_at, 'year')}
 										</p>
 										<p class="text-muted-foreground text-xs mt-1">
-											Requested {formatDate(item.requested_at, 'long', true)}
+											{formatDate(item.requested_at, 'long', true)}
 										</p>
 									</div>
 								</Carousel.Item>
