@@ -79,15 +79,23 @@ class Torrentio:
             logger.warn("Torrentio failed to scrape item: %s", e)
             return
 
+    def is_plex_playable_extension(self, filename):
+        """Check if the file extension is playable by Plex and doesn't contain 'Sample' in the name."""
+        plex_playable_extensions = {".avi", ".av1", ".mov", ".mp4", ".mkv", "."}
+        _, extension = os.path.splitext(filename)
+        return extension.lower() in plex_playable_extensions and "sample" not in filename.lower()
+
     def _scrape_item(self, item):
-        """Scrape torrentio for the given media item"""
+        """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data)
-            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            filtered_data = {infohash: stream_info for infohash, stream_info in data.items() if
+                             self.is_plex_playable_extension(stream_info.get("name", ""))}
+            item.streams.update(filtered_data)
+            logger.info("Found %s playable streams out of %s for %s", len(filtered_data), stream_count, item.log_string)
         else:
             if stream_count > 0:
-                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+                logger.debug("Could not find playable streams for %s out of %s", item.log_string, stream_count)
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""
