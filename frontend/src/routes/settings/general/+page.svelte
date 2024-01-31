@@ -24,8 +24,10 @@
 	</Accordion.Root>
 
 	<p class="text-sm text-muted-foreground mt-4">
-		<span class="text-red-500">*</span> These settings require a restart to take effect.
+		<small class="text-sm text-muted-foreground"
+			>Fields marked with <span class="text-red-500">*</span> require restart of backend services.</small
+		>
 	</p>
 
-	<GeneralForm data={data.form} actionUrl="/settings/general"/>
+	<GeneralForm data={data.form} actionUrl="/settings/general" />
 </div>

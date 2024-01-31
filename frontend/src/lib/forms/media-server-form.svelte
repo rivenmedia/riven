@@ -5,12 +5,12 @@
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
-	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import { v4 as uuidv4 } from 'uuid';
+	import FormTextField from './components/form-text-field.svelte';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -109,15 +109,7 @@
 	debug={formDebug}
 >
 	<div class="flex flex-col my-4 gap-4">
-		<Form.Field {config} name="plex_url">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">Plex URL</Form.Label>
-				<Form.Input spellcheck="false" />
-			</Form.Item>
-			{#if $errors.plex_url}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormTextField {config} fieldName="plex_url" labelName="Plex URL" errors={$errors.plex_url} />
 
 		<Form.Field {config} name="plex_token">
 			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
@@ -150,11 +142,19 @@
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
-			<Button disabled={$delayed} type="submit" size="sm" class="w-full md:max-w-max text-xs font-semibold">
+			<Button
+				disabled={$delayed}
+				type="submit"
+				size="sm"
+				class="w-full md:max-w-max text-xs font-semibold"
+			>
 				{#if $delayed}
 					<Loader2 class="w-4 h-4 animate-spin mr-2" />
 				{/if}
-				Save changes <span class="ml-1" class:hidden={$page.url.pathname === '/settings/mediaserver'}>and continue</span>
+				Save changes
+				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/mediaserver'}
+					>and continue</span
+				>
 			</Button>
 		</div>
 	</div>

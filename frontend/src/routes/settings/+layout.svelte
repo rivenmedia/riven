@@ -34,7 +34,7 @@
 	<title>Settings | General</title>
 </svelte:head>
 
-<div class="p-8 md:px-24 lg:px-32 flex flex-col">
+<div class="p-8 md:px-24 lg:px-32 flex flex-col w-full">
 	<Select.Root
 		onSelectedChange={(selected) => {
 			goto(String(selected?.value));
@@ -56,13 +56,13 @@
 	</Select.Root>
 
 	<div
-		class="hidden lg:flex flex-wrap w-full bg-slate-200 dark:bg-slate-800 p-1 gap-2 rounded-md text-sm"
+		class="hidden lg:flex flex-wrap w-full p-1 gap-2 rounded-md text-sm text-foreground"
 	>
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
-					'bg-slate-100 dark:bg-slate-900 font-semibold': item.path === $page.url.pathname,
-					'hover:bg-slate-100 dark:hover:bg-slate-900': item.path !== $page.url.pathname
+					'bg-secondary font-semibold text-foreground': item.path === $page.url.pathname,
+					'hover:bg-secondary text-foreground': item.path !== $page.url.pathname
 				})}
 				href={item.path}
 			>

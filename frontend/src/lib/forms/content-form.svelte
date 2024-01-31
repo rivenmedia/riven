@@ -13,6 +13,10 @@
 	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
+	import FormTextField from './components/form-text-field.svelte';
+	import FormNumberField from './components/form-number-field.svelte';
+	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
+	import type { FormGroupCheckboxFieldType } from '$lib/types';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -114,6 +118,25 @@
 	}
 
 	export let actionUrl: string = '?/default';
+
+	const contentProvidersFieldData: FormGroupCheckboxFieldType[] = [
+		{
+			field_name: 'overseerr_enabled',
+			label_name: 'Overseerr'
+		},
+		{
+			field_name: 'mdblist_enabled',
+			label_name: 'Mdblist'
+		},
+		{
+			field_name: 'plex_watchlist_enabled',
+			label_name: 'Plex Watchlists'
+		},
+		{
+			field_name: 'listrr_enabled',
+			label_name: 'Listrr'
+		}
+	];
 </script>
 
 <Form.Root
@@ -125,101 +148,52 @@
 	debug={formDebug}
 >
 	<div class="flex flex-col my-4 gap-4">
-		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl gap-2">
-			<p class="font-semibold w-48 min-w-48 text-muted-foreground">Content Providers</p>
-			<div class="flex flex-wrap gap-4">
-				<Form.Field {config} name="overseerr_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Overseerr</Form.Label>
-					</div>
-				</Form.Field>
-
-				<Form.Field {config} name="mdblist_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Mdblist</Form.Label>
-					</div>
-				</Form.Field>
-
-				<Form.Field {config} name="plex_watchlist_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Plex Watchlists</Form.Label>
-					</div>
-				</Form.Field>
-
-				<Form.Field {config} name="listrr_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Listrr</Form.Label>
-					</div>
-				</Form.Field>
-			</div>
-		</div>
+		<FormGroupCheckboxField
+			{config}
+			fieldTitle="Content Providers"
+			fieldData={contentProvidersFieldData}
+		/>
 
 		{#if $form.overseerr_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="overseerr_url">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Overseerr URL
-						</Form.Label>
-						<Form.Input spellcheck="false" />
-					</Form.Item>
-					{#if $errors.overseerr_url}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="overseerr_url"
+					labelName="Overseerr URL"
+					errors={$errors.overseerr_url}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="overseerr_api_key">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Overseerr API Key
-						</Form.Label>
-						<Form.Input
-							class={clsx('transition-all duration-300', {
-								'blur-sm hover:blur-none focus:blur-none': $form.overseerr_api_key.length > 0
-							})}
-							spellcheck="false"
-						/>
-					</Form.Item>
-					{#if $errors.overseerr_api_key}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="overseerr_api_key"
+					isProtected={true}
+					fieldValue={$form.overseerr_api_key}
+					labelName="Overseerr API Key"
+					errors={$errors.overseerr_api_key}
+				/>
 			</div>
 		{/if}
 
 		{#if $form.plex_watchlist_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="plex_watchlist_rss">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Plex RSS URL (Optional)
-						</Form.Label>
-						<Form.Input spellcheck="false" />
-					</Form.Item>
-					{#if $errors.plex_watchlist_rss}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="plex_watchlist_rss"
+					labelName="Plex RSS URL (Optional)"
+					errors={$errors.plex_watchlist_rss}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="plex_watchlist_update_interval">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Plex RSS Update Interval
-						</Form.Label>
-						<Form.Input type="number" spellcheck="false" />
-					</Form.Item>
-					{#if $errors.plex_watchlist_update_interval}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormNumberField
+					{config}
+					stepValue={undefined}
+					fieldName="plex_watchlist_update_interval"
+					labelName="Plex RSS Update Interval"
+					errors={$errors.plex_watchlist_update_interval}
+				/>
 			</div>
 		{/if}
 
@@ -240,36 +214,24 @@
 
 		{#if $form.mdblist_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="mdblist_api_key">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Mdblist API Key
-						</Form.Label>
-						<Form.Input
-							class={clsx('transition-all duration-300', {
-								'blur-sm hover:blur-none focus:blur-none': $form.mdblist_api_key.length > 0
-							})}
-							spellcheck="false"
-						/>
-					</Form.Item>
-					{#if $errors.mdblist_api_key}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="mdblist_api_key"
+					isProtected={true}
+					fieldValue={$form.mdblist_api_key}
+					labelName="Mdblist API Key"
+					errors={$errors.mdblist_api_key}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="mdblist_update_interval">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Mdblist Update Interval
-						</Form.Label>
-						<Form.Input type="number" spellcheck="false" />
-					</Form.Item>
-					{#if $errors.mdblist_update_interval}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormNumberField
+					{config}
+					stepValue={undefined}
+					fieldName="mdblist_update_interval"
+					labelName="Mdblist Update Interval"
+					errors={$errors.mdblist_update_interval}
+				/>
 			</div>
 
 			{#if $mdblistListsErrors}
@@ -339,36 +301,24 @@
 
 		{#if $form.listrr_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="listrr_api_key">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Listrr API Key
-						</Form.Label>
-						<Form.Input
-							class={clsx('transition-all duration-300', {
-								'blur-sm hover:blur-none focus:blur-none': $form.listrr_api_key.length > 0
-							})}
-							spellcheck="false"
-						/>
-					</Form.Item>
-					{#if $errors.listrr_api_key}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="listrr_api_key"
+					isProtected={true}
+					fieldValue={$form.listrr_api_key}
+					labelName="Listrr API Key"
+					errors={$errors.listrr_api_key}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="listrr_update_interval">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Listrr Update Interval
-						</Form.Label>
-						<Form.Input type="number" spellcheck="false" />
-					</Form.Item>
-					{#if $errors.listrr_update_interval}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormNumberField
+					{config}
+					stepValue={undefined}
+					fieldName="listrr_update_interval"
+					labelName="Listrr Update Interval"
+					errors={$errors.listrr_update_interval}
+				/>
 			</div>
 
 			{#if $listrrMovieListsErrors}
