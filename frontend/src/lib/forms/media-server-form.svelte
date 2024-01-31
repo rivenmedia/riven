@@ -112,8 +112,8 @@
 		<FormTextField {config} fieldName="plex_url" labelName="Plex URL" errors={$errors.plex_url} />
 
 		<Form.Field {config} name="plex_token">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
+			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl md:gap-4">
+				<Form.Label class="font-semibold w-48 min-w-48">
 					Plex Token
 				</Form.Label>
 				<input type="hidden" name="plex_token" id="plex_token" value={$form.plex_token} />
@@ -123,6 +123,7 @@
 					}}
 					disabled={ongoingAuth}
 					size="sm"
+					variant="secondary"
 					class="w-full md:max-w-max text-xs font-semibold"
 				>
 					{#if ongoingAuth}

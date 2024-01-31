@@ -6,7 +6,6 @@
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
-	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
@@ -58,6 +57,7 @@
 		<FormNumberField
 			{config}
 			fieldName="after_2"
+			fieldDescription="Time to wait after 2 failed attempts in hours."
 			stepValue={0.01}
 			labelName="After 2"
 			errors={$errors.after_2}
@@ -65,6 +65,7 @@
 		<FormNumberField
 			{config}
 			fieldName="after_5"
+			fieldDescription="Time to wait after 5 failed attempts in hours."
 			stepValue={0.01}
 			labelName="After 5"
 			errors={$errors.after_5}
@@ -72,6 +73,7 @@
 		<FormNumberField
 			{config}
 			fieldName="after_10"
+			fieldDescription="Time to wait after 10 failed attempts in hours."
 			stepValue={0.01}
 			labelName="After 10"
 			errors={$errors.after_10}
@@ -132,7 +134,8 @@
 					fieldName="jackett_api_key"
 					isProtected={true}
 					fieldValue={$form.jackett_api_key}
-					labelName="Jackett API Key (Optional)"
+					fieldDescription="Optional field if Jackett is not password protected."
+					labelName="Jackett API Key"
 					errors={$errors.jackett_api_key}
 				/>
 			</div>

@@ -39,6 +39,7 @@
 		<FormCheckboxField
 			{config}
 			fieldName="debug"
+			fieldDescription="DEBUG is the log level, disabling it will only show INFO level."
 			requiresReboot={true}
 			labelName="Debug"
 			errors={$errors.debug}
@@ -47,6 +48,7 @@
 		<FormCheckboxField
 			{config}
 			fieldName="log"
+			fieldDescription="Toggle logging to a file."
 			requiresReboot={true}
 			labelName="Log"
 			errors={$errors.log}
@@ -65,14 +67,6 @@
 			labelName="Container Path"
 			errors={$errors.container_path}
 		/>
-
-		<!-- <FormProtectedField
-			{config}
-			fieldName="realdebrid_api_key"
-			fieldValue={$form.realdebrid_api_key}
-			labelName="Real Debrid API Key"
-			errors={$errors.realdebrid_api_key}
-		/> -->
 
 		<FormTextField
 			{config}
