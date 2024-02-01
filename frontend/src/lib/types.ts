@@ -41,3 +41,8 @@ export interface StatusInterface {
 export interface StatusInfo {
 	[key: string]: StatusInterface;
 }
+
+export type FormGroupCheckboxFieldType = {
+	field_name: string;
+	label_name: string;
+};

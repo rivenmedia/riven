@@ -6,11 +6,14 @@
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
-	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
+	import FormTextField from './components/form-text-field.svelte';
+	import FormNumberField from './components/form-number-field.svelte';
+	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
+	import type { FormGroupCheckboxFieldType } from '$lib/types';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -25,6 +28,21 @@
 	}
 
 	export let actionUrl: string = '?/default';
+
+	const scrapersEnabledFieldData: FormGroupCheckboxFieldType[] = [
+		{
+			field_name: 'torrentio_enabled',
+			label_name: 'Torrentio'
+		},
+		{
+			field_name: 'orionoid_enabled',
+			label_name: 'Orionoid'
+		},
+		{
+			field_name: 'jackett_enabled',
+			label_name: 'Jackett'
+		}
+	];
 </script>
 
 <Form.Root
@@ -36,151 +54,90 @@
 	debug={formDebug}
 >
 	<div class="flex flex-col my-4 gap-4">
-		<Form.Field {config} name="after_2">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-					Retry After 2 Times (hr)
-				</Form.Label>
-				<Form.Input type="number" step="0.01" spellcheck="false" />
-			</Form.Item>
-			{#if $errors.after_2}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormNumberField
+			{config}
+			fieldName="after_2"
+			fieldDescription="Time to wait after 2 failed attempts in hours."
+			stepValue={0.01}
+			labelName="After 2"
+			errors={$errors.after_2}
+		/>
+		<FormNumberField
+			{config}
+			fieldName="after_5"
+			fieldDescription="Time to wait after 5 failed attempts in hours."
+			stepValue={0.01}
+			labelName="After 5"
+			errors={$errors.after_5}
+		/>
+		<FormNumberField
+			{config}
+			fieldName="after_10"
+			fieldDescription="Time to wait after 10 failed attempts in hours."
+			stepValue={0.01}
+			labelName="After 10"
+			errors={$errors.after_10}
+		/>
 
-		<Form.Field {config} name="after_5">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-					Retry After 5 Times (hr)
-				</Form.Label>
-				<Form.Input type="number" step="0.01" spellcheck="false" />
-			</Form.Item>
-			{#if $errors.after_5}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
-
-		<Form.Field {config} name="after_10">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-					Retry After 10 Times (hr)
-				</Form.Label>
-				<Form.Input type="number" step="0.01" spellcheck="false" />
-			</Form.Item>
-			{#if $errors.after_10}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
-
-		<div class="flex flex-col md:flex-row items-start md:items-center max-w-6xl gap-2">
-			<p class="font-semibold w-48 min-w-48 text-sm text-muted-foreground">Scrapers Enabled</p>
-			<div class="flex flex-wrap gap-4">
-				<Form.Field {config} name="torrentio_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Torrentio</Form.Label>
-					</div>
-				</Form.Field>
-
-				<Form.Field {config} name="orionoid_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Orionoid</Form.Label>
-					</div>
-				</Form.Field>
-
-				<Form.Field {config} name="jackett_enabled">
-					<div class="flex flex-wrap items-center gap-2">
-						<Form.Checkbox />
-						<Form.Label>Jackett</Form.Label>
-					</div>
-				</Form.Field>
-			</div>
-		</div>
+		<FormGroupCheckboxField
+			{config}
+			fieldTitle="Scrapers Enabled"
+			fieldData={scrapersEnabledFieldData}
+		/>
 
 		{#if $form.torrentio_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="torrentio_url">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Torrentio URL
-						</Form.Label>
-						<Form.Input spellcheck="false" />
-					</Form.Item>
-					{#if $errors.torrentio_url}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="torrentio_url"
+					labelName="Torrentio URL"
+					errors={$errors.torrentio_url}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="torrentio_filter">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Torrentio Filter
-						</Form.Label>
-						<Form.Input spellcheck="false" />
-					</Form.Item>
-					{#if $errors.torrentio_filter}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="torrentio_filter"
+					labelName="Torrentio Filter"
+					errors={$errors.torrentio_filter}
+				/>
 			</div>
 		{/if}
 
 		{#if $form.orionoid_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="orionoid_api_key">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Orionoid API Key
-						</Form.Label>
-						<Form.Input
-							class={clsx('transition-all duration-300', {
-								'blur-sm hover:blur-none focus:blur-none': $form.orionoid_api_key.length > 0
-							})}
-							spellcheck="false"
-						/>
-					</Form.Item>
-					{#if $errors.orionoid_api_key}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="orionoid_api_key"
+					isProtected={true}
+					fieldValue={$form.orionoid_api_key}
+					labelName="Orionoid API Key"
+					errors={$errors.orionoid_api_key}
+				/>
 			</div>
 		{/if}
 
 		{#if $form.jackett_enabled}
 			<div transition:slide>
-				<Form.Field {config} name="jackett_url">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Jackett URL
-						</Form.Label>
-						<Form.Input spellcheck="false" />
-					</Form.Item>
-					{#if $errors.jackett_url}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="jackett_url"
+					labelName="Jackett URL"
+					errors={$errors.jackett_url}
+				/>
 			</div>
 
 			<div transition:slide>
-				<Form.Field {config} name="jackett_api_key">
-					<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-						<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-							Jackett API Key (Optional)
-						</Form.Label>
-						<Form.Input
-							class={clsx('transition-all duration-300', {
-								'blur-sm hover:blur-none focus:blur-none': $form.jackett_api_key.length > 0
-							})}
-							spellcheck="false"
-						/>
-					</Form.Item>
-					{#if $errors.jackett_api_key}
-						<Form.Validation class="text-sm text-red-500" />
-					{/if}
-				</Form.Field>
+				<FormTextField
+					{config}
+					fieldName="jackett_api_key"
+					isProtected={true}
+					fieldValue={$form.jackett_api_key}
+					fieldDescription="Optional field if Jackett is not password protected."
+					labelName="Jackett API Key"
+					errors={$errors.jackett_api_key}
+				/>
 			</div>
 		{/if}
 
