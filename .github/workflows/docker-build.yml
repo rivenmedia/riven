@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      GIT_SHA: ${GITHUB_SHA::5}
     permissions:
       contents: write
       packages: write
@@ -43,6 +45,10 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
+    - name: Get short SHA for github commits
+      id: slug
+      run: echo "GIT_SHA5=$(echo ${GITHUB_SHA} | cut -c1-5)" >> "$GITHUB_OUTPUT"
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -54,4 +60,6 @@ jobs:
         cache-to: type=gha,mode=max
         tags:  |
             ghcr.io/${{ env.GITHUB_OWNER_LC }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ env.GITHUB_OWNER_LC }}/${{ github.event.repository.name }}:${{ steps.slug.outputs.GIT_SHA5 }}
             docker.io/spoked/iceberg:latest
+            docker.io/spoked/iceberg:${{ steps.slug.outputs.GIT_SHA5 }}
