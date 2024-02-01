@@ -66,7 +66,7 @@
 	class:h-[100dvh]={showMenu}
 	class="h-0 w-screen fixed z-[99] top-0 left-0 bg-background overflow-x-hidden flex flex-col items-center md:hidden"
 >
-	<div class="flex p-10 w-full items-end justify-end transition-all ease-in-out duration-300">
+	<div class="flex p-8 w-full items-end justify-end transition-all ease-in-out duration-300">
 		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
 			<X class="h-4 w-4" />
 		</Button>

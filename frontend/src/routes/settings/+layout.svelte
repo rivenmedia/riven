@@ -36,6 +36,7 @@
 
 <div class="p-8 md:px-24 lg:px-32 flex flex-col w-full">
 	<Select.Root
+		portal={null}
 		onSelectedChange={(selected) => {
 			goto(String(selected?.value));
 		}}
@@ -45,7 +46,7 @@
 				(settingsItems.find((item) => item.path === $page.url.pathname) || {}).name || 'Not found'
 		}}
 	>
-		<Select.Trigger class="text-sm lg:hidden">
+		<Select.Trigger class="text-sm lg:hidden w-full">
 			<Select.Value placeholder="Select settings type" />
 		</Select.Trigger>
 		<Select.Content>
@@ -55,9 +56,7 @@
 		</Select.Content>
 	</Select.Root>
 
-	<div
-		class="hidden lg:flex flex-wrap w-full p-1 gap-2 rounded-md text-sm text-foreground"
-	>
+	<div class="hidden lg:flex flex-wrap w-full p-1 gap-2 rounded-md text-sm text-foreground">
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
