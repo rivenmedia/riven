@@ -1,9 +1,12 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { animate, stagger, timeline } from 'motion';
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import Rocket from 'lucide-svelte/icons/rocket';
 	import Mountain from 'lucide-svelte/icons/mountain';
+
+	export let data: PageData;
 
 	let rootElement: HTMLElement;
 	let inView = false;
@@ -45,16 +48,23 @@
 		<div class="flex items-center justify-center slide-up">
 			<Mountain class="w-16 h-16" />
 		</div>
-		<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
-		<p class="text-base md:text-lg text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl">
-			Before you can start using Iceberg, you need to configure some services first.
-		</p>
-		<Button
-			class="mt-4 slide-up font-semibold w-full md:max-w-max"
-			href="/onboarding/1"
-		>
-			<Rocket class="w-4 h-4 mr-2" />
-			<span>Let's go</span>
-		</Button>
+		
+		{#if data.health.message !== true}
+			<div class="flex flex-col gap-2 items-center justify-center slide-up">
+				<h1 class="text-3xl font-semibold text-center">Iceberg is initializing...</h1>
+				<Button class="font-semibold w-full" href="/">Go back to home</Button>
+			</div>
+		{:else}
+			<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
+			<p
+				class="text-base md:text-lg text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl"
+			>
+				Before you can start using Iceberg, you need to configure some services first.
+			</p>
+			<Button class="mt-4 slide-up font-semibold w-full md:max-w-max" href="/onboarding/1">
+				<Rocket class="w-4 h-4 mr-2" />
+				<span>Let's go</span>
+			</Button>
+		{/if}
 	</div>
 </div>
