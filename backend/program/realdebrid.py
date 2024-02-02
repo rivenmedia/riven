@@ -130,9 +130,9 @@ class Debrid:
                                 "active_stream",
                                 {"hash": stream_hash, "files": wanted_files, "id": None},
                             )
-                            all_filenames = [file_info["filename"] for file_info in wanted_files.values()]
-                            for file in all_filenames:
-                                logger.debug(f"Found cached file {file} for {item.log_string}")
+                            # all_filenames = [file_info["filename"] for file_info in wanted_files.values()]
+                            # for file in all_filenames:
+                            #     logger.debug(f"Found cached file {file} for {item.log_string}")
                             return True
                         item.streams[stream_hash] = None
         return False
