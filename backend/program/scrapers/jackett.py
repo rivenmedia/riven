@@ -45,7 +45,7 @@ class Jackett:
             except ReadTimeout:
                 return True
             except Exception as e:
-                logger.exception("Jackett failed to initialize with API Key: %s", e)
+                logger.error("Jackett failed to initialize with API Key: %s", e)
                 return False
         if self.settings.url:
             try:
@@ -57,9 +57,10 @@ class Jackett:
                 if not response.is_ok:
                     return False
             except ReadTimeout:
+                logger.warn("Jackett connection timeout.")
                 return True
             except Exception as e:
-                logger.exception("Jackett failed to initialize: %s", e)
+                logger.error("Jackett failed to initialize: %s", e)
                 return False
         logger.info("Jackett is not configured and will not be used.")
         return False
@@ -75,13 +76,11 @@ class Jackett:
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
             return
         except RequestException as e:
-            self.minute_limiter.limit_hit()
-            logger.exception("Jackett request exception: %s", e, exc_info=True)
+            logger.debug("Jackett request exception: %s", e, exc_info=True)
             return
         except Exception as e:
-            self.minute_limiter.limit_hit()
-            # logger.debug("Jackett exception for item: %s - Exception: %s", item.log_string, e.args[0], exc_info=True)
-            # logger.debug("Exception details: %s", traceback.format_exc())
+            logger.debug("Jackett exception for item: %s - Exception: %s", item.log_string, e.args[0], exc_info=True)
+            logger.debug("Exception details: %s", traceback.format_exc())
             return
 
     def _scrape_item(self, item):
