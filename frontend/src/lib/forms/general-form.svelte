@@ -5,11 +5,12 @@
 	import { toast } from 'svelte-sonner';
 	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
-	import clsx from 'clsx';
 	import * as Form from '$lib/components/ui/form';
 	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
 	import { getContext } from 'svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
+	import FormTextField from './components/form-text-field.svelte';
+	import FormCheckboxField from './components/form-checkbox-field.svelte';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -35,66 +36,46 @@
 	debug={formDebug}
 >
 	<div class="flex flex-col my-4 gap-4">
-		<Form.Field {config} name="debug">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground"
-					>Debug <span class="text-red-500">*</span></Form.Label
-				>
-				<Form.Checkbox />
-			</Form.Item>
-			{#if $errors.debug}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormCheckboxField
+			{config}
+			fieldName="debug"
+			fieldDescription="DEBUG is the log level, disabling it will only show INFO level."
+			requiresReboot={true}
+			labelName="Debug"
+			errors={$errors.debug}
+		/>
 
-		<Form.Field {config} name="log">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">Log <span class="text-red-500">*</span></Form.Label>
-				<Form.Checkbox />
-			</Form.Item>
-			{#if $errors.log}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormCheckboxField
+			{config}
+			fieldName="log"
+			fieldDescription="Toggle logging to a file."
+			requiresReboot={true}
+			labelName="Log"
+			errors={$errors.log}
+		/>
 
-		<Form.Field {config} name="host_path">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">Host Path</Form.Label>
-				<Form.Input spellcheck="false" />
-			</Form.Item>
-			{#if $errors.host_path}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormTextField
+			{config}
+			fieldName="host_path"
+			labelName="Host Path"
+			errors={$errors.host_path}
+		/>
 
-		<Form.Field {config} name="container_path">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-					Container Path
-				</Form.Label>
-				<Form.Input spellcheck="false" />
-			</Form.Item>
-			{#if $errors.container_path}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormTextField
+			{config}
+			fieldName="container_path"
+			labelName="Container Path"
+			errors={$errors.container_path}
+		/>
 
-		<Form.Field {config} name="realdebrid_api_key">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl">
-				<Form.Label class="font-semibold w-48 min-w-48 text-muted-foreground">
-					Real Debrid API Key
-				</Form.Label>
-				<Form.Input
-					class={clsx('transition-all duration-300', {
-						'blur-sm hover:blur-none focus:blur-none': $form.realdebrid_api_key.length > 0
-					})}
-					spellcheck="false"
-				/>
-			</Form.Item>
-			{#if $errors.realdebrid_api_key}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
+		<FormTextField
+			{config}
+			fieldName="realdebrid_api_key"
+			isProtected={true}
+			fieldValue={$form.realdebrid_api_key}
+			labelName="Real Debrid API Key"
+			errors={$errors.realdebrid_api_key}
+		/>
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">

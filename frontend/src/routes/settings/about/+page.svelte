@@ -56,7 +56,7 @@
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<p class="text-xs md:text-sm break-words p-2 rounded-md bg-slate-100 dark:bg-slate-900">
+					<p class="text-xs md:text-sm break-words p-2 rounded-md bg-secondary">
 						{aboutData[key]}
 					</p>
 				</div>
