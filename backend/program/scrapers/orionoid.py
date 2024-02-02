@@ -67,7 +67,7 @@ class Orionoid:
         """
         url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
-        if response.is_ok:
+        if response.is_ok and hasattr(response.data, "data"):
             active = True if response.data.data.status == "active" else False
             premium = response.data.data.subscription.package.premium
             debrid = response.data.data.service.realdebrid
