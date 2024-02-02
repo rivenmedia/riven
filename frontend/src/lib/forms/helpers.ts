@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 // General Settings -----------------------------------------------------------------------------------
 export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
+export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
 
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
@@ -51,6 +52,7 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 
 // Content Settings -----------------------------------------------------------------------------------
 export const contentSettingsToGet: string[] = ['content'];
+export const contentSettingsServices: string[] = ['content'];
 
 export const contentSettingsSchema = z.object({
 	overseerr_enabled: z.boolean().default(false),
@@ -126,6 +128,7 @@ export function contentSettingsToSet(form: SuperValidated<ContentSettingsSchema>
 
 // Media Server Settings -----------------------------------------------------------------------------------
 export const mediaServerSettingsToGet: string[] = ['plex'];
+export const mediaServerSettingsServices: string[] = ['plex'];
 
 export const mediaServerSettingsSchema = z.object({
 	plex_token: z.string().optional().default(''),
@@ -154,6 +157,7 @@ export function mediaServerSettingsToSet(form: SuperValidated<MediaServerSetting
 
 // Scrapers Settings -----------------------------------------------------------------------------------
 export const scrapersSettingsToGet: string[] = ['scraping'];
+export const scrapersSettingsServices: string[] = ['scraping'];
 
 export const scrapersSettingsSchema = z.object({
 	after_2: z.number().nonnegative().default(0.5),
