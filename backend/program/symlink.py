@@ -27,6 +27,9 @@ class Symlinker():
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = False
+        
+        if not self.settings.host_path or not self.settings.container_path:
+            return
 
         if (self.settings.host_path / "__all__").exists():
             logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
