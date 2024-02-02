@@ -47,7 +47,8 @@ class Parser:
             else:
                 episodes.append(int(episode))
 
-        title_match = self.check_for_title_match(item, parsed_title)
+        if item is not None:
+            title_match = self.check_for_title_match(item, parsed_title)
         is_4k = parse.get("resolution", False) in ["2160p", "4K", "UHD"]
         is_complete = self._is_complete_series(string)
         is_dual_audio = self._is_dual_audio(string)
@@ -56,7 +57,6 @@ class Parser:
         parsed_data = {
             "string": string,
             "parsed_title": parsed_title,
-            "title_match": title_match,
             "fetch": False,
             "is_4k": is_4k,
             "is_dual_audio": is_dual_audio,
@@ -80,6 +80,10 @@ class Parser:
             "extended": parse.get("extended", False)
         }
 
+        # bandaid for now, this needs to be refactored to make less calls to _parse
+        if item is not None:
+            parsed_data["title_match"] = title_match
+
         parsed_data["fetch"] = self._should_fetch(parsed_data)
         return parsed_data
 
@@ -90,7 +94,7 @@ class Parser:
 
     def episodes_in_season(self, season, string) -> List[int]:
         """Return a list of episodes in the given season."""
-        parse = self._parse(string=string)
+        parse = self._parse(item=None, string=string)
         if parse["season"] == season:
             return parse["episodes"]
         return []

@@ -28,9 +28,8 @@ class MediaItemContainer:
         """Sort container by given attribute"""
         try:
             self.items.sort(key=lambda item: item.get(by), reverse=reverse)
-        except AttributeError as e:
-            logger.error("Failed to sort container: %s", e)
-            pass
+        except AttributeError:
+            pass # Fixes: 'NoneType' object has no attribute 'get' - caused by Trakt not able to create an item
 
     def __len__(self):
         """Get length of container"""

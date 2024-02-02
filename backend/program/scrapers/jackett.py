@@ -26,7 +26,7 @@ class Jackett:
         if not self.initialized and not self.api_key:
             return
         self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=10)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.parse_logging = False
         logger.info("Jackett initialized!")
 
