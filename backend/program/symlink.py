@@ -1,6 +1,7 @@
 """Symlinking module"""
 import os
 from pathlib import Path
+from typing import NamedTuple
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
 from utils.logger import logger
@@ -10,6 +11,9 @@ class SymlinkConfig(BaseModel):
     host_path: Path
     container_path: Path
 
+class Setting(NamedTuple):
+    key: str
+    value: str
 
 class Symlinker():
     """
@@ -26,60 +30,74 @@ class Symlinker():
     def __init__(self, _):
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
-        self.initialized = False
-
-        if (self.settings.host_path / "__all__").exists():
-            logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-            settings.set(self.key, self.settings.host_path)
-            self.settings.host_path = Path(self.settings.host_path) / "__all__"
-        elif (self.settings.host_path / "torrents").exists():
-            logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-            settings.set(self.key, self.settings.host_path)
-            self.settings.host_path = Path(self.settings.host_path) / "torrents"
-        
-        self.library_path = self.settings.host_path.parent / "library"
-
-        if not self.validate():
-            logger.error("Symlink configuration is invalid. Please check the host and container paths.")
+        self.initialized = self.validate()
+        if not self.initialized:
+            logger.error("Symlink initialization failed due to invalid configuration.")
             return
-
-        self.initialize_library_paths()
-
-        if not self.create_initial_folders():
-            logger.error("Failed to create initial library folders.")
-            return
-
-        logger.info("Found rclone mount path: %s", self.settings.host_path)
-        logger.info("Symlinks will be placed in library path: %s", self.library_path)
-        logger.info("Plex will see the symlinks in: %s", self.settings.container_path.parent / "library")
+        logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
+        logger.info("Symlinks will be placed in: %s", self.library_path)
         logger.info("Symlink initialized!")
         self.initialized = True
 
     def validate(self):
-        if not self.settings.host_path or not self.settings.container_path:
+        """Validate paths and create the initial folders."""
+        host_path = Path(self.settings.host_path) if self.settings.host_path else None
+        container_path = Path(self.settings.container_path) if self.settings.container_path else None
+        if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
+            logger.error("Host or container path not provided, is empty, or is set to the current directory.")
             return False
-        host_path = Path(self.settings.host_path)
-        if not host_path.exists() or not host_path.is_dir():
-            logger.error(f"Invalid host path: {self.settings.host_path}")
+        if not host_path.is_absolute():
+            logger.error(f"Host path is not an absolute path: {host_path}")
             return False
-        return True
-
-    def initialize_library_paths(self):
-        self.library_path_movies = self.library_path / "movies"
-        self.library_path_shows = self.library_path / "shows"
-        self.library_path_anime_movies = self.library_path / "anime_movies"
-        self.library_path_anime_shows = self.library_path / "anime_shows"
+        if not container_path.is_absolute():
+            logger.error(f"Container path is not an absolute path: {container_path}")
+            return False
+        try:
+            if not host_path.is_dir():
+                logger.error(f"Host path is not a directory or does not exist: {host_path}")
+                return False
+            if not container_path.is_dir():
+                logger.error(f"Container path is not a directory or does not exist: {container_path}")
+                return False
+            if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
+                logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
+                self.settings.host_path = self.settings.host_path / "__all__"
+            elif Path(self.settings.host_path / "torrents").exists() and Path(self.settings.host_path / "torrents").is_dir():
+                logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
+                self.settings.host_path = self.settings.host_path / "torrents"
+            if not self.create_initial_folders():
+                logger.error("Failed to create initial library folders.")
+                return False
+            return True
+        except FileNotFoundError as e:
+            logger.error(f"Path not found: {e}")
+        except PermissionError as e:
+            logger.error(f"Permission denied when accessing path: {e}")
+        except OSError as e:
+            logger.error(f"OS error when validating paths: {e}")
+        return False
 
     def create_initial_folders(self):
-        for library in [self.library_path_movies, 
-                        self.library_path_shows, 
-                        self.library_path_anime_movies, 
-                        self.library_path_anime_shows]:
-            try:
-                library.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                logger.error("Failed to create directory %s: %s", library, e)
-                return False
+        """Create the initial library folders."""
+        try:
+            self.library_path = self.settings.container_path.parent / "library"
+            self.library_path_movies = self.library_path / "movies"
+            self.library_path_shows = self.library_path / "shows"
+            self.library_path_anime_movies = self.library_path / "anime_movies"
+            self.library_path_anime_shows = self.library_path / "anime_shows"
+            folders = [self.library_path_movies, 
+                    self.library_path_shows, 
+                    self.library_path_anime_movies, 
+                    self.library_path_anime_shows]
+            for folder in folders:
+                if not folder.exists():
+                    folder.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            logger.error(f"Permission denied when creating directory: {e}")
+            return False
+        except OSError as e:
+            logger.error(f"OS error when creating directory: {e}")
+            return False
         return True
 
     def run(self, item):

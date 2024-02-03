@@ -1,5 +1,4 @@
 """ Torrentio scraper module """
-import os
 from typing import Optional
 from pydantic import BaseModel
 from requests import ConnectTimeout, ReadTimeout
@@ -22,7 +21,7 @@ class Torrentio:
     def __init__(self, _):
         self.key = "torrentio"
         self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
-        self.minute_limiter = RateLimiter(max_calls=60, period=60, raise_on_limit=True)
+        self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate_settings()
         if not self.initialized:
@@ -57,26 +56,18 @@ class Torrentio:
             self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Torrentio rate limit hit for item: %s", item.log_string)
             return
         except ConnectTimeout:
-            self.minute_limiter.limit_hit()
             logger.warn("Torrentio connection timeout for item: %s", item.log_string)
             return
         except ReadTimeout:
-            self.minute_limiter.limit_hit()
+            logger.warn("Torrentio read timeout for item: %s", item.log_string)
             return
         except RequestException as e:
-            self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
             return
-        except AttributeError:
-            # TODO: will fix later
-            self.minute_limiter.limit_hit()
-            return
         except Exception as e:
-            self.minute_limiter.limit_hit()
-            logger.warn("Torrentio failed to scrape item: %s", e)
+            logger.warn("Torrentio exception thrown: %s", e)
             return
 
     def _scrape_item(self, item):

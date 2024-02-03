@@ -32,8 +32,8 @@ class Orionoid:
         self.orionoid_limit = 0
         self.orionoid_remaining = 0
         self.parse_logging = False
-        self.max_calls = 100 if not self.is_premium else 60
-        self.period = 86400 if not self.is_premium else 60
+        self.max_calls = 100 if not self.is_premium else 1000
+        self.period = 86400 if not self.is_premium else 3600
         self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Orionoid initialized!")
@@ -43,19 +43,20 @@ class Orionoid:
         if not self.settings.enabled:
             logger.debug("Orionoid is set to disabled.")
             return False
-        if self.settings.api_key:
-            return True
+        if len(self.settings.api_key) != 32 or self.settings.api_key == "":
+            logger.error("Orionoid API Key is not valid or not set. Please check your settings.")
+            return False
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = get(url, retry_if_failed=False)
-            if response.is_ok:
-                return True
-            if not response.data.result.status == "success":
-                logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
-                return False
-            if not response.is_ok:
-                logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
-                return False
+            if response.is_ok and hasattr(response.data, "result"):
+                if not response.data.result.status == "success":
+                    logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
+                    return False
+                if not response.is_ok:
+                    logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
+                    return False
+            return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
             return False
@@ -67,7 +68,7 @@ class Orionoid:
         """
         url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
-        if response.is_ok:
+        if response.is_ok and hasattr(response.data, "data"):
             active = True if response.data.data.status == "active" else False
             premium = response.data.data.subscription.package.premium
             debrid = response.data.data.service.realdebrid
