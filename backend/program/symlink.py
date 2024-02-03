@@ -80,7 +80,7 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.container_path.parent / "library"
+            self.library_path = self.settings.host_path.parent / "library"
             self.library_path_movies = self.library_path / "movies"
             self.library_path_shows = self.library_path / "shows"
             self.library_path_anime_movies = self.library_path / "anime_movies"
