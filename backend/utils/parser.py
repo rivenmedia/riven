@@ -89,12 +89,12 @@ class Parser:
 
     def episodes(self, string) -> List[int]:
         """Return a list of episodes in the given string."""
-        parse = self._parse(string)
+        parse = self._parse(None, string)
         return parse["episodes"]
 
     def episodes_in_season(self, season, string) -> List[int]:
         """Return a list of episodes in the given season."""
-        parse = self._parse(item=None, string=string)
+        parse = self._parse(None, string)
         if parse["season"] == season:
             return parse["episodes"]
         return []
