@@ -1,193 +1,216 @@
-"""Symlinking module"""
+"""Realdebrid module"""
 import os
 from pathlib import Path
-from typing import NamedTuple
+import time
+from typing import Optional
 from pydantic import BaseModel
-from utils.settings import settings_manager as settings
+from requests import ConnectTimeout
 from utils.logger import logger
+from utils.request import get, post, ping
+from utils.settings import settings_manager
+from utils.parser import parser
 
 
-class SymlinkConfig(BaseModel):
-    host_path: Path
-    container_path: Path
+WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
+RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
-class Setting(NamedTuple):
-    key: str
-    value: str
 
-class Symlinker():
-    """
-    A class that represents a symlinker thread.
+class DebridConfig(BaseModel):
+    api_key: Optional[str]
 
-    Attributes:
-        media_items (MediaItemContainer): The container of media items.
-        running (bool): Flag indicating if the thread is running.
-        cache (dict): A dictionary to cache file paths.
-        container_path (str): The absolute path of the container mount.
-        host_path (str): The absolute path of the host mount.
-        symlink_path (str): The path where the symlinks will be created.
-    """
+
+class Debrid:
+    """Real-Debrid API Wrapper"""
+
     def __init__(self, _):
-        self.key = "symlink"
-        self.settings = SymlinkConfig(**settings.get(self.key))
-        self.initialized = self.validate()
-        if not self.initialized:
-            logger.error("Symlink initialization failed due to invalid configuration.")
+        # Realdebrid class library is a necessity
+        self.initialized = False
+        self.key = "real_debrid"
+        self.settings = DebridConfig(**settings_manager.get(self.key))
+        self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.running = False
+        if not self._validate_settings():
+            logger.error("Realdebrid settings incorrect or not premium!")
             return
-        logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
-        logger.info("Symlinks will be placed in: %s", self.library_path)
-        logger.info("Symlink initialized!")
+        logger.info("Real Debrid initialized!")
         self.initialized = True
 
-    def validate(self):
-        """Validate paths and create the initial folders."""
-        host_path = Path(self.settings.host_path) if self.settings.host_path else None
-        container_path = Path(self.settings.container_path) if self.settings.container_path else None
-        if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
-            logger.error("Host or container path not provided, is empty, or is set to the current directory.")
-            return False
-        if not host_path.is_absolute():
-            logger.error(f"Host path is not an absolute path: {host_path}")
-            return False
-        if not container_path.is_absolute():
-            logger.error(f"Container path is not an absolute path: {container_path}")
-            return False
+    def _validate_settings(self):
         try:
-            if not host_path.is_dir():
-                logger.error(f"Host path is not a directory or does not exist: {host_path}")
-                return False
-            if not container_path.is_dir():
-                logger.error(f"Container path is not a directory or does not exist: {container_path}")
-                return False
-            if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
-                logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                self.settings.host_path = self.settings.host_path / "__all__"
-            elif Path(self.settings.host_path / "torrents").exists() and Path(self.settings.host_path / "torrents").is_dir():
-                logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                self.settings.host_path = self.settings.host_path / "torrents"
-            if not self.create_initial_folders():
-                logger.error("Failed to create initial library folders.")
-                return False
-            return True
-        except FileNotFoundError as e:
-            logger.error(f"Path not found: {e}")
-        except PermissionError as e:
-            logger.error(f"Permission denied when accessing path: {e}")
-        except OSError as e:
-            logger.error(f"OS error when validating paths: {e}")
-        return False
-
-    def create_initial_folders(self):
-        """Create the initial library folders."""
-        try:
-            self.library_path = self.settings.container_path.parent / "library"
-            self.library_path_movies = self.library_path / "movies"
-            self.library_path_shows = self.library_path / "shows"
-            self.library_path_anime_movies = self.library_path / "anime_movies"
-            self.library_path_anime_shows = self.library_path / "anime_shows"
-            folders = [self.library_path_movies, 
-                    self.library_path_shows, 
-                    self.library_path_anime_movies, 
-                    self.library_path_anime_shows]
-            for folder in folders:
-                if not folder.exists():
-                    folder.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            logger.error(f"Permission denied when creating directory: {e}")
+            response = ping(
+                "https://api.real-debrid.com/rest/1.0/user",
+                additional_headers=self.auth_headers,
+            )
+            if response.ok:
+                json = response.json()
+                return json["premium"] > 0
+        except ConnectTimeout:
             return False
-        except OSError as e:
-            logger.error(f"OS error when creating directory: {e}")
-            return False
-        return True
 
     def run(self, item):
-        self._run(item)
+        self.download(item)
 
-    def _determine_file_name(self, item):
-        """Determine the filename of the symlink."""
-        filename = None
+    def download(self, item):
+        """Download movie from real-debrid.com"""
+        downloaded = 0
+        if self.is_cached(item):
+            if not self._is_downloaded(item):
+                downloaded = self._download_item(item)
+            else:
+                downloaded = True
+            self._set_file_paths(item)
+            return downloaded
+
+    def _is_downloaded(self, item):
+        torrents = self.get_torrents()
+        for torrent in torrents:
+            if torrent.hash == item.active_stream.get("hash"):
+                info = self.get_torrent_info(torrent.id)
+                if item.type == "episode":
+                    if not any(file for file in info.files if file.selected == 1 and item.number in parser.episodes_in_season(item.parent.number, Path(file.path).name)):
+                        return False
+
+                item.set("active_stream.id", torrent.id)
+                self.set_active_files(item)
+                logger.debug("Torrent for %s already downloaded", item.log_string)
+                return True
+        return False
+
+    def _download_item(self, item):
+        request_id = self.add_magnet(item)
+        item.set("active_stream.id", request_id)
+        self.set_active_files(item)
+        time.sleep(0.5)
+        self.select_files(request_id, item)
+        item.set("active_stream.id", request_id)
+        logger.debug("Downloaded %s", item.log_string)
+        return 1
+
+    def _get_torrent_info(self, request_id):
+        data = self.get_torrent_info(request_id)
+        if not data["id"] in self._torrents.keys():
+            self._torrents[data["id"]] = data
+
+    def set_active_files(self, item):
+        info = self.get_torrent_info(item.get("active_stream")["id"])
+        item.active_stream["alternative_name"] = info.original_filename
+        item.active_stream["name"] = info.filename
+
+    def is_cached(self, item):
+        if len(item.streams) == 0:
+            return
+
+        def chunks(lst, n):
+            for i in range(0, len(lst), n):
+                yield lst[i : i + n]
+
+        stream_chunks = list(chunks(list(item.streams), 5))
+
+        for stream_chunk in stream_chunks:
+            streams = "/".join(stream_chunk)
+            response = get(
+                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
+                additional_headers=self.auth_headers,
+                response_type=dict,
+            )
+            for stream_hash, provider_list in response.data.items():
+                if len(provider_list) == 0:
+                    continue
+                for containers in provider_list.values():
+                    for container in containers:
+                        wanted_files = {}
+                        if item.type == "movie" and all(file["filesize"] > 200000 for file in container.values()):
+                            wanted_files = container
+                        if item.type == "season" and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                            wanted_files = container
+                        if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                            wanted_files = container
+                        if len(wanted_files) > 0 and any(Path(item["filename"]).suffix in WANTED_FORMATS for item in wanted_files.values()):
+                            item.set(
+                                "active_stream",
+                                {"hash": stream_hash, "files": wanted_files, "id": None},
+                            )
+                            all_filenames = [file_info["filename"] for file_info in wanted_files.values()]
+                            for file in all_filenames:
+                             logger.debug(f"Found cached file {file} for {item.log_string}")
+                            return True
+                        item.streams[stream_hash] = None
+        return False
+
+    def _set_file_paths(self, item):
         if item.type == "movie":
-            filename = (
-                f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
-            )
+            self._handle_movie_paths(item)
+        if item.type == "season":
+            self._handle_season_paths(item)
         if item.type == "episode":
-            episode_string = ""
-            episode_number = item.get_file_episodes()
-            if episode_number[0] == item.number:
-                if len(episode_number) > 1:
-                    episode_string = f"e{str(episode_number[0]).zfill(2)}-e{str(episode_number[-1]).zfill(2)}"
-                else:
-                    episode_string = f"e{str(item.number).zfill(2)}"
-            if episode_string != "":
-                showname = item.parent.parent.title
-                showyear = item.parent.parent.aired_at.year
-                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
-        return filename
+            self._handle_episode_paths(item)
 
-    def _run(self, item):
-        """Check if the media item exists and create a symlink if it does"""
-        found = False
-        if os.path.exists(os.path.join(self.settings.host_path, item.folder, item.file)):
-            found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.alternative_folder, item.file)):
-            item.set("folder", item.alternative_folder)
-            found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.file, item.file)):
-            item.set("folder", item.file)
-            found = True
-        if found:
-            self._symlink(item)
+    def _handle_movie_paths(self, item):
+        item.set("folder", item.active_stream.get("name"))
+        item.set("alternative_folder", item.active_stream.get("alternative_name"))
+        item.set("file", next(file for file in item.active_stream.get("files").values())["filename"])
 
-    def _symlink(self, item):
-        """Create a symlink for the given media item"""
-        extension = item.file.split(".")[-1]
-        symlink_filename = f"{self._determine_file_name(item)}.{extension}"
+    def _handle_season_paths(self, season):
+        for file in season.active_stream["files"].values():
+            for episode in parser.episodes_in_season(season.number, file["filename"]):
+                if episode - 1 in range(len(season.episodes)):
+                    season.episodes[episode - 1].set(
+                        "folder", season.active_stream.get("name")
+                    )
+                    season.episodes[episode - 1].set(
+                        "alternative_folder", season.active_stream.get("alternative_name")
+                    )
+                    season.episodes[episode - 1].set("file", file["filename"])
 
-        destination = self._create_item_folders(item, symlink_filename)
+    def _handle_episode_paths(self, episode):
+        file = next(file for file in episode.active_stream.get("files").values() if episode.number in parser.episodes_in_season(episode.parent.number, file["filename"]))
+        episode.set("folder", episode.active_stream.get("name"))
+        episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
+        episode.set("file", file["filename"])
 
-        if destination:
-            try:
-                os.remove(destination)
-            except FileNotFoundError:
-                pass
-            os.symlink(
-                os.path.join(self.settings.container_path, item.folder, item.file),
-                destination,
-            )
-            logger.debug("Created symlink for %s", item.log_string)
-            item.symlinked = True
-        else:
-            logger.debug(
-                "Could not create symlink for item_id (%s) to (%s)",
-                item.id,
-                destination,
-            )
+    def add_magnet(self, item) -> str:
+        """Add magnet link to real-debrid.com"""
+        if not item.active_stream.get("hash"):
+            return None
+        response = post(
+            "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
+            {
+                "magnet": "magnet:?xt=urn:btih:"
+                + item.active_stream["hash"]
+                + "&dn=&tr="
+            },
+            additional_headers=self.auth_headers,
+        )
+        if response.is_ok:
+            return response.data.id
+        return None
 
-    def _create_item_folders(self, item, filename) -> str:
-        if item.type == "movie":
-            movie_folder = (
-                f"{item.title.replace('/', '-')} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
-            )
-            destination_folder = os.path.join(self.library_path_movies, movie_folder)
-            if not os.path.exists(destination_folder):
-                os.mkdir(destination_folder)
-            destination_path = os.path.join(destination_folder, filename.replace('/', '-'))
-            item.set(
-                "update_folder", os.path.join(self.library_path_movies, movie_folder)
-            )
-        if item.type == "episode":
-            show = item.parent.parent
-            folder_name_show = (
-                f"{show.title.replace('/', '-')} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
-            )
-            show_path = os.path.join(self.library_path_shows, folder_name_show)
-            if not os.path.exists(show_path):
-                os.mkdir(show_path)
-            season = item.parent
-            folder_season_name = f"Season {str(season.number).zfill(2)}"
-            season_path = os.path.join(show_path, folder_season_name)
-            if not os.path.exists(season_path):
-                os.mkdir(season_path)
-            destination_path = os.path.join(season_path, filename.replace('/', '-'))
-            item.set("update_folder", os.path.join(season_path))
-        return destination_path
+    def get_torrents(self) -> str:
+        """Add magnet link to real-debrid.com"""
+        response = get(
+            "https://api.real-debrid.com/rest/1.0/torrents/",
+            data={"offset": 0, "limit": 2500},
+            additional_headers=self.auth_headers,
+        )
+        if response.is_ok:
+            return response.data
+        return None
+
+    def select_files(self, request_id, item) -> bool:
+        """Select files from real-debrid.com"""
+        files = item.active_stream.get("files")
+        response = post(
+            f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{request_id}",
+            {"files": ",".join(files.keys())},
+            additional_headers=self.auth_headers,
+        )
+        return response.is_ok
+
+    def get_torrent_info(self, request_id):
+        """Get torrent info from real-debrid.com"""
+        response = get(
+            f"https://api.real-debrid.com/rest/1.0/torrents/info/{request_id}",
+            additional_headers=self.auth_headers,
+        )
+        if response.is_ok:
+            return response.data
