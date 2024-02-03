@@ -56,14 +56,14 @@ export const contentSettingsServices: string[] = ['content'];
 
 export const contentSettingsSchema = z.object({
 	overseerr_enabled: z.boolean().default(false),
-	overseerr_url: z.string().url().optional().default(''),
+	overseerr_url: z.string().optional().default(''),
 	overseerr_api_key: z.string().optional().default(''),
 	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().nonnegative().int().optional().default(80),
 	mdblist_lists: z.string().array().optional().default(['']),
 	plex_watchlist_enabled: z.boolean().default(false),
-	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
+	plex_watchlist_rss: z.string().optional().default(''),
 	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80),
 	listrr_enabled: z.boolean().default(false),
 	listrr_api_key: z.string().optional().default(''),
@@ -132,7 +132,7 @@ export const mediaServerSettingsServices: string[] = ['plex'];
 
 export const mediaServerSettingsSchema = z.object({
 	plex_token: z.string().optional().default(''),
-	plex_url: z.string().url().optional().default('')
+	plex_url: z.string().optional().default('')
 });
 export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 
@@ -172,7 +172,7 @@ export const scrapersSettingsSchema = z.object({
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	orionoid_api_key: z.string().optional().default(''),
-	jackett_url: z.string().url().optional().default('http://localhost:9117'),
+	jackett_url: z.string().optional().default('http://localhost:9117'),
 	jackett_api_key: z.string().optional().default('')
 });
 export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
