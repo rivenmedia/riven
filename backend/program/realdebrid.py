@@ -125,14 +125,14 @@ class Debrid:
                             wanted_files = container
                         if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
                             wanted_files = container
-                        if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
+                        if len(wanted_files) > 0 and any(Path(item["filename"]).suffix in WANTED_FORMATS for item in wanted_files.values()):
                             item.set(
                                 "active_stream",
                                 {"hash": stream_hash, "files": wanted_files, "id": None},
                             )
                             # all_filenames = [file_info["filename"] for file_info in wanted_files.values()]
                             # for file in all_filenames:
-                            #     logger.debug(f"Found cached file {file} for {item.log_string}")
+                            #  logger.debug(f"Found cached file {file} for {item.log_string}")
                             return True
                         item.streams[stream_hash] = None
         return False
