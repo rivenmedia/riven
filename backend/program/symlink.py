@@ -56,9 +56,9 @@ class Symlinker():
             if not host_path.is_dir():
                 logger.error(f"Host path is not a directory or does not exist: {host_path}")
                 return False
-            if not container_path.is_dir():
-                logger.error(f"Container path is not a directory or does not exist: {container_path}")
-                return False
+            # if not container_path.is_dir():
+            #     logger.error(f"Container path is not a directory or does not exist: {container_path}")
+            #     return False
             if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
                 self.settings.host_path = self.settings.host_path / "__all__"
