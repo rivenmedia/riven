@@ -49,14 +49,13 @@ class Orionoid:
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = get(url, retry_if_failed=False)
-            if response.is_ok:
-                logger.debug("Orionoid Response: %s", response.data)
-            if not response.data.result.status == "success":
-                logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
-                return False
-            if not response.is_ok:
-                logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
-                return False
+            if response.is_ok and hasattr(response.data, "result"):
+                if not response.data.result.status == "success":
+                    logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
+                    return False
+                if not response.is_ok:
+                    logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
+                    return False
             return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
