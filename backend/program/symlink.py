@@ -1,6 +1,7 @@
 """Symlinking module"""
 import os
 from pathlib import Path
+from typing import NamedTuple
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
 from utils.logger import logger
@@ -10,6 +11,9 @@ class SymlinkConfig(BaseModel):
     host_path: Path
     container_path: Path
 
+class Setting(NamedTuple):
+    key: str
+    value: str
 
 class Symlinker():
     """
@@ -55,16 +59,12 @@ class Symlinker():
             if not container_path.is_dir():
                 logger.error(f"Container path is not a directory or does not exist: {container_path}")
                 return False
-            if (host_path / "__all__").exists():
+            if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                new_host_path = Path(host_path / "__all__")
-                updated_settings = {'symlink.host_path': str(new_host_path)}
-                settings.set(updated_settings)
-            elif (host_path / "torrents").exists():
+                self.settings.host_path = self.settings.host_path / "__all__"
+            elif Path(self.settings.host_path / "torrents").exists() and Path(self.settings.host_path / "torrents").is_dir():
                 logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                new_host_path = Path(host_path / "torrents")
-                updated_settings = {'symlink.host_path': str(new_host_path)}
-                settings.set(updated_settings)
+                self.settings.host_path = self.settings.host_path / "torrents"
             if not self.create_initial_folders():
                 logger.error("Failed to create initial library folders.")
                 return False
@@ -80,13 +80,15 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = (self.settings.host_path.parent / "library").absolute()
-            folders = [
-                self.library_path / "movies",
-                self.library_path / "shows",
-                self.library_path / "anime_movies",
-                self.library_path / "anime_shows"
-            ]
+            self.library_path = self.settings.container_path.parent / "library"
+            self.library_path_movies = self.library_path / "movies"
+            self.library_path_shows = self.library_path / "shows"
+            self.library_path_anime_movies = self.library_path / "anime_movies"
+            self.library_path_anime_shows = self.library_path / "anime_shows"
+            folders = [self.library_path_movies, 
+                    self.library_path_shows, 
+                    self.library_path_anime_movies, 
+                    self.library_path_anime_shows]
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
