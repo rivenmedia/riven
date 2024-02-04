@@ -19,19 +19,12 @@ def mock_logger():
         yield mock_log
 
 
-base_settings = {
-    "host_path": "/abs/path",
-    "container_path": "/abs/path",
-    "symlink_path": "/abs/path",
-}
-
-
 @pytest.mark.parametrize(
     "path_settings,expected_error",
     [
-        ({**base_settings, **{"host_path": "."}}, "set to the current directory"),
-        ({**base_settings, **{"host_path": "rel/"}}, "not an absolute path"),
-        (base_settings, "does not exist"),
+        ({"library_path": "/abs/path", "rclone_path": "."}, "set to the current directory"),
+        ({"rclone_path": "/abs/path", "rclone_path": "rel/"}, "not an absolute path"),
+        ({"rclone_path": "/abs/path", "library_path": "/abs/path"}, "does not exist"),
     ],
 )
 def test_symlinker_validate_fails(
@@ -48,15 +41,7 @@ def test_symlinker_validate_fails(
 
 def test_library_paths_exists(mock_settings_get, tmp_path):
     test_cases = [
-        (
-            {
-                "host_path": tmp_path.parent,
-                "symlink_path": tmp_path,
-                "container_path": tmp_path.parent,
-            },
-            tmp_path,
-        ),
-        ({"host_path": tmp_path, "container_path": tmp_path}, tmp_path.parent),
+        ({"rclone_path": tmp_path, "library_path": tmp_path}, tmp_path.parent),
     ]
     with patch("program.symlink.Path.is_dir") as mock_is_dir:
         mock_is_dir.return_value = True

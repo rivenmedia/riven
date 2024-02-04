@@ -8,9 +8,8 @@ from utils.logger import logger
 
 
 class SymlinkConfig(BaseModel):
-    host_path: Path
-    container_path: Path
-    symlink_path: Path = None
+    rclone_path: Path
+    library_path: Path
 
 class Setting(NamedTuple):
     key: str
@@ -20,13 +19,9 @@ class Symlinker():
     """
     A class that represents a symlinker thread.
 
-    Attributes:
-        media_items (MediaItemContainer): The container of media items.
-        running (bool): Flag indicating if the thread is running.
-        cache (dict): A dictionary to cache file paths.
-        container_path (str): The absolute path of the container mount.
-        host_path (str): The absolute path of the host mount.
-        symlink_path (str): The path where the symlinks will be created.
+    Settings Attributes:
+        rclone_path (str): The absolute path of the rclone mount root directory.
+        library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
     def __init__(self, *_):
         self.key = "symlink"
@@ -34,7 +29,7 @@ class Symlinker():
         self.initialized = self.validate()
         if not self.initialized:
             raise ValueError("Symlink initialization failed due to invalid configuration.")
-        logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
+        logger.info("Rclone path symlinks are pointed to: %s", self.settings.rclone_path)
         logger.info("Symlinks will be placed in: %s", self.library_path)
         logger.info("Symlink initialized!")
         self.initialized = True
@@ -54,12 +49,12 @@ class Symlinker():
                 logger.error(f"{name} is not a directory or does not exist: {path}")
                 return False
         try:
-            if (all_path := self.settings.host_path / "__all__").exists() and all_path.is_dir():
+            if (all_path := self.settings.rclone_path / "__all__").exists() and all_path.is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                self.settings.host_path = all_path
-            elif (torrent_path := self.settings.host_path / "torrents").exists() and torrent_path.is_dir():
+                self.settings.rclone_path = all_path
+            elif (torrent_path := self.settings.rclone_path / "torrents").exists() and torrent_path.is_dir():
                 logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                self.settings.host_path = torrent_path
+                self.settings.rclone_path = torrent_path
             if not self.create_initial_folders():
                 logger.error("Failed to create initial library folders.")
                 return False
@@ -75,8 +70,7 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            path = self.settings.symlink_path or self.settings.host_path.parent
-            self.library_path = path / "library"
+            self.library_path = self.settings.library_path / "library"
             self.library_path_movies = self.library_path / "movies"
             self.library_path_shows = self.library_path / "shows"
             self.library_path_anime_movies = self.library_path / "anime_movies"
@@ -123,12 +117,12 @@ class Symlinker():
     def _run(self, item):
         """Check if the media item exists and create a symlink if it does"""
         found = False
-        if os.path.exists(os.path.join(self.settings.host_path, item.folder, item.file)):
+        if os.path.exists(os.path.join(self.settings.rclone_path, item.folder, item.file)):
             found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.alternative_folder, item.file)):
+        elif os.path.exists(os.path.join(self.settings.rclone_path, item.alternative_folder, item.file)):
             item.set("folder", item.alternative_folder)
             found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.file, item.file)):
+        elif os.path.exists(os.path.join(self.settings.rclone_path, item.file, item.file)):
             item.set("folder", item.file)
             found = True
         if found:
@@ -147,7 +141,7 @@ class Symlinker():
             except FileNotFoundError:
                 pass
             os.symlink(
-                os.path.join(self.settings.container_path, item.folder, item.file),
+                os.path.join(self.settings.library_path, item.folder, item.file),
                 destination,
             )
             logger.debug("Created symlink for %s", item.log_string)
