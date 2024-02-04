@@ -1,7 +1,7 @@
 """Symlinking module"""
 import os
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
 from utils.logger import logger
