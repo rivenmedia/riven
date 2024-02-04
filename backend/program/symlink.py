@@ -28,13 +28,12 @@ class Symlinker():
         host_path (str): The absolute path of the host mount.
         symlink_path (str): The path where the symlinks will be created.
     """
-    def __init__(self, _):
+    def __init__(self, *_):
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
         self.initialized = self.validate()
         if not self.initialized:
-            logger.error("Symlink initialization failed due to invalid configuration.")
-            return
+            raise ValueError("Symlink initialization failed due to invalid configuration.")
         logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
         logger.info("Symlinks will be placed in: %s", self.library_path)
         logger.info("Symlink initialized!")
