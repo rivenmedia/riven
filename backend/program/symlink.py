@@ -1,7 +1,7 @@
 """Symlinking module"""
 import os
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 from pydantic import BaseModel
 from utils.settings import settings_manager as settings
 from utils.logger import logger
@@ -10,6 +10,7 @@ from utils.logger import logger
 class SymlinkConfig(BaseModel):
     host_path: Path
     container_path: Path
+    symlink_path: Path = None
 
 class Setting(NamedTuple):
     key: str
@@ -41,30 +42,25 @@ class Symlinker():
 
     def validate(self):
         """Validate paths and create the initial folders."""
-        host_path = Path(self.settings.host_path) if self.settings.host_path else None
-        container_path = Path(self.settings.container_path) if self.settings.container_path else None
-        if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
-            logger.error("Host or container path not provided, is empty, or is set to the current directory.")
-            return False
-        if not host_path.is_absolute():
-            logger.error(f"Host path is not an absolute path: {host_path}")
-            return False
-        if not container_path.is_absolute():
-            logger.error(f"Container path is not an absolute path: {container_path}")
-            return False
-        try:
-            if not host_path.is_dir():
-                logger.error(f"Host path is not a directory or does not exist: {host_path}")
+        for name, path in self.settings.__iter__():
+            if name == "symlink_path" and path is None:
+                continue
+            elif path == Path('.'):
+                logger.error(f"{name} is set to the current directory.")
                 return False
-            # if not container_path.is_dir():
-            #     logger.error(f"Container path is not a directory or does not exist: {container_path}")
-            #     return False
-            if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
+            elif not path.is_absolute():
+                logger.error(f"{name} is not an absolute path: {path}")
+                return False
+            elif not path.is_dir():
+                logger.error(f"{name} is not a directory or does not exist: {path}")
+                return False
+        try:
+            if (all_path := self.settings.host_path / "__all__").exists() and all_path.is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                self.settings.host_path = self.settings.host_path / "__all__"
-            elif Path(self.settings.host_path / "torrents").exists() and Path(self.settings.host_path / "torrents").is_dir():
+                self.settings.host_path = all_path
+            elif (torrent_path := self.settings.host_path / "torrents").exists() and torrent_path.is_dir():
                 logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                self.settings.host_path = self.settings.host_path / "torrents"
+                self.settings.host_path = torrent_path
             if not self.create_initial_folders():
                 logger.error("Failed to create initial library folders.")
                 return False
@@ -80,7 +76,8 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.host_path.parent / "library"
+            path = self.settings.symlink_path or self.settings.host_path.parent
+            self.library_path = path / "library"
             self.library_path_movies = self.library_path / "movies"
             self.library_path_shows = self.library_path / "shows"
             self.library_path_anime_movies = self.library_path / "anime_movies"
