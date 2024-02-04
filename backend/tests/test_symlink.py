@@ -22,9 +22,10 @@ def mock_logger():
 @pytest.mark.parametrize(
     "path_settings,expected_error",
     [
-        ({"library_path": "/abs/path", "rclone_path": "."}, "set to the current directory"),
-        ({"rclone_path": "/abs/path", "rclone_path": "rel/"}, "not an absolute path"),
+        ({"rclone_path": ".", "library_path": "."}, "set to the current directory"),
+        ({"rclone_path": "rel/", "library_path": "rel/"}, "not an absolute path"),
         ({"rclone_path": "/abs/path", "library_path": "/abs/path"}, "does not exist"),
+        ({"rclone_path": "/", "library_path": "/"}, "sub (or the same) directory"),
     ],
 )
 def test_symlinker_validate_fails(
@@ -34,14 +35,13 @@ def test_symlinker_validate_fails(
     with pytest.raises(ValueError):
         symlinker = Symlinker()
 
-        error_messages = [call.args[0] for call in mock_logger.error.call_args_list]
-        assert any(expected_error in message for message in error_messages)
-        assert not symlinker.initialized
+    error_messages = [call.args[0] for call in mock_logger.error.call_args_list]
+    assert any([expected_error in message for message in error_messages])
 
 
 def test_library_paths_exists(mock_settings_get, tmp_path):
     test_cases = [
-        ({"rclone_path": tmp_path, "library_path": tmp_path}, tmp_path.parent),
+        ({"rclone_path": tmp_path, "library_path": tmp_path.parent}, tmp_path.parent),
     ]
     with patch("program.symlink.Path.is_dir") as mock_is_dir:
         mock_is_dir.return_value = True

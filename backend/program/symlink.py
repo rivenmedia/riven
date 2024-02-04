@@ -37,9 +37,7 @@ class Symlinker():
     def validate(self):
         """Validate paths and create the initial folders."""
         for name, path in self.settings.__iter__():
-            if name == "symlink_path" and path is None:
-                continue
-            elif path == Path('.'):
+            if path == Path('.'):
                 logger.error(f"{name} is set to the current directory.")
                 return False
             elif not path.is_absolute():
@@ -48,6 +46,9 @@ class Symlinker():
             elif not path.is_dir():
                 logger.error(f"{name} is not a directory or does not exist: {path}")
                 return False
+        if str(self.settings.rclone_path) in str(self.settings.library_path):
+            logger.error(f"library_path is a sub (or the same) directory of rclone_path")
+            return False
         try:
             if (all_path := self.settings.rclone_path / "__all__").exists() and all_path.is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
