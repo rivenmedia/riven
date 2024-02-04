@@ -73,27 +73,3 @@ export function convertIcebergItemsToObject(items: IcebergItem[]) {
 
 	return result;
 }
-
-export async function saveSettings(fetch: any, toSet: any) {
-	const data = await fetch('http://127.0.0.1:8080/settings/set', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify(toSet)
-	});
-
-	const saveSettings = await fetch('http://127.0.0.1:8080/settings/save', {
-		method: 'POST'
-	});
-
-	const loadSettings = await fetch('http://127.0.0.1:8080/settings/load', {
-		method: 'GET'
-	});
-
-	return {
-		data,
-		saveSettings,
-		loadSettings
-	};
-}

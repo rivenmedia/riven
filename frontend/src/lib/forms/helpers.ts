@@ -1,6 +1,66 @@
 import { type SuperValidated } from 'sveltekit-superforms';
 import { z } from 'zod';
 
+/**
+ * Sets the settings in memory in the backend.
+ *
+ * @param fetch - The fetch function used to make the request.
+ * @param toSet - The settings to be set.
+ * @param toCheck - The services to check.
+ * @returns An object containing the settings data and a boolean indicating if all the given services are true or not.
+ */
+export async function setSettings(fetch: any, toSet: any, toCheck: string[]) {
+	const settings = await fetch('http://127.0.0.1:8080/settings/set', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(toSet)
+	});
+	const settingsData = await settings.json();
+
+	const services = await fetch('http://127.0.0.1:8080/services');
+	const data = await services.json();
+	const allServicesTrue: boolean = toCheck.every((service) => data.data[service] === true);
+
+	return {
+		data: settingsData,
+		allServicesTrue: allServicesTrue
+	};
+}
+
+/**
+ * Saves the settings from memory to the json file in the backend.
+ * @param fetch - The fetch function used to make the request.
+ * @returns A promise that resolves to an object containing the response data.
+ */
+export async function saveSettings(fetch: any) {
+	const data = await fetch('http://127.0.0.1:8080/settings/save', {
+		method: 'POST'
+	});
+	const response = await data.json();
+
+	return {
+		data: response
+	};
+}
+
+/**
+ * Loads settings from the json to memory in backend.
+ * @param fetch - The fetch function used to make the HTTP request.
+ * @returns A promise that resolves to an object containing the loaded settings.
+ */
+export async function loadSettings(fetch: any) {
+	const data = await fetch('http://127.0.0.1:8080/settings/load', {
+		method: 'GET'
+	});
+	const response = await data.json();
+
+	return {
+		data: response
+	};
+}
+
 // General Settings -----------------------------------------------------------------------------------
 export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
 export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
