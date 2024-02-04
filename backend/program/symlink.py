@@ -2,18 +2,9 @@
 import os
 from pathlib import Path
 from typing import NamedTuple
-from pydantic import BaseModel
-from utils.settings import settings_manager as settings
+from program.settings.manager import settings_manager
 from utils.logger import logger
 
-
-class SymlinkConfig(BaseModel):
-    host_path: Path
-    container_path: Path
-
-class Setting(NamedTuple):
-    key: str
-    value: str
 
 class Symlinker():
     """
@@ -29,7 +20,7 @@ class Symlinker():
     """
     def __init__(self, _):
         self.key = "symlink"
-        self.settings = SymlinkConfig(**settings.get(self.key))
+        self.settings = settings_manager.settings.symlink
         self.initialized = self.validate()
         if not self.initialized:
             logger.error("Symlink initialization failed due to invalid configuration.")

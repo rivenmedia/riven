@@ -1,18 +1,13 @@
 """ Torrentio scraper module """
 from typing import Optional
-from pydantic import BaseModel
+
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
+
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.parser import parser
-
-
-class TorrentioConfig(BaseModel):
-    enabled: bool
-    url: Optional[str]
-    filter: Optional[str]
 
 
 class Torrentio:
@@ -20,7 +15,7 @@ class Torrentio:
 
     def __init__(self, _):
         self.key = "torrentio"
-        self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
+        self.settings = settings_manager.settings.scraper.torrentio
         self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate_settings()

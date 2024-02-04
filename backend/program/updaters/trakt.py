@@ -3,8 +3,9 @@ import math
 import concurrent.futures
 from datetime import datetime
 from os import path
-from utils.logger import get_data_path, logger
+from utils.logger import logger
 from utils.request import get
+from utils import data_dir_path
 from program.media.container import MediaItemContainer
 from program.media.item import Movie, Show, Season, Episode
 
@@ -16,7 +17,7 @@ class Updater:
 
     def __init__(self):
         self.trakt_data = MediaItemContainer()
-        self.pkl_file = path.join(get_data_path(), "trakt_data.pkl")
+        self.pkl_file = data_dir_path / "trakt_data.pkl"
         self.ids = []
 
     def create_items(self, imdb_ids):
