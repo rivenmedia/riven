@@ -7,9 +7,9 @@
 
 	export let data: PageData;
 
-	const MandatoryServices = ['plex', 'content', 'scraper', 'real_debrid', 'symlink'];
+	const MandatoryServices = ['plex', 'content', 'scraping', 'real_debrid', 'symlink'];
 	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist'];
-	const ScraperServices = ['torrentio', 'jackett', 'orionoid'];
+	const ScrapingServices = ['torrentio', 'jackett', 'orionoid'];
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
 		let sortedData = {} as Record<string, boolean>;
@@ -53,8 +53,8 @@
 		<h2 class="text-lg md:text-xl font-semibold">Content services</h2>
 		<ServiceStatus statusData={sortServices(ContentServices, services.data)} />
 		<br />
-		<h2 class="text-lg md:text-xl font-semibold">Scraper services</h2>
-		<ServiceStatus statusData={sortServices(ScraperServices, services.data)} />
+		<h2 class="text-lg md:text-xl font-semibold">Scraping services</h2>
+		<ServiceStatus statusData={sortServices(ScrapingServices, services.data)} />
 	{:catch}
 		<p class="text-muted-foreground">Failed to fetch services status</p>
 	{/await}

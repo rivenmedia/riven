@@ -216,8 +216,8 @@ export function mediaServerSettingsToSet(form: SuperValidated<MediaServerSetting
 }
 
 // Scrapers Settings -----------------------------------------------------------------------------------
-export const scrapersSettingsToGet: string[] = ['scraper'];
-export const scrapersSettingsServices: string[] = ['scraper'];
+export const scrapersSettingsToGet: string[] = ['scraping'];
+export const scrapersSettingsServices: string[] = ['scraping'];
 
 export const scrapersSettingsSchema = z.object({
 	after_2: z.number().nonnegative().default(0.5),
@@ -239,24 +239,24 @@ export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
 
 export function scrapersSettingsToPass(data: any) {
 	return {
-		after_2: data.data.scraper.after_2,
-		after_5: data.data.scraper.after_5,
-		after_10: data.data.scraper.after_10,
-		torrentio_url: data.data.scraper.torrentio?.url || 'https://torrentio.strem.fun',
-		torrentio_enabled: data.data.scraper.torrentio.enabled,
-		orionoid_enabled: data.data.scraper.orionoid.enabled,
-		jackett_enabled: data.data.scraper.jackett.enabled,
-		torrentio_filter: data.data.scraper.torrentio?.filter || '',
-		orionoid_api_key: data.data.scraper.orionoid?.api_key || '',
-		jackett_url: data.data.scraper.jackett?.url || '',
-		jackett_api_key: data.data.scraper.jackett?.api_key || ''
+		after_2: data.data.scraping.after_2,
+		after_5: data.data.scraping.after_5,
+		after_10: data.data.scraping.after_10,
+		torrentio_url: data.data.scraping.torrentio?.url || 'https://torrentio.strem.fun',
+		torrentio_enabled: data.data.scraping.torrentio.enabled,
+		orionoid_enabled: data.data.scraping.orionoid.enabled,
+		jackett_enabled: data.data.scraping.jackett.enabled,
+		torrentio_filter: data.data.scraping.torrentio?.filter || '',
+		orionoid_api_key: data.data.scraping.orionoid?.api_key || '',
+		jackett_url: data.data.scraping.jackett?.url || '',
+		jackett_api_key: data.data.scraping.jackett?.api_key || ''
 	};
 }
 
 export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchema>) {
 	return [
 		{
-			key: 'scraper',
+			key: 'scraping',
 			value: {
 				after_2: form.data.after_2,
 				after_5: form.data.after_5,

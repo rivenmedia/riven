@@ -9,15 +9,15 @@ from program.scrapers.orionoid import Orionoid
 from program.scrapers.jackett import Jackett
 
 
-class Scraper:
+class Scraping:
     def __init__(self, _):
-        self.key = "scraper"
+        self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraper
         self.sm = ServiceManager(None, False, Orionoid, Torrentio, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(
-                "You have no scraper services enabled, please enable at least one!"
+                "You have no scraping services enabled, please enable at least one!"
             )
             return
         self.initialized = True

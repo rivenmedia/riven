@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from utils import data_dir_path
-from program.settings.models import AppModel, NotifyingBaseModel
+from program.settings.models import AppModel
 from utils.logger import logger
 from utils.observable import Observable
 
@@ -19,7 +19,7 @@ class SettingsManager(Observable):
         self.filename = "settings.json"
         self.settings_file = data_dir_path / self.filename
 
-        NotifyingBaseModel.set_notify_observers(self.notify_observers)
+        AppModel.set_notify_observers(self.notify_observers)
 
         if not os.path.exists(self.settings_file):
             self.settings = AppModel()

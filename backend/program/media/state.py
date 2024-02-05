@@ -21,7 +21,7 @@ class Unknown(MediaItemState):
 
 class Content(MediaItemState):
     def perform_action(self, modules):
-        scraper = next(module for module in modules if module.key == "scraper")
+        scraper = next(module for module in modules if module.key == "scraping")
         if self.context.type in ["movie", "season", "episode"]:
             scraper.run(self.context)
             if self.context.state == Content and self.context.type == "season":

@@ -38,7 +38,7 @@
       "api_key": ""
     }
   },
-  "scraper": {
+  "scraping": {
     "after_2": 0.5,
     "after_5": 2,
     "after_10": 24,
