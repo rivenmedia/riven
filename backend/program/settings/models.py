@@ -1,8 +1,9 @@
 """Iceberg settings models"""
 
 from typing import Optional
-from pydantic import BaseModel, root_validator
+from pathlib import Path
 
+from pydantic import BaseModel, root_validator
 
 
 class NotifyingBaseModel(BaseModel):
@@ -19,8 +20,8 @@ class NotifyingBaseModel(BaseModel):
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
-        if self.__class__.notify_observers:
-            self.__class__.notify_observers()
+        if self.__class__._notify_observers:
+            self.__class__._notify_observers()
 
 class PlexModel(NotifyingBaseModel):
     user: str = ""
@@ -31,8 +32,8 @@ class DebridModel(NotifyingBaseModel):
     api_key: str = ""
 
 class SymlinkModel(NotifyingBaseModel):
-    host_path: str = ""
-    container_path: str = ""
+    host_path: Path = Path()
+    container_path: Path = Path()
 
 # Content Services
 class ContentNotifyingBaseModel(NotifyingBaseModel):
@@ -79,17 +80,17 @@ class TorrentioConfig(NotifyingBaseModel):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
 
 class ScraperModel(NotifyingBaseModel):
-    after_2: int = 0.5,
-    after_5: int = 2,
-    after_10: int = 24,
+    after_2: float = 0.5
+    after_5: int = 2
+    after_10: int = 24
     jackett: JackettConfig = JackettConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
     torrentio: TorrentioConfig = TorrentioConfig()
 
 class ParserModel(NotifyingBaseModel):
-    highest_quality: bool = False,
-    include_4k: bool = False,
-    repack_proper:  bool = True,
+    highest_quality: bool = False
+    include_4k: bool = False
+    repack_proper:  bool = True
     language: list[str] = ["English"]
 
 

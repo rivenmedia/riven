@@ -3,7 +3,7 @@ import os
 import threading
 import time
 import concurrent.futures
-from program.scrapers import Scraping
+from program.scrapers import Scraper
 from program.realdebrid import Debrid
 from program.symlink import Symlinker
 from program.media.container import MediaItemContainer
@@ -37,7 +37,7 @@ class Program(threading.Thread):
         if not self.startup_args.dev:
             self.pickly = Pickly(self.media_items, self.data_path)
             self.pickly.start()
-        self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker)
+        self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraper, Debrid, Symlinker)
         if self.validate():
             logger.info("Iceberg started!")
         else:

@@ -26,14 +26,14 @@ class Symlinker():
             logger.error("Symlink initialization failed due to invalid configuration.")
             return
         logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
-        logger.info("Symlinks will be placed in: %s", self.library_path)
+        logger.info("Symlinks will be placed in: %s", self.settings.container_path)
         logger.info("Symlink initialized!")
         self.initialized = True
 
     def validate(self):
         """Validate paths and create the initial folders."""
-        host_path = Path(self.settings.host_path) if self.settings.host_path else None
-        container_path = Path(self.settings.container_path) if self.settings.container_path else None
+        host_path = self.settings.host_path
+        container_path = self.settings.container_path
         if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
             logger.error("Host or container path not provided, is empty, or is set to the current directory.")
             return False
@@ -47,9 +47,6 @@ class Symlinker():
             if not host_path.is_dir():
                 logger.error(f"Host path is not a directory or does not exist: {host_path}")
                 return False
-            # if not container_path.is_dir():
-            #     logger.error(f"Container path is not a directory or does not exist: {container_path}")
-            #     return False
             if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
                 self.settings.host_path = self.settings.host_path / "__all__"
@@ -71,7 +68,7 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.host_path.parent / "library"
+            self.library_path = self.settings.container_path / "library"
             self.library_path_movies = self.library_path / "movies"
             self.library_path_shows = self.library_path / "shows"
             self.library_path_anime_movies = self.library_path / "anime_movies"
