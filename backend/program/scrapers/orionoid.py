@@ -17,7 +17,7 @@ class Orionoid:
 
     def __init__(self, _):
         self.key = "orionoid"
-        self.settings = settings_manager.settings.scraper.orionoid
+        self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
         self.initialized = False
         if self.validate_settings():

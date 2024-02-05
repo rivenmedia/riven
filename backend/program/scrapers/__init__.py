@@ -13,7 +13,7 @@ class Scraping:
     def __init__(self, _):
         self.key = "scraping"
         self.initialized = False
-        self.settings = settings_manager.settings.scraper
+        self.settings = settings_manager.settings.scraping
         self.sm = ServiceManager(None, False, Orionoid, Torrentio, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(

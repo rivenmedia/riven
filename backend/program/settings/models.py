@@ -24,16 +24,16 @@ class NotifyingBaseModel(BaseModel):
             self.__class__._notify_observers()
 
 class PlexModel(NotifyingBaseModel):
-    user: str = Path()
-    token: str = Path()
+    user: str = ""
+    token: str = ""
     url: str = "http://localhost:32400"
 
 class DebridModel(NotifyingBaseModel):
     api_key: str = ""
 
 class SymlinkModel(NotifyingBaseModel):
-    host_path: str = ""
-    container_path: str = ""
+    host_path: Path = Path()
+    container_path: Path = Path()
 
 # Content Services
 class ContentNotifyingBaseModel(NotifyingBaseModel):
@@ -80,7 +80,7 @@ class TorrentioConfig(NotifyingBaseModel):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
 
 class ScraperModel(NotifyingBaseModel):
-    after_2: int = 0.5
+    after_2: float = 0.5
     after_5: int = 2
     after_10: int = 24
     jackett: JackettConfig = JackettConfig()
@@ -102,5 +102,5 @@ class AppModel(NotifyingBaseModel):
     real_debrid: DebridModel = DebridModel()
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
-    scraper: ScraperModel = ScraperModel()
+    scraping: ScraperModel = ScraperModel()
     parser:  ParserModel = ParserModel()

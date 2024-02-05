@@ -25,15 +25,14 @@ class Symlinker():
         if not self.initialized:
             logger.error("Symlink initialization failed due to invalid configuration.")
             return
-        logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
-        logger.info("Symlinks will be placed in: %s", self.library_path)
+        logger.info(f"Rclone path symlinks are pointed to: {self.settings.host_path}")
         logger.info("Symlink initialized!")
         self.initialized = True
 
     def validate(self):
         """Validate paths and create the initial folders."""
-        host_path = Path(self.settings.host_path) if self.settings.host_path else None
-        container_path = Path(self.settings.container_path) if self.settings.container_path else None
+        host_path = self.settings.host_path
+        container_path = self.settings.container_path
         if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
             logger.error("Host or container path not provided, is empty, or is set to the current directory.")
             return False
@@ -71,7 +70,7 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.host_path.parent / "library"
+            self.library_path = self.settings.container_path / "library"
             self.library_path_movies = self.library_path / "movies"
             self.library_path_shows = self.library_path / "shows"
             self.library_path_anime_movies = self.library_path / "anime_movies"
@@ -83,6 +82,7 @@ class Symlinker():
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Symlinks will be placed in: {self.library_path}")
         except PermissionError as e:
             logger.error(f"Permission denied when creating directory: {e}")
             return False

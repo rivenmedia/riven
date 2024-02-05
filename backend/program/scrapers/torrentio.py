@@ -15,7 +15,7 @@ class Torrentio:
 
     def __init__(self, _):
         self.key = "torrentio"
-        self.settings = settings_manager.settings.scraper.torrentio
+        self.settings = settings_manager.settings.scraping.torrentio
         self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate_settings()

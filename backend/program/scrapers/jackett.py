@@ -16,7 +16,7 @@ class Jackett:
     def __init__(self, _):
         self.key = "jackett"
         self.api_key = None
-        self.settings = settings_manager.settings.scraper.jackett
+        self.settings = settings_manager.settings.scraping.jackett
         self.initialized = self.validate_settings()
         if not self.initialized and not self.api_key:
             return
