@@ -57,17 +57,17 @@ export const actions: Actions = {
 
 			const save = await saveSettings(event.fetch);
 			const load = await loadSettings(event.fetch);
-
-			if (event.url.searchParams.get('onboarding') === 'true') {
-				redirect(302, '/onboarding/4');
-			}
-
-			return message(form, 'Settings saved!');
 		} catch (e) {
 			console.error(e);
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
 		}
+
+		if (event.url.searchParams.get('onboarding') === 'true') {
+			redirect(302, '/onboarding/4');
+		}
+
+		return message(form, 'Settings saved!');
 	}
 };
