@@ -30,7 +30,7 @@ class DebridModel(NotifyingBaseModel):
 
 class SymlinkModel(NotifyingBaseModel):
     rclone_path: Path = Path()
-    container_path: Path = Path()
+    library_path: Path = Path()
 
 # Content Services
 
