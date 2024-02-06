@@ -13,7 +13,7 @@
 		"format": "prettier --write ."
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-node": "^3.0.1",
+		"@sveltejs/adapter-node": "^4.0.1",
 		"@sveltejs/kit": "^2.5.0",
 		"@sveltejs/vite-plugin-svelte": "^3.0.0",
 		"@types/luxon": "^3.3.7",
@@ -39,12 +39,12 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"bits-ui": "^0.16.0",
+		"bits-ui": "^0.17.0",
 		"clsx": "^2.0.0",
 		"cmdk-sv": "^0.0.12",
 		"embla-carousel-svelte": "8.0.0-rc20",
 		"formsnap": "^0.4.2",
-		"lucide-svelte": "^0.314.0",
+		"lucide-svelte": "^0.323.0",
 		"luxon": "^3.4.4",
 		"mode-watcher": "^0.2.0",
 		"motion": "^10.17.0",
