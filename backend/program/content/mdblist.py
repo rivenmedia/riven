@@ -13,7 +13,7 @@ class Mdblist:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.media_items = media_items

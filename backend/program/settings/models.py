@@ -29,7 +29,7 @@ class DebridModel(NotifyingBaseModel):
     api_key: str = ""
 
 class SymlinkModel(NotifyingBaseModel):
-    host_path: Path = Path()
+    rclone_path: Path = Path()
     container_path: Path = Path()
 
 # Content Services

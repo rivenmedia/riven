@@ -14,7 +14,7 @@ class Jackett:
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         self.parse_logging = False

@@ -24,13 +24,13 @@ class Debrid:
         self.settings = settings_manager.settings.real_debrid
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.running = False
-        if not self._validate_settings():
+        if not self._validate():
             logger.error("Realdebrid settings incorrect or not premium!")
             return
         logger.info("Real Debrid initialized!")
         self.initialized = True
 
-    def _validate_settings(self):
+    def _validate(self):
         try:
             response = ping(
                 "https://api.real-debrid.com/rest/1.0/user",

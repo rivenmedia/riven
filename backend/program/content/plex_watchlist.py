@@ -15,7 +15,7 @@ class PlexWatchlist:
         self.key = "plex_watchlist"
         self.rss_enabled = False
         self.settings = settings_manager.settings.content.plex_watchlist
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.token = settings_manager.settings.plex.token
