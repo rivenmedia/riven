@@ -121,13 +121,14 @@ class Symlinker():
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
+        source = os.path.join(self.rclone_path, item.folder, item.file)
         if destination:
             try:
                 os.remove(destination)
             except FileNotFoundError:
                 pass
             os.symlink(
-                os.path.join(self.rclone_path, item.folder, item.file),
+                source,
                 destination,
             )
             logger.debug("Created symlink for %s", item.log_string)
