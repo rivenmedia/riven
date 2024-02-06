@@ -70,7 +70,6 @@ class Symlinker():
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Symlinks will be placed in: {self.library_path}")
         except PermissionError as e:
             logger.error(f"Permission denied when creating directory: {e}")
             return False

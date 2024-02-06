@@ -21,7 +21,6 @@ class NotifyingBaseModel(BaseModel):
             self.__class__._notify_observers()
 
 class PlexModel(NotifyingBaseModel):
-    user: str = ""
     token: str = ""
     url: str = "http://localhost:32400"
 
@@ -42,11 +41,13 @@ class ListrrModel(ContentNotifyingBaseModel):
     movie_lists: list[str] = [""]
     show_lists: list[str] = [""]
     api_key: str = ""
+    update_interval: int = 300
 
 class MdblistModel(ContentNotifyingBaseModel):
     enabled: bool = False
     api_key: str = ""
     lists: list[str] = [""]
+    update_interval: int = 300
 
 class OverseerrModel(ContentNotifyingBaseModel):
     enabled: bool = False
@@ -68,6 +69,7 @@ class ContentModel(NotifyingBaseModel):
 class JackettConfig(NotifyingBaseModel):
     enabled: bool = False
     url: str = "http://localhost:9117"
+    api_key: str = ""
 
 class OrionoidConfig(NotifyingBaseModel):
     enabled: bool = False
@@ -75,7 +77,7 @@ class OrionoidConfig(NotifyingBaseModel):
 
 class TorrentioConfig(NotifyingBaseModel):
     enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://torrentio.strem.fun"
 
 class ScraperModel(NotifyingBaseModel):
