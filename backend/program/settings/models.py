@@ -78,6 +78,7 @@ class OrionoidConfig(NotifyingBaseModel):
 class TorrentioConfig(NotifyingBaseModel):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+    url: str = "https://torrentio.strem.fun"
 
 class ScraperModel(NotifyingBaseModel):
     after_2: float = 0.5
