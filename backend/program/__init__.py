@@ -66,5 +66,5 @@ class Program(threading.Thread):
             if getattr(service, "running", False):
                 service.stop()
         self.pickly.stop()
-        settings.save()
+        settings_manager.save()
         self.running = False

@@ -53,7 +53,7 @@ class PlexWatchlist:
         self.not_found_ids.clear()
         self.next_run_time = time() + self.settings.update_interval
         items = self._create_unique_list()
-        new_items = [item for item in items if item not in self.media_items and not item]
+        new_items = [item for item in items if item not in self.media_items and item is not None]
         if not new_items:
             return
         container = self.updater.create_items(new_items)

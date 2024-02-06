@@ -63,7 +63,7 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         items = set(movie_items + show_items)
-        new_items = [item for item in items if item not in self.media_items and not item]
+        new_items = [item for item in items if item not in self.media_items and item is not None]
         if not new_items:
             return
         container = self.updater.create_items(new_items)

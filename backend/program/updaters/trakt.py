@@ -2,7 +2,6 @@
 import math
 import concurrent.futures
 from datetime import datetime
-from os import path
 from utils.logger import logger
 from utils.request import get
 from utils import data_dir_path
