@@ -23,10 +23,10 @@ class Trakt:
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "trakt"
-        self.url = None
+        self.api_url = "https://api.trakt.tv"
         self.settings = TraktConfig(**settings_manager.get(f"content.{self.key}"))
         self.headers = {"X-Api-Key": self.settings.api_key}
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.media_items = media_items
@@ -34,7 +34,7 @@ class Trakt:
         self.next_run_time = 0
         logger.info("Trakt initialized!")
 
-    def validate_settings(self) -> bool:
+    def validate(self) -> bool:
         """Validate Trakt settings."""
         return NotImplementedError
 

@@ -3,8 +3,8 @@
   "debug": true,
   "log": true,
   "symlink": {
-    "host_path": "",
-    "container_path": ""
+    "rclone_path": "",
+    "library_path": ""
   },
   "real_debrid": {
     "api_key": ""
@@ -17,30 +17,31 @@
     "plex_watchlist": {
       "enabled": false,
       "rss": "",
-      "update_interval": 80
+      "update_interval": 60
     },
     "mdblist": {
       "enabled": false,
       "lists": [""],
       "api_key": "",
-      "update_interval": 80
+      "update_interval": 300
     },
     "listrr": {
       "enabled": false,
       "movie_lists": [""],
       "show_lists": [""],
       "api_key": "",
-      "update_interval": 80
+      "update_interval": 300
     },
     "overseerr": {
       "enabled": false,
       "url": "http://localhost:5055",
-      "api_key": ""
+      "api_key": "",
+      "update_interval": 60
     }
   },
   "scraping": {
-    "after_2": 0.5,
-    "after_5": 2,
+    "after_2": 2,
+    "after_5": 6,
     "after_10": 24,
     "torrentio": {
       "enabled": false,

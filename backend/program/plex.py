@@ -37,7 +37,7 @@ class Plex(threading.Thread):
         self.key = "plex"
         self.initialized = False
         self.library_path = os.path.abspath(
-            os.path.dirname(settings.get("symlink.container_path"))
+            os.path.dirname(settings.get("symlink.library_path"))
         )
         self.last_fetch_times = {}
 

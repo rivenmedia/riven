@@ -1,17 +1,19 @@
 """Mdblist content module"""
+from time import time
 from typing import Optional
 from pydantic import BaseModel
 from utils.settings import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb, get_imdbid_from_tvdb
+from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb
 
 
 class OverseerrConfig(BaseModel):
     enabled: bool
     url: Optional[str]
     api_key: Optional[str]
+    update_interval: int  # in seconds
 
 
 class Overseerr:
@@ -21,15 +23,16 @@ class Overseerr:
         self.key = "overseerr"
         self.settings = OverseerrConfig(**settings_manager.get(f"content.{self.key}"))
         self.headers = {"X-Api-Key": self.settings.api_key}
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.media_items = media_items
         self.updater = Trakt()
         self.not_found_ids = []
+        self.next_run_time = 0
         logger.info("Overseerr initialized!")
 
-    def validate_settings(self) -> bool:
+    def validate(self) -> bool:
         if not self.settings.enabled:
             logger.debug("Overseerr is set to disabled.")
             return False
@@ -53,22 +56,30 @@ class Overseerr:
             return False
 
     def run(self):
-        """Fetch media from overseerr and add them to media_items attribute
-        if they are not already there"""
+        """Fetch new media from `Overseerr`"""
+        if time() < self.next_run_time:
+            return
+        self.not_found_ids.clear()
+        self.next_run_time = time() + self.settings.update_interval
         items = self._get_items_from_overseerr(10000)
-        new_items = [item for item in items if item not in self.media_items] or []
+        new_items = [item for item in items if item not in self.media_items and not item]
+        if not new_items:
+            return
         container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Overseerr")
-        added_items = self.media_items.extend(container)
-        length = len(added_items)
-        if length >= 1 and length <= 5:
-            for item in added_items:
-                logger.info("Added %s", item.log_string)
-        elif length > 5:
-            logger.info("Added %s items", length)
+        previous_count = len(self.media_items)
+        self.media_items.extend(container)
+        if len(self.media_items) > 0:
+            if len(self.media_items) <= 5:
+                for item in container:
+                    logger.info("Added %s", item.log_string)
+            else:
+                logger.info("Added %s items", len(self.media_items) - previous_count)
+        if self.not_found_ids:
+            logger.warn("Failed to process %s items, skipping.", len(self.not_found_ids))
 
-    def _get_items_from_overseerr(self, amount: int):
+    def _get_items_from_overseerr(self, amount: int) -> list[str]:
         """Fetch media from overseerr"""
         response = get(
             self.settings.url + f"/api/v1/request?take={amount}",
@@ -85,7 +96,7 @@ class Overseerr:
                     ids.append(item.media.imdbId)
         return ids
 
-    def get_imdb_id(self, overseerr_item):
+    def get_imdb_id(self, overseerr_item) -> Optional[str]:
         """Get imdbId for item from overseerr"""
         if overseerr_item.mediaType == "show":
             external_id = overseerr_item.tvdbId

@@ -1,4 +1,5 @@
 """Mdblist content module"""
+from time import time
 from typing import Optional
 from pydantic import BaseModel
 from utils.settings import settings_manager
@@ -12,6 +13,8 @@ class MdblistConfig(BaseModel):
     enabled: bool
     api_key: Optional[str]
     lists: Optional[list]
+    update_interval: int  # in seconds
+
 
 class Mdblist:
     """Content class for mdblist"""
@@ -19,16 +22,17 @@ class Mdblist:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "mdblist"
         self.settings = MdblistConfig(**settings_manager.get(f"content.{self.key}"))
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.media_items = media_items
         self.updater = Trakt()
+        self.next_run_time = 0
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         logger.info("mdblist initialized")
 
-    def validate_settings(self):
+    def validate(self):
         if not self.settings.enabled:
             logger.debug("Mdblist is set to disabled.")
             return False
@@ -47,6 +51,9 @@ class Mdblist:
     def run(self):
         """Fetch media from mdblist and add them to media_items attribute
         if they are not already there"""
+        if time() < self.next_run_time:
+            return
+        self.next_run_time = time() + self.settings.update_interval
         try:
             with self.rate_limiter:
                 items = []
