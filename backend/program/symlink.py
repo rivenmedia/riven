@@ -127,7 +127,7 @@ class Symlinker():
             except FileNotFoundError:
                 pass
             os.symlink(
-                os.path.join(self.settings.library_path, item.folder, item.file),
+                os.path.join(self.rclone_path, item.folder, item.file),
                 destination,
             )
             logger.debug("Created symlink for %s", item.log_string)
