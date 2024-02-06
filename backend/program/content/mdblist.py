@@ -1,24 +1,19 @@
 """Mdblist content module"""
 from typing import Optional
-from pydantic import BaseModel
-from utils.settings import settings_manager
+
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get, ping
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
 
 
-class MdblistConfig(BaseModel):
-    enabled: bool
-    api_key: Optional[str]
-    lists: Optional[list]
-
 class Mdblist:
     """Content class for mdblist"""
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "mdblist"
-        self.settings = MdblistConfig(**settings_manager.get(f"content.{self.key}"))
+        self.settings = settings_manager.settings.content.mdblist
         self.initialized = self.validate_settings()
         if not self.initialized:
             return

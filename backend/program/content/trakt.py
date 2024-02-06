@@ -1,21 +1,13 @@
 """Mdblist content module"""
 from time import time
 from typing import Optional
-from pydantic import BaseModel
-from utils.settings import settings_manager
+
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt, CLIENT_ID
 
-
-class TraktConfig(BaseModel):
-    enabled: bool
-    watchlist: Optional[list]
-    collection: Optional[list]
-    user_lists: Optional[list]
-    api_key: Optional[str]
-    update_interval: int  # in seconds
 
 
 class Trakt:
@@ -24,7 +16,7 @@ class Trakt:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "trakt"
         self.url = None
-        self.settings = TraktConfig(**settings_manager.get(f"content.{self.key}"))
+        self.settings = settings_manager.settings.content.trakt
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate_settings()
         if not self.initialized:

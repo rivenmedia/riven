@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 import requests
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 
 
 router = APIRouter(
@@ -26,7 +26,7 @@ async def health(request: Request):
 
 @router.get("/user")
 async def get_rd_user():
-    api_key = settings_manager.get("real_debrid.api_key")
+    api_key = settings_manager.settings.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         "https://api.real-debrid.com/rest/1.0/user", headers=headers

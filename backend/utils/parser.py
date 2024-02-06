@@ -2,7 +2,7 @@ import re
 import PTN
 from typing import List
 from pydantic import BaseModel
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from thefuzz import fuzz
 
 
@@ -16,7 +16,7 @@ class ParserConfig(BaseModel):
 class Parser:
     
     def __init__(self):
-        self.settings = ParserConfig(**settings_manager.get("parser"))
+        self.settings = settings_manager.settings.parser        
         self.language = self.settings.language
         self.resolution = self.determine_resolution()
 

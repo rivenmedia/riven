@@ -1,24 +1,19 @@
 from datetime import datetime
-from pydantic import BaseModel
+
 from utils.service_manager import ServiceManager
-from utils.settings import settings_manager as settings
-# from utils.parser import parser, sort_streams
+from program.settings.manager import settings_manager
 from utils.logger import logger
-from .torrentio import Torrentio
-from .orionoid import Orionoid
-from .jackett import Jackett
 
+from program.scrapers.torrentio import Torrentio
+from program.scrapers.orionoid import Orionoid
+from program.scrapers.jackett import Jackett
 
-class ScrapingConfig(BaseModel):
-    after_2: float
-    after_5: float
-    after_10: float
 
 class Scraping:
     def __init__(self, _):
         self.key = "scraping"
         self.initialized = False
-        self.settings = ScrapingConfig(**settings.get(self.key))
+        self.settings = settings_manager.settings.scraping
         self.sm = ServiceManager(None, False, Orionoid, Torrentio, Jackett)
         if not any(service.initialized for service in self.sm.services):
             logger.error(

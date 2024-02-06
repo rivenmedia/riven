@@ -1,19 +1,15 @@
 """ Orionoid scraper module """
 from typing import Optional
-from pydantic import BaseModel
+
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
+
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.parser import parser
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
-
-
-class OrionoidConfig(BaseModel):
-    enabled: bool
-    api_key: Optional[str]
 
 
 class Orionoid:
@@ -21,7 +17,7 @@ class Orionoid:
 
     def __init__(self, _):
         self.key = "orionoid"
-        self.settings = OrionoidConfig(**settings_manager.get(f"scraping.{self.key}"))
+        self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
         self.initialized = False
         if self.validate_settings():

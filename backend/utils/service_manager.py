@@ -1,6 +1,6 @@
 from copy import deepcopy
 from threading import Thread
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 
 
 class ServiceManager:
@@ -8,7 +8,7 @@ class ServiceManager:
         self.media_items = media_items
         self.services = []
         self.initialize_services(services)
-        self.settings = deepcopy(settings_manager.get_all())
+        self.settings = settings_manager.settings
         if register_observer:
             settings_manager.register_observer(self)
 
@@ -36,8 +36,8 @@ class ServiceManager:
 
     def update_settings(self, new_settings):
         modules_to_update = []
-        for module, values in self.settings.items():
-            for new_module, new_values in new_settings.items():
+        for module, values in self.settings.dict().items():
+            for new_module, new_values in new_settings.dict().items():
                 if module == new_module:
                     if values != new_values:
                         modules_to_update.append(module)
