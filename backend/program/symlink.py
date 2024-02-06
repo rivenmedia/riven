@@ -118,6 +118,7 @@ class Symlinker():
 
     def _symlink(self, item):
         """Create a symlink for the given media item"""
+        # Symlinks get created on host as: destination -> source
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
