@@ -1,6 +1,5 @@
 """Mdblist content module"""
-from typing import Optional
-
+from time import time
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get, ping
@@ -14,16 +13,17 @@ class Mdblist:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.media_items = media_items
         self.updater = Trakt()
+        self.next_run_time = 0
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         logger.info("mdblist initialized")
 
-    def validate_settings(self):
+    def validate(self):
         if not self.settings.enabled:
             logger.debug("Mdblist is set to disabled.")
             return False
@@ -42,6 +42,9 @@ class Mdblist:
     def run(self):
         """Fetch media from mdblist and add them to media_items attribute
         if they are not already there"""
+        if time() < self.next_run_time:
+            return
+        self.next_run_time = time() + self.settings.update_interval
         try:
             with self.rate_limiter:
                 items = []

@@ -10,13 +10,13 @@
 	export let data: PageData;
 
 	const version = data.settings.data.version;
-	const host_path = data.settings.data.symlink.host_path;
-	const container_path = data.settings.data.symlink.container_path;
+	const rclone_path = data.settings.data.symlink.rclone_path;
+	const library_path = data.settings.data.symlink.library_path;
 
 	interface AboutData {
 		[key: string]: any;
-		host_path: string;
-		container_path: string;
+		rclone_path: string;
+		library_path: string;
 	}
 
 	type SupportData = {
@@ -26,8 +26,8 @@
 	};
 
 	const aboutData: AboutData = {
-		host_path,
-		container_path
+		rclone_path,
+		library_path
 	};
 	const supportData: SupportData = {
 		github: 'https://github.com/dreulavelle/iceberg',

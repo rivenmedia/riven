@@ -63,7 +63,7 @@ class Updater:
     def _create_item(self, imdb_id):
         item = create_item_from_imdb_id(imdb_id)
         if item is None:
-            return None
+            pass 
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:
@@ -92,12 +92,11 @@ def _map_item_from_data(data, item_type):
     if getattr(data, "released", None):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
-    is_anime = "anime" in getattr(data, "genres", [])
     item = {
         "title": getattr(data, "title", None),              # 'Game of Thrones'
         "year": getattr(data, "year", None),                # 2011
         "status": getattr(data, "status", None),            # 'ended', 'released', 'returning series'
-        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)                             # True"
+        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)
         "imdb_id": getattr(data.ids, "imdb", None),         # 'tt0496424'
         "tvdb_id": getattr(data.ids, "tvdb", None),         # 79488
         "tmdb_id": getattr(data.ids, "tmdb", None),         # 1399
@@ -106,14 +105,13 @@ def _map_item_from_data(data, item_type):
         "country": getattr(data, "country", None),          # 'US'
         "language": getattr(data, "language", None),        # 'en'
         "requested_at": datetime.now(),                     # datetime.datetime(2021, 4, 17, 0, 0)
+        "is_anime": "anime" in getattr(data, "genres", [])
     }
 
     match item_type:
         case "movie":
-            item["is_anime"] = is_anime
             return_item = Movie(item)
         case "show":
-            item["is_anime"] = is_anime
             return_item = Show(item)
         case "season":
             item["number"] = getattr(data, "number")
@@ -145,7 +143,7 @@ def create_item_from_imdb_id(imdb_id: str):
     """Wrapper for trakt.tv API search method"""
     if imdb_id is None:
         logger.debug("Unable to create item from IMDb ID. No IMDb ID provided.")
-        return
+        return None
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(
         url,
@@ -166,9 +164,9 @@ def create_item_from_imdb_id(imdb_id: str):
                 return _map_item_from_data(data, media_type)
         except UnboundLocalError:
             logger.error("Unknown item %s with response %s", imdb_id, response)
-            return
+            return None
     logger.error("Unable to create item from IMDb ID %s", imdb_id)
-    return
+    return None
 
 def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     """Get IMDb ID from TVDB ID in Trakt"""

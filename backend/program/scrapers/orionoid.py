@@ -1,9 +1,6 @@
 """ Orionoid scraper module """
-from typing import Optional
-
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
-
 from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
 from program.settings.manager import settings_manager
@@ -20,7 +17,7 @@ class Orionoid:
         self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
         self.initialized = False
-        if self.validate_settings():
+        if self.validate():
             self.is_premium = self.check_premium()
             self.initialized = True
         else:
@@ -34,7 +31,7 @@ class Orionoid:
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Orionoid initialized!")
 
-    def validate_settings(self) -> bool:
+    def validate(self) -> bool:
         """Validate the Orionoid class_settings."""
         if not self.settings.enabled:
             logger.debug("Orionoid is set to disabled.")
@@ -166,7 +163,7 @@ class Orionoid:
                     for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
                     if parsed_data["fetch"]
                 }
-                if self.parse_logging:
+                if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
                         logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:

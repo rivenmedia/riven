@@ -1,8 +1,8 @@
 import os
 import threading
 import dill
+from pickle import UnpicklingError
 from typing import List, Optional
-from utils.logger import logger
 from program.media.item import MediaItem
 
 
@@ -102,6 +102,6 @@ class MediaItemContainer:
                 self.items = dill.load(file)
         except FileNotFoundError:
             self.items = []
-        except EOFError:
+        except (EOFError, UnpicklingError):
             os.remove(filename)
             self.items = []

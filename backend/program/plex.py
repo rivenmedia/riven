@@ -5,11 +5,8 @@ import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Optional
-
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
-
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
@@ -31,7 +28,7 @@ class Plex(threading.Thread):
         self.key = "plex"
         self.initialized = False
         self.library_path = os.path.abspath(
-            os.path.dirname(settings_manager.settings.symlink.container_path)
+            os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.last_fetch_times = {}
 
@@ -41,7 +38,7 @@ class Plex(threading.Thread):
                 self.settings.url, self.settings.token, timeout=60
             )
         except Unauthorized:
-            logger.warn("Plex is not authorized!")
+            logger.error("Plex is not authorized!")
             return
         except BadRequest as e:
             logger.error("Plex is not configured correctly: %s", e)

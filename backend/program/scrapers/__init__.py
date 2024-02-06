@@ -1,9 +1,7 @@
 from datetime import datetime
-
+from utils.logger import logger
 from utils.service_manager import ServiceManager
 from program.settings.manager import settings_manager
-from utils.logger import logger
-
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.orionoid import Orionoid
 from program.scrapers.jackett import Jackett

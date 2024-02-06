@@ -1,9 +1,6 @@
 """Iceberg settings models"""
 from pathlib import Path
-from typing import Optional
-
-from pydantic import BaseModel, root_validator
-
+from pydantic import BaseModel
 
 
 class NotifyingBaseModel(BaseModel):
@@ -24,7 +21,6 @@ class NotifyingBaseModel(BaseModel):
             self.__class__._notify_observers()
 
 class PlexModel(NotifyingBaseModel):
-    user: str = ""
     token: str = ""
     url: str = "http://localhost:32400"
 
@@ -32,10 +28,11 @@ class DebridModel(NotifyingBaseModel):
     api_key: str = ""
 
 class SymlinkModel(NotifyingBaseModel):
-    host_path: Path = Path()
-    container_path: Path = Path()
+    rclone_path: Path = Path()
+    library_path: Path = Path()
 
 # Content Services
+
 class ContentNotifyingBaseModel(NotifyingBaseModel):
     update_interval: int = 80
 
@@ -44,11 +41,13 @@ class ListrrModel(ContentNotifyingBaseModel):
     movie_lists: list[str] = [""]
     show_lists: list[str] = [""]
     api_key: str = ""
+    update_interval: int = 300
 
 class MdblistModel(ContentNotifyingBaseModel):
     enabled: bool = False
     api_key: str = ""
     lists: list[str] = [""]
+    update_interval: int = 300
 
 class OverseerrModel(ContentNotifyingBaseModel):
     enabled: bool = False
@@ -70,6 +69,7 @@ class ContentModel(NotifyingBaseModel):
 class JackettConfig(NotifyingBaseModel):
     enabled: bool = False
     url: str = "http://localhost:9117"
+    api_key: str = ""
 
 class OrionoidConfig(NotifyingBaseModel):
     enabled: bool = False
@@ -77,12 +77,12 @@ class OrionoidConfig(NotifyingBaseModel):
 
 class TorrentioConfig(NotifyingBaseModel):
     enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown"
+    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://torrentio.strem.fun"
 
 class ScraperModel(NotifyingBaseModel):
-    after_2: float = 0.5
-    after_5: int = 2
+    after_2: float = 2
+    after_5: int = 6
     after_10: int = 24
     jackett: JackettConfig = JackettConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
@@ -94,9 +94,10 @@ class ParserModel(NotifyingBaseModel):
     repack_proper:  bool = True
     language: list[str] = ["English"]
 
+# Application Settings
 
 class AppModel(NotifyingBaseModel):
-    version: str = "0.4.3"
+    version: str = "0.4.6"
     debug: bool = True
     log: bool = True
     plex: PlexModel = PlexModel()

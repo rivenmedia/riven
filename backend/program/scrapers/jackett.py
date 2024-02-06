@@ -1,9 +1,6 @@
 """ Jackett scraper module """
 import traceback
-from typing import Optional
-
 from requests import ReadTimeout, RequestException
-
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from utils.parser import parser
@@ -17,15 +14,15 @@ class Jackett:
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
+        self.parse_logging = False
         self.minute_limiter = RateLimiter(max_calls=1000, period=3600, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
-        self.parse_logging = False
         logger.info("Jackett initialized!")
 
-    def validate_settings(self) -> bool:
+    def validate(self) -> bool:
         """Validate Jackett settings."""
         if not self.settings.enabled:
             logger.debug("Jackett is set to disabled.")
@@ -115,7 +112,7 @@ class Jackett:
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
                             data[infohash] = {"name": stream.get("title")}
-                if self.parse_logging:
+                if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
                         logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:

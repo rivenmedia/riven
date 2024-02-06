@@ -1,9 +1,6 @@
 """ Torrentio scraper module """
-from typing import Optional
-
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
 from program.settings.manager import settings_manager
@@ -18,13 +15,13 @@ class Torrentio:
         self.settings = settings_manager.settings.scraping.torrentio
         self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
-        self.initialized = self.validate_settings()
+        self.initialized = self.validate()
         if not self.initialized:
             return
         self.parse_logging = False
         logger.info("Torrentio initialized!")
 
-    def validate_settings(self) -> bool:
+    def validate(self) -> bool:
         """Validate the Torrentio settings."""
         if not self.settings.enabled:
             logger.debug("Torrentio is set to disabled.")
@@ -53,15 +50,19 @@ class Torrentio:
             self.minute_limiter.limit_hit()
             return
         except ConnectTimeout:
+            self.minute_limiter.limit_hit()
             logger.warn("Torrentio connection timeout for item: %s", item.log_string)
             return
         except ReadTimeout:
+            self.minute_limiter.limit_hit()
             logger.warn("Torrentio read timeout for item: %s", item.log_string)
             return
         except RequestException as e:
+            self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
             return
         except Exception as e:
+            self.minute_limiter.limit_hit()
             logger.warn("Torrentio exception thrown: %s", e)
             return
 
@@ -108,7 +109,7 @@ class Torrentio:
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
                     if parsed_data.get("fetch", False) and parsed_data.get("string", False)
                 }
-                if self.parse_logging:
+                if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
                         logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:
