@@ -1,4 +1,4 @@
-"""Mdblist content module"""
+"""Listrr content module"""
 from time import time
 from typing import Optional
 
