@@ -59,14 +59,13 @@ class Overseerr:
         container = self.updater.create_items(new_items)
         for item in container:
             item.set("requested_by", "Overseerr")
-        previous_count = len(self.media_items)
-        self.media_items.extend(container)
-        if len(self.media_items) > 0:
-            if len(self.media_items) <= 5:
-                for item in container:
-                    logger.info("Added %s", item.log_string)
-            else:
-                logger.info("Added %s items", len(self.media_items) - previous_count)
+        added_items = self.media_items.extend(container)
+        length = len(added_items)
+        if length >= 1 and length <= 5:
+            for item in added_items:
+                logger.info("Added %s", item.log_string)
+        elif length > 5:
+            logger.info("Added %s items", length)
         if self.not_found_ids:
             logger.warn("Failed to process %s items, skipping.", len(self.not_found_ids))
 
