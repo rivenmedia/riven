@@ -15,7 +15,7 @@ class ListrrConfig(BaseModel):
     movie_lists: Optional[List[str]]
     show_lists: Optional[List[str]]
     api_key: Optional[str]
-    update_interval: int  # in seconds
+    update_interval: Optional[int] = 300 # in seconds
 
 
 class Listrr:

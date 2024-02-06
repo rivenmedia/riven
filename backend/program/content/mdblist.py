@@ -13,7 +13,7 @@ class MdblistConfig(BaseModel):
     enabled: bool
     api_key: Optional[str]
     lists: Optional[list]
-    update_interval: int  # in seconds
+    update_interval: Optional[int] = 300 # in seconds
 
 
 class Mdblist:

@@ -27,8 +27,7 @@ help:
 start: stop
 	@docker build -t iceberg:latest -f Dockerfile .
 	@docker run -d --name iceberg --hostname iceberg --net host -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data -v /mnt:/mnt iceberg:latest
-	@echo Iceberg Frontend is running on http://localhost:3000/status/
-	@echo Iceberg Backend is running on http://localhost:8080/items/
+	@echo Iceberg is running on http://localhost:3000/
 	@docker logs iceberg -f
 
 stop:

@@ -18,15 +18,16 @@ class Symlinker():
         rclone_path (str): The absolute path of the rclone mount root directory.
         library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
-    def __init__(self):
+    def __init__(self, _):
         self.key = "symlink"
         self.settings = SymlinkConfig(**settings.get(self.key))
+        self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
             logger.error("Symlink initialization failed due to invalid configuration.")
             return
-        logger.info("Rclone path symlinks are pointed to: %s", self.settings.rclone_path)
-        logger.info("Symlinks will be placed in: %s", self.library_path)
+        logger.info("Rclone path symlinks are pointed to: %s", self.rclone_path)
+        logger.info("Symlinks will be placed in: %s", self.settings.library_path)
         logger.info("Symlink initialized!")
 
     def validate(self):
@@ -47,12 +48,12 @@ class Symlinker():
         try:
             if (all_path := self.settings.rclone_path / "__all__").exists() and all_path.is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                self.settings.rclone_path = all_path
+                self.rclone_path = all_path
             elif (torrent_path := self.settings.rclone_path / "torrents").exists() and torrent_path.is_dir():
                 logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                self.settings.rclone_path = torrent_path
+                self.rclone_path = torrent_path
             if not self.create_initial_folders():
-                logger.error("Failed to create initial library folders.")
+                logger.error("Failed to create initial library folders in your library path.")
                 return False
             return True
         except FileNotFoundError as e:
@@ -66,11 +67,10 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.library_path / "library"
-            self.library_path_movies = self.library_path / "movies"
-            self.library_path_shows = self.library_path / "shows"
-            self.library_path_anime_movies = self.library_path / "anime_movies"
-            self.library_path_anime_shows = self.library_path / "anime_shows"
+            self.library_path_movies = self.settings.library_path / "movies"
+            self.library_path_shows = self.settings.library_path / "shows"
+            self.library_path_anime_movies = self.settings.library_path / "anime_movies"
+            self.library_path_anime_shows = self.settings.library_path / "anime_shows"
             folders = [self.library_path_movies, 
                     self.library_path_shows, 
                     self.library_path_anime_movies, 

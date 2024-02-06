@@ -13,7 +13,7 @@ class OverseerrConfig(BaseModel):
     enabled: bool
     url: Optional[str]
     api_key: Optional[str]
-    update_interval: int  # in seconds
+    update_interval: Optional[int] = 60 # in seconds
 
 
 class Overseerr:

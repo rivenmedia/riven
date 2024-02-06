@@ -47,7 +47,7 @@ class Plex(threading.Thread):
                 self.settings.url, self.settings.token, timeout=60
             )
         except Unauthorized:
-            logger.warn("Plex is not authorized!")
+            logger.error("Plex is not authorized!")
             return
         except BadRequest as e:
             logger.error("Plex is not configured correctly: %s", e)

@@ -1,5 +1,4 @@
 """Plex Watchlist Module"""
-from json import loads
 from time import time
 from typing import Optional
 from pydantic import BaseModel
@@ -14,7 +13,7 @@ from program.updaters.trakt import Updater as Trakt
 class PlexWatchlistConfig(BaseModel):
     enabled: bool
     rss: Optional[str]
-    update_interval: int  # in seconds
+    update_interval: Optional[int] = 60 # in seconds
 
 
 class PlexWatchlist:

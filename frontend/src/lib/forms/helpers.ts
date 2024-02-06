@@ -68,8 +68,8 @@ export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
 	log: z.boolean().default(true),
-	host_path: z.string().min(1),
-	container_path: z.string().min(1),
+	rclone_path: z.string().min(1),
+	library_path: z.string().min(1),
 	realdebrid_api_key: z.string().min(1)
 });
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
@@ -78,8 +78,8 @@ export function generalSettingsToPass(data: any) {
 	return {
 		debug: data.data.debug,
 		log: data.data.log,
-		host_path: data.data.symlink.host_path,
-		container_path: data.data.symlink.container_path,
+		rclone_path: data.data.symlink.rclone_path,
+		library_path: data.data.symlink.library_path,
 		realdebrid_api_key: data.data.real_debrid.api_key
 	};
 }
@@ -97,8 +97,8 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 		{
 			key: 'symlink',
 			value: {
-				host_path: form.data.host_path,
-				container_path: form.data.container_path
+				rclone_path: form.data.rclone_path,
+				library_path: form.data.library_path
 			}
 		},
 		{
