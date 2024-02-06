@@ -1,14 +1,9 @@
 """Symlinking module"""
 import os
 from pathlib import Path
-from pydantic import BaseModel
-from utils.settings import settings_manager as settings
+from program.settings.manager import settings_manager
 from utils.logger import logger
 
-
-class SymlinkConfig(BaseModel):
-    rclone_path: Path
-    library_path: Path
 
 class Symlinker():
     """
@@ -20,7 +15,7 @@ class Symlinker():
     """
     def __init__(self, _):
         self.key = "symlink"
-        self.settings = SymlinkConfig(**settings.get(self.key))
+        self.settings = settings_manager.settings.symlink
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
@@ -32,18 +27,15 @@ class Symlinker():
 
     def validate(self):
         """Validate paths and create the initial folders."""
-        for name, path in self.settings.__iter__():
-            if path == Path('.'):
-                logger.error(f"{name} is set to the current directory.")
-                return False
-            elif not path.is_absolute():
-                logger.error(f"{name} is not an absolute path: {path}")
-                return False
-            elif not path.is_dir():
-                logger.error(f"{name} is not a directory or does not exist: {path}")
-                return False
-        if str(self.settings.rclone_path) in str(self.settings.library_path):
-            logger.error(f"library_path is a sub (or the same) directory of rclone_path")
+        library_path = self.settings.library_path
+        if not self.rclone_path or not library_path or self.rclone_path == Path('.') or library_path == Path('.'):
+            logger.error("Host or container path not provided, is empty, or is set to the current directory.")
+            return False
+        if not self.rclone_path.is_absolute():
+            logger.error(f"Host path is not an absolute path: {self.rclone_path}")
+            return False
+        if not library_path.is_absolute():
+            logger.error(f"Container path is not an absolute path: {library_path}")
             return False
         try:
             if (all_path := self.settings.rclone_path / "__all__").exists() and all_path.is_dir():
@@ -78,6 +70,7 @@ class Symlinker():
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Symlinks will be placed in: {self.library_path}")
         except PermissionError as e:
             logger.error(f"Permission denied when creating directory: {e}")
             return False

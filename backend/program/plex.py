@@ -5,13 +5,10 @@ import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Optional
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
-from pydantic import BaseModel
-# from program.updaters.trakt import get_imdbid_from_tvdb
 from utils.logger import logger
-from utils.settings import settings_manager as settings
+from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
 from program.media.state import Symlink, Library
 from utils.request import get, post
@@ -23,12 +20,6 @@ from program.media.item import (
 )
 
 
-class PlexConfig(BaseModel):
-    user: Optional[str] = None
-    token: Optional[str] = None
-    url: Optional[str] = None
-
-
 class Plex(threading.Thread):
     """Plex library class"""
 
@@ -37,12 +28,12 @@ class Plex(threading.Thread):
         self.key = "plex"
         self.initialized = False
         self.library_path = os.path.abspath(
-            os.path.dirname(settings.get("symlink.library_path"))
+            os.path.dirname(settings_manager.settings.symlink.container_path)
         )
         self.last_fetch_times = {}
 
         try:
-            self.settings = PlexConfig(**settings.get(self.key))
+            self.settings = settings_manager.settings.plex
             self.plex = PlexServer(
                 self.settings.url, self.settings.token, timeout=60
             )
@@ -185,7 +176,7 @@ class Plex(threading.Thread):
             additional_headers={
                 "X-Plex-Product": "Iceberg",
                 "X-Plex-Client-Identifier": random_uuid,
-                "X-Plex-Token": settings.get("plex.token"),
+                "X-Plex-Token": settings_manager.settings.plex.token,
             },
         )
         if not response.ok:

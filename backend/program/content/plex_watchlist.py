@@ -1,19 +1,11 @@
 """Plex Watchlist Module"""
 from time import time
-from typing import Optional
-from pydantic import BaseModel
 from requests import HTTPError
 from utils.request import get, ping
 from utils.logger import logger
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
-
-
-class PlexWatchlistConfig(BaseModel):
-    enabled: bool
-    rss: Optional[str]
-    update_interval: Optional[int] = 60 # in seconds
 
 
 class PlexWatchlist:
@@ -22,11 +14,11 @@ class PlexWatchlist:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
         self.rss_enabled = False
-        self.settings = PlexWatchlistConfig(**settings_manager.get(f"content.{self.key}"))
-        self.initialized = self.validate()
+        self.settings = settings_manager.settings.content.plex_watchlist
+        self.initialized = self.validate_settings()
         if not self.initialized:
             return
-        self.token = settings_manager.get("plex.token")
+        self.token = settings_manager.settings.plex.token
         self.media_items = media_items
         self.updater = Trakt()
         self.not_found_ids = []

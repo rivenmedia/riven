@@ -1,18 +1,10 @@
 """ Jackett scraper module """
 import traceback
-from typing import Optional
-from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.parser import parser
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-
-
-class JackettConfig(BaseModel):
-    enabled: bool
-    url: Optional[str]
-    api_key: Optional[str]
 
 
 class Jackett:
@@ -21,8 +13,8 @@ class Jackett:
     def __init__(self, _):
         self.key = "jackett"
         self.api_key = None
-        self.settings = JackettConfig(**settings_manager.get(f"scraping.{self.key}"))
-        self.initialized = self.validate()
+        self.settings = settings_manager.settings.scraping.jackett
+        self.initialized = self.validate_settings()
         if not self.initialized and not self.api_key:
             return
         self.parse_logging = False

@@ -3,20 +3,15 @@ import os
 from pathlib import Path
 import time
 from typing import Optional
-from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.parser import parser
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
-
-
-class DebridConfig(BaseModel):
-    api_key: Optional[str]
 
 
 class Debrid:
@@ -26,7 +21,7 @@ class Debrid:
         # Realdebrid class library is a necessity
         self.initialized = False
         self.key = "real_debrid"
-        self.settings = DebridConfig(**settings_manager.get(self.key))
+        self.settings = settings_manager.settings.real_debrid
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.running = False
         if not self._validate_settings():

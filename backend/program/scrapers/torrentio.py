@@ -1,18 +1,10 @@
 """ Torrentio scraper module """
-from typing import Optional
-from pydantic import BaseModel
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.parser import parser
-
-
-class TorrentioConfig(BaseModel):
-    enabled: bool
-    url: Optional[str]
-    filter: Optional[str]
 
 
 class Torrentio:
@@ -20,13 +12,13 @@ class Torrentio:
 
     def __init__(self, _):
         self.key = "torrentio"
-        self.settings = TorrentioConfig(**settings_manager.get(f"scraping.{self.key}"))
-        self.initialized = self.validate()
+        self.settings = settings_manager.settings.scraping.torrentio
+        self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.initialized = self.validate_settings()
         if not self.initialized:
             return
         self.parse_logging = False
-        self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -117,7 +109,7 @@ class Torrentio:
                     for stream, parsed_data in zip(response.data.streams, parsed_data_list)
                     if parsed_data.get("fetch", False) and parsed_data.get("string", False)
                 }
-                if self.parse_logging:
+                if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
                         logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
                 if data:

@@ -1,21 +1,11 @@
-"""Mdblist content module"""
+"""Listrr content module"""
 from time import time
-from typing import List, Optional
-from pydantic import BaseModel
-from utils.settings import settings_manager
+from requests.exceptions import HTTPError
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
-from requests.exceptions import HTTPError
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb
-
-
-class ListrrConfig(BaseModel):
-    enabled: bool
-    movie_lists: Optional[List[str]]
-    show_lists: Optional[List[str]]
-    api_key: Optional[str]
-    update_interval: Optional[int] = 300 # in seconds
 
 
 class Listrr:
@@ -24,7 +14,7 @@ class Listrr:
     def __init__(self, media_items: MediaItemContainer):
         self.key = "listrr"
         self.url = "https://listrr.pro/api"
-        self.settings = ListrrConfig(**settings_manager.get(f"content.{self.key}"))
+        self.settings = settings_manager.settings.content.listrr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
         if not self.initialized:

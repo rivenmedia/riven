@@ -7,11 +7,12 @@ from program.scrapers import Scraping
 from program.realdebrid import Debrid
 from program.symlink import Symlinker
 from program.media.container import MediaItemContainer
-from utils.logger import logger, get_data_path
+from utils.logger import logger
 from program.plex import Plex
 from program.content import Content
 from utils.utils import Pickly
-from utils.settings import settings_manager as settings
+from utils import data_dir_path
+from program.settings.manager import settings_manager
 from utils.service_manager import ServiceManager
 
 
@@ -22,14 +23,17 @@ class Program(threading.Thread):
         super().__init__(name="Iceberg")
         self.running = False
         self.startup_args = args
+        logger.configure_logger(
+            debug=settings_manager.settings.debug,
+            log=settings_manager.settings.log
+        )
 
     def start(self):
-        logger.info("Iceberg v%s starting!", settings.get("version"))
+        logger.info("Iceberg v%s starting!", settings_manager.settings.version)
         self.initialized = False
         self.media_items = MediaItemContainer(items=[])
-        self.data_path = get_data_path()
-        if not os.path.exists(self.data_path):
-            os.mkdir(self.data_path)
+        self.data_path = data_dir_path
+        os.makedirs(self.data_path, exist_ok=True)
         if not self.startup_args.dev:
             self.pickly = Pickly(self.media_items, self.data_path)
             self.pickly.start()

@@ -1,19 +1,10 @@
 """Mdblist content module"""
 from time import time
-from typing import Optional
-from pydantic import BaseModel
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb
-
-
-class OverseerrConfig(BaseModel):
-    enabled: bool
-    url: Optional[str]
-    api_key: Optional[str]
-    update_interval: Optional[int] = 60 # in seconds
 
 
 class Overseerr:
@@ -21,7 +12,7 @@ class Overseerr:
 
     def __init__(self, media_items: MediaItemContainer):
         self.key = "overseerr"
-        self.settings = OverseerrConfig(**settings_manager.get(f"content.{self.key}"))
+        self.settings = settings_manager.settings.content.overseerr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
         if not self.initialized:
@@ -96,7 +87,7 @@ class Overseerr:
                     ids.append(item.media.imdbId)
         return ids
 
-    def get_imdb_id(self, overseerr_item) -> Optional[str]:
+    def get_imdb_id(self, overseerr_item) -> str:
         """Get imdbId for item from overseerr"""
         if overseerr_item.mediaType == "show":
             external_id = overseerr_item.tvdbId
