@@ -2,6 +2,7 @@
 import math
 import concurrent.futures
 from datetime import datetime
+import os
 from utils.logger import logger
 from utils.request import get
 from utils import data_dir_path
@@ -16,7 +17,7 @@ class Updater:
 
     def __init__(self):
         self.trakt_data = MediaItemContainer()
-        self.pkl_file = data_dir_path / "trakt_data.pkl"
+        self.pkl_file = os.path.join(data_dir_path, "trakt_data.pkl")
         self.ids = []
 
     def create_items(self, imdb_ids):

@@ -1,6 +1,7 @@
 """Iceberg settings models"""
 from pathlib import Path
 from pydantic import BaseModel
+from utils import version_file_path
 
 
 class NotifyingBaseModel(BaseModel):
@@ -96,8 +97,12 @@ class ParserModel(NotifyingBaseModel):
 
 # Application Settings
 
+def get_version():
+    with open(version_file_path) as file:
+        return file.read()
+
 class AppModel(NotifyingBaseModel):
-    version: str = "0.4.6"
+    version: str = get_version()
     debug: bool = True
     log: bool = True
     plex: PlexModel = PlexModel()
@@ -106,3 +111,4 @@ class AppModel(NotifyingBaseModel):
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
     parser:  ParserModel = ParserModel()
+

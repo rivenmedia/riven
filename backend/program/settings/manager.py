@@ -1,8 +1,5 @@
 import json
 import os
-import shutil
-from pathlib import Path
-
 from pydantic import ValidationError
 
 from utils import data_dir_path
@@ -17,7 +14,7 @@ class SettingsManager(Observable):
     def __init__(self):
         self.observers = []
         self.filename = "settings.json"
-        self.settings_file = data_dir_path / self.filename
+        self.settings_file = os.path.join(data_dir_path, self.filename)
 
         NotifyingBaseModel.set_notify_observers(self.notify_observers)
 

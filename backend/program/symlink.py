@@ -38,10 +38,10 @@ class Symlinker():
             logger.error(f"Container path is not an absolute path: {library_path}")
             return False
         try:
-            if (all_path := self.settings.rclone_path / "__all__").exists() and all_path.is_dir():
+            if (all_path := os.path.join(self.settings.rclone_path, "__all__")).exists() and all_path.is_dir():
                 logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
                 self.rclone_path = all_path
-            elif (torrent_path := self.settings.rclone_path / "torrents").exists() and torrent_path.is_dir():
+            elif (torrent_path := os.path.join(self.settings.rclone_path, "torrents")).exists() and torrent_path.is_dir():
                 logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
                 self.rclone_path = torrent_path
             if not self.create_initial_folders():
@@ -59,10 +59,10 @@ class Symlinker():
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path_movies = self.settings.library_path / "movies"
-            self.library_path_shows = self.settings.library_path / "shows"
-            self.library_path_anime_movies = self.settings.library_path / "anime_movies"
-            self.library_path_anime_shows = self.settings.library_path / "anime_shows"
+            self.library_path_movies = os.path.join(self.settings.library_path, "movies")
+            self.library_path_shows = os.path.join(self.settings.library_path, "shows")
+            self.library_path_anime_movies = os.path.join(self.settings.library_path, "anime_movies")
+            self.library_path_anime_shows = os.path.join(self.settings.library_path, "anime_shows")
             folders = [self.library_path_movies, 
                     self.library_path_shows, 
                     self.library_path_anime_movies, 

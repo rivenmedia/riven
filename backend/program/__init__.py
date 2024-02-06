@@ -32,10 +32,9 @@ class Program(threading.Thread):
         logger.info("Iceberg v%s starting!", settings_manager.settings.version)
         self.initialized = False
         self.media_items = MediaItemContainer(items=[])
-        self.data_path = data_dir_path
-        os.makedirs(self.data_path, exist_ok=True)
+        os.makedirs(data_dir_path, exist_ok=True)
         if not self.startup_args.dev:
-            self.pickly = Pickly(self.media_items, self.data_path)
+            self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
         self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker)
         if self.validate():

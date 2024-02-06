@@ -1,4 +1,7 @@
 from pathlib import Path
 import os
 
-data_dir_path = Path(os.path.abspath(__file__)).parent.parent.parent / "data"
+root_dir = Path(os.path.abspath(__file__)).parent.parent.parent
+
+data_dir_path =  os.path.join(root_dir, "data")
+version_file_path = os.path.join(root_dir, "iceberg.version")

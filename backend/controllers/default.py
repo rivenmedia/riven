@@ -9,10 +9,11 @@ router = APIRouter(
 
 
 @router.get("/")
-async def root():
+async def root(request: Request):
     return {
         "success": True,
         "message": "Iceburg is running!",
+        "version": settings_manager.settings.version
     }
 
 

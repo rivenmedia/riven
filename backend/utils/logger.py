@@ -3,7 +3,6 @@ import datetime
 import logging
 import os
 import re
-import sys
 
 from utils import data_dir_path
 
@@ -64,7 +63,7 @@ class Logger(logging.Logger):
             "[%(asctime)s | %(levelname)s] <%(module)s.%(funcName)s> - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        self.logs_dir_path = data_dir_path / "logs"
+        self.logs_dir_path = os.path.join(data_dir_path, "logs")
         os.makedirs(self.logs_dir_path, exist_ok=True)
 
         self.addFilter(RedactSensitiveInfo())
@@ -89,7 +88,8 @@ class Logger(logging.Logger):
 
             # Only add a new file handler if it hasn't been added before
             file_handler = logging.FileHandler(
-                self.logs_dir_path / self.filename, encoding="utf-8"
+                os.path.join(self.logs_dir_path, self.filename),
+                encoding="utf-8"
             )
             file_handler.setLevel(log_level)
             file_handler.setFormatter(self.formatter)
