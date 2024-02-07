@@ -70,7 +70,7 @@ class Plex(threading.Thread):
         return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
     def _update_items(self, init=False):
-        items = []
+        items = MediaItemContainer()
         sections = self.plex.library.sections()
         processed_sections = set()
         max_workers = os.cpu_count() / 2
@@ -90,13 +90,18 @@ class Plex(threading.Thread):
                         items.append(media_item)
                     self.last_fetch_times[section.key] = datetime.now()
                 processed_sections.add(section.key)
-        
-        length = len(items)
-        if length >= 1 and length <= 5:
-            for item in items:
-                logger.info("Found %s from plex", item.log_string)
-        elif length > 5:
-            logger.info("Found %s items from plex", length)
+
+        added_count = 0
+        for item in items:
+            if item is not None and item not in self.media_items:
+                self.media_items.append(item)
+                added_count += 1
+
+        if added_count > 0:
+            if added_count <= 5:
+                logger.info("Found %d from Plex", item.log_string)
+            else:
+                logger.info("Found %d items from Plex", added_count)
 
     def update_item_section(self, item):
         """Update plex library section for a single item"""
@@ -169,28 +174,6 @@ class Plex(threading.Thread):
     def _is_wanted_section(self, section):
         return any(self.library_path in location for location in section.locations) and section.type in ["movie", "show"]
 
-    def _oauth(self):
-        random_uuid = uuid.uuid4()
-        response = get(
-            url="https://plex.tv/api/v2/user",
-            additional_headers={
-                "X-Plex-Product": "Iceberg",
-                "X-Plex-Client-Identifier": random_uuid,
-                "X-Plex-Token": settings_manager.settings.plex.token,
-            },
-        )
-        if not response.ok:
-            data = post(
-                url="https://plex.tv/api/v2/pins",
-                additional_headers={
-                    "strong": "true",
-                    "X-Plex-Product": "Iceberg",
-                    "X-Plex-Client-Identifier": random_uuid,
-                },
-            )
-            if data.ok:
-                pin = data.id
-
 
 def _map_item_from_data(item):
     """Map Plex API data to MediaItemContainer."""
@@ -215,18 +198,6 @@ def _map_item_from_data(item):
             (guid.id.split("://")[-1] for guid in guids if "imdb" in guid.id), None
         )
         aired_at = getattr(item, "originallyAvailableAt", None)
-
-        # Attempt to get the imdb id from the tvdb id if we don't have it.
-        # Uses Trakt to get the imdb id from the tvdb id.
-        # if not imdb_id:
-        #     tvdb_id = next(
-        #         (guid.id.split("://")[-1] for guid in guids if "tvdb" in guid.id), None
-        #     )
-        #     if tvdb_id:
-        #         imdb_id = get_imdbid_from_tvdb(tvdb_id)
-        #         if imdb_id:
-        #             logger.debug("%s was missing IMDb ID, found IMDb ID from TVdb ID: %s", title, imdb_id)
-                # If we still don't have an imdb id, we could check TMdb or use external services like cinemeta.
 
     media_item_data = {
         "title": title,

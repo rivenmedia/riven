@@ -54,10 +54,12 @@ class OverseerrModel(ContentNotifyingBaseModel):
     enabled: bool = False
     url: str = "http://localhost:5055"
     api_key: str = ""
+    update_interval: int = 60
 
 class PlexWatchlistModel(ContentNotifyingBaseModel):
     enabled: bool = False
     rss: str = ""
+    update_interval: int = 60
 
 class ContentModel(NotifyingBaseModel):
     listrr: ListrrModel = ListrrModel()

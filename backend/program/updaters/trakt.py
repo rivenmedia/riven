@@ -62,7 +62,8 @@ class Updater:
     def _create_item(self, imdb_id):
         item = create_item_from_imdb_id(imdb_id)
         if item is None:
-            pass 
+            logger.info(f"Removed request with IMDb ID {imdb_id}, unable to create item.")
+            self.trakt_data.remove_by_imdb_id(imdb_id)
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:
@@ -162,7 +163,7 @@ def create_item_from_imdb_id(imdb_id: str):
             if data:
                 return _map_item_from_data(data, media_type)
         except UnboundLocalError:
-            logger.error("Unknown item %s with response %s", imdb_id, response)
+            logger.error("Unknown item %s with response %s", imdb_id, response.content)
             return None
     logger.error("Unable to create item from IMDb ID %s, skipping..", imdb_id)
     return None

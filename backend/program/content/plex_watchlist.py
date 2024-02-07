@@ -56,7 +56,11 @@ class PlexWatchlist(ContentServiceBase):
         length = len(added_items)
         if length >= 1 and length <= 5:
             for item in added_items:
-                logger.info("Added %s", item.log_string)
+                if not hasattr(item, "log_string"):
+                    logger.error("Removing invalid item added from Plex Watchlist")
+                    self.media_items.remove(item)
+                else:
+                    logger.info("Added %s", item.log_string)
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
