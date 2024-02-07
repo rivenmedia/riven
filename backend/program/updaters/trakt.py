@@ -63,7 +63,7 @@ class Updater:
         item = create_item_from_imdb_id(imdb_id)
         if item is None:
             logger.info(f"Removed request with IMDb ID {imdb_id}, unable to create item.")
-            self.trakt_data.remove_by_imdb_id(imdb_id)
+            self.trakt_data.remove(imdb_id)
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:

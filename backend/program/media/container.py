@@ -3,7 +3,6 @@ import threading
 import dill
 from pickle import UnpicklingError
 from typing import List, Optional
-from utils.logger import logger
 from program.media.item import MediaItem
 
 
@@ -82,10 +81,6 @@ class MediaItemContainer:
         """Remove item from container"""
         if item in self.items:
             self.items.remove(item)
-
-    def remove_by_imdb_id(self, imdb_id: str):
-        with self.lock:
-            self.items = [item for item in self.items if item.imdb_id != imdb_id]
 
     def count(self, state) -> int:
         """Count items with given state in container"""
