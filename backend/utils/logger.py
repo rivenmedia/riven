@@ -3,7 +3,6 @@ import datetime
 import logging
 import os
 import re
-import sys
 
 from utils import data_dir_path
 

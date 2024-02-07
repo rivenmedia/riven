@@ -1,13 +1,14 @@
 """Mdblist content module"""
 from time import time
-from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
+from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb
+from program.updaters.trakt import get_imdbid_from_tmdb
+from program.content.base import ContentServiceBase
 
 
-class Overseerr:
+class Overseerr(ContentServiceBase):
     """Content class for overseerr"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -17,10 +18,7 @@ class Overseerr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
-        self.updater = Trakt()
-        self.not_found_ids = []
-        self.next_run_time = 0
+        super().__init__(media_items)
         logger.info("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -53,13 +51,9 @@ class Overseerr:
         self.not_found_ids.clear()
         self.next_run_time = time() + self.settings.update_interval
         items = self._get_items_from_overseerr(10000)
-        new_items = [item for item in items if item not in self.media_items and item is not None]
-        if not new_items:
+        added_items = self.process_items(items, "Overseerr")
+        if not added_items:
             return
-        container = self.updater.create_items(new_items)
-        for item in container:
-            item.set("requested_by", "Overseerr")
-        added_items = self.media_items.extend(container)
         length = len(added_items)
         if length >= 1 and length <= 5:
             for item in added_items:
@@ -67,9 +61,9 @@ class Overseerr:
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
-            logger.warn("Failed to process %s items, skipping.", len(self.not_found_ids))
+            logger.debug("Failed to process %s items, skipping.", len(self.not_found_ids))
 
-    def _get_items_from_overseerr(self, amount: int) -> list[str]:
+    def _get_items_from_overseerr(self, amount: int) -> MediaItemContainer:
         """Fetch media from overseerr"""
         response = get(
             self.settings.url + f"/api/v1/request?take={amount}",

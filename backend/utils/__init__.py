@@ -1,4 +1,7 @@
 from pathlib import Path
-import os
 
-data_dir_path = Path(os.path.abspath(__file__)).parent.parent.parent / "data"
+
+root_dir = Path(__file__).resolve().parents[2]
+
+data_dir_path = root_dir / "data"
+version_file_path = root_dir / "VERSION"

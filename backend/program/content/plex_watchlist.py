@@ -5,10 +5,10 @@ from utils.request import get, ping
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt
+from program.content.base import ContentServiceBase
 
 
-class PlexWatchlist:
+class PlexWatchlist(ContentServiceBase):
     """Class for managing Plex Watchlists"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -19,10 +19,7 @@ class PlexWatchlist:
         if not self.initialized:
             return
         self.token = settings_manager.settings.plex.token
-        self.media_items = media_items
-        self.updater = Trakt()
-        self.not_found_ids = []
-        self.next_run_time = 0
+        super().__init__(media_items)
         logger.info("Plex Watchlist initialized!")
 
     def validate(self):
@@ -53,13 +50,9 @@ class PlexWatchlist:
         self.not_found_ids.clear()
         self.next_run_time = time() + self.settings.update_interval
         items = self._create_unique_list()
-        new_items = [item for item in items if item not in self.media_items and item is not None]
-        if not new_items:
+        added_items = self.process_items(items, "Plex Watchlist")
+        if not added_items:
             return
-        container = self.updater.create_items(new_items)
-        for item in container:
-            item.set("requested_by", "Plex Watchlist")
-        added_items = self.media_items.extend(container)
         length = len(added_items)
         if length >= 1 and length <= 5:
             for item in added_items:
@@ -67,9 +60,9 @@ class PlexWatchlist:
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
-            logger.warn("Failed to process %s items, skipping.", len(self.not_found_ids))
-
-    def _create_unique_list(self):
+            logger.debug("Failed to process %s items, skipping.", len(self.not_found_ids))
+ 
+    def _create_unique_list(self) -> MediaItemContainer:
         """Create a unique list of items from Plex RSS and Watchlist."""
         if not self.rss_enabled:
             return self._get_items_from_watchlist()

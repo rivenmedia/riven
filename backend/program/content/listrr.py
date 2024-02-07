@@ -1,14 +1,15 @@
 """Listrr content module"""
 from time import time
-from requests.exceptions import HTTPError
-from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
+from requests.exceptions import HTTPError
+from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt, get_imdbid_from_tmdb
+from program.updaters.trakt import get_imdbid_from_tmdb
+from program.content.base import ContentServiceBase
 
 
-class Listrr:
+class Listrr(ContentServiceBase):
     """Content class for Listrr"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -19,10 +20,7 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
-        self.updater = Trakt()
-        self.not_found_ids = []
-        self.next_run_time = 0
+        super().__init__(media_items)
         logger.info("Listrr initialized!")
 
     def validate(self) -> bool:
@@ -62,14 +60,10 @@ class Listrr:
         self.next_run_time = time() + self.settings.update_interval
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
-        items = set(movie_items + show_items)
-        new_items = [item for item in items if item not in self.media_items and item is not None]
-        if not new_items:
+        items = movie_items.extend(show_items)
+        added_items = self.process_items(items, "Listrr")
+        if not added_items:
             return
-        container = self.updater.create_items(new_items)
-        for item in container:
-            item.set("requested_by", "Listrr")
-        added_items = self.media_items.extend(container)
         length = len(added_items)
         if length >= 1 and length <= 5:
             for item in added_items:
@@ -77,9 +71,9 @@ class Listrr:
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
-            logger.warn("Failed to process %s items, skipping.", len(self.not_found_ids))
+            logger.debug("Failed to process %s items, skipping.", len(self.not_found_ids))
 
-    def _get_items_from_Listrr(self, content_type, content_lists):
+    def _get_items_from_Listrr(self, content_type, content_lists) -> MediaItemContainer:
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
         unique_ids = set()
         if not content_lists:
@@ -87,7 +81,7 @@ class Listrr:
 
         for list_id in content_lists:
             if not list_id or len(list_id) != 24:
-                continue  # Skip invalid list IDs
+                continue
 
             page, total_pages = 1, 1
             while page <= total_pages:

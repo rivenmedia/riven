@@ -164,7 +164,7 @@ def create_item_from_imdb_id(imdb_id: str):
         except UnboundLocalError:
             logger.error("Unknown item %s with response %s", imdb_id, response)
             return None
-    logger.error("Unable to create item from IMDb ID %s", imdb_id)
+    logger.error("Unable to create item from IMDb ID %s, skipping..", imdb_id)
     return None
 
 def get_imdbid_from_tvdb(tvdb_id: str) -> str:

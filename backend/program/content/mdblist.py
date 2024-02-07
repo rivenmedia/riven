@@ -1,13 +1,13 @@
 """Mdblist content module"""
 from time import time
-from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import RateLimitExceeded, RateLimiter, get, ping
+from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt
+from utils.request import RateLimitExceeded, RateLimiter, get, ping
+from program.content.base import ContentServiceBase
 
 
-class Mdblist:
+class Mdblist(ContentServiceBase):
     """Content class for mdblist"""
 
     def __init__(self, media_items: MediaItemContainer):
@@ -16,11 +16,9 @@ class Mdblist:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
-        self.updater = Trakt()
-        self.next_run_time = 0
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
+        super().__init__(media_items)
         logger.info("mdblist initialized")
 
     def validate(self):
@@ -47,17 +45,13 @@ class Mdblist:
         self.next_run_time = time() + self.settings.update_interval
         try:
             with self.rate_limiter:
-                items = []
+                items = MediaItemContainer()
                 for list_id in self.settings.lists:
                     if list_id:
-                        items += self._get_items_from_list(
-                            list_id, self.settings.api_key
-                        )
-                new_items = [item for item in items if item not in self.media_items and item is not None]
-                container = self.updater.create_items(new_items)
-                for item in container:
-                    item.set("requested_by", "Mdblist")
-                added_items = self.media_items.extend(container)
+                        items.extend(self._get_items_from_list(list_id, self.settings.api_key))
+                added_items = self.process_items(items, "Mdblist")
+                if not added_items:
+                    return
                 length = len(added_items)
                 if length >= 1 and length <= 5:
                     for item in added_items:

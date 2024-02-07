@@ -13,6 +13,7 @@ async def root():
     return {
         "success": True,
         "message": "Iceburg is running!",
+        "version": settings_manager.settings.version
     }
 
 
