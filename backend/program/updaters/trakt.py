@@ -142,7 +142,6 @@ def get_show(imdb_id: str):
 def create_item_from_imdb_id(imdb_id: str):
     """Wrapper for trakt.tv API search method"""
     if imdb_id is None:
-        logger.debug("Unable to create item from IMDb ID. No IMDb ID provided.")
         return None
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(
