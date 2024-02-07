@@ -42,7 +42,7 @@ class Torrentio:
     def run(self, item):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
-        if item is None or not self.initialized:
+        if item is None:
             return
         try:
             self._scrape_item(item)
