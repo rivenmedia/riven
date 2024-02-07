@@ -1,8 +1,7 @@
 data/
 logs/
 settings.json
-.vscode/*
-!.vscode/launch.json
+.vscode
 __pycache__
 .git
 docker-compose.yml

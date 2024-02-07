@@ -38,6 +38,8 @@ class Program(threading.Thread):
             self.pickly.start()
         self.core_manager = ServiceManager(self.media_items, True, Plex, Content, Scraping, Debrid, Symlinker)
         if self.validate():
+            if len(self.media_items) > 0:
+                logger.info("Your Plex Library has %s items.", len(self.media_items))
             logger.info("Iceberg started!")
         else:
             logger.info("----------------------------------------------")
