@@ -100,9 +100,12 @@ class Orionoid:
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
-            logger.debug("Could not find streams for %s", item.log_string)
+            if stream_count > 0:
+                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+            else:
+                logger.debug("No streams found for %s", item.log_string)
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""

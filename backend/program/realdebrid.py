@@ -1,8 +1,6 @@
 """Realdebrid module"""
-import os
-from pathlib import Path
 import time
-from typing import Optional
+from pathlib import Path
 from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
@@ -12,7 +10,6 @@ from utils.parser import parser
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
-
 
 class Debrid:
     """Real-Debrid API Wrapper"""
@@ -92,22 +89,11 @@ class Debrid:
         item.active_stream["name"] = info.filename
 
     def is_cached(self, item):
-        if len(item.streams) == 0:
+        if not item.streams:
             return
 
-        def chunks(lst, n):
-            for i in range(0, len(lst), n):
-                yield lst[i : i + n]
-
-        stream_chunks = list(chunks(list(item.streams), 5))
-
-        for stream_chunk in stream_chunks:
-            streams = "/".join(stream_chunk)
-            response = get(
-                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
-                additional_headers=self.auth_headers,
-                response_type=dict,
-            )
+        for stream_chunk in self._chunk_streams(item.streams, 40):
+            response = self._check_availability(stream_chunk)
             for stream_hash, provider_list in response.data.items():
                 if len(provider_list) == 0:
                     continue
@@ -127,7 +113,29 @@ class Debrid:
                             )
                             return True
                         item.streams[stream_hash] = None
+        # This loops pretty hard right now.. need to fix it
+        # if item.streams:
+        #     logger.debug("No cached streams for %s", item.log_string)
+        # else:
+        #     logger.debug("No streams found for %s", item.log_string)
         return False
+
+    def _chunk_streams(self, streams, chunk_size=40):
+        """Yield successive chunk_size chunks from streams, ensuring all items are strings and not None."""
+        chunk = []
+        filtered_streams = {k: v for k, v in streams.items() if k is not None and v is not None}
+        for stream_id in filtered_streams.keys():
+            chunk.append(stream_id)
+            if len(chunk) == chunk_size:
+                yield "/".join(chunk)
+                chunk = []
+        if chunk:
+            yield "/".join(chunk)
+
+    def _check_availability(self, stream_chunk):
+        """Check the availability of a chunk of streams."""
+        response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{stream_chunk}/", additional_headers=self.auth_headers, response_type=dict)
+        return response if response.is_ok else {}
 
     def _set_file_paths(self, item):
         if item.type == "movie":
