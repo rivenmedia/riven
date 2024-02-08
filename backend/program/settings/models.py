@@ -7,7 +7,7 @@ from utils import version_file_path
 class NotifyingBaseModel(BaseModel):
     class Config:
         arbitrary_types_allowed = True
-    
+
     # Assuming _notify_observers is a static method or class-level attribute
     _notify_observers = None
 
@@ -21,21 +21,27 @@ class NotifyingBaseModel(BaseModel):
         if self.__class__._notify_observers:
             self.__class__._notify_observers()
 
+
 class PlexModel(NotifyingBaseModel):
     token: str = ""
     url: str = "http://localhost:32400"
 
+
 class DebridModel(NotifyingBaseModel):
     api_key: str = ""
+
 
 class SymlinkModel(NotifyingBaseModel):
     rclone_path: Path = Path()
     library_path: Path = Path()
 
+
 # Content Services
+
 
 class ContentNotifyingBaseModel(NotifyingBaseModel):
     update_interval: int = 80
+
 
 class ListrrModel(ContentNotifyingBaseModel):
     enabled: bool = False
@@ -44,11 +50,13 @@ class ListrrModel(ContentNotifyingBaseModel):
     api_key: str = ""
     update_interval: int = 300
 
+
 class MdblistModel(ContentNotifyingBaseModel):
     enabled: bool = False
     api_key: str = ""
     lists: list[str] = [""]
     update_interval: int = 300
+
 
 class OverseerrModel(ContentNotifyingBaseModel):
     enabled: bool = False
@@ -56,10 +64,12 @@ class OverseerrModel(ContentNotifyingBaseModel):
     api_key: str = ""
     update_interval: int = 60
 
+
 class PlexWatchlistModel(ContentNotifyingBaseModel):
     enabled: bool = False
     rss: str = ""
     update_interval: int = 60
+
 
 class ContentModel(NotifyingBaseModel):
     listrr: ListrrModel = ListrrModel()
@@ -67,21 +77,26 @@ class ContentModel(NotifyingBaseModel):
     overseerr: OverseerrModel = OverseerrModel()
     plex_watchlist: PlexWatchlistModel = PlexWatchlistModel()
 
+
 # Scraper Services
+
 
 class JackettConfig(NotifyingBaseModel):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
 
+
 class OrionoidConfig(NotifyingBaseModel):
     enabled: bool = False
     api_key: str = ""
+
 
 class TorrentioConfig(NotifyingBaseModel):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://torrentio.strem.fun"
+
 
 class ScraperModel(NotifyingBaseModel):
     after_2: float = 2
@@ -91,17 +106,21 @@ class ScraperModel(NotifyingBaseModel):
     orionoid: OrionoidConfig = OrionoidConfig()
     torrentio: TorrentioConfig = TorrentioConfig()
 
+
 class ParserModel(NotifyingBaseModel):
     highest_quality: bool = False
     include_4k: bool = False
-    repack_proper:  bool = True
+    repack_proper: bool = True
     language: list[str] = ["English"]
 
+
 # Application Settings
+
 
 def get_version() -> str:
     with open(version_file_path.resolve()) as file:
         return file.read()
+
 
 class AppModel(NotifyingBaseModel):
     version: str = get_version()
@@ -112,4 +131,4 @@ class AppModel(NotifyingBaseModel):
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
-    parser:  ParserModel = ParserModel()
+    parser: ParserModel = ParserModel()

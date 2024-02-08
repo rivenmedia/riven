@@ -34,9 +34,7 @@ class Plex(threading.Thread):
 
         try:
             self.settings = settings_manager.settings.plex
-            self.plex = PlexServer(
-                self.settings.url, self.settings.token, timeout=60
-            )
+            self.plex = PlexServer(self.settings.url, self.settings.token, timeout=60)
         except Unauthorized:
             logger.error("Plex is not authorized!")
             return
@@ -65,7 +63,7 @@ class Plex(threading.Thread):
 
     def stop(self):
         self.running = False
-    
+
     def _get_last_fetch_time(self, section):
         return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
@@ -74,9 +72,13 @@ class Plex(threading.Thread):
         sections = self.plex.library.sections()
         processed_sections = set()
         max_workers = os.cpu_count() / 2
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Plex") as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="Plex"
+        ) as executor:
             for section in sections:
-                if section.key in processed_sections or not self._is_wanted_section(section):
+                if section.key in processed_sections or not self._is_wanted_section(
+                    section
+                ):
                     continue
                 if not section.refreshing:
                     # Fetch only items that have been added or updated since the last fetch
@@ -84,7 +86,12 @@ class Plex(threading.Thread):
                     filters = {"addedAt>>": last_fetch_time}
                     if init:
                         filters = {}
-                    future_items = {executor.submit(self._create_and_match_item, item) for item in section.search(libtype = section.type, filters=filters)}
+                    future_items = {
+                        executor.submit(self._create_and_match_item, item)
+                        for item in section.search(
+                            libtype=section.type, filters=filters
+                        )
+                    }
                     for future in concurrent.futures.as_completed(future_items):
                         media_item = future.result()
                         items.append(media_item)
@@ -113,8 +120,10 @@ class Plex(threading.Thread):
                 continue
 
             if self._update_section(section, item):
-                logger.debug("Updated section %s for %s", section.title, item.log_string)
-    
+                logger.debug(
+                    "Updated section %s for %s", section.title, item.log_string
+                )
+
     def _update_section(self, section, item):
         if item.state == Symlink and item.get("update_folder") != "updated":
             update_folder = item.update_folder
@@ -153,7 +162,7 @@ class Plex(threading.Thread):
         # Leaving this here as a reminder to not forget about deleting items that are removed from plex, needs to be revisited
         # if item.state is MediaItemState.LIBRARY and item not in found_items:
         #     self.media_items.remove(item)
-    
+
     def _update_item(self, item, library_item):
         items_updated = 0
         item.set("guid", library_item.guid)
@@ -162,9 +171,23 @@ class Plex(threading.Thread):
             for season in item.seasons:
                 for episode in season.episodes:
                     if episode.state != Library:
-                        found_season = next((s for s in library_item.seasons if s.number == season.number), None)
+                        found_season = next(
+                            (
+                                s
+                                for s in library_item.seasons
+                                if s.number == season.number
+                            ),
+                            None,
+                        )
                         if found_season:
-                            found_episode = next((e for e in found_season.episodes if e.number == episode.number), None)
+                            found_episode = next(
+                                (
+                                    e
+                                    for e in found_season.episodes
+                                    if e.number == episode.number
+                                ),
+                                None,
+                            )
                             if found_episode:
                                 episode.set("guid", found_episode.guid)
                                 episode.set("key", found_episode.key)
@@ -172,7 +195,9 @@ class Plex(threading.Thread):
         return items_updated
 
     def _is_wanted_section(self, section):
-        return any(self.library_path in location for location in section.locations) and section.type in ["movie", "show"]
+        return any(
+            self.library_path in location for location in section.locations
+        ) and section.type in ["movie", "show"]
 
 
 def _map_item_from_data(item):

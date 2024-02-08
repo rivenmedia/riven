@@ -49,7 +49,4 @@ async def get_imdb_info(request: Request, imdb_id: str):
     item = request.app.program.media_items.get_item_by_imdb_id(imdb_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    return {
-        "success": True,
-        "item": item.to_extended_dict()
-    }
+    return {"success": True, "item": item.to_extended_dict()}

@@ -32,11 +32,17 @@ class Updater:
 
         # This is to calculate 10% batch sizes to speed up the process
         batch_size = math.ceil(len(imdb_ids) * 0.1) or 1
-        imdb_id_batches = [imdb_ids[i:i + batch_size] for i in range(0, len(imdb_ids), batch_size)]
+        imdb_id_batches = [
+            imdb_ids[i : i + batch_size] for i in range(0, len(imdb_ids), batch_size)
+        ]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             for imdb_id_batch in imdb_id_batches:
-                future_items = {executor.submit(self._create_item, imdb_id): imdb_id for imdb_id in imdb_id_batch if imdb_id not in existing_imdb_ids or imdb_id is not None}
+                future_items = {
+                    executor.submit(self._create_item, imdb_id): imdb_id
+                    for imdb_id in imdb_id_batch
+                    if imdb_id not in existing_imdb_ids or imdb_id is not None
+                }
                 for future in concurrent.futures.as_completed(future_items):
                     item = future.result()
                     if item:
@@ -62,7 +68,9 @@ class Updater:
     def _create_item(self, imdb_id):
         item = create_item_from_imdb_id(imdb_id)
         if item is None:
-            logger.info(f"Removed request with IMDb ID {imdb_id}, unable to create item.")
+            logger.info(
+                f"Removed request with IMDb ID {imdb_id}, unable to create item."
+            )
             self.trakt_data.remove(imdb_id)
         if item and item.type == "show":
             seasons = get_show(imdb_id)
@@ -79,7 +87,11 @@ class Updater:
 def _map_item_from_data(data, item_type):
     """Map trakt.tv API data to MediaItemContainer"""
     if item_type not in ["movie", "show", "season", "episode"]:
-        logger.debug("Unknown item type %s for %s not found in list of acceptable objects", item_type, data.title)
+        logger.debug(
+            "Unknown item type %s for %s not found in list of acceptable objects",
+            item_type,
+            data.title,
+        )
         return None
     formatted_aired_at = None
     if getattr(data, "first_aired", None) and (
@@ -93,19 +105,23 @@ def _map_item_from_data(data, item_type):
         released_at = data.released
         formatted_aired_at = datetime.strptime(released_at, "%Y-%m-%d")
     item = {
-        "title": getattr(data, "title", None),              # 'Game of Thrones'
-        "year": getattr(data, "year", None),                # 2011
-        "status": getattr(data, "status", None),            # 'ended', 'released', 'returning series'
-        "aired_at": formatted_aired_at,                     # datetime.datetime(2011, 4, 17, 0, 0)
-        "imdb_id": getattr(data.ids, "imdb", None),         # 'tt0496424'
-        "tvdb_id": getattr(data.ids, "tvdb", None),         # 79488
-        "tmdb_id": getattr(data.ids, "tmdb", None),         # 1399
-        "genres": getattr(data, "genres", None),            # ['Action', 'Adventure', 'Drama', 'Fantasy']
-        "network": getattr(data, "network", None),          # 'HBO'
-        "country": getattr(data, "country", None),          # 'US'
-        "language": getattr(data, "language", None),        # 'en'
-        "requested_at": datetime.now(),                     # datetime.datetime(2021, 4, 17, 0, 0)
-        "is_anime": "anime" in getattr(data, "genres", [])
+        "title": getattr(data, "title", None),  # 'Game of Thrones'
+        "year": getattr(data, "year", None),  # 2011
+        "status": getattr(
+            data, "status", None
+        ),  # 'ended', 'released', 'returning series'
+        "aired_at": formatted_aired_at,  # datetime.datetime(2011, 4, 17, 0, 0)
+        "imdb_id": getattr(data.ids, "imdb", None),  # 'tt0496424'
+        "tvdb_id": getattr(data.ids, "tvdb", None),  # 79488
+        "tmdb_id": getattr(data.ids, "tmdb", None),  # 1399
+        "genres": getattr(
+            data, "genres", None
+        ),  # ['Action', 'Adventure', 'Drama', 'Fantasy']
+        "network": getattr(data, "network", None),  # 'HBO'
+        "country": getattr(data, "country", None),  # 'US'
+        "language": getattr(data, "language", None),  # 'en'
+        "requested_at": datetime.now(),  # datetime.datetime(2021, 4, 17, 0, 0)
+        "is_anime": "anime" in getattr(data, "genres", []),
     }
 
     match item_type:
@@ -127,6 +143,7 @@ def _map_item_from_data(data, item_type):
 
 # API METHODS
 
+
 def get_show(imdb_id: str):
     """Wrapper for trakt.tv API show method"""
     url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
@@ -138,6 +155,7 @@ def get_show(imdb_id: str):
         if response.data:
             return response.data
     return []
+
 
 def create_item_from_imdb_id(imdb_id: str):
     """Wrapper for trakt.tv API search method"""
@@ -166,6 +184,7 @@ def create_item_from_imdb_id(imdb_id: str):
             return None
     return None
 
+
 def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     """Get IMDb ID from TVDB ID in Trakt"""
     url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}?extended=full"
@@ -179,6 +198,7 @@ def get_imdbid_from_tvdb(tvdb_id: str) -> str:
         return response.data[0].show.ids.imdb
     return None
 
+
 def get_imdbid_from_tmdb(tmdb_id: str) -> str:
     """Get IMDb ID from TMDB ID in Trakt"""
     url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?extended=full"
@@ -187,5 +207,5 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> str:
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
     if response.is_ok and len(response.data) > 0:
-            return response.data[0].movie.ids.imdb
+        return response.data[0].movie.ids.imdb
     return None

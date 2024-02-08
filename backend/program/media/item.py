@@ -113,15 +113,17 @@ class MediaItem:
         dict["country"] = (self.country if hasattr(self, "country") else None,)
         dict["network"] = (self.network if hasattr(self, "network") else None,)
         dict["active_stream"] = (
-            self.active_stream if hasattr(self, "active_stream") else None
-        ,)
+            self.active_stream if hasattr(self, "active_stream") else None,
+        )
         dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None,)
         dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None,)
-        dict["parsed_data"] = (self.parsed_data if hasattr(self, "parsed_data") else None,)
+        dict["parsed_data"] = (
+            self.parsed_data if hasattr(self, "parsed_data") else None,
+        )
         dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None,)
         dict["update_folder"] = (
-            self.update_folder if hasattr(self, "update_folder") else None
-        ,)
+            self.update_folder if hasattr(self, "update_folder") else None,
+        )
         dict["file"] = (self.file if hasattr(self, "file") else None,)
         dict["folder"] = (self.folder if hasattr(self, "folder") else None,)
         return dict
@@ -143,6 +145,7 @@ class MediaItem:
         """Set item attribute"""
         _set_nested_attr(self, key, value)
 
+
 class Movie(MediaItem):
     """Movie class"""
 
@@ -153,10 +156,11 @@ class Movie(MediaItem):
 
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.__class__.__name__}"
-    
+
     @property
     def log_string(self):
         return self.title
+
 
 class Show(MediaItem):
     """Show class"""
@@ -192,7 +196,7 @@ class Show(MediaItem):
         """Add season to show"""
         self.seasons.append(season)
         season.parent = self
-    
+
     @property
     def log_string(self):
         return self.title
@@ -259,10 +263,16 @@ class Episode(MediaItem):
 
     def get_file_episodes(self):
         return parser.episodes(self.file)
-    
+
     @property
     def log_string(self):
-        return self.parent.parent.title + " S" + str(self.parent.number).zfill(2) + "E" + str(self.number).zfill(2)
+        return (
+            self.parent.parent.title
+            + " S"
+            + str(self.parent.number).zfill(2)
+            + "E"
+            + str(self.number).zfill(2)
+        )
 
 
 def _set_nested_attr(obj, key, value):

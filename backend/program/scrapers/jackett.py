@@ -18,7 +18,9 @@ class Jackett:
         if not self.initialized and not self.api_key:
             return
         self.parse_logging = False
-        self.minute_limiter = RateLimiter(max_calls=1000, period=3600, raise_on_limit=True)
+        self.minute_limiter = RateLimiter(
+            max_calls=1000, period=3600, raise_on_limit=True
+        )
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Jackett initialized!")
 
@@ -71,7 +73,12 @@ class Jackett:
             logger.debug("Jackett request exception: %s", e, exc_info=True)
             return
         except Exception as e:
-            logger.debug("Jackett exception for item: %s - Exception: %s", item.log_string, e.args[0], exc_info=True)
+            logger.debug(
+                "Jackett exception for item: %s - Exception: %s",
+                item.log_string,
+                e.args[0],
+                exc_info=True,
+            )
             logger.debug("Exception details: %s", traceback.format_exc())
             return
 
@@ -80,10 +87,19 @@ class Jackett:
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.debug(
+                "Found %s streams out of %s for %s",
+                len(data),
+                stream_count,
+                item.log_string,
+            )
         else:
             if stream_count > 0:
-                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+                logger.debug(
+                    "Could not find good streams for %s out of %s",
+                    item.log_string,
+                    stream_count,
+                )
             else:
                 logger.debug("No streams found for %s", item.log_string)
 
@@ -104,20 +120,32 @@ class Jackett:
             if response.is_ok:
                 data = {}
                 streams = response.data["rss"]["channel"].get("item", [])
-                parsed_data_list = [parser.parse(item, stream.get("title")) for stream in streams if type(stream) != str]
+                parsed_data_list = [
+                    parser.parse(item, stream.get("title"))
+                    for stream in streams
+                    if type(stream) != str
+                ]
                 for stream, parsed_data in zip(streams, parsed_data_list):
                     if type(stream) == str:
                         logger.debug("Found another string: %s", stream)
                         continue
-                    if parsed_data.get("fetch", True) and parsed_data.get("title_match", False):
+                    if parsed_data.get("fetch", True) and parsed_data.get(
+                        "title_match", False
+                    ):
                         attr = stream.get("torznab:attr", [])
-                        infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
+                        infohash_attr = next(
+                            (a for a in attr if a.get("@name") == "infohash"), None
+                        )
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
                             data[infohash] = {"name": stream.get("title")}
                 if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
-                        logger.debug("Jackett Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                        logger.debug(
+                            "Jackett Fetch: %s - Parsed item: %s",
+                            parsed_data["fetch"],
+                            parsed_data["string"],
+                        )
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     return data, len(streams)

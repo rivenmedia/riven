@@ -78,6 +78,7 @@ class Symlink(MediaItemState):
         else:
             library.update_item_section(self.context)
 
+
 class Library(MediaItemState):
     def perform_action(self, _):
         pass

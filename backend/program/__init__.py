@@ -24,8 +24,7 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         logger.configure_logger(
-            debug=settings_manager.settings.debug,
-            log=settings_manager.settings.log
+            debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
 
     def start(self):
@@ -36,7 +35,9 @@ class Program(threading.Thread):
         if not self.startup_args.dev:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
-        self.core_manager = ServiceManager(self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker)
+        self.core_manager = ServiceManager(
+            self.media_items, True, Content, Plex, Scraping, Debrid, Symlinker
+        )
         if self.validate():
             logger.info("Iceberg started!")
         else:

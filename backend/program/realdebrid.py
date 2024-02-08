@@ -11,6 +11,7 @@ from utils.parser import parser
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
+
 class Debrid:
     """Real-Debrid API Wrapper"""
 
@@ -59,7 +60,15 @@ class Debrid:
             if torrent.hash == item.active_stream.get("hash"):
                 info = self.get_torrent_info(torrent.id)
                 if item.type == "episode":
-                    if not any(file for file in info.files if file.selected == 1 and item.number in parser.episodes_in_season(item.parent.number, Path(file.path).name)):
+                    if not any(
+                        file
+                        for file in info.files
+                        if file.selected == 1
+                        and item.number
+                        in parser.episodes_in_season(
+                            item.parent.number, Path(file.path).name
+                        )
+                    ):
                         return False
 
                 item.set("active_stream.id", torrent.id)
@@ -100,16 +109,40 @@ class Debrid:
                 for containers in provider_list.values():
                     for container in containers:
                         wanted_files = {}
-                        if item.type == "movie" and all(file["filesize"] > 200000 for file in container.values()):
+                        if item.type == "movie" and all(
+                            file["filesize"] > 200000 for file in container.values()
+                        ):
                             wanted_files = container
-                        if item.type == "season" and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                        if item.type == "season" and all(
+                            any(
+                                episode.number
+                                in parser.episodes_in_season(
+                                    item.number, file["filename"]
+                                )
+                                for file in container.values()
+                            )
+                            for episode in item.episodes
+                        ):
                             wanted_files = container
-                        if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                        if item.type == "episode" and any(
+                            item.number
+                            in parser.episodes_in_season(
+                                item.parent.number, episode["filename"]
+                            )
+                            for episode in container.values()
+                        ):
                             wanted_files = container
-                        if len(wanted_files) > 0 and any(Path(item["filename"]).suffix in WANTED_FORMATS for item in wanted_files.values()):
+                        if len(wanted_files) > 0 and any(
+                            Path(item["filename"]).suffix in WANTED_FORMATS
+                            for item in wanted_files.values()
+                        ):
                             item.set(
                                 "active_stream",
-                                {"hash": stream_hash, "files": wanted_files, "id": None},
+                                {
+                                    "hash": stream_hash,
+                                    "files": wanted_files,
+                                    "id": None,
+                                },
                             )
                             return True
                         item.streams[stream_hash] = None
@@ -123,7 +156,9 @@ class Debrid:
     def _chunk_streams(self, streams, chunk_size=40):
         """Yield successive chunk_size chunks from streams, ensuring all items are strings and not None."""
         chunk = []
-        filtered_streams = {k: v for k, v in streams.items() if k is not None and v is not None}
+        filtered_streams = {
+            k: v for k, v in streams.items() if k is not None and v is not None
+        }
         for stream_id in filtered_streams.keys():
             chunk.append(stream_id)
             if len(chunk) == chunk_size:
@@ -134,7 +169,11 @@ class Debrid:
 
     def _check_availability(self, stream_chunk):
         """Check the availability of a chunk of streams."""
-        response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{stream_chunk}/", additional_headers=self.auth_headers, response_type=dict)
+        response = get(
+            f"{RD_BASE_URL}/torrents/instantAvailability/{stream_chunk}/",
+            additional_headers=self.auth_headers,
+            response_type=dict,
+        )
         return response if response.is_ok else {}
 
     def _set_file_paths(self, item):
@@ -148,7 +187,10 @@ class Debrid:
     def _handle_movie_paths(self, item):
         item.set("folder", item.active_stream.get("name"))
         item.set("alternative_folder", item.active_stream.get("alternative_name"))
-        item.set("file", next(file for file in item.active_stream.get("files").values())["filename"])
+        item.set(
+            "file",
+            next(file for file in item.active_stream.get("files").values())["filename"],
+        )
 
     def _handle_season_paths(self, season):
         for file in season.active_stream["files"].values():
@@ -158,12 +200,18 @@ class Debrid:
                         "folder", season.active_stream.get("name")
                     )
                     season.episodes[episode - 1].set(
-                        "alternative_folder", season.active_stream.get("alternative_name")
+                        "alternative_folder",
+                        season.active_stream.get("alternative_name"),
                     )
                     season.episodes[episode - 1].set("file", file["filename"])
 
     def _handle_episode_paths(self, episode):
-        file = next(file for file in episode.active_stream.get("files").values() if episode.number in parser.episodes_in_season(episode.parent.number, file["filename"]))
+        file = next(
+            file
+            for file in episode.active_stream.get("files").values()
+            if episode.number
+            in parser.episodes_in_season(episode.parent.number, file["filename"])
+        )
         episode.set("folder", episode.active_stream.get("name"))
         episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
         episode.set("file", file["filename"])

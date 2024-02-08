@@ -14,9 +14,8 @@ class ParserConfig(BaseModel):
 
 
 class Parser:
-    
     def __init__(self):
-        self.settings = settings_manager.settings.parser        
+        self.settings = settings_manager.settings.parser
         self.language = self.settings.language
         self.resolution = self.determine_resolution()
 
@@ -77,7 +76,7 @@ class Parser:
             "subtitles": parse.get("subtitles") == "Available",
             "language": parse.get("language", []),
             "remux": parse.get("remux", False),
-            "extended": parse.get("extended", False)
+            "extended": parse.get("extended", False),
         }
 
         # bandaid for now, this needs to be refactored to make less calls to _parse
@@ -106,7 +105,8 @@ class Parser:
         # Edit with caution. All have to match for the item to be fetched.
         # item_language = self._get_item_language(item)
         return (
-            parsed_data["resolution"] in self.resolution and
+            parsed_data["resolution"] in self.resolution
+            and
             # any(lang in parsed_data.get("language", item_language) for lang in self.language) and
             not parsed_data["is_unwanted_quality"]
         )
@@ -114,17 +114,19 @@ class Parser:
     def _is_highest_quality(self, parsed_data: dict) -> bool:
         """Check if content is `highest quality`."""
         return any(
-            parsed.get("resolution") in ["UHD", "2160p", "4K"] or
-            parsed.get("hdr", False) or
-            parsed.get("remux", False) or
-            parsed.get("upscaled", False)
+            parsed.get("resolution") in ["UHD", "2160p", "4K"]
+            or parsed.get("hdr", False)
+            or parsed.get("remux", False)
+            or parsed.get("upscaled", False)
             for parsed in parsed_data
         )
 
     def _is_dual_audio(self, string) -> bool:
         """Check if any content in parsed_data has dual audio."""
         dual_audio_patterns = [
-            re.compile(r"\bmulti(?:ple)?[ .-]*(?:lang(?:uages?)?|audio|VF2)?\b", re.IGNORECASE),
+            re.compile(
+                r"\bmulti(?:ple)?[ .-]*(?:lang(?:uages?)?|audio|VF2)?\b", re.IGNORECASE
+            ),
             re.compile(r"\btri(?:ple)?[ .-]*(?:audio|dub\w*)\b", re.IGNORECASE),
             re.compile(r"\bdual[ .-]*(?:au?$|[aá]udio|line)\b", re.IGNORECASE),
             re.compile(r"\bdual\b(?![ .-]*sub)", re.IGNORECASE),
@@ -140,14 +142,29 @@ class Parser:
         """Check if string is a `complete series`."""
         # Can be used on either movie or show item types
         series_patterns = [
-            re.compile(r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b", re.IGNORECASE),
-            re.compile(r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bmini[ .-]?series\b", re.IGNORECASE),
-            re.compile(r"(?:\bthe\W)?(?:\bcomplete|full|all)\b.*\b(?:series|seasons|collection|episodes|set|pack|movies)\b", re.IGNORECASE),
-            re.compile(r"\b(?:series|seasons|movies?)\b.*\b(?:complete|collection)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bmini[ .-]?series\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(?:\bthe\W)?(?:\bcomplete|full|all)\b.*\b(?:series|seasons|collection|episodes|set|pack|movies)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:series|seasons|movies?)\b.*\b(?:complete|collection)\b",
+                re.IGNORECASE,
+            ),
             re.compile(r"(?:\bthe\W)?\bultimate\b[ .]\bcollection\b", re.IGNORECASE),
             re.compile(r"\bcollection\b.*\b(?:set|pack|movies)\b", re.IGNORECASE),
             re.compile(r"\bcollection\b", re.IGNORECASE),
-            re.compile(r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga", re.IGNORECASE)
+            re.compile(
+                r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga",
+                re.IGNORECASE,
+            ),
         ]
         return any(pattern.search(string) for pattern in series_patterns)
 
@@ -155,7 +172,9 @@ class Parser:
     def _is_unwanted_quality(string) -> bool:
         """Check if string has an 'unwanted' quality. Default to False."""
         unwanted_patterns = [
-            re.compile(r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b", re.IGNORECASE),
+            re.compile(
+                r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b", re.IGNORECASE
+            ),
             re.compile(r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b", re.IGNORECASE),
             re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?S(?:YNC)?(?:Rip)?\b", re.IGNORECASE),
             re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?C(?:INE)?(?:Rip)?\b", re.IGNORECASE),

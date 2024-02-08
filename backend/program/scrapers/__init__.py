@@ -37,7 +37,7 @@ class Scraping:
         return item.aired_at is not None and item.aired_at < datetime.now()
 
     def _needs_new_scrape(self, item) -> bool:
-        scrape_time = 5 # 5 seconds by default
+        scrape_time = 5  # 5 seconds by default
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = self.settings.after_2 * 60 * 60
@@ -47,7 +47,5 @@ class Scraping:
             scrape_time = self.settings.after_10 * 60 * 60
 
         return (
-            (datetime.now() - item.scraped_at).total_seconds()
-            > scrape_time
-            or item.scraped_times == 0
-        )
+            datetime.now() - item.scraped_at
+        ).total_seconds() > scrape_time or item.scraped_times == 0

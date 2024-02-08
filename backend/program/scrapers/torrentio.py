@@ -13,7 +13,9 @@ class Torrentio:
     def __init__(self, _):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
-        self.minute_limiter = RateLimiter(max_calls=300, period=3600, raise_on_limit=True)
+        self.minute_limiter = RateLimiter(
+            max_calls=300, period=3600, raise_on_limit=True
+        )
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate()
         if not self.initialized:
@@ -71,10 +73,19 @@ class Torrentio:
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.debug(
+                "Found %s streams out of %s for %s",
+                len(data),
+                stream_count,
+                item.log_string,
+            )
         else:
             if stream_count > 0:
-                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+                logger.debug(
+                    "Could not find good streams for %s out of %s",
+                    item.log_string,
+                    stream_count,
+                )
             else:
                 logger.debug("No streams found for %s", item.log_string)
 
@@ -104,16 +115,26 @@ class Torrentio:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
             if response.is_ok and len(response.data.streams) > 0:
                 parsed_data_list = [
-                    parser.parse(item, stream.title.split("\n👤")[0].split("\n")[0]) for stream in response.data.streams
+                    parser.parse(item, stream.title.split("\n👤")[0].split("\n")[0])
+                    for stream in response.data.streams
                 ]
                 data = {
-                    stream.infoHash: {"name": stream.title.split("\n👤")[0].split("\n")[0]}
-                    for stream, parsed_data in zip(response.data.streams, parsed_data_list)
-                    if parsed_data.get("fetch", False) and parsed_data.get("string", False)
+                    stream.infoHash: {
+                        "name": stream.title.split("\n👤")[0].split("\n")[0]
+                    }
+                    for stream, parsed_data in zip(
+                        response.data.streams, parsed_data_list
+                    )
+                    if parsed_data.get("fetch", False)
+                    and parsed_data.get("string", False)
                 }
                 if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
-                        logger.debug("Torrentio Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                        logger.debug(
+                            "Torrentio Fetch: %s - Parsed item: %s",
+                            parsed_data["fetch"],
+                            parsed_data["string"],
+                        )
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     return data, len(response.data.streams)

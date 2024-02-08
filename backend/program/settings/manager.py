@@ -38,21 +38,24 @@ class SettingsManager(Observable):
                     settings_dict = json.loads(file.read())
             self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
-            logger.error(f"Error loading settings: {e}, initializing with default settings")
+            logger.error(
+                f"Error loading settings: {e}, initializing with default settings"
+            )
             raise
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing settings file: {e}, initializing with default settings")
+            logger.error(
+                f"Error parsing settings file: {e}, initializing with default settings"
+            )
             raise
         except FileNotFoundError as e:
             logger.error(f"Error loading settings: {self.settings_file} does not exist")
             raise
         self.notify_observers()
-        
+
     def save(self):
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4))
-            
 
 
 settings_manager = SettingsManager()

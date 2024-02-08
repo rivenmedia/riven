@@ -36,4 +36,3 @@ class Pickly(threading.Thread):
                 if not self.running:
                     break
                 time.sleep(i)
-

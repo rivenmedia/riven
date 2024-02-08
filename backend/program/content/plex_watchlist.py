@@ -34,9 +34,13 @@ class PlexWatchlist(ContentServiceBase):
                 return True
             except HTTPError as e:
                 if e.response.status_code == 404:
-                    logger.warn("Plex RSS URL is Not Found. Please check your RSS URL in settings.")
+                    logger.warn(
+                        "Plex RSS URL is Not Found. Please check your RSS URL in settings."
+                    )
                 else:
-                    logger.warn(f"Plex RSS URL is not reachable (HTTP status code: {e.response.status_code}). Falling back to using user Watchlist.")
+                    logger.warn(
+                        f"Plex RSS URL is not reachable (HTTP status code: {e.response.status_code}). Falling back to using user Watchlist."
+                    )
                 return True
             except Exception as e:
                 logger.exception(f"Failed to validate Plex RSS URL: {e}")
@@ -64,8 +68,10 @@ class PlexWatchlist(ContentServiceBase):
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
-            logger.debug("Failed to process %s items, skipping.", len(self.not_found_ids))
- 
+            logger.debug(
+                "Failed to process %s items, skipping.", len(self.not_found_ids)
+            )
+
     def _create_unique_list(self) -> MediaItemContainer:
         """Create a unique list of items from Plex RSS and Watchlist."""
         if not self.rss_enabled:
@@ -80,7 +86,9 @@ class PlexWatchlist(ContentServiceBase):
         try:
             response = get(self.settings.rss, timeout=60)
             if not response.is_ok:
-                logger.error(f"Failed to fetch Plex RSS feed: HTTP {response.status_code}")
+                logger.error(
+                    f"Failed to fetch Plex RSS feed: HTTP {response.status_code}"
+                )
                 return []
             imdb_ids = [
                 guid.split("//")[-1]
@@ -90,7 +98,9 @@ class PlexWatchlist(ContentServiceBase):
             ]
             return imdb_ids
         except Exception as e:
-            logger.error(f"An unexpected error occurred while fetching Plex RSS feed: {e}")
+            logger.error(
+                f"An unexpected error occurred while fetching Plex RSS feed: {e}"
+            )
             return []
 
     def _get_items_from_watchlist(self) -> list:
@@ -99,14 +109,27 @@ class PlexWatchlist(ContentServiceBase):
         url = f"https://metadata.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token={self.token}&{filter_params}"
         response = get(url)
         if response.is_ok and hasattr(response.data, "MediaContainer"):
-            valid_items = filter(lambda item: hasattr(item, 'ratingKey') and item.ratingKey, response.data.MediaContainer.Metadata)
-            imdb_ids = list(filter(None, map(lambda item: self._ratingkey_to_imdbid(item.ratingKey), valid_items)))
+            valid_items = filter(
+                lambda item: hasattr(item, "ratingKey") and item.ratingKey,
+                response.data.MediaContainer.Metadata,
+            )
+            imdb_ids = list(
+                filter(
+                    None,
+                    map(
+                        lambda item: self._ratingkey_to_imdbid(item.ratingKey),
+                        valid_items,
+                    ),
+                )
+            )
             return imdb_ids
         return []
 
     def _ratingkey_to_imdbid(self, ratingKey: str) -> str:
         """Convert Plex rating key to IMDb ID"""
-        filter_params = "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
+        filter_params = (
+            "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
+        )
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={self.token}&{filter_params}"
         response = get(url)
         if response.is_ok and hasattr(response.data, "MediaContainer"):

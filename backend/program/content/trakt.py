@@ -33,7 +33,9 @@ class Trakt:
             return
         self.next_run_time = time() + self.settings.update_interval
         watchlist_items = self._get_items_from_trakt_watchlist(self.settings.watchlist)
-        collection_items = self._get_items_from_trakt_collections(self.settings.collection)
+        collection_items = self._get_items_from_trakt_collections(
+            self.settings.collection
+        )
         user_list_items = self._get_items_from_trakt_list(self.settings.user_lists)
         items = list(set(watchlist_items + collection_items + user_list_items))
         new_items = [item for item in items if item not in self.media_items]

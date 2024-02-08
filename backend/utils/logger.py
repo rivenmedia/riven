@@ -6,6 +6,7 @@ import re
 
 from utils import data_dir_path
 
+
 class RedactSensitiveInfo(logging.Filter):
     """logging filter to redact sensitive info"""
 
@@ -85,7 +86,6 @@ class Logger(logging.Logger):
 
         # Configure file handler
         if log and not self.file_handler:
-
             # Only add a new file handler if it hasn't been added before
             file_handler = logging.FileHandler(
                 self.logs_dir_path / self.filename, encoding="utf-8"
@@ -93,10 +93,13 @@ class Logger(logging.Logger):
             file_handler.setLevel(log_level)
             file_handler.setFormatter(self.formatter)
             self.addHandler(file_handler)
-            self.file_handler = file_handler  # Keep a reference to avoid adding it again
+            self.file_handler = (
+                file_handler  # Keep a reference to avoid adding it again
+            )
         elif not log and self.file_handler:
             # If logging to file is disabled but the handler exists, remove it
             self.removeHandler(self.file_handler)
             self.file_handler = None
+
 
 logger = Logger()

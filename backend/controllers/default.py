@@ -13,7 +13,7 @@ async def root():
     return {
         "success": True,
         "message": "Iceburg is running!",
-        "version": settings_manager.settings.version
+        "version": settings_manager.settings.version,
     }
 
 
@@ -50,7 +50,4 @@ async def get_services(request: Request):
             if getattr(service, "sm", False):
                 for sub_service in service.sm.services:
                     data[sub_service.key] = sub_service.initialized
-    return {
-        "success": True,
-        "data": data
-    }
+    return {"success": True, "data": data}

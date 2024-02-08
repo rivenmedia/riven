@@ -27,7 +27,9 @@ class Orionoid:
         self.parse_logging = False
         self.max_calls = 100 if not self.is_premium else 1000
         self.period = 86400 if not self.is_premium else 3600
-        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period, raise_on_limit=True)
+        self.minute_limiter = RateLimiter(
+            max_calls=self.max_calls, period=self.period, raise_on_limit=True
+        )
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.info("Orionoid initialized!")
 
@@ -37,17 +39,23 @@ class Orionoid:
             logger.debug("Orionoid is set to disabled.")
             return False
         if len(self.settings.api_key) != 32 or self.settings.api_key == "":
-            logger.error("Orionoid API Key is not valid or not set. Please check your settings.")
+            logger.error(
+                "Orionoid API Key is not valid or not set. Please check your settings."
+            )
             return False
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = get(url, retry_if_failed=False)
             if response.is_ok and hasattr(response.data, "result"):
                 if not response.data.result.status == "success":
-                    logger.error(f"Orionoid API Key is invalid. Status: {response.data.result.status}")
+                    logger.error(
+                        f"Orionoid API Key is invalid. Status: {response.data.result.status}"
+                    )
                     return False
                 if not response.is_ok:
-                    logger.error(f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}")
+                    logger.error(
+                        f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}"
+                    )
                     return False
             return True
         except Exception as e:
@@ -93,17 +101,28 @@ class Orionoid:
             return
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.exception("Orionoid exception for item: %s - Exception: %s", item.log_string, e)
+            logger.exception(
+                "Orionoid exception for item: %s - Exception: %s", item.log_string, e
+            )
             return
 
     def _scrape_item(self, item):
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.debug(
+                "Found %s streams out of %s for %s",
+                len(data),
+                stream_count,
+                item.log_string,
+            )
         else:
             if stream_count > 0:
-                logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+                logger.debug(
+                    "Could not find good streams for %s out of %s",
+                    item.log_string,
+                    stream_count,
+                )
             else:
                 logger.debug("No streams found for %s", item.log_string)
 
@@ -149,7 +168,6 @@ class Orionoid:
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
             if response.is_ok and hasattr(response.data, "data"):
-
                 # Check and log Orionoid API limits
                 # self.orionoid_limit = response.data.data.requests.daily.limit
                 # self.orionoid_remaining = response.data.data.requests.daily.remaining
@@ -163,12 +181,18 @@ class Orionoid:
                 ]
                 data = {
                     stream.file.hash: {"name": stream.file.name}
-                    for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
+                    for stream, parsed_data in zip(
+                        response.data.data.streams, parsed_data_list
+                    )
                     if parsed_data["fetch"]
                 }
                 if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
-                        logger.debug("Orionoid Fetch: %s - Parsed item: %s", parsed_data["fetch"], parsed_data["string"])
+                        logger.debug(
+                            "Orionoid Fetch: %s - Parsed item: %s",
+                            parsed_data["fetch"],
+                            parsed_data["string"],
+                        )
                 if data:
                     item.parsed_data.extend(parsed_data_list)
                     return data, len(response.data.data.streams)

@@ -48,7 +48,9 @@ class Mdblist(ContentServiceBase):
                 items = MediaItemContainer()
                 for list_id in self.settings.lists:
                     if list_id:
-                        items.extend(self._get_items_from_list(list_id, self.settings.api_key))
+                        items.extend(
+                            self._get_items_from_list(list_id, self.settings.api_key)
+                        )
                 added_items = self.process_items(items, "Mdblist")
                 if not added_items:
                     return

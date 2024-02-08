@@ -32,8 +32,10 @@ class Listrr(ContentServiceBase):
             logger.error("Listrr api key is not set or invalid.")
             return False
         valid_list_found = False
-        for list_name, content_list in [('movie_lists', self.settings.movie_lists), 
-                                        ('show_lists', self.settings.show_lists)]:
+        for list_name, content_list in [
+            ("movie_lists", self.settings.movie_lists),
+            ("show_lists", self.settings.show_lists),
+        ]:
             if content_list is None or not any(content_list):
                 continue
             for item in content_list:
@@ -46,7 +48,9 @@ class Listrr(ContentServiceBase):
         try:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
-                logger.error(f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}")
+                logger.error(
+                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
+                )
             return response.ok
         except Exception as e:
             logger.error(f"Listrr ping exception: {e}")
@@ -71,7 +75,9 @@ class Listrr(ContentServiceBase):
         elif length > 5:
             logger.info("Added %s items", length)
         if self.not_found_ids:
-            logger.debug("Failed to process %s items, skipping.", len(self.not_found_ids))
+            logger.debug(
+                "Failed to process %s items, skipping.", len(self.not_found_ids)
+            )
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> MediaItemContainer:
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
@@ -89,17 +95,17 @@ class Listrr(ContentServiceBase):
                     url = f"{self.url}/List/{content_type}/{list_id}/ReleaseDate/Descending/{page}"
                     response = get(url, additional_headers=self.headers).response
                     data = response.json()
-                    total_pages = data.get('pages', 1)
-                    for item in data.get('items', []):
-                        imdb_id = item.get('imDbId')
+                    total_pages = data.get("pages", 1)
+                    for item in data.get("items", []):
+                        imdb_id = item.get("imDbId")
                         if imdb_id:
                             unique_ids.add(imdb_id)
-                        elif content_type == "Movies" and item.get('tmDbId'):
-                            imdb_id = get_imdbid_from_tmdb(item['tmDbId'])
+                        elif content_type == "Movies" and item.get("tmDbId"):
+                            imdb_id = get_imdbid_from_tmdb(item["tmDbId"])
                             if imdb_id:
                                 unique_ids.add(imdb_id)
                         else:
-                            self.not_found_ids.append(item['id'])
+                            self.not_found_ids.append(item["id"])
                 except HTTPError as e:
                     if e.response.status_code in [400, 404, 429, 500]:
                         break

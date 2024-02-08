@@ -31,7 +31,11 @@ class ServiceManager:
 
         # Start the services
         for service in services:
-            if Thread in service.__class__.__bases__ and service.initialized and not service.running:
+            if (
+                Thread in service.__class__.__bases__
+                and service.initialized
+                and not service.running
+            ):
                 service.start()
 
     def update_settings(self, new_settings):
