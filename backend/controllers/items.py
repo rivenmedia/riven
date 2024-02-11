@@ -38,6 +38,7 @@ async def get_extended_item_info(request: Request, item_id: str):
 @router.delete("/remove/{item}")
 async def remove_item(request: Request, item: str):
     request.app.program.media_items.remove(item)
+    request.app.program.content.overseerr.delete_request(item)
     return {
         "success": True,
         "message": f"Removed {item}",

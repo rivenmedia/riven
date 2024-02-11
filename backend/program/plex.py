@@ -3,7 +3,6 @@ import concurrent.futures
 import os
 import threading
 import time
-import uuid
 from datetime import datetime
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
@@ -11,7 +10,6 @@ from utils.logger import logger
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
 from program.media.state import Symlink, Library
-from utils.request import get, post
 from program.media.item import (
     Movie,
     Show,

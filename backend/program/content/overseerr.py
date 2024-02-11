@@ -1,7 +1,7 @@
 """Mdblist content module"""
 from time import time
 from utils.logger import logger
-from utils.request import get, ping
+from utils.request import delete, get, ping
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import get_imdbid_from_tmdb
@@ -82,21 +82,21 @@ class Overseerr(ContentServiceBase):
                     ids.append(item.media.imdbId)
         return ids
 
-    def get_imdb_id(self, overseerr_item) -> str:
+    def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
-        if overseerr_item.mediaType == "show":
-            external_id = overseerr_item.tvdbId
-            overseerr_item.mediaType = "tv"
+        if data.mediaType == "show":
+            external_id = data.tvdbId
+            data.mediaType = "tv"
             id_extension = "tvdb-"
         else:
-            external_id = overseerr_item.tmdbId
+            external_id = data.tmdbId
             id_extension = "tmdb-"
 
         if f"{id_extension}{external_id}" in self.not_found_ids:
             return None
         response = get(
             self.settings.url
-            + f"/api/v1/{overseerr_item.mediaType}/{external_id}?language=en",
+            + f"/api/v1/{data.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
         if not response.is_ok or not hasattr(response.data, "externalIds"):
@@ -128,3 +128,13 @@ class Overseerr(ContentServiceBase):
         self.not_found_ids.append(f"{id_extension}{external_id}")
         logger.debug(f"Could not get imdbId for {title}, or match with external id")
         return None
+
+    def delete_request(self, request_id: int) -> bool:
+        """Delete request from `Overseerr`"""
+        response = delete(
+            self.settings.url + f"/api/v1/request/{request_id}",
+            additional_headers=self.headers,
+        )
+        if response.is_ok:
+            logger.info(f"Deleted request {request_id} from overseerr")
+            return {"success": True, "message": f"Deleted request {request_id}"}

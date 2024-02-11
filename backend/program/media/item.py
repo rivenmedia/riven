@@ -28,7 +28,6 @@ class MediaItem:
         self.file = None
         self.folder = None
         self.is_anime = item.get("is_anime", False)
-        self.parsed = False
         self.parsed_data = item.get("parsed_data", [])
 
         # Media related
@@ -60,23 +59,41 @@ class MediaItem:
         _state.set_context(self)
         return _state
 
+    # def _determine_state(self):
+    #     if self.key or self.update_folder == "updated":
+    #         return Library()
+    #     if self.symlinked:
+    #         return Symlink()
+    #     if self.file and self.folder:
+    #         return Download()
+    #     if len(self.streams) > 0:
+    #         return Scrape()
+    #     if self.title:
+    #         return Content()
+    #     return Unknown()
+
     def _determine_state(self):
         if self.key or self.update_folder == "updated":
             return Library()
-        if self.symlinked:
+        elif self.symlinked:
             return Symlink()
-        if self.file and self.folder:
+        elif self.file and self.folder:
             return Download()
-        if len(self.streams) > 0:
-            return Scrape()
-        if self.title:
+        elif self.is_scraped() and self.is_checked_for_availability():
+            if any(stream.get('cached') for stream in self.streams.values()):
+                return Scrape()
+            else:
+                return Content()
+        elif self.title:
             return Content()
-        return Unknown()
+        else:
+            return Unknown()
 
     def is_scraped(self):
         return len(self.streams) > 0
 
     def is_checked_for_availability(self):
+        """Check if item has been checked for availability."""
         if self.streams:
             return all(
                 stream.get("cached", None) is not None
@@ -85,6 +102,7 @@ class MediaItem:
         return False
 
     def to_dict(self):
+        """Convert item to dictionary (API response)"""
         return {
             "item_id": self.itemid,
             "title": self.title,
@@ -104,6 +122,7 @@ class MediaItem:
         }
 
     def to_extended_dict(self):
+        """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
         if self.type == "show":
             dict["seasons"] = [season.to_extended_dict() for season in self.seasons]

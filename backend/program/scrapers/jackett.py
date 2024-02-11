@@ -1,5 +1,4 @@
 """ Jackett scraper module """
-import traceback
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from program.settings.manager import settings_manager
@@ -21,7 +20,7 @@ class Jackett:
         self.minute_limiter = RateLimiter(
             max_calls=1000, period=3600, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
         logger.info("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -65,21 +64,15 @@ class Jackett:
             return
         try:
             self._scrape_item(item)
-        except RateLimitExceeded as e:
+        except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
             return
         except RequestException as e:
-            logger.debug("Jackett request exception: %s", e, exc_info=True)
+            logger.debug("Jackett request exception: %s", e)
             return
         except Exception as e:
-            logger.debug(
-                "Jackett exception for item: %s - Exception: %s",
-                item.log_string,
-                e.args[0],
-                exc_info=True,
-            )
-            logger.debug("Exception details: %s", traceback.format_exc())
+            logger.error("Jackett failed to scrape item: %s", e)
             return
 
     def _scrape_item(self, item):
@@ -109,12 +102,12 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                query = f"&cat=2000,2010,2020,2030,2040,2045,2050,2080&t=movie&q={item.title}&year{item.aired_at.year}"
+                query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
             if item.type == "season":
-                query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.title}&season={item.number}"
+                query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
             if item.type == "episode":
-                query = f"&cat=5000,5010,5020,5030,5040,5045,5050,5060,5070,5080&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
-            url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}{query}"
+                query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
+            url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
             if response.is_ok:
@@ -123,12 +116,9 @@ class Jackett:
                 parsed_data_list = [
                     parser.parse(item, stream.get("title"))
                     for stream in streams
-                    if type(stream) != str
+                    if not isinstance(stream, str)
                 ]
                 for stream, parsed_data in zip(streams, parsed_data_list):
-                    if type(stream) == str:
-                        logger.debug("Found another string: %s", stream)
-                        continue
                     if parsed_data.get("fetch", True) and parsed_data.get(
                         "title_match", False
                     ):
@@ -138,7 +128,10 @@ class Jackett:
                         )
                         if infohash_attr:
                             infohash = infohash_attr.get("@value")
-                            data[infohash] = {"name": stream.get("title")}
+                            data[infohash] = {
+                                "name": stream.get("title"),
+                                "cached": None
+                            }
                 if self.parse_logging:  # For debugging parser large data sets
                     for parsed_data in parsed_data_list:
                         logger.debug(

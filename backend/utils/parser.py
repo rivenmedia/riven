@@ -40,7 +40,7 @@ class Parser:
         episodes = []
         if parse.get("episode", False):
             episode = parse.get("episode")
-            if type(episode) == list:
+            if isinstance(episode, list):
                 for sub_episode in episode:
                     episodes.append(int(sub_episode))
             else:
@@ -242,6 +242,21 @@ class Parser:
 #         return points
 #     sorted_streams = sorted(streams.items(), key=sorting_key, reverse=True)
 #     return dict(sorted_streams)
+
+
+# class ParserCleanup:
+#     """Cleanup the parsed data after scraping"""
+#     def __init__(self, item: MediaItem):
+#         self.item = item
+
+#     def __enter__(self):
+#         return self
+
+#     def __exit__(self, exc_type, exc_val, exc_tb):
+#         if hasattr(self.item, 'parsed_data') and len(self.item.parsed_data) > 0:
+#             cleaned_data = {k: v for k, v in self.item.parsed_data.items() if k is not None and v is not None}
+#             self.item.parsed_data = cleaned_data
+#         return False
 
 
 parser = Parser()

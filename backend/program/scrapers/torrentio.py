@@ -16,7 +16,7 @@ class Torrentio:
         self.minute_limiter = RateLimiter(
             max_calls=300, period=3600, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -32,7 +32,7 @@ class Torrentio:
             logger.error("Torrentio URL is not configured and will not be used.")
             return False
         try:
-            url = f"{self.settings.url}/{self.settings.filter}/stream/movie/tt0068646.json"
+            url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
             response = ping(url=url, timeout=10)
             if response.ok:
                 return True
@@ -120,7 +120,8 @@ class Torrentio:
                 ]
                 data = {
                     stream.infoHash: {
-                        "name": stream.title.split("\n👤")[0].split("\n")[0]
+                        "name": stream.title.split("\n👤")[0].split("\n")[0],
+                        "cached": None
                     }
                     for stream, parsed_data in zip(
                         response.data.streams, parsed_data_list

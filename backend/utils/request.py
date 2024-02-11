@@ -38,7 +38,7 @@ class ResponseObject:
             # Cloudflare error from Torrentio
             raise requests.exceptions.ConnectTimeout(response.content)
         if self.status_code not in [200, 201, 204]:
-            if self.status_code in [404, 429, 509]:
+            if self.status_code in [404, 429, 502, 509]:
                 raise requests.exceptions.RequestException(response.content)
             return {}
         if len(response.content) > 0:
@@ -159,6 +159,22 @@ def put(
         retry_if_failed=retry_if_failed,
     )
 
+def delete(
+    url: str,
+    timeout=10,
+    data=None,
+    additional_headers=None,
+    retry_if_failed=False,
+) -> ResponseObject:
+    """Requests delete wrapper"""
+    return _make_request(
+        "DELETE",
+        url,
+        data=data,
+        timeout=timeout,
+        additional_headers=additional_headers,
+        retry_if_failed=retry_if_failed,
+    )
 
 def _xml_to_simplenamespace(xml_string):
     root = etree.fromstring(xml_string)
@@ -176,10 +192,6 @@ def _xml_to_simplenamespace(xml_string):
 
 class RateLimitExceeded(Exception):
     pass
-
-
-import time
-from threading import Lock
 
 
 class RateLimiter:

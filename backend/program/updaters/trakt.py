@@ -72,6 +72,8 @@ class Updater:
                 f"Removed request with IMDb ID {imdb_id}, unable to create item."
             )
             self.trakt_data.remove(imdb_id)
+            self.trakt_data.save(self.pkl_file)
+            return None
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:

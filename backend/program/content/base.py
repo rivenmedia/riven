@@ -1,3 +1,4 @@
+from utils.logger import logger
 from program.media.item import MediaItem
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import Updater as Trakt
@@ -26,14 +27,21 @@ class ContentServiceBase:
         self, items: MediaItemContainer, requested_by: str
     ) -> MediaItemContainer:
         """Process fetched media items and log the results."""
-        new_items = [item for item in items if self.is_valid_item(item)]
+        new_items = [item for item in items if self.is_valid_item(item) and item is not None]
         if not new_items:
             return
         container = self.updater.create_items(new_items)
         added_items = self.media_items.extend(container)
         for item in added_items:
-            if hasattr(item, "set"):
+            try:
                 item.set("requested_by", requested_by)
+            except AttributeError:
+                logger.debug("Missing set method for %s, removing..", item.log_string)
+                # Implement blacklist or something here.
+                # for not just delete.. since we werent able to create an item for it.
+                added_items.remove(item)
+                self.media_items.remove(item)
+                self.media_items.save()
         return added_items
 
     def is_valid_item(self, item: MediaItem) -> bool:

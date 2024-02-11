@@ -1,4 +1,5 @@
 """ Orionoid scraper module """
+from datetime import datetime
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -16,6 +17,7 @@ class Orionoid:
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
+        self.is_unlimited = False
         self.initialized = False
         if self.validate():
             self.is_premium = self.check_premium()
@@ -23,14 +25,14 @@ class Orionoid:
         else:
             return
         self.orionoid_limit = 0
-        self.orionoid_remaining = 0
+        self.orionoid_expiration = datetime.now()
         self.parse_logging = False
         self.max_calls = 100 if not self.is_premium else 1000
         self.period = 86400 if not self.is_premium else 3600
         self.minute_limiter = RateLimiter(
             max_calls=self.max_calls, period=self.period, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=1)
         logger.info("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -57,16 +59,14 @@ class Orionoid:
                         f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}"
                     )
                     return False
+            self.is_unlimited = True if response.data.data.subscription.package.type == "unlimited" else False
             return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
             return False
 
     def check_premium(self) -> bool:
-        """
-        Check the user's status with the Orionoid API.
-        Returns True if the user is active, has a premium account, and has RealDebrid service enabled.
-        """
+        """Check if the user is active, has a premium account, and has RealDebrid service enabled."""
         url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
         if response.is_ok and hasattr(response.data, "data"):
@@ -76,10 +76,10 @@ class Orionoid:
             if active and premium and debrid:
                 logger.info("Orionoid Premium Account Detected.")
                 return True
-        else:
-            logger.error(f"Orionoid Free Account Detected.")
+            else:
+                logger.error("Orionoid Free Account Detected.")
         return False
-
+    
     def run(self, item):
         """Scrape the Orionoid site for the given media items
         and update the object with scraped streams"""
@@ -138,11 +138,16 @@ class Orionoid:
             "idimdb": imdb_id[2:],
             "streamtype": "torrent",
             "filename": "true",
-            "limitcount": "200" if self.is_premium else "10",
+            "limitcount": self.settings.limitcount if self.settings.limitcount else 5,
             "video3d": "false",
             "sortorder": "descending",
-            "sortvalue": "best" if self.is_premium else "popularity",
+            "sortvalue": "best" if self.is_premium else "popularity"
         }
+
+        if self.is_unlimited:
+            # This can use 2x towards your Orionoid limits. Only use if user is unlimited.
+            params["debridlookup"] = "realdebrid"
+            params["limitcount"] = 100
 
         if media_type == "show":
             params["numberseason"] = season
@@ -168,22 +173,17 @@ class Orionoid:
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
             if response.is_ok and hasattr(response.data, "data"):
-                # Check and log Orionoid API limits
-                # self.orionoid_limit = response.data.data.requests.daily.limit
-                # self.orionoid_remaining = response.data.data.requests.daily.remaining
-                # if self.orionoid_remaining < 10:
-                #     logger.warning(f"Orionoid API limit is low. Limit: {self.orionoid_limit}, Remaining: {self.orionoid_remaining}")
-
                 parsed_data_list = [
                     parser.parse(item, stream.file.name)
                     for stream in response.data.data.streams
                     if stream.file.hash
                 ]
                 data = {
-                    stream.file.hash: {"name": stream.file.name}
-                    for stream, parsed_data in zip(
-                        response.data.data.streams, parsed_data_list
-                    )
+                    stream.file.hash: {
+                        "name": stream.file.name,
+                        "cached": None
+                    }
+                    for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
                     if parsed_data["fetch"]
                 }
                 if self.parse_logging:  # For debugging parser large data sets

@@ -90,6 +90,7 @@ class JackettConfig(NotifyingBaseModel):
 class OrionoidConfig(NotifyingBaseModel):
     enabled: bool = False
     api_key: str = ""
+    limitcount: int = 5
 
 
 class TorrentioConfig(NotifyingBaseModel):

@@ -1,5 +1,4 @@
 import json
-import os
 from pydantic import ValidationError
 from program.settings.models import AppModel, NotifyingBaseModel
 from utils import data_dir_path
@@ -47,7 +46,7 @@ class SettingsManager(Observable):
                 f"Error parsing settings file: {e}, initializing with default settings"
             )
             raise
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             logger.error(f"Error loading settings: {self.settings_file} does not exist")
             raise
         self.notify_observers()

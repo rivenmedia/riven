@@ -16,6 +16,8 @@ class MediaItemState:
 
 class Unknown(MediaItemState):
     def perform_action(self, _):
+        # New seasons that come out, wind up in this state
+        # Is that what we want?
         pass
 
 
