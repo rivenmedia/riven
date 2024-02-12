@@ -1,4 +1,5 @@
 """Plex library module"""
+
 import concurrent.futures
 import os
 import threading
@@ -74,27 +75,32 @@ class Plex(threading.Thread):
             max_workers=max_workers, thread_name_prefix="Plex"
         ) as executor:
             for section in sections:
-                if section.key in processed_sections or not self._is_wanted_section(
-                    section
-                ):
+                is_wanted = self._is_wanted_section(section)
+                if section.key in processed_sections or not is_wanted:
                     continue
-                if not section.refreshing:
-                    # Fetch only items that have been added or updated since the last fetch
-                    last_fetch_time = self._get_last_fetch_time(section)
-                    filters = {"addedAt>>": last_fetch_time}
-                    if init:
-                        filters = {}
-                    future_items = {
-                        executor.submit(self._create_and_match_item, item)
-                        for item in section.search(
-                            libtype=section.type, filters=filters
-                        )
-                    }
-                    for future in concurrent.futures.as_completed(future_items):
-                        media_item = future.result()
-                        items.append(media_item)
-                    self.last_fetch_times[section.key] = datetime.now()
+                if section.refreshing:
+                    processed_sections.add(section.key)
+                    continue
+                # Fetch only items that have been added or updated since the last fetch
+                last_fetch_time = self._get_last_fetch_time(section)
+                filters = {} if init else {"addedAt>>": last_fetch_time}
+                future_items = {
+                    executor.submit(self._create_and_match_item, item)
+                    for item in section.search(libtype=section.type, filters=filters)
+                }
+                for future in concurrent.futures.as_completed(future_items):
+                    media_item = future.result()
+                    items.append(media_item)
+                self.last_fetch_times[section.key] = datetime.now()
                 processed_sections.add(section.key)
+
+        if not processed_sections:
+            logger.error(
+                f"Failed to process any sections.  Ensure that your library_path"
+                " of {self.library_path} folders are included in the relevant sections"
+                " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
+            )
+            return
 
         added_count = 0
         for item in items:
@@ -138,18 +144,20 @@ class Plex(threading.Thread):
 
     def _create_item(self, item):
         new_item = _map_item_from_data(item)
-        if new_item and item.type == "show":
-            for season in item.seasons():
-                if season.seasonNumber != 0:
-                    new_season = _map_item_from_data(season)
-                    if new_season:
-                        new_season_episodes = []
-                        for episode in season.episodes():
-                            new_episode = _map_item_from_data(episode)
-                            if new_episode:
-                                new_season_episodes.append(new_episode)
-                        new_season.episodes = new_season_episodes
-                        new_item.seasons.append(new_season)
+        if not new_item or item.type != "show":
+            return new_item
+        for season in item.seasons():
+            if season.seasonNumber == 0:
+                continue
+            if not (new_season := _map_item_from_data(season)):
+                continue
+            new_season_episodes = []
+            for episode in season.episodes():
+                new_episode = _map_item_from_data(episode)
+                if new_episode:
+                    new_season_episodes.append(new_episode)
+            new_season.episodes = new_season_episodes
+            new_item.seasons.append(new_season)
         return new_item
 
     def match_item(self, new_item):
@@ -165,37 +173,30 @@ class Plex(threading.Thread):
         items_updated = 0
         item.set("guid", library_item.guid)
         item.set("key", library_item.key)
-        if item.type == "show":
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if episode.state != Library:
-                        found_season = next(
-                            (
-                                s
-                                for s in library_item.seasons
-                                if s.number == season.number
-                            ),
-                            None,
-                        )
-                        if found_season:
-                            found_episode = next(
-                                (
-                                    e
-                                    for e in found_season.episodes
-                                    if e.number == episode.number
-                                ),
-                                None,
-                            )
-                            if found_episode:
-                                episode.set("guid", found_episode.guid)
-                                episode.set("key", found_episode.key)
-                                items_updated += 1
+        if item.type != "show":
+            return items_updated
+
+        def match(items, number):
+            return next(filter(lambda x: x.number == number, items), None)
+
+        flat_episodes = ((s, e) for s in item.seasons for e in s.episodes)
+        for season, episode in flat_episodes:
+            if episode.state == Library:
+                continue
+            if not (found_season := match(library_item.seasons, season.number)):
+                continue
+            if not (found_episode := match(found_season.episodes, episode.number)):
+                continue
+            episode.set("guid", found_episode.guid)
+            episode.set("key", found_episode.key)
+            items_updated += 1
         return items_updated
 
     def _is_wanted_section(self, section):
-        return any(
+        section_located = any(
             self.library_path in location for location in section.locations
-        ) and section.type in ["movie", "show"]
+        )
+        return section_located and section.type in ["movie", "show"]
 
 
 def _map_item_from_data(item):
