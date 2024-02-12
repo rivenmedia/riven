@@ -75,18 +75,15 @@ class Plex(threading.Thread):
             max_workers=max_workers, thread_name_prefix="Plex"
         ) as executor:
             for section in sections:
-                if section.key in processed_sections or not self._is_wanted_section(
-                    section
-                ):
+                is_wanted = self._is_wanted_section(section)
+                if section.key in processed_sections or not is_wanted:
                     continue
                 if section.refreshing:
                     processed_sections.add(section.key)
                     continue
                 # Fetch only items that have been added or updated since the last fetch
                 last_fetch_time = self._get_last_fetch_time(section)
-                filters = {"addedAt>>": last_fetch_time}
-                if init:
-                    filters = {}
+                filters = {} if init else {"addedAt>>": last_fetch_time}
                 future_items = {
                     executor.submit(self._create_and_match_item, item)
                     for item in section.search(libtype=section.type, filters=filters)
