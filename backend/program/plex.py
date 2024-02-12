@@ -182,7 +182,7 @@ class Plex(threading.Thread):
         def first_matching(items, number):
             return next(filter(lambda x: x.number == number, items), None)
 
-        flat_episodes = ((s, e) for s in item.seasons for e in season.episodes)
+        flat_episodes = ((s, e) for s in item.seasons for e in s.episodes)
         for season, episode in flat_episodes:
             if episode.state == Library:
                 continue
