@@ -1,4 +1,5 @@
 """Plex library module"""
+
 import concurrent.futures
 import os
 import threading
@@ -74,9 +75,8 @@ class Plex(threading.Thread):
             max_workers=max_workers, thread_name_prefix="Plex"
         ) as executor:
             for section in sections:
-                if (
-                    section.key in processed_sections
-                    or not self._is_wanted_section(section)
+                if section.key in processed_sections or not self._is_wanted_section(
+                    section
                 ):
                     continue
                 if section.refreshing:
@@ -89,9 +89,7 @@ class Plex(threading.Thread):
                     filters = {}
                 future_items = {
                     executor.submit(self._create_and_match_item, item)
-                    for item in section.search(
-                        libtype=section.type, filters=filters
-                    )
+                    for item in section.search(libtype=section.type, filters=filters)
                 }
                 for future in concurrent.futures.as_completed(future_items):
                     media_item = future.result()
@@ -100,7 +98,8 @@ class Plex(threading.Thread):
                 processed_sections.add(section.key)
 
         if not processed_sections:
-            logger.error(f"Failed to process any sections.  Ensure that your library_path" 
+            logger.error(
+                f"Failed to process any sections.  Ensure that your library_path"
                 " of {self.library_path} folders are included in the relevant sections"
                 " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
             )
@@ -179,15 +178,21 @@ class Plex(threading.Thread):
         item.set("key", library_item.key)
         if item.type != "show":
             return items_updated
-        def first_matching(items, number): 
+
+        def first_matching(items, number):
             return next(filter(lambda x: x.number == number, items), None)
+
         flat_episodes = ((s, e) for s in item.seasons for e in season.episodes)
         for season, episode in flat_episodes:
             if episode.state == Library:
                 continue
-            if not (found_season := first_matching(library_item.seasons, season.number)):
+            if not (
+                found_season := first_matching(library_item.seasons, season.number)
+            ):
                 continue
-            if not (found_episode := first_matching(found_season.episodes, episode.number)):
+            if not (
+                found_episode := first_matching(found_season.episodes, episode.number)
+            ):
                 continue
             episode.set("guid", found_episode.guid)
             episode.set("key", found_episode.key)
@@ -196,8 +201,7 @@ class Plex(threading.Thread):
 
     def _is_wanted_section(self, section):
         section_located = any(
-            self.library_path in location 
-            for location in section.locations
+            self.library_path in location for location in section.locations
         )
         return section_located and section.type in ["movie", "show"]
 
