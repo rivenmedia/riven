@@ -36,33 +36,33 @@ class Symlinker:
             or library_path == Path(".")
         ):
             logger.error(
-                "Host or container path not provided, is empty, or is set to the current directory."
+                "rclone_path or library_path not provided, is empty, or is set to the current directory."
             )
             return False
         if not self.rclone_path.is_absolute():
-            logger.error(f"Host path is not an absolute path: {self.rclone_path}")
+            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
             return False
         if not library_path.is_absolute():
-            logger.error(f"Container path is not an absolute path: {library_path}")
+            logger.error(f"library_path is not an absolute path: {library_path}")
             return False
         try:
             if (
                 all_path := self.settings.rclone_path / "__all__"
             ).exists() and all_path.is_dir():
                 logger.debug(
-                    "Detected Zurg host path. Using __all__ folder for host path."
+                    "Detected Zurg rclone_path. Using __all__ folder for rclone_path."
                 )
                 self.rclone_path = all_path
             elif (
                 torrent_path := self.settings.rclone_path / "torrents"
             ).exists() and torrent_path.is_dir():
                 logger.debug(
-                    "Detected standard rclone host path. Using torrents folder for host path."
+                    "Detected standard rclone_path. Using torrents folder for rclone_path."
                 )
                 self.rclone_path = torrent_path
             if not self.create_initial_folders():
                 logger.error(
-                    "Failed to create initial library folders in your library path."
+                    "Failed to create initial library folders in your library_path."
                 )
                 return False
             return True

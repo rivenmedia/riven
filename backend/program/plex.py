@@ -99,6 +99,13 @@ class Plex(threading.Thread):
                 self.last_fetch_times[section.key] = datetime.now()
                 processed_sections.add(section.key)
 
+        if not processed_sections:
+            logger.error(f"Failed to process any sections.  Ensure that your library_path" 
+                " of {self.library_path} folders are included in the relevant sections"
+                " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
+            )
+            return
+
         added_count = 0
         for item in items:
             if item is not None and item not in self.media_items:
