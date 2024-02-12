@@ -179,20 +179,16 @@ class Plex(threading.Thread):
         if item.type != "show":
             return items_updated
 
-        def first_matching(items, number):
+        def match(items, number):
             return next(filter(lambda x: x.number == number, items), None)
 
         flat_episodes = ((s, e) for s in item.seasons for e in s.episodes)
         for season, episode in flat_episodes:
             if episode.state == Library:
                 continue
-            if not (
-                found_season := first_matching(library_item.seasons, season.number)
-            ):
+            if not (found_season := match(library_item.seasons, season.number)):
                 continue
-            if not (
-                found_episode := first_matching(found_season.episodes, episode.number)
-            ):
+            if not (found_episode := match(found_season.episodes, episode.number)):
                 continue
             episode.set("guid", found_episode.guid)
             episode.set("key", found_episode.key)
