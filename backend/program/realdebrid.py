@@ -32,7 +32,7 @@ class Debrid:
     def _validate(self):
         try:
             response = ping(
-                "https://api.real-debrid.com/rest/1.0/user",
+                f"{RD_BASE_URL}/user",
                 additional_headers=self.auth_headers,
             )
             if response.ok:
@@ -111,7 +111,7 @@ class Debrid:
         for stream_chunk in stream_chunks:
             streams = "/".join(stream_chunk)
             response = get(
-                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
+                f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/",
                 additional_headers=self.auth_headers,
                 response_type=dict,
             )
@@ -177,7 +177,7 @@ class Debrid:
         if not item.active_stream.get("hash"):
             return None
         response = post(
-            "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
+            f"{RD_BASE_URL}/torrents/addMagnet",
             {
                 "magnet": "magnet:?xt=urn:btih:"
                 + item.active_stream["hash"]
@@ -192,7 +192,7 @@ class Debrid:
     def get_torrents(self) -> str:
         """Add magnet link to real-debrid.com"""
         response = get(
-            "https://api.real-debrid.com/rest/1.0/torrents/",
+            f"{RD_BASE_URL}/torrents/",
             data={"offset": 0, "limit": 2500},
             additional_headers=self.auth_headers,
         )
@@ -204,7 +204,7 @@ class Debrid:
         """Select files from real-debrid.com"""
         files = item.active_stream.get("files")
         response = post(
-            f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{request_id}",
+            f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
             {"files": ",".join(files.keys())},
             additional_headers=self.auth_headers,
         )
@@ -213,7 +213,7 @@ class Debrid:
     def get_torrent_info(self, request_id):
         """Get torrent info from real-debrid.com"""
         response = get(
-            f"https://api.real-debrid.com/rest/1.0/torrents/info/{request_id}",
+            f"{RD_BASE_URL}/torrents/info/{request_id}",
             additional_headers=self.auth_headers,
         )
         if response.is_ok:

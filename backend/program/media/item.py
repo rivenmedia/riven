@@ -59,19 +59,6 @@ class MediaItem:
         _state.set_context(self)
         return _state
 
-    # def _determine_state(self):
-    #     if self.key or self.update_folder == "updated":
-    #         return Library()
-    #     if self.symlinked:
-    #         return Symlink()
-    #     if self.file and self.folder:
-    #         return Download()
-    #     if len(self.streams) > 0:
-    #         return Scrape()
-    #     if self.title:
-    #         return Content()
-    #     return Unknown()
-
     def _determine_state(self):
         if self.key or self.update_folder == "updated":
             return Library()
