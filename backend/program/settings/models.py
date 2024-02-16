@@ -1,6 +1,6 @@
 """Iceberg settings models"""
 from pathlib import Path
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, validator
 from utils import version_file_path
 
 
@@ -42,10 +42,10 @@ class SymlinkModel(NotifyingBaseModel):
 class ContentNotifyingBaseModel(NotifyingBaseModel):
     update_interval: int = 80
 
-    @validator('refresh_interval')
-    def check_refresh_interval(cls, v):
+    @validator('update_interval')
+    def check_update_interval(cls, v):
         if v < (limit := 5):
-            raise ValueError(f"refresh_interval must be at least {limit} seconds")
+            raise ValueError(f"update_interval must be at least {limit} seconds")
         return v
 
 
