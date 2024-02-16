@@ -1,6 +1,6 @@
 """Iceberg settings models"""
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 from utils import version_file_path
 
 
@@ -41,6 +41,12 @@ class SymlinkModel(NotifyingBaseModel):
 
 class ContentNotifyingBaseModel(NotifyingBaseModel):
     update_interval: int = 80
+
+    @validator('refresh_interval')
+    def check_refresh_interval(cls, v):
+        if v < (limit := 5):
+            raise ValueError(f"refresh_interval must be at least {limit} seconds")
+        return v
 
 
 class ListrrModel(ContentNotifyingBaseModel):
@@ -96,7 +102,7 @@ class OrionoidConfig(NotifyingBaseModel):
 class TorrentioConfig(NotifyingBaseModel):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://torrentio.strem.fun"
+    url: HttpUrl = "https://torrentio.strem.fun"
 
 
 class ScraperModel(NotifyingBaseModel):
