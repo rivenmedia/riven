@@ -1,38 +1,35 @@
 """Plex library module"""
 
 import concurrent.futures
+from threading import Lock
 import os
-import threading
-import time
 from datetime import datetime
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.media.container import MediaItemContainer
-from program.media.state import Symlink, Library
+from program.media.state import States
 from program.media.item import (
     Movie,
     Show,
     Season,
     Episode,
+    MediaItem
 )
 
-
-class Plex(threading.Thread):
+class PlexLibrary():
     """Plex library class"""
 
-    def __init__(self, media_items: MediaItemContainer):
-        super().__init__(name="Plex")
-        self.key = "plex"
+    def __init__(self):
+        self.key = "plexlibrary"
         self.initialized = False
         self.library_path = os.path.abspath(
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.last_fetch_times = {}
-
+        self.media_items = []
+        self.settings = settings_manager.settings.plex
         try:
-            self.settings = settings_manager.settings.plex
             self.plex = PlexServer(self.settings.url, self.settings.token, timeout=60)
         except Unauthorized:
             logger.error("Plex is not authorized!")
@@ -43,31 +40,16 @@ class Plex(threading.Thread):
         except Exception as e:
             logger.error("Plex exception thrown: %s", e)
             return
-        self.running = False
         self.log_worker_count = False
-        self.media_items = media_items
-        self._update_items(init=True)
         self.initialized = True
         logger.info("Plex initialized!")
-
-    def run(self):
-        while self.running:
-            self._update_items()
-            for i in range(10):
-                time.sleep(i)
-
-    def start(self):
-        self.running = True
-        super().start()
-
-    def stop(self):
-        self.running = False
+        self.lock = Lock()
 
     def _get_last_fetch_time(self, section):
         return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
-    def _update_items(self, init=False):
-        items = MediaItemContainer()
+    def run(self):
+        items = []
         sections = self.plex.library.sections()
         processed_sections = set()
         max_workers = os.cpu_count() / 2
@@ -83,7 +65,7 @@ class Plex(threading.Thread):
                     continue
                 # Fetch only items that have been added or updated since the last fetch
                 last_fetch_time = self._get_last_fetch_time(section)
-                filters = {} if init else {"addedAt>>": last_fetch_time}
+                filters = {} if not self.last_fetch_times else {"addedAt>>": last_fetch_time}
                 future_items = {
                     executor.submit(self._create_and_match_item, item)
                     for item in section.search(libtype=section.type, filters=filters)
@@ -91,12 +73,13 @@ class Plex(threading.Thread):
                 for future in concurrent.futures.as_completed(future_items):
                     media_item = future.result()
                     items.append(media_item)
-                self.last_fetch_times[section.key] = datetime.now()
+                with self.lock:
+                    self.last_fetch_times[section.key] = datetime.now()
                 processed_sections.add(section.key)
 
         if not processed_sections:
             logger.error(
-                f"Failed to process any sections.  Ensure that your library_path"
+                "Failed to process any sections.  Ensure that your library_path"
                 " of {self.library_path} folders are included in the relevant sections"
                 " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
             )
@@ -105,6 +88,7 @@ class Plex(threading.Thread):
         added_count = 0
         for item in items:
             if item is not None and item not in self.media_items:
+                
                 self.media_items.append(item)
                 added_count += 1
 
@@ -113,28 +97,8 @@ class Plex(threading.Thread):
                 logger.info("Found %d from Plex", item.log_string)
             else:
                 logger.info("Found %d items from Plex", added_count)
+        yield from items
 
-    def update_item_section(self, item):
-        """Update plex library section for a single item"""
-        item_type = item.type
-        if item.type == "episode":
-            item_type = "show"
-        for section in self.plex.library.sections():
-            if section.type != item_type:
-                continue
-
-            if self._update_section(section, item):
-                logger.debug(
-                    "Updated section %s for %s", section.title, item.log_string
-                )
-
-    def _update_section(self, section, item):
-        if item.state == Symlink and item.get("update_folder") != "updated":
-            update_folder = item.update_folder
-            section.update(update_folder)
-            item.set("update_folder", "updated")
-            return True
-        return False
 
     def _create_and_match_item(self, item):
         new_item = self._create_item(item)
@@ -181,7 +145,7 @@ class Plex(threading.Thread):
 
         flat_episodes = ((s, e) for s in item.seasons for e in s.episodes)
         for season, episode in flat_episodes:
-            if episode.state == Library:
+            if episode.state == States.Library:
                 continue
             if not (found_season := match(library_item.seasons, season.number)):
                 continue

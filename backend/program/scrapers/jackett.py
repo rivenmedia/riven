@@ -4,12 +4,12 @@ from utils.logger import logger
 from program.settings.manager import settings_manager
 from utils.parser import parser
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-
+from program.media.item import MediaItem
 
 class Jackett:
     """Scraper for `Jackett`"""
 
-    def __init__(self, _):
+    def __init__(self):
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
@@ -58,12 +58,12 @@ class Jackett:
         logger.info("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item):
+    def run(self, item: MediaItem) -> MediaItem | None:
         """Scrape Jackett for the given media items"""
         if item is None or not self.initialized:
             return
         try:
-            self._scrape_item(item)
+            yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
@@ -75,7 +75,7 @@ class Jackett:
             logger.error("Jackett failed to scrape item: %s", e)
             return
 
-    def _scrape_item(self, item):
+    def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
@@ -95,6 +95,7 @@ class Jackett:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
+        return item
 
     def api_scrape(self, item):
         """Wrapper for `Jackett` scrape method"""

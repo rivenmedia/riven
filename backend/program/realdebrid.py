@@ -15,7 +15,7 @@ RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 class Debrid:
     """Real-Debrid API Wrapper"""
 
-    def __init__(self, _):
+    def __init__(self):
         # Realdebrid class library is a necessity
         self.initialized = False
         self.key = "real_debrid"

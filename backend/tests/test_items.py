@@ -1,6 +1,6 @@
 from starlette.testclient import TestClient
 from fastapi import FastAPI
-from program.media.state import MediaItemStates
+from program.media.state import States
 import controllers.items as items
 from program.media.container import MediaItemContainer
 from unittest.mock import MagicMock
@@ -18,7 +18,7 @@ def test_get_states():
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
-        "states": [state.value for state in MediaItemStates],
+        "states": [state.value for state in States],
     }
 
 

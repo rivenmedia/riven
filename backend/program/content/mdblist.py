@@ -1,16 +1,19 @@
 """Mdblist content module"""
 from time import time
+from typing import Generator
+
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
+from program.media.item import MediaItem
 from utils.request import RateLimitExceeded, RateLimiter, get, ping
-from program.content.base import ContentServiceBase
 
 
-class Mdblist(ContentServiceBase):
+
+class Mdblist():
     """Content class for mdblist"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
         self.initialized = self.validate()
@@ -18,7 +21,6 @@ class Mdblist(ContentServiceBase):
             return
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
-        super().__init__(media_items)
         logger.info("mdblist initialized")
 
     def validate(self):
@@ -37,12 +39,10 @@ class Mdblist(ContentServiceBase):
             return False
         return True
 
-    def run(self):
+    def run(self) -> Generator[MediaItem, None, None]:
         """Fetch media from mdblist and add them to media_items attribute
         if they are not already there"""
-        if time() < self.next_run_time:
-            return
-        self.next_run_time = time() + self.settings.update_interval
+
         try:
             with self.rate_limiter:
                 items = MediaItemContainer()
@@ -51,15 +51,7 @@ class Mdblist(ContentServiceBase):
                         items.extend(
                             self._get_items_from_list(list_id, self.settings.api_key)
                         )
-                added_items = self.process_items(items, "Mdblist")
-                if not added_items:
-                    return
-                length = len(added_items)
-                if length >= 1 and length <= 5:
-                    for item in added_items:
-                        logger.info("Added %s", item.log_string)
-                elif length > 5:
-                    logger.info("Added %s items", length)
+                yield from items
         except RateLimitExceeded:
             pass
 

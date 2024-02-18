@@ -10,11 +10,11 @@ class MediaItemContainer:
     """MediaItemContainer class"""
 
     def __init__(self, items: Optional[List[MediaItem]] = None):
-        self.items = items if items is not None else []
+        self.items = items if items is not None else {}
         self.lock = threading.Lock()
 
     def __iter__(self):
-        for item in self.items:
+        for item in self.items.values():
             yield item
 
     def __iadd__(self, other):
@@ -38,29 +38,8 @@ class MediaItemContainer:
     def append(self, item) -> bool:
         """Append item to container"""
         with self.lock:
-            self.items.append(item)
+            self.items[item.itemid] = item
             self.sort("requested_at", True)
-
-    def get(self, item) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item == item:
-                return my_item
-        return None
-
-    def get_item_by_id(self, itemid) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item.itemid == int(itemid):
-                return my_item
-        return None
-
-    def get_item_by_imdb_id(self, imdb_id) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item.imdb_id == imdb_id:
-                return my_item
-        return None
 
     def get_item(self, attr, value) -> "MediaItemContainer":
         """Get items that match given items"""
@@ -71,7 +50,7 @@ class MediaItemContainer:
         with self.lock:
             added_items = MediaItemContainer()
             for media_item in items:
-                if media_item not in self.items:
+                if media_item.itemid not in self.items:
                     self.items.append(media_item)
                     added_items.append(media_item)
             self.sort("requested_at", True)
@@ -79,7 +58,7 @@ class MediaItemContainer:
 
     def remove(self, item):
         """Remove item from container"""
-        if item in self.items:
+        if item.itemid in self.items:
             self.items.remove(item)
 
     def count(self, state) -> int:
@@ -88,7 +67,7 @@ class MediaItemContainer:
 
     def get_items_with_state(self, state):
         """Get items that need to be updated"""
-        return MediaItemContainer([item for item in self.items if item.state == state])
+        return MediaItemContainer([item for item in self.items.values() if item.state == state])
 
     def save(self, filename):
         """Save container to file"""

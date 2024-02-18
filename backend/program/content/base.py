@@ -23,10 +23,10 @@ class ContentServiceBase:
         """Fetch new media from the content provider."""
         raise NotImplementedError("The 'run' method must be implemented by subclasses.")
 
-    def process_items(
+    def add_new_items(
         self, items: MediaItemContainer, requested_by: str
     ) -> MediaItemContainer:
-        """Process fetched media items and log the results."""
+        """Add new media items to main container and log the results."""
         new_items = [item for item in items if self.is_valid_item(item) and item is not None]
         if not new_items:
             return
@@ -42,6 +42,10 @@ class ContentServiceBase:
                 added_items.remove(item)
                 self.media_items.remove(item)
                 self.media_items.save()
+            if len(added_items) <= 5:
+                logger.info("Added %s", item.log_string)
+        logger.info("Added %s items", len(added_items))
+
         return added_items
 
     def is_valid_item(self, item: MediaItem) -> bool:

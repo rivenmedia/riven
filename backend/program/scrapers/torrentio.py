@@ -10,7 +10,7 @@ from utils.parser import parser
 class Torrentio:
     """Scraper for `Torrentio`"""
 
-    def __init__(self, _):
+    def __init__(self):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
         self.minute_limiter = RateLimiter(
@@ -47,7 +47,7 @@ class Torrentio:
         if item is None:
             return
         try:
-            self._scrape_item(item)
+            yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             return
@@ -88,6 +88,7 @@ class Torrentio:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
+        return item
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""

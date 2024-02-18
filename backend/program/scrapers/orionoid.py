@@ -13,7 +13,7 @@ KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 class Orionoid:
     """Scraper for `Orionoid`"""
 
-    def __init__(self, _):
+    def __init__(self):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
@@ -51,12 +51,12 @@ class Orionoid:
             if response.is_ok and hasattr(response.data, "result"):
                 if not response.data.result.status == "success":
                     logger.error(
-                        f"Orionoid API Key is invalid. Status: {response.data.result.status}"
+                        "Orionoid API Key is invalid. Status: %s", response.data.result.status
                     )
                     return False
                 if not response.is_ok:
                     logger.error(
-                        f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}"
+                        "Orionoid Status Code: %s, Reason: %s", response.status_code, response.data.reason
                     )
                     return False
             self.is_unlimited = True if response.data.data.subscription.package.type == "unlimited" else False
@@ -86,7 +86,7 @@ class Orionoid:
         if item is None or not self.initialized:
             return
         try:
-            self._scrape_item(item)
+            yield self._scrape_item(item)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Orionoid connection timeout for item: %s", item.log_string)
@@ -125,6 +125,7 @@ class Orionoid:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
+        return item
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""

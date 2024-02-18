@@ -1,17 +1,15 @@
 """Plex Watchlist Module"""
-from time import time
 from requests import HTTPError
 from utils.request import get, ping
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
-from program.content.base import ContentServiceBase
 
 
-class PlexWatchlist(ContentServiceBase):
+class PlexWatchlist():
     """Class for managing Plex Watchlists"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "plex_watchlist"
         self.rss_enabled = False
         self.settings = settings_manager.settings.content.plex_watchlist
@@ -19,7 +17,7 @@ class PlexWatchlist(ContentServiceBase):
         if not self.initialized:
             return
         self.token = settings_manager.settings.plex.token
-        super().__init__(media_items)
+        self.not_found_ids = []
         logger.info("Plex Watchlist initialized!")
 
     def validate(self):
@@ -49,28 +47,9 @@ class PlexWatchlist(ContentServiceBase):
 
     def run(self):
         """Fetch new media from `Plex Watchlist`"""
-        if time() < self.next_run_time:
-            return
         self.not_found_ids.clear()
-        self.next_run_time = time() + self.settings.update_interval
-        items = self._create_unique_list()
-        added_items = self.process_items(items, "Plex Watchlist")
-        if not added_items:
-            return
-        length = len(added_items)
-        if length >= 1 and length <= 5:
-            for item in added_items:
-                if not hasattr(item, "log_string"):
-                    logger.error("Removing invalid item added from Plex Watchlist")
-                    self.media_items.remove(item)
-                else:
-                    logger.info("Added %s", item.log_string)
-        elif length > 5:
-            logger.info("Added %s items", length)
-        if self.not_found_ids:
-            logger.debug(
-                "Failed to process %s items, skipping.", len(self.not_found_ids)
-            )
+        yield from self._create_unique_list()
+       
 
     def _create_unique_list(self) -> MediaItemContainer:
         """Create a unique list of items from Plex RSS and Watchlist."""

@@ -5,7 +5,6 @@ from datetime import datetime
 from utils.logger import logger
 from utils.request import get
 from utils import data_dir_path
-from program.media.container import MediaItemContainer
 from program.media.item import Movie, Show, Season, Episode
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
@@ -15,18 +14,18 @@ class Updater:
     """Trakt updater class"""
 
     def __init__(self):
-        self.trakt_data = MediaItemContainer()
+        self.trakt_data = []
         self.pkl_file = data_dir_path / "trakt_data.pkl"
         self.ids = []
 
     def create_items(self, imdb_ids):
         """Update media items to state where they can start downloading"""
         if len(imdb_ids) == 0:
-            return MediaItemContainer()
+            return []
 
         self.trakt_data.load(self.pkl_file)
-        new_items = MediaItemContainer()
-        get_items = MediaItemContainer()
+        new_items = []
+        get_items = []
 
         existing_imdb_ids = {item.imdb_id for item in self.trakt_data.items if item}
 
@@ -46,7 +45,7 @@ class Updater:
                 for future in concurrent.futures.as_completed(future_items):
                     item = future.result()
                     if item:
-                        new_items += item
+                        new_items.append(item)
                     get_items.append(item)
 
         for imdb_id in imdb_ids:
@@ -187,7 +186,7 @@ def create_item_from_imdb_id(imdb_id: str):
     return None
 
 
-def get_imdbid_from_tvdb(tvdb_id: str) -> str:
+def get_imdbid_from_tvdb(tvdb_id: str) -> str | None:
     """Get IMDb ID from TVDB ID in Trakt"""
     url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}?extended=full"
     response = get(
@@ -201,7 +200,7 @@ def get_imdbid_from_tvdb(tvdb_id: str) -> str:
     return None
 
 
-def get_imdbid_from_tmdb(tmdb_id: str) -> str:
+def get_imdbid_from_tmdb(tmdb_id: str) -> str | None:
     """Get IMDb ID from TMDB ID in Trakt"""
     url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?extended=full"
     response = get(

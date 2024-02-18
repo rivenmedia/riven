@@ -1,24 +1,22 @@
 """Mdblist content module"""
-from time import time
 from utils.logger import logger
 from utils.request import delete, get, ping
 from program.settings.manager import settings_manager
 from program.media.container import MediaItemContainer
 from program.updaters.trakt import get_imdbid_from_tmdb
-from program.content.base import ContentServiceBase
 
 
-class Overseerr(ContentServiceBase):
+class Overseerr():
     """Content class for overseerr"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "overseerr"
         self.settings = settings_manager.settings.content.overseerr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
         if not self.initialized:
             return
-        super().__init__(media_items)
+        self.not_found_ids = []
         logger.info("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -46,24 +44,9 @@ class Overseerr(ContentServiceBase):
 
     def run(self):
         """Fetch new media from `Overseerr`"""
-        if time() < self.next_run_time:
-            return
         self.not_found_ids.clear()
-        self.next_run_time = time() + self.settings.update_interval
-        items = self._get_items_from_overseerr(10000)
-        added_items = self.process_items(items, "Overseerr")
-        if not added_items:
-            return
-        length = len(added_items)
-        if length >= 1 and length <= 5:
-            for item in added_items:
-                logger.info("Added %s", item.log_string)
-        elif length > 5:
-            logger.info("Added %s items", length)
-        if self.not_found_ids:
-            logger.debug(
-                "Failed to process %s items, skipping.", len(self.not_found_ids)
-            )
+        items = self._get_items_from_overseerr(10000)    
+        yield from items
 
     def _get_items_from_overseerr(self, amount: int) -> MediaItemContainer:
         """Fetch media from overseerr"""
