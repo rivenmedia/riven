@@ -59,6 +59,10 @@ class MediaItem:
         self.guid = item.get("guid", None)
         self.update_folder = item.get("update_folder", None)
 
+    @property
+    def state(self):
+        return self._determine_state()
+
     def _determine_state(self):
         if self.key or self.update_folder == "updated":
             return States.Library
@@ -97,7 +101,7 @@ class MediaItem:
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.state.__class__.__name__,
+            "state": self.state.__name__,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres if hasattr(self, "genres") else None,
@@ -162,7 +166,7 @@ class Movie(MediaItem):
         self.item_id = ItemId(parent_item_id, self.imdb_id)
 
     def __repr__(self):
-        return f"Movie:{self.title}:{self.state.__class__.__name__}"
+        return f"Movie:{self.title}:{self.state.__name__}"
 
     @property
     def log_string(self):
@@ -199,7 +203,7 @@ class Show(MediaItem):
         return States.Unknown
 
     def __repr__(self):
-        return f"Show:{self.title}:{self.state.__class__.__name__}"
+        return f"Show:{self.title}:{self.state.__name__}"
 
     def add_season(self, season):
         """Add season to show"""
@@ -237,10 +241,10 @@ class Season(MediaItem):
         return States.Unknown
 
     def __eq__(self, other):
-        return self.number == other.number
+        return self.number == other.get('number', None)
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.__class__.__name__}"
+        return f"Season:{self.number}:{self.state.__name__}"
 
     def add_episode(self, episode):
         """Add episode to season"""
@@ -263,10 +267,10 @@ class Episode(MediaItem):
 
     def __eq__(self, other):
         if type(self) == type(other) and self.parent_id == other.parent_id:
-            return self.number == other.number
+            return self.number == other.get('number', None)
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.__class__.__name__}"
+        return f"Episode:{self.number}:{self.state.__name__}"
 
     def get_file_episodes(self):
         return parser.episodes(self.file)

@@ -10,7 +10,6 @@ from queue import Queue, Empty
 from typing import Union, get_args, Generator, Callable
 from dataclasses import dataclass
 
-from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
@@ -47,11 +46,36 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         logger.configure_logger(
-            debug=settings_manager.settings.debug, log=settings_manager.settings.log
+            debug=settings_manager.settings.debug, 
+            log=settings_manager.settings.log
         )
+
+    def initialize_services(self):
+        self.content_services = {
+            PlexLibrary: PlexLibrary(), 
+            Overseerr: Overseerr(), 
+            PlexWatchlist: PlexWatchlist(), 
+            Listrr: Listrr(), 
+            Mdblist: Mdblist(),
+        }
+        self.metadata_services = {
+            TraktMetadata: TraktMetadata()
+        }
+        self.processing_services = {
+            Scraping: Scraping(), 
+            Debrid: Debrid(), 
+            Symlinker: Symlinker(),
+            PlexUpdater: PlexUpdater()
+        }
+        self.services = {
+            **self.metadata_services,
+            **self.content_services,
+            **self.processing_services
+        }
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings_manager.settings.version)
+        settings_manager.register_observer(self.initialize_services)
         self.initialized = False
         self.job_queue = Queue()
         os.makedirs(data_dir_path, exist_ok=True)
@@ -61,29 +85,11 @@ class Program(threading.Thread):
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
         try:
-            self.content_services = {
-                PlexLibrary: PlexLibrary(), 
-                Overseerr: Overseerr(), 
-                PlexWatchlist: PlexWatchlist(), 
-                Listrr: Listrr(), 
-                Mdblist: Mdblist(),
-            }
-            self.metadata_services = {
-                TraktMetadata: TraktMetadata()
-            }
-            self.processing_services = {
-                Scraping: Scraping(), 
-                Debrid: Debrid(), 
-                Symlinker: Symlinker(),
-                PlexUpdater: PlexUpdater()
-            }
-            self.services = {
-                **self.metadata_services,
-                **self.content_services,
-                **self.processing_services
-            }
+            self.initialize_services()
         except Exception as e:
-            raise
+            logger.error(traceback.format_exc())
+            raise e
+
         # seed initial MIC with Library State
         for item in self.services[PlexLibrary].run():
             self.media_items.append(item)
@@ -117,7 +123,7 @@ class Program(threading.Thread):
                 id=f'{service_cls.__name__}_update',
                 max_instances=1,
                 replace_existing=True,  # Replace existing jobs with the same ID
-                next_run_time=datetime.now()
+                next_run_time=datetime.now() if service_cls != PlexLibrary else None
             )
             logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
         return None
@@ -163,6 +169,11 @@ class Program(threading.Thread):
             service, item = event.emitted_by, event.item
             if not isinstance(item, MediaItem):
                 logger.error("Service %s emitted item %s of type %s", service.__name__, item, item.__class__.__name__)
+                continue
+            if (
+                item.item_id in self.media_items 
+                and self.media_items[item.item_id].state == States.Library
+            ):
                 continue
             # update database to current state
             item = self.media_items.append(item)

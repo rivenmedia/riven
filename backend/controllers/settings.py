@@ -94,7 +94,4 @@ async def set_settings(settings: List[SetSettings]):
 
     settings_manager.load(settings_dict=current_settings)
 
-    # Notify observers about the update.
-    settings_manager.notify_observers()
-
     return {"success": True, "message": "Settings updated successfully."}

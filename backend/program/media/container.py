@@ -15,6 +15,9 @@ class MediaItemContainer:
     def __iter__(self):
         for item in self.items.values():
             yield item
+            
+    def __contains__(self, item):
+        return item in self.items
 
     def __iadd__(self, other):
         if not isinstance(other, MediaItem) and other is not None:

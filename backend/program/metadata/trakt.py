@@ -13,7 +13,9 @@ class TraktMetadata:
     """Trakt updater class"""
 
     def __init__(self):
+        self.key = 'traktmetadata'
         self.ids = []
+        self.initialized = True
 
     def run(self, item: MediaItem):
         imdb_id = item.imdb_id

@@ -38,16 +38,11 @@ async def get_rd_user():
 @router.get("/services")
 async def get_services(request: Request):
     data = {}
-    if hasattr(request.app.program, "core_manager"):
-        for service in request.app.program.core_manager.services:
+    if hasattr(request.app.program, "services"):
+        for service in request.app.program.services.values():
             data[service.key] = service.initialized
-            if getattr(service, "sm", False):
-                for sub_service in service.sm.services:
-                    data[sub_service.key] = sub_service.initialized
-    if hasattr(request.app.program, "extras_manager"):
-        for service in request.app.program.extras_manager.services:
-            data[service.key] = service.initialized
-            if getattr(service, "sm", False):
-                for sub_service in service.sm.services:
-                    data[sub_service.key] = sub_service.initialized
+            if not getattr(service, "services", False):
+                continue
+            for sub_service in service.services.values():
+                data[sub_service.key] = sub_service.initialized
     return {"success": True, "data": data}

@@ -1,6 +1,5 @@
 from datetime import datetime
 from utils.logger import logger
-from utils.service_manager import ServiceManager
 from program.settings.manager import settings_manager
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.orionoid import Orionoid
@@ -13,13 +12,17 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
-        self.services = (Orionoid(), Torrentio(), Jackett())
+        self.services = {
+            Orionoid: Orionoid(), 
+            Torrentio: Torrentio(), 
+            Jackett: Jackett()
+        }
         self.initialized = self.validate()
 
     def run(self, item: MediaItem) -> MediaItem | None:
         if not self._can_we_scrape(item):
             return None
-        for service in self.services:
+        for service in self.services.values():
             if service.initialized:
                 item = next(service.run(item))
         item.set("scraped_at", datetime.now())
@@ -28,7 +31,7 @@ class Scraping:
 
     
     def validate(self):
-        if not (validated := any(service.initialized for service in self.services)):
+        if not (validated := any(service.initialized for service in self.services.values())):
             logger.error("You have no scraping services enabled," 
                 " please enable at least one!"
             )

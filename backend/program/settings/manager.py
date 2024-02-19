@@ -26,7 +26,7 @@ class SettingsManager():
 
     def notify_observers(self):
         for observer in self.observers:
-            observer.notify()
+            observer()
 
     def load(self, settings_dict: dict | None = None):
         """Load settings from file, validating against the AppModel schema."""
