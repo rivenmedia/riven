@@ -54,10 +54,9 @@ class Overseerr():
         for item in response.data.results:
             if not item.media.imdbId:
                 imdb_id = self.get_imdb_id(item.media)
-                if imdb_id:
-                    yield MediaItem({'imdb_id': imdb_id})
             else:
-                yield MediaItem({'imdb_id': item.media.imdbId})
+                imdb_id = item.media.imdbId
+            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.key})
 
 
 

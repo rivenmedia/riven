@@ -51,8 +51,10 @@ class Program(threading.Thread):
         )
 
     def initialize_services(self):
+        self.library_services = {
+            PlexLibrary: PlexLibrary()
+        }
         self.content_services = {
-            PlexLibrary: PlexLibrary(), 
             Overseerr: Overseerr(), 
             PlexWatchlist: PlexWatchlist(), 
             Listrr: Listrr(), 
@@ -68,6 +70,7 @@ class Program(threading.Thread):
             PlexUpdater: PlexUpdater()
         }
         self.services = {
+            **self.library_services,
             **self.metadata_services,
             **self.content_services,
             **self.processing_services
@@ -88,11 +91,10 @@ class Program(threading.Thread):
             self.initialize_services()
         except Exception as e:
             logger.error(traceback.format_exc())
-            raise e
 
         # seed initial MIC with Library State
         for item in self.services[PlexLibrary].run():
-            self.media_items.append(item)
+            self.media_items.upsert(item)
 
         if self.validate():
             logger.info("Iceberg started!")
@@ -110,7 +112,8 @@ class Program(threading.Thread):
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        for service_cls, service_instance in self.content_services.items():
+        scheduled_services = { **self.content_services, **self.library_services }
+        for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
                 continue
@@ -129,9 +132,11 @@ class Program(threading.Thread):
         return None
 
     def _process_future_item(self, future: Future, service: Service, input_item: MediaItem) -> None:
+        """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
-                if item is None:
+                if not isinstance(item, MediaItem):
+                    logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
                     continue
                 self.job_queue.put(Event(emitted_by=service, item=item))
                 break
@@ -141,11 +146,9 @@ class Program(threading.Thread):
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _service_run_item(self, func: Callable, item: MediaItem | None) -> MediaItemGenerator:
-        if item is None:
-            yield from func()
-            return None
-        yield from func(item)
-        
+        """Some services don't intake any items so we want to make sure we don't provide them when the input is None."""
+        yield from func() if item is None else func(item)
+ 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
             f"Submitting service {service.__name__} to the pool" +
@@ -167,16 +170,13 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             service, item = event.emitted_by, event.item
-            if not isinstance(item, MediaItem):
-                logger.error("Service %s emitted item %s of type %s", service.__name__, item, item.__class__.__name__)
-                continue
             if (
                 item.item_id in self.media_items 
                 and self.media_items[item.item_id].state == States.Library
             ):
                 continue
             # update database to current state
-            item = self.media_items.append(item)
+            item = self.media_items.upsert(item)
             if service in get_args(Content):
                 if not getattr(item, 'title', None):
                     next_service = TraktMetadata
@@ -232,5 +232,5 @@ class Program(threading.Thread):
             self.pickly.stop()
         settings_manager.save()
         self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
-        self.executor.shutdown(wait=True)  # Shutdown the executor
+        self.executor.shutdown(wait=True) 
         self.running = False

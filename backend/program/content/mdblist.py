@@ -47,7 +47,7 @@ class Mdblist():
                     if not list_id:
                         continue
                     for item in list_items(list_id, self.settings.api_key):
-                        yield MediaItem({'imdb_id': item.imdb_id})
+                        yield MediaItem({'imdb_id': item.imdb_id, 'requested_by': self.key})
         except RateLimitExceeded:
             pass
         return

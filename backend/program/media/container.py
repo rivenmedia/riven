@@ -1,9 +1,8 @@
 import os
-import threading
 import dill
 from pickle import UnpicklingError
-from typing import Optional
-from program.media.item import MediaItem, Episode, Season, Show, ItemId
+from typing import Optional, Iterable
+from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
 from copy import deepcopy
 
 class MediaItemContainer:
@@ -48,9 +47,25 @@ class MediaItemContainer:
                 self.items[item.item_id] = item
         return item_group
 
-    def append(self, item: MediaItem) -> MediaItem:
-        """Iterate through all child items, swap direct references with ItemIDs, then add
-        each item in tree to the items dict flat so they can be directly referenced later"""
+    @property
+    def seasons(self):
+        return self.get_items_of_type(Season)
+    
+    @property
+    def episodes(self):
+        return self.get_items_of_type(Episode)
+    
+    @property
+    def shows(self):
+        return self.get_items_of_type(Show)
+    
+    @property
+    def movies(self):
+        return self.get_items_of_type(Movie)
+
+    def upsert(self, item: MediaItem) -> MediaItem:
+        """Iterate through the input item and upsert the main store
+        with all of their children"""
         if isinstance(item, Show):
             for season in item.seasons:
                 season.parent = item
@@ -75,12 +90,20 @@ class MediaItemContainer:
         return len(self.get_items_with_state(state))
 
     def get_items_with_state(self, state):
-        """Get items that need to be updated"""
-        return MediaItemContainer({
+        """Get items with the specified state"""
+        return {
             item_id: self[item_id]
             for item_id, item in self.items.items()
             if item.state == state
-        })
+        }
+
+    def get_items_of_type(self, item_type: MediaItem | Iterable[MediaItem]):
+        """Get items with one or more states"""
+        return {
+            item_id: self[item_id]
+            for item_id, item in self.items.items()
+            if isinstance(item, item_type)
+        }
 
     def save(self, filename):
         """Save container to file"""
