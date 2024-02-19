@@ -16,7 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
 from program.metadata.trakt import TraktMetadata
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem, Show, Season
+from program.media.item import MediaItem, Show, Season, Movie, Episode
 from program.media.state import States
 from program.plex import PlexLibrary
 from program.realdebrid import Debrid
@@ -184,14 +184,25 @@ class Program(threading.Thread):
                 # and try to get a stream for each one separately
                 elif isinstance(item, Show):
                     next_service = Scraping
-                    items_to_submit = [self.media_items[s] for s in item.seasons]
+                    items_to_submit = item.seasons
                 elif isinstance(item, Season):
                     next_service = Scraping
-                    items_to_submit = [self.media_items[e] for e in item.episodes]
+                    items_to_submit = item.episodes
             elif service == Debrid:
                 next_service =  Symlinker
+                if isinstance(item, Season):
+                    items_to_submit = [e for e in item.episodes]
+                elif isinstance(item, (Movie, Episode)):
+                    items_to_submit = [item]
+                items_to_submit = filter(lambda i: i.folder and i.file, items_to_submit)
+                if not items_to_submit:
+                    continue
             elif service == Symlinker:
-                next_service =  PlexUpdater
+                if item.symlinked:
+                    items_to_submit = [item]
+                next_service = PlexUpdater
+            elif service == PlexUpdater:
+                continue
 
             for item in items_to_submit:
                 self._submit_job(next_service, item)

@@ -43,18 +43,14 @@ class Debrid:
             return False
 
     def run(self, item):
-        self.download(item)
-
-    def download(self, item):
         """Download movie from real-debrid.com"""
-        downloaded = 0
-        if self.is_cached(item):
-            if not self._is_downloaded(item):
-                downloaded = self._download_item(item)
-            else:
-                downloaded = True
-            self._set_file_paths(item)
-            return downloaded
+        if not self.is_cached(item):
+            return
+        if not self._is_downloaded(item):
+            self._download_item(item)
+        self._set_file_paths(item)
+        yield item
+
 
     def _is_downloaded(self, item):
         """Check if item is already downloaded"""
@@ -89,7 +85,6 @@ class Debrid:
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
         logger.debug("Downloaded %s", item.log_string)
-        return 1
 
     def set_active_files(self, item):
         """Set active files for item from real-debrid.com"""
@@ -124,7 +119,7 @@ class Debrid:
                         wanted_files = {}
                         if isinstance(item, Movie) and all(file["filesize"] > 200000 for file in container.values()):
                             wanted_files = container
-                        if isinstance(item, Season) and all(any(episode.value in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                        if isinstance(item, Season) and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
                             wanted_files = container
                         if isinstance(item, Episode) and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
                             wanted_files = container

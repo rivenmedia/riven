@@ -99,7 +99,25 @@ class Symlinker:
         return True
 
     def run(self, item):
-        self._run(item)
+        """Check if the media item exists and create a symlink if it does"""
+        found = False
+        if os.path.exists(
+            os.path.join(self.settings.rclone_path, item.folder, item.file)
+        ):
+            found = True
+        elif os.path.exists(
+            os.path.join(self.settings.rclone_path, item.alternative_folder, item.file)
+        ):
+            item.set("folder", item.alternative_folder)
+            found = True
+        elif os.path.exists(
+            os.path.join(self.settings.rclone_path, item.file, item.file)
+        ):
+            item.set("folder", item.file)
+            found = True
+        if found:
+            self._symlink(item)
+        yield item
 
     def _determine_file_name(self, item):
         """Determine the filename of the symlink."""
@@ -121,26 +139,6 @@ class Symlinker:
                 showyear = item.parent.parent.aired_at.year
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
         return filename
-
-    def _run(self, item):
-        """Check if the media item exists and create a symlink if it does"""
-        found = False
-        if os.path.exists(
-            os.path.join(self.settings.rclone_path, item.folder, item.file)
-        ):
-            found = True
-        elif os.path.exists(
-            os.path.join(self.settings.rclone_path, item.alternative_folder, item.file)
-        ):
-            item.set("folder", item.alternative_folder)
-            found = True
-        elif os.path.exists(
-            os.path.join(self.settings.rclone_path, item.file, item.file)
-        ):
-            item.set("folder", item.file)
-            found = True
-        if found:
-            self._symlink(item)
 
     def _symlink(self, item):
         """Create a symlink for the given media item"""

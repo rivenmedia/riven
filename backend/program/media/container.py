@@ -27,13 +27,8 @@ class MediaItemContainer:
         """Get length of container"""
         return len(self.items)
 
-    def __getitem__(self, item):
-        item_copy = deepcopy(self.items[item])
-        item = item_copy
-        while item.item_id.parent_id:
-            item.parent = deepcopy(self.items[item.item_id.parent_id])
-            item = item.parent
-        return item_copy
+    def __getitem__(self, item_id: ItemId):
+        return deepcopy(self.items[item_id])
 
     def sort(self, by, reverse):
         """Sort container by given attribute"""
@@ -55,11 +50,15 @@ class MediaItemContainer:
         each item in tree to the items dict flat so they can be directly referenced later"""
         if isinstance(item, Show):
             for season in item.seasons:
-                if isinstance(season, Season):
-                    season.episodes = self._swap_children_with_ids(season.episodes)
-            item.seasons = self._swap_children_with_ids(item.seasons)
+                season.parent = item
+                self.items[season.item_id] = season
+                for episode in season.episodes:
+                    episode.parent = season
+                    self.items[episode.item_id] = episode
         if isinstance(item, Season):
-            item.episodes = self._swap_children_with_ids(item.episodes)
+            for episode in item.episodes:
+                episode.parent = item
+                self.items[episode.item_id] = episode
         self.items[item.item_id] = item
         return self[item.item_id]
 
