@@ -56,7 +56,7 @@ class PlexWatchlist():
             watchlist_items = set(self._get_items_from_watchlist())
             rss_items = set(self._get_items_from_rss())
             yield from (
-                MediaItem({'imdb_id': id, 'requested_by': self.key}) 
+                MediaItem({'imdb_id': id, 'requested_by': self.__class__}) 
                 for id in watchlist_items.union(rss_items)
             )
             

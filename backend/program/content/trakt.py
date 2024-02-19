@@ -2,9 +2,7 @@
 from time import time
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import get, ping
-from program.media.container import MediaItemContainer
-from program.metadata.trakt import TraktMetadata as Trakt, CLIENT_ID
+from program.metadata.trakt import TraktMetadata as Trakt
 
 
 class Trakt:
@@ -37,7 +35,7 @@ class Trakt:
         items = list(set(watchlist_items + collection_items + user_list_items))
         container = self.updater.create_items(items)
         for item in container:
-            item.set("requested_by", "Trakt")
+            item.set("requested_by", self.__class__)
         yield from container
 
     def _get_items_from_trakt_watchlist(self, watchlist_items: list) -> list:

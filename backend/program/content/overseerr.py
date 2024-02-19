@@ -56,7 +56,7 @@ class Overseerr():
                 imdb_id = self.get_imdb_id(item.media)
             else:
                 imdb_id = item.media.imdbId
-            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.key})
+            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.__class__})
 
 
 

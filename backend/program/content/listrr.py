@@ -61,7 +61,7 @@ class Listrr():
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
-            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.key})
+            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.__class__})
         return
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:

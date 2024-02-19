@@ -107,7 +107,7 @@ class MediaItem:
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": self.requested_at,
-            "requested_by": self.requested_by,
+            "requested_by": self.requested_by.__name__,
             "scraped_at": self.scraped_at,
             "scraped_times": self.scraped_times,
         }
