@@ -191,6 +191,7 @@ export const mediaServerSettingsToGet: string[] = ['plex'];
 export const mediaServerSettingsServices: string[] = ['plex'];
 
 export const mediaServerSettingsSchema = z.object({
+	update_interval: z.string().optional().default(''),
 	plex_token: z.string().optional().default(''),
 	plex_url: z.string().optional().default('')
 });
@@ -198,6 +199,7 @@ export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 
 export function mediaServerSettingsToPass(data: any) {
 	return {
+		update_interval: data.data.plex.update_interval,
 		plex_token: data.data.plex.token,
 		plex_url: data.data.plex.url
 	};
@@ -208,6 +210,7 @@ export function mediaServerSettingsToSet(form: SuperValidated<MediaServerSetting
 		{
 			key: 'plex',
 			value: {
+				update_interval: form.data.update_interval,
 				token: form.data.plex_token,
 				url: form.data.plex_url
 			}
