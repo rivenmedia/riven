@@ -9,3 +9,4 @@ fastapi
 uvicorn[standard]
 parse-torrent-title
 thefuzz
+apscheduler
