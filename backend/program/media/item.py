@@ -203,7 +203,7 @@ class Show(MediaItem):
         return States.Unknown
 
     def __repr__(self):
-        return f"Show:{self.title}:{self.state.__name__}"
+        return f"Show:{self.title}:{self.state.name}"
 
     def add_season(self, season):
         """Add season to show"""
@@ -244,7 +244,7 @@ class Season(MediaItem):
         return self.number == other.get('number', None)
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.__name__}"
+        return f"Season:{self.number}:{self.state.name}"
 
     def add_episode(self, episode):
         """Add episode to season"""
@@ -270,7 +270,7 @@ class Episode(MediaItem):
             return self.number == other.get('number', None)
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.__name__}"
+        return f"Episode:{self.number}:{self.state.name}"
 
     def get_file_episodes(self):
         return parser.episodes(self.file)
