@@ -2,16 +2,15 @@ import os
 import threading
 import dill
 from pickle import UnpicklingError
-from typing import List, Optional
+from typing import Optional
 from program.media.item import MediaItem, Episode, Season, Show, ItemId
-
+from copy import deepcopy
 
 class MediaItemContainer:
     """MediaItemContainer class"""
 
     def __init__(self, items: Optional[dict[ItemId, MediaItem]] = None):
         self.items = items if items is not None else {}
-        self.lock = threading.Lock()
 
     def __iter__(self):
         for item in self.items.values():
@@ -24,16 +23,24 @@ class MediaItemContainer:
             self.items.append(other)
         return self
 
+    def __len__(self):
+        """Get length of container"""
+        return len(self.items)
+
+    def __getitem__(self, item):
+        item_copy = deepcopy(self.items[item])
+        item = item_copy
+        while item.item_id.parent_id:
+            item.parent = deepcopy(self.items[item.item_id.parent_id])
+            item = item.parent
+        return item_copy
+
     def sort(self, by, reverse):
         """Sort container by given attribute"""
         try:
             self.items.sort(key=lambda item: item.get(by), reverse=reverse)
         except AttributeError:
             pass  # Fixes: 'NoneType' object has no attribute 'get' - caused by Trakt not able to create an item
-
-    def __len__(self):
-        """Get length of container"""
-        return len(self.items)
 
     def _swap_children_with_ids(self, item_group: list[Season | Episode]) -> list[Season | Episode]:
         for i in range(len(item_group)):
@@ -52,13 +59,9 @@ class MediaItemContainer:
                     season.episodes = self._swap_children_with_ids(season.episodes)
             item.seasons = self._swap_children_with_ids(item.seasons)
         if isinstance(item, Season):
-            season.episodes = self._swap_children_with_ids(season.episodes)
+            item.episodes = self._swap_children_with_ids(item.episodes)
         self.items[item.item_id] = item
-        return item
-
-    def get_item(self, attr, value) -> "MediaItemContainer":
-        """Get items that match given items"""
-        return next((item for item in self.items if getattr(item, attr) == value), None)
+        return self[item.item_id]
 
     def remove(self, item):
         """Remove item from container"""
@@ -72,8 +75,8 @@ class MediaItemContainer:
     def get_items_with_state(self, state):
         """Get items that need to be updated"""
         return MediaItemContainer({
-            item_id: item 
-            for item_id, item in self.items.items() 
+            item_id: self[item_id]
+            for item_id, item in self.items.items()
             if item.state == state
         })
 

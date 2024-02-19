@@ -40,10 +40,10 @@ class Symlinker:
             )
             return False
         if not self.rclone_path.is_absolute():
-            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
+            logger.error("rclone_path is not an absolute path: %s", self.rclone_path)
             return False
         if not library_path.is_absolute():
-            logger.error(f"library_path is not an absolute path: {library_path}")
+            logger.error("library_path is not an absolute path: %s", library_path)
             return False
         try:
             if (
@@ -67,11 +67,11 @@ class Symlinker:
                 return False
             return True
         except FileNotFoundError as e:
-            logger.error(f"Path not found: {e}")
+            logger.error("Path not found: %s", e)
         except PermissionError as e:
-            logger.error(f"Permission denied when accessing path: {e}")
+            logger.error("Permission denied when accessing path: %s", e)
         except OSError as e:
-            logger.error(f"OS error when validating paths: {e}")
+            logger.error("OS error when validating paths: %s", e)
         return False
 
     def create_initial_folders(self):
@@ -91,10 +91,10 @@ class Symlinker:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
         except PermissionError as e:
-            logger.error(f"Permission denied when creating directory: {e}")
+            logger.error("Permission denied when creating directory: %s", e)
             return False
         except OSError as e:
-            logger.error(f"OS error when creating directory: {e}")
+            logger.error("OS error when creating directory: %c", e)
             return False
         return True
 

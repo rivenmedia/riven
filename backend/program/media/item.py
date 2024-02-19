@@ -25,7 +25,6 @@ class MediaItem:
     """MediaItem class"""
 
     def __init__(self, item):
-        self._lock = threading.Lock()
         self.scraped_at = datetime(1970, 1, 1)
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
@@ -37,13 +36,16 @@ class MediaItem:
         self.folder = None
         self.is_anime = item.get("is_anime", False)
         self.parsed_data = item.get("parsed_data", [])
+        # Maintained by the MediaItemContainer
+        self.parent = None
 
         # Media related
         self.title = item.get("title", None)
         self.imdb_id = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
-            self.item_id = ItemId(None, self.imdb_id)
+            if not hasattr(self, 'item_id'):
+                self.item_id = ItemId(None, self.imdb_id)
         self.tvdb_id = item.get("tvdb_id", None)
         self.tmdb_id = item.get("tmdb_id", None)
         self.network = item.get("network", None)
@@ -56,15 +58,6 @@ class MediaItem:
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
         self.update_folder = item.get("update_folder", None)
-
-    def perform_action(self, modules):
-        with self._lock:
-            self.state.perform_action(modules)
-
-    @property
-    def state(self):
-        _state = self._determine_state()
-        return _state
 
     def _determine_state(self):
         if self.key or self.update_folder == "updated":

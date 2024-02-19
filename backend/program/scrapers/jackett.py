@@ -4,7 +4,8 @@ from utils.logger import logger
 from program.settings.manager import settings_manager
 from utils.parser import parser
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show, Season, Episode, Movie
+
 
 class Jackett:
     """Scraper for `Jackett`"""
@@ -60,20 +61,18 @@ class Jackett:
 
     def run(self, item: MediaItem) -> MediaItem | None:
         """Scrape Jackett for the given media items"""
-        if item is None or not self.initialized:
-            return
+        if item is None or isinstance(item, Show):
+            yield item
         try:
-            yield self._scrape_item(item)
+            item = self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
-            return
         except RequestException as e:
             logger.debug("Jackett request exception: %s", e)
-            return
         except Exception as e:
             logger.error("Jackett failed to scrape item: %s", e)
-            return
+        yield item
 
     def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
@@ -102,11 +101,11 @@ class Jackett:
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
             query = ""
-            if item.type == "movie":
+            if isinstance(item, Movie):
                 query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
-            if item.type == "season":
+            if isinstance(item, Season):
                 query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
-            if item.type == "episode":
+            if isinstance(item, Episode):
                 query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
             url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
             with self.second_limiter:

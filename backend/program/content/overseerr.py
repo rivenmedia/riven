@@ -105,7 +105,7 @@ class Overseerr():
                     return new_imdb_id
 
         self.not_found_ids.append(f"{id_extension}{external_id}")
-        logger.debug(f"Could not get imdbId for {title}, or match with external id")
+        logger.debug("Could not get imdbId for %s, or match with external id", title)
         return None
 
     def delete_request(self, request_id: int) -> bool:
@@ -115,5 +115,5 @@ class Overseerr():
             additional_headers=self.headers,
         )
         if response.is_ok:
-            logger.info(f"Deleted request {request_id} from overseerr")
+            logger.info("Deleted request %c from overseerr", request_id)
             return {"success": True, "message": f"Deleted request {request_id}"}

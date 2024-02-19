@@ -6,6 +6,7 @@ from utils.logger import logger
 from utils.request import get, post, ping
 from program.settings.manager import settings_manager
 from utils.parser import parser
+from program.media.item import Season, Movie, Episode
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
@@ -121,11 +122,11 @@ class Debrid:
                 for containers in provider_list.values():
                     for container in containers:
                         wanted_files = {}
-                        if item.type == "movie" and all(file["filesize"] > 200000 for file in container.values()):
+                        if isinstance(item, Movie) and all(file["filesize"] > 200000 for file in container.values()):
                             wanted_files = container
-                        if item.type == "season" and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                        if isinstance(item, Season) and all(any(episode.value in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
                             wanted_files = container
-                        if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                        if isinstance(item, Episode) and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
                             wanted_files = container
                         if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
                             item.set(
@@ -139,11 +140,11 @@ class Debrid:
 
     def _set_file_paths(self, item):
         """Set file paths for item from real-debrid.com"""
-        if item.type == "movie":
+        if isinstance(item, Movie):
             self._handle_movie_paths(item)
-        if item.type == "season":
+        elif isinstance(item, Season):
             self._handle_season_paths(item)
-        if item.type == "episode":
+        elif isinstance(item, Episode):
             self._handle_episode_paths(item)
 
     def _handle_movie_paths(self, item):

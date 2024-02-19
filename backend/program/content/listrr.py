@@ -48,11 +48,11 @@ class Listrr():
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
                 logger.error(
-                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
+                    "Listrr ping failed - Status Code: %s, Reason: %s", response.status_code, response.reason
                 )
             return response.ok
         except Exception as e:
-            logger.error(f"Listrr ping exception: {e}")
+            logger.error("Listrr ping exception: %s", e)
             return False
 
     def run(self) -> Generator[MediaItem, None, None]:
@@ -95,7 +95,7 @@ class Listrr():
                     if e.response.status_code in [400, 404, 429, 500]:
                         break
                 except Exception as e:
-                    logger.error(f"An error occurred: {e}")
+                    logger.error("An error occurred: %s", e)
                     break
                 page += 1
         return list(unique_ids)

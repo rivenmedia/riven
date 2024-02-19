@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import traceback
 
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
@@ -50,7 +51,7 @@ class Program(threading.Thread):
         )
 
     def start(self):
-        logger.info(f"Iceberg v{settings_manager.settings.version} starting!")
+        logger.info("Iceberg v%s starting!", settings_manager.settings.version)
         self.initialized = False
         self.job_queue = Queue()
         os.makedirs(data_dir_path, exist_ok=True)
@@ -105,7 +106,7 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         for service_cls, service_instance in self.content_services.items():
             if not service_instance.initialized:
-                logger.info(f"Not scheduling {service_cls.__name__} due to not being initialized")
+                logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
                 continue
             update_interval = service_instance.settings.update_interval
             self.scheduler.add_job(
@@ -118,27 +119,26 @@ class Program(threading.Thread):
                 replace_existing=True,  # Replace existing jobs with the same ID
                 next_run_time=datetime.now()
             )
-            logger.info(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+            logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
         return None
 
     def _process_future_item(self, future: Future, service: Service, input_item: MediaItem) -> None:
-        for item in future.result():
-            if item is None:
-                continue
-            self.job_queue.put(Event(emitted_by=service, item=item))
-            break
-        else:
-            logger.debug(f"No results from submitting {getattr(input_item, 'title', None)} to {service.__name__}")
-    
+        try:
+            for item in future.result():
+                if item is None:
+                    continue
+                self.job_queue.put(Event(emitted_by=service, item=item))
+                break
+            else:
+                logger.debug("No results from submitting %s to %s", getattr(input_item, 'title', None), service.__name__)
+        except Exception as e:
+            logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
+
     def _service_run_item(self, func: Callable, item: MediaItem | None) -> MediaItemGenerator:
         if item is None:
             yield from func()
             return None
-        logger.debug(f"Acquiring lock for {item.title}")
-        with item._lock:
-            logger.debug(f"Acquired lock for {item.title}")
-            yield from func(item)
-        return None
+        yield from func(item)
         
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
@@ -161,6 +161,9 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             service, item = event.emitted_by, event.item
+            if not isinstance(item, MediaItem):
+                logger.error("Service %s emitted item %s of type %s", service.__name__, item, item.__class__.__name__)
+                continue
             # update database to current state
             item = self.media_items.append(item)
             if service in get_args(Content):
@@ -173,7 +176,7 @@ class Program(threading.Thread):
             elif service == TraktMetadata:
                 next_service = Scraping
                 items_to_submit = [item]
-            elif service in get_args(Scraper):
+            elif service == Scraping:
                 if item.streams:
                     next_service = Debrid
                     items_to_submit = [item]
@@ -181,7 +184,7 @@ class Program(threading.Thread):
                 # and try to get a stream for each one separately
                 elif isinstance(item, Show):
                     next_service = Scraping
-                    items_to_submit = [self.media_items[e] for s in item.seasons for e in self.media_items[s].episodes]
+                    items_to_submit = [self.media_items[s] for s in item.seasons]
                 elif isinstance(item, Season):
                     next_service = Scraping
                     items_to_submit = [self.media_items[e] for e in item.episodes]

@@ -1,9 +1,11 @@
 """Plex Watchlist Module"""
 from requests import HTTPError
+from typing import Generator
+
 from utils.request import get, ping
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.media.container import MediaItemContainer
+from program.media.item import MediaItem
 
 
 class PlexWatchlist():
@@ -37,72 +39,61 @@ class PlexWatchlist():
                     )
                 else:
                     logger.warn(
-                        f"Plex RSS URL is not reachable (HTTP status code: {e.response.status_code}). Falling back to using user Watchlist."
+                        "Plex RSS URL is not reachable (HTTP status code: %s). Falling back to using user Watchlist.", e.response.status_codez
                     )
                 return True
             except Exception as e:
-                logger.exception(f"Failed to validate Plex RSS URL: {e}")
+                logger.exception("Failed to validate Plex RSS URL: %s", e)
                 return True
         return True
 
     def run(self):
         """Fetch new media from `Plex Watchlist`"""
         self.not_found_ids.clear()
-        yield from self._create_unique_list()
-       
-
-    def _create_unique_list(self) -> MediaItemContainer:
-        """Create a unique list of items from Plex RSS and Watchlist."""
         if not self.rss_enabled:
-            return self._get_items_from_watchlist()
-        watchlist_items = set(self._get_items_from_watchlist())
-        rss_items = set(self._get_items_from_rss())
-        unique_items = list(watchlist_items.union(rss_items))
-        return unique_items
+            yield from self._get_items_from_watchlist()
+        else:
+            watchlist_items = set(self._get_items_from_watchlist())
+            rss_items = set(self._get_items_from_rss())
+            unioned = watchlist_items.union(rss_items)
+            yield from (MediaItem({'imdb_id': id}) for id in unioned)
+            
 
-    def _get_items_from_rss(self) -> list:
+    def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feed."""
         try:
             response = get(self.settings.rss, timeout=60)
             if not response.is_ok:
                 logger.error(
-                    f"Failed to fetch Plex RSS feed: HTTP {response.status_code}"
+                    "Failed to fetch Plex RSS feed: HTTP %s", response.status_code
                 )
-                return []
-            imdb_ids = [
+                return
+            yield from (
                 guid.split("//")[-1]
                 for item in response.data.items
                 for guid in item.guids
                 if guid.startswith("imdb://")
-            ]
-            return imdb_ids
+            )
         except Exception as e:
             logger.error(
-                f"An unexpected error occurred while fetching Plex RSS feed: {e}"
+                "An unexpected error occurred while fetching Plex RSS feed: %s", e
             )
-            return []
+            
+            return
 
-    def _get_items_from_watchlist(self) -> list:
+    def _get_items_from_watchlist(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex watchlist"""
         filter_params = "includeFields=title,year,ratingkey&includeElements=Guid&sort=watchlistedAt:desc"
         url = f"https://metadata.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token={self.token}&{filter_params}"
         response = get(url)
-        if response.is_ok and hasattr(response.data, "MediaContainer"):
-            valid_items = filter(
-                lambda item: hasattr(item, "ratingKey") and item.ratingKey,
-                response.data.MediaContainer.Metadata,
-            )
-            imdb_ids = list(
-                filter(
-                    None,
-                    map(
-                        lambda item: self._ratingkey_to_imdbid(item.ratingKey),
-                        valid_items,
-                    ),
-                )
-            )
-            return imdb_ids
-        return []
+        if not response.is_ok or not hasattr(response.data, "MediaContainer"):
+            yield
+            return
+        for item in response.data.MediaContainer.Metadata:
+            if hasattr(item, "ratingKey") and item.ratingKey:
+                imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
+                if imdb_id:
+                    yield imdb_id
 
     def _ratingkey_to_imdbid(self, ratingKey: str) -> str:
         """Convert Plex rating key to IMDb ID"""

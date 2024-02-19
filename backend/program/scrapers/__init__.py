@@ -21,7 +21,7 @@ class Scraping:
             return None
         for service in self.services:
             if service.initialized:
-                item = service.run(item)
+                item = next(service.run(item))
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
