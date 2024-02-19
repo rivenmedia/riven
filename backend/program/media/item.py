@@ -183,7 +183,6 @@ class Show(MediaItem):
         super().__init__(item)
         self.item_id = ItemId(parent_item_id, self.imdb_id)
 
-
     def _determine_state(self):
         if all(season.state == States.Library for season in self.seasons):
             return States.Library
@@ -205,10 +204,20 @@ class Show(MediaItem):
     def __repr__(self):
         return f"Show:{self.title}:{self.state.name}"
 
+    def fill_in_missing_info(self, other: Self):
+        existing_seasons = [s.number for s in self.seasons]
+        for s in other.seasons:
+            if s.number not in existing_seasons:
+                self.add_season(s)
+            else:
+                existing_season = next(es for es in self.seasons if s.number == es.number) 
+                existing_season.fill_in_missing_info(s)
+        
     def add_season(self, season):
         """Add season to show"""
         self.seasons.append(season)
-
+        self.seasons = sorted(self.seasons, key=lambda s: s.number)
+    
     @property
     def log_string(self):
         return self.title
@@ -246,9 +255,17 @@ class Season(MediaItem):
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
 
+    def fill_in_missing_info(self, other: Self):
+        existing_episodes = [s.number for s in self.episodes]
+        for e in other.episodes:
+            if e.number not in existing_episodes:
+                self.add_episode(e)
+
     def add_episode(self, episode):
         """Add episode to season"""
         self.episodes.append(episode)
+        self.episodes = sorted(self.episodes, key=lambda e: e.number)
+
 
     @property
     def log_string(self):

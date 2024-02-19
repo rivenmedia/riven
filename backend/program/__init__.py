@@ -170,21 +170,18 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             service, item = event.emitted_by, event.item
-            if (
-                item.item_id in self.media_items 
-                and self.media_items[item.item_id].state == States.Library
-            ):
-                continue
-            # update database to current state
-            item = self.media_items.upsert(item)
             if service in get_args(Content):
                 if not getattr(item, 'title', None):
                     next_service = TraktMetadata
-                    items_to_submit = [item]
-                else:
-                    next_service = Scraping
-                    items_to_submit = [item]
-            elif service == TraktMetadata:
+                    self._submit_job(next_service, item)
+                    continue
+            # update database to current state
+            existing_item = self.media_items.get(item.item_id, None)
+            item = self.media_items.upsert(item)
+            if service == TraktMetadata:
+                if isinstance(existing_item, (Show, Season)):
+                    existing_item.fill_in_missing_info(item)
+                    self.media_items.upsert(existing_item)
                 next_service = Scraping
                 items_to_submit = [item]
             elif service == Scraping:

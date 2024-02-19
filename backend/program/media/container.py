@@ -32,6 +32,9 @@ class MediaItemContainer:
     def __getitem__(self, item_id: ItemId):
         return deepcopy(self.items[item_id])
 
+    def get(self, key, default=None):
+        return deepcopy(self.items.get(key, default))
+
     def sort(self, by, reverse):
         """Sort container by given attribute"""
         try:
