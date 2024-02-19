@@ -1,7 +1,7 @@
 from utils.logger import logger
 from program.media.item import MediaItem
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt
+from program.metadata.trakt import TraktMetadata as Trakt
 
 
 class ContentServiceBase:

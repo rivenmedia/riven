@@ -6,7 +6,7 @@ from utils.request import get, ping
 from requests.exceptions import HTTPError
 from program.settings.manager import settings_manager
 from program.media.item import MediaItem
-from program.updaters.trakt import get_imdbid_from_tmdb
+from program.metadata.trakt import get_imdbid_from_tmdb
 
 
 class Listrr():
@@ -60,7 +60,9 @@ class Listrr():
         self.not_found_ids.clear()
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
-        yield from movie_items + show_items
+        for imdb_id in movie_items + show_items:
+            yield MediaItem({'imdb_id': imdb_id})
+        return
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""

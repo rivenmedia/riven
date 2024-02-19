@@ -4,17 +4,17 @@ import concurrent.futures
 from threading import Lock
 import os
 from datetime import datetime
+from typing import Optional
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.media.state import States
 from program.media.item import (
     Movie,
     Show,
     Season,
     Episode,
-    MediaItem
+    ItemId
 )
 
 class PlexLibrary():
@@ -27,7 +27,6 @@ class PlexLibrary():
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.last_fetch_times = {}
-        self.media_items = []
         self.settings = settings_manager.settings.plex
         try:
             self.plex = PlexServer(self.settings.url, self.settings.token, timeout=60)
@@ -67,7 +66,7 @@ class PlexLibrary():
                 last_fetch_time = self._get_last_fetch_time(section)
                 filters = {} if not self.last_fetch_times else {"addedAt>>": last_fetch_time}
                 future_items = {
-                    executor.submit(self._create_and_match_item, item)
+                    executor.submit(self._create_item, item)
                     for item in section.search(libtype=section.type, filters=filters)
                 }
                 for future in concurrent.futures.as_completed(future_items):
@@ -84,77 +83,25 @@ class PlexLibrary():
                 " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
             )
             return
-
-        added_count = 0
-        for item in items:
-            if item is not None and item not in self.media_items:
-                
-                self.media_items.append(item)
-                added_count += 1
-
-        if added_count > 0:
-            if added_count <= 5:
-                logger.info("Found %d from Plex", item.log_string)
-            else:
-                logger.info("Found %d items from Plex", added_count)
         yield from items
 
-
-    def _create_and_match_item(self, item):
-        new_item = self._create_item(item)
-        if new_item:
-            self.match_item(new_item)
-        return new_item
-
-    def _create_item(self, item):
-        new_item = _map_item_from_data(item)
-        if not new_item or item.type != "show":
-            return new_item
-        for season in item.seasons():
+    def _create_item(self, raw_item):
+        item = _map_item_from_data(raw_item)
+        if not item or raw_item.type != "show":
+            return item
+        for season in raw_item.seasons():
             if season.seasonNumber == 0:
                 continue
-            if not (new_season := _map_item_from_data(season)):
+            if not (season_item := _map_item_from_data(season, item.item_id)):
                 continue
-            new_season_episodes = []
+            episode_items = []
             for episode in season.episodes():
-                new_episode = _map_item_from_data(episode)
-                if new_episode:
-                    new_season_episodes.append(new_episode)
-            new_season.episodes = new_season_episodes
-            new_item.seasons.append(new_season)
-        return new_item
-
-    def match_item(self, new_item):
-        for existing_item in self.media_items:
-            if existing_item.imdb_id == new_item.imdb_id:
-                self._update_item(existing_item, new_item)
-                break
-        # Leaving this here as a reminder to not forget about deleting items that are removed from plex, needs to be revisited
-        # if item.state is MediaItemState.LIBRARY and item not in found_items:
-        #     self.media_items.remove(item)
-
-    def _update_item(self, item, library_item):
-        items_updated = 0
-        item.set("guid", library_item.guid)
-        item.set("key", library_item.key)
-        if item.type != "show":
-            return items_updated
-
-        def match(items, number):
-            return next(filter(lambda x: x.number == number, items), None)
-
-        flat_episodes = ((s, e) for s in item.seasons for e in s.episodes)
-        for season, episode in flat_episodes:
-            if episode.state == States.Library:
-                continue
-            if not (found_season := match(library_item.seasons, season.number)):
-                continue
-            if not (found_episode := match(found_season.episodes, episode.number)):
-                continue
-            episode.set("guid", found_episode.guid)
-            episode.set("key", found_episode.key)
-            items_updated += 1
-        return items_updated
+                episode_item = _map_item_from_data(episode, season_item.item_id)
+                if episode_item:
+                    episode_items.append(episode_item)
+            season_item.episodes = episode_items
+            item.seasons.append(season_item)
+        return item
 
     def _is_wanted_section(self, section):
         section_located = any(
@@ -163,7 +110,7 @@ class PlexLibrary():
         return section_located and section.type in ["movie", "show"]
 
 
-def _map_item_from_data(item):
+def _map_item_from_data(item, parent_id: Optional[ItemId] = None):
     """Map Plex API data to MediaItemContainer."""
     file = None
     guid = getattr(item, "guid", None)
@@ -207,11 +154,11 @@ def _map_item_from_data(item):
         return Show(media_item_data)
     elif item.type == "season":
         media_item_data["number"] = season_number
-        return Season(media_item_data)
+        return Season(media_item_data, parent_id)
     elif item.type == "episode":
         media_item_data["number"] = episode_number
         media_item_data["season_number"] = season_number
-        return Episode(media_item_data)
+        return Episode(media_item_data, parent_id)
     else:
         # Specials may end up here..
         logger.error("Unknown Item: %s with type %s", item.title, item.type)

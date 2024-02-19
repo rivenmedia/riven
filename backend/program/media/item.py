@@ -1,15 +1,31 @@
 import threading
 from datetime import datetime
+from dataclasses import dataclass
 from program.media.state import States
+from typing import Self, Optional
 from utils.parser import parser
+from pydantic import BaseModel
 
+
+@dataclass(frozen=True)
+class ItemId:
+    parent_id: Optional[Self]
+    value: str
+
+    def __repr__(self):
+        if not self.parent_id:
+            return self.value
+        return f"{self.parent_id}/{self.value}"
+
+    def __hash__(self):
+        return hash(self.__repr__())
+    
 
 class MediaItem:
     """MediaItem class"""
 
     def __init__(self, item):
         self._lock = threading.Lock()
-        self.itemid = item_id.get_next_value()
         self.scraped_at = datetime(1970, 1, 1)
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
@@ -27,6 +43,7 @@ class MediaItem:
         self.imdb_id = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
+            self.item_id = ItemId(None, self.imdb_id)
         self.tvdb_id = item.get("tvdb_id", None)
         self.tmdb_id = item.get("tmdb_id", None)
         self.network = item.get("network", None)
@@ -81,7 +98,7 @@ class MediaItem:
     def to_dict(self):
         """Convert item to dictionary (API response)"""
         return {
-            "item_id": self.itemid,
+            "item_id": self.item_id,
             "title": self.title,
             "type": self.type,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
@@ -145,10 +162,11 @@ class MediaItem:
 class Movie(MediaItem):
     """Movie class"""
 
-    def __init__(self, item):
+    def __init__(self, item, parent_item_id: Optional[ItemId] = None):
         self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
+        self.item_id = ItemId(parent_item_id, self.imdb_id)
 
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.__class__.__name__}"
@@ -161,11 +179,13 @@ class Movie(MediaItem):
 class Show(MediaItem):
     """Show class"""
 
-    def __init__(self, item):
+    def __init__(self, item, parent_item_id: Optional[ItemId] = None):
         self.locations = item.get("locations", [])
-        self.seasons = item.get("seasons", [])
+        self.seasons: list[Season | ItemId] = item.get("seasons", [])
         self.type = "show"
         super().__init__(item)
+        self.item_id = ItemId(parent_item_id, self.imdb_id)
+
 
     def _determine_state(self):
         if all(season.state == States.Library for season in self.seasons):
@@ -191,7 +211,6 @@ class Show(MediaItem):
     def add_season(self, season):
         """Add season to show"""
         self.seasons.append(season)
-        season.parent = self
 
     @property
     def log_string(self):
@@ -201,11 +220,11 @@ class Show(MediaItem):
 class Season(MediaItem):
     """Season class"""
 
-    def __init__(self, item):
+    def __init__(self, item, parent_item_id: ItemId):
         self.type = "season"
-        self.parent = None
         self.number = item.get("number", None)
-        self.episodes = item.get("episodes", [])
+        self.episodes: list[Episode | ItemId] = item.get("episodes", [])
+        self.item_id = ItemId(parent_item_id, self.number)
         super().__init__(item)
 
     def _determine_state(self):
@@ -233,7 +252,6 @@ class Season(MediaItem):
     def add_episode(self, episode):
         """Add episode to season"""
         self.episodes.append(episode)
-        episode.parent = self
 
     @property
     def log_string(self):
@@ -243,15 +261,15 @@ class Season(MediaItem):
 class Episode(MediaItem):
     """Episode class"""
 
-    def __init__(self, item):
+    def __init__(self, item, parent_item_id: ItemId):
         self.type = "episode"
-        self.parent = None
         self.number = item.get("number", None)
         self.file = item.get("file", None)
+        self.item_id = ItemId(parent_item_id, self.number)
         super().__init__(item)
 
     def __eq__(self, other):
-        if type(self) == type(other) and self.parent == other.parent:
+        if type(self) == type(other) and self.parent_id == other.parent_id:
             return self.number == other.number
 
     def __repr__(self):
@@ -262,13 +280,7 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        return (
-            self.parent.parent.title
-            + " S"
-            + str(self.parent.number).zfill(2)
-            + "E"
-            + str(self.number).zfill(2)
-        )
+        return f"{self.parent.parent.title} S{self.parent.number:02}E{self.number:02}"
 
 
 def _set_nested_attr(obj, key, value):
@@ -286,15 +298,3 @@ def _set_nested_attr(obj, key, value):
             obj[key] = value
         else:
             setattr(obj, key, value)
-
-
-class ItemId:
-    value = 0
-
-    @classmethod
-    def get_next_value(cls):
-        cls.value += 1
-        return cls.value
-
-
-item_id = ItemId()

@@ -2,8 +2,8 @@
 from utils.logger import logger
 from utils.request import delete, get, ping
 from program.settings.manager import settings_manager
-from program.media.container import MediaItemContainer
-from program.updaters.trakt import get_imdbid_from_tmdb
+from program.media.item import MediaItem
+from program.metadata.trakt import get_imdbid_from_tmdb
 
 
 class Overseerr():
@@ -45,25 +45,21 @@ class Overseerr():
     def run(self):
         """Fetch new media from `Overseerr`"""
         self.not_found_ids.clear()
-        items = self._get_items_from_overseerr(10000)    
-        yield from items
-
-    def _get_items_from_overseerr(self, amount: int) -> MediaItemContainer:
-        """Fetch media from overseerr"""
         response = get(
-            self.settings.url + f"/api/v1/request?take={amount}",
+            self.settings.url + f"/api/v1/request?take={10000}",
             additional_headers=self.headers,
         )
-        ids = []
-        if response.is_ok:
-            for item in response.data.results:
-                if not item.media.imdbId:
-                    imdb_id = self.get_imdb_id(item.media)
-                    if imdb_id:
-                        ids.append(imdb_id)
-                else:
-                    ids.append(item.media.imdbId)
-        return ids
+        if not response.is_ok:
+            return
+        for item in response.data.results:
+            if not item.media.imdbId:
+                imdb_id = self.get_imdb_id(item.media)
+                if imdb_id:
+                    yield MediaItem({'imdb_id': imdb_id})
+            else:
+                yield MediaItem({'imdb_id': item.media.imdbId})
+
+
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

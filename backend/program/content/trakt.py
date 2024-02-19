@@ -4,7 +4,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, ping
 from program.media.container import MediaItemContainer
-from program.updaters.trakt import Updater as Trakt, CLIENT_ID
+from program.metadata.trakt import TraktMetadata as Trakt, CLIENT_ID
 
 
 class Trakt:

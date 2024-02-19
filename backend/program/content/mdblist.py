@@ -1,10 +1,8 @@
 """Mdblist content module"""
-from time import time
 from typing import Generator
 
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from utils.request import RateLimitExceeded, RateLimiter, get, ping
 
@@ -45,18 +43,14 @@ class Mdblist():
 
         try:
             with self.rate_limiter:
-                items = MediaItemContainer()
                 for list_id in self.settings.lists:
-                    if list_id:
-                        items.extend(
-                            self._get_items_from_list(list_id, self.settings.api_key)
-                        )
-                yield from items
+                    if not list_id:
+                        continue
+                    for item in list_items(list_id, self.settings.api_key):
+                        yield MediaItem({'imdb_id': item.imdb_id})
         except RateLimitExceeded:
             pass
-
-    def _get_items_from_list(self, list_id: str, api_key: str) -> MediaItemContainer:
-        return [item.imdb_id for item in list_items(list_id, api_key)]
+        return
 
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits

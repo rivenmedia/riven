@@ -163,7 +163,7 @@ class Symlinker:
         else:
             logger.debug(
                 "Could not create symlink for item_id (%s) to (%s)",
-                item.id,
+                item.item_id,
                 destination,
             )
 

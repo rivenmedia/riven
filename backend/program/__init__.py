@@ -6,14 +6,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from queue import Queue, Empty
-from typing import Union, get_args, Generator
+from typing import Union, get_args, Generator, Callable
+from dataclasses import dataclass
 
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
+from program.metadata.trakt import TraktMetadata
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show, Season
 from program.media.state import States
 from program.plex import PlexLibrary
 from program.realdebrid import Debrid
@@ -31,9 +33,8 @@ Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
 Service = Union[Content, PlexLibrary, Scraper, Debrid, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
-class Event(BaseModel):
-    class Config:
-        arbitrary_types_allowed=True
+@dataclass
+class Event:
     emitted_by: Service
     item: MediaItem
 
@@ -54,7 +55,7 @@ class Program(threading.Thread):
         self.job_queue = Queue()
         os.makedirs(data_dir_path, exist_ok=True)
 
-        self.media_items = MediaItemContainer(items=[])
+        self.media_items = MediaItemContainer()
         if not self.startup_args.dev:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
@@ -66,6 +67,9 @@ class Program(threading.Thread):
                 Listrr: Listrr(), 
                 Mdblist: Mdblist(),
             }
+            self.metadata_services = {
+                TraktMetadata: TraktMetadata()
+            }
             self.processing_services = {
                 Scraping: Scraping(), 
                 Debrid: Debrid(), 
@@ -73,12 +77,16 @@ class Program(threading.Thread):
                 PlexUpdater: PlexUpdater()
             }
             self.services = {
+                **self.metadata_services,
                 **self.content_services,
                 **self.processing_services
             }
         except Exception as e:
             raise
-        self.media_items.extend(self.services[PlexLibrary].run())
+        # seed initial MIC with Library State
+        for item in self.services[PlexLibrary].run():
+            self.media_items.append(item)
+
         if self.validate():
             logger.info("Iceberg started!")
         else:
@@ -111,27 +119,28 @@ class Program(threading.Thread):
                 next_run_time=datetime.now()
             )
             logger.info(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
-        return
+        return None
 
     def _process_future_item(self, future: Future, service: Service, input_item: MediaItem) -> None:
         for item in future.result():
             if item is None:
                 continue
-            self.job_queue.put((service, item))
+            self.job_queue.put(Event(emitted_by=service, item=item))
             break
         else:
             logger.debug(f"No results from submitting {getattr(input_item, 'title', None)} to {service.__name__}")
     
-    def _service_run_item(self, func: callable, item: MediaItem) -> MediaItemGenerator:
+    def _service_run_item(self, func: Callable, item: MediaItem | None) -> MediaItemGenerator:
         if item is None:
             yield from func()
-            return
+            return None
         logger.debug(f"Acquiring lock for {item.title}")
         with item._lock:
             logger.debug(f"Acquired lock for {item.title}")
             yield from func(item)
+        return None
         
-    def _submit_job(self, service: Service, item: MediaItem) -> None:
+    def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
             f"Submitting service {service.__name__} to the pool" +
             (f" with {item.title}" if item else "")
@@ -147,14 +156,21 @@ class Program(threading.Thread):
                 time.sleep(1)
                 continue
             try:
-                service, item = self.job_queue.get(timeout=1)
+                event: Event = self.job_queue.get(timeout=1)
             except Empty:
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
-            
+            service, item = event.emitted_by, event.item
+            # update database to current state
+            item = self.media_items.append(item)
             if service in get_args(Content):
-                if item in self.media_items:
-                    continue
+                if not getattr(item, 'title', None):
+                    next_service = TraktMetadata
+                    items_to_submit = [item]
+                else:
+                    next_service = Scraping
+                    items_to_submit = [item]
+            elif service == TraktMetadata:
                 next_service = Scraping
                 items_to_submit = [item]
             elif service in get_args(Scraper):
@@ -163,18 +179,17 @@ class Program(threading.Thread):
                     items_to_submit = [item]
                 # if we didn't get a stream then we have to dive into the components
                 # and try to get a stream for each one separately
-                elif item.type == "show":
+                elif isinstance(item, Show):
                     next_service = Scraping
-                    items_to_submit = [e for s in item.seasons for e in s.episodes]
-                elif item.type == "season":
+                    items_to_submit = [self.media_items[e] for s in item.seasons for e in self.media_items[s].episodes]
+                elif isinstance(item, Season):
                     next_service = Scraping
-                    items_to_submit = [e for e in item.episodes]
+                    items_to_submit = [self.media_items[e] for e in item.episodes]
             elif service == Debrid:
                 next_service =  Symlinker
             elif service == Symlinker:
                 next_service =  PlexUpdater
 
-            self.media_items.append(item)
             for item in items_to_submit:
                 self._submit_job(next_service, item)
 

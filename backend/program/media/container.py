@@ -3,13 +3,13 @@ import threading
 import dill
 from pickle import UnpicklingError
 from typing import List, Optional
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Episode, Season, Show, ItemId
 
 
 class MediaItemContainer:
     """MediaItemContainer class"""
 
-    def __init__(self, items: Optional[List[MediaItem]] = None):
+    def __init__(self, items: Optional[dict[ItemId, MediaItem]] = None):
         self.items = items if items is not None else {}
         self.lock = threading.Lock()
 
@@ -35,30 +35,34 @@ class MediaItemContainer:
         """Get length of container"""
         return len(self.items)
 
-    def append(self, item) -> bool:
-        """Append item to container"""
-        with self.lock:
-            self.items[item.itemid] = item
-            self.sort("requested_at", True)
+    def _swap_children_with_ids(self, item_group: list[Season | Episode]) -> list[Season | Episode]:
+        for i in range(len(item_group)):
+            item = item_group[i]
+            if hasattr(item, 'item_id'):
+                item_group[i] = item.item_id
+                self.items[item.item_id] = item
+        return item_group
+
+    def append(self, item: MediaItem) -> MediaItem:
+        """Iterate through all child items, swap direct references with ItemIDs, then add
+        each item in tree to the items dict flat so they can be directly referenced later"""
+        if isinstance(item, Show):
+            for season in item.seasons:
+                if isinstance(season, Season):
+                    season.episodes = self._swap_children_with_ids(season.episodes)
+            item.seasons = self._swap_children_with_ids(item.seasons)
+        if isinstance(item, Season):
+            season.episodes = self._swap_children_with_ids(season.episodes)
+        self.items[item.item_id] = item
+        return item
 
     def get_item(self, attr, value) -> "MediaItemContainer":
         """Get items that match given items"""
         return next((item for item in self.items if getattr(item, attr) == value), None)
 
-    def extend(self, items) -> "MediaItemContainer":
-        """Extend container with items"""
-        with self.lock:
-            added_items = MediaItemContainer()
-            for media_item in items:
-                if media_item.itemid not in self.items:
-                    self.items.append(media_item)
-                    added_items.append(media_item)
-            self.sort("requested_at", True)
-            return added_items
-
     def remove(self, item):
         """Remove item from container"""
-        if item.itemid in self.items:
+        if item.item_id in self.items:
             self.items.remove(item)
 
     def count(self, state) -> int:
@@ -67,7 +71,11 @@ class MediaItemContainer:
 
     def get_items_with_state(self, state):
         """Get items that need to be updated"""
-        return MediaItemContainer([item for item in self.items.values() if item.state == state])
+        return MediaItemContainer({
+            item_id: item 
+            for item_id, item in self.items.items() 
+            if item.state == state
+        })
 
     def save(self, filename):
         """Save container to file"""

@@ -1,91 +1,37 @@
 """Trakt updater module"""
-import math
-import concurrent.futures
+
 from datetime import datetime
+from typing import Optional
 from utils.logger import logger
 from utils.request import get
-from utils import data_dir_path
-from program.media.item import Movie, Show, Season, Episode
+from program.media.item import Movie, Show, Season, Episode, MediaItem, ItemId
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
 
-class Updater:
+class TraktMetadata:
     """Trakt updater class"""
 
     def __init__(self):
-        self.trakt_data = []
-        self.pkl_file = data_dir_path / "trakt_data.pkl"
         self.ids = []
 
-    def create_items(self, imdb_ids):
-        """Update media items to state where they can start downloading"""
-        if len(imdb_ids) == 0:
-            return []
-
-        self.trakt_data.load(self.pkl_file)
-        new_items = []
-        get_items = []
-
-        existing_imdb_ids = {item.imdb_id for item in self.trakt_data.items if item}
-
-        # This is to calculate 10% batch sizes to speed up the process
-        batch_size = math.ceil(len(imdb_ids) * 0.1) or 1
-        imdb_id_batches = [
-            imdb_ids[i : i + batch_size] for i in range(0, len(imdb_ids), batch_size)
-        ]
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            for imdb_id_batch in imdb_id_batches:
-                future_items = {
-                    executor.submit(self._create_item, imdb_id): imdb_id
-                    for imdb_id in imdb_id_batch
-                    if imdb_id not in existing_imdb_ids or imdb_id is not None
-                }
-                for future in concurrent.futures.as_completed(future_items):
-                    item = future.result()
-                    if item:
-                        new_items.append(item)
-                    get_items.append(item)
-
-        for imdb_id in imdb_ids:
-            if imdb_id in existing_imdb_ids:
-                get_items.append(self.trakt_data.get_item("imdb_id", imdb_id))
-
-        added_items = self.trakt_data.extend(new_items)
-        length = len(added_items)
-        if length >= 1 and length <= 5:
-            for item in added_items:
-                logger.debug("Updated metadata for %s", item.log_string)
-        elif length > 5:
-            logger.debug("Updated metadata for %s items", len(added_items))
-        if length > 0:
-            self.trakt_data.extend(added_items)
-            self.trakt_data.save(self.pkl_file)
-        return get_items
-
-    def _create_item(self, imdb_id):
+    def run(self, item: MediaItem):
+        imdb_id = item.imdb_id
         item = create_item_from_imdb_id(imdb_id)
-        if item is None:
-            logger.info(
-                f"Removed request with IMDb ID {imdb_id}, unable to create item."
-            )
-            self.trakt_data.remove(imdb_id)
-            self.trakt_data.save(self.pkl_file)
-            return None
         if item and item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:
-                if season.number != 0:
-                    new_season = _map_item_from_data(season, "season")
-                    for episode in season.episodes:
-                        new_episode = _map_item_from_data(episode, "episode")
-                        new_season.add_episode(new_episode)
-                    item.add_season(new_season)
-        return item
+                if season.number == 0:
+                    continue
+                season_item = _map_item_from_data(season, "season", item.item_id)
+                for episode in season.episodes:
+                    episode_item = _map_item_from_data(episode, "episode", season_item.item_id)
+                    season_item.add_episode(episode_item)
+                item.add_season(season_item)
+        yield item
 
 
-def _map_item_from_data(data, item_type):
+def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None):
     """Map trakt.tv API data to MediaItemContainer"""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(
@@ -132,10 +78,10 @@ def _map_item_from_data(data, item_type):
             return_item = Show(item)
         case "season":
             item["number"] = getattr(data, "number")
-            return_item = Season(item)
+            return_item = Season(item, parent_id)
         case "episode":
             item["number"] = getattr(data, "number")
-            return_item = Episode(item)
+            return_item = Episode(item, parent_id)
         case _:
             logger.debug("Unknown item type %s for %s", item_type, data.title)
             return_item = None

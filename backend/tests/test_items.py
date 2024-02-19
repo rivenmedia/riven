@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 app = FastAPI()
 app.include_router(items.router)
 app.program = MagicMock()
-app.program.media_items = MediaItemContainer(items=[])
+app.program.media_items = MediaItemContainer()
 
 client = TestClient(app)
 
