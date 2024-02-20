@@ -69,8 +69,11 @@ class MediaItemContainer:
         return self.get_items_of_type(Movie)
 
     def upsert(self, item: MediaItem) -> MediaItem:
-        """Iterate through the input item and upsert the main store
-        with all of their children"""
+        """Iterate through the input item and upsert all parents and children."""
+        # Use deepcopy so that further modifications made to the input item
+        # will not affect the container state
+        item = deepcopy(item)
+
         if isinstance(item, Show):
             for season in item.seasons:
                 season.parent = item
@@ -79,11 +82,23 @@ class MediaItemContainer:
                     episode.parent = season
                     self.items[episode.item_id] = episode
         if isinstance(item, Season):
+            # update children
             for episode in item.episodes:
                 episode.parent = item
                 self.items[episode.item_id] = episode
+            # Ensure the parent Show is updated in the container
+            container_show: Show = self.items[item.item_id.parent_id]
+            parent_index = container_show.get_season_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_show.seasons[parent_index] = item
+        elif isinstance(item, Episode):
+            # Ensure the parent Season is updated in the container            
+            container_season: Season = self.items[item.item_id.parent_id]
+            parent_index = container_season.get_episode_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_season.episodes[parent_index] = item
+
         self.items[item.item_id] = item
-        return self[item.item_id]
 
     def remove(self, item):
         """Remove item from container"""

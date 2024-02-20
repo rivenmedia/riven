@@ -183,6 +183,13 @@ class Show(MediaItem):
         super().__init__(item)
         self.item_id = ItemId(parent_item_id, self.imdb_id)
 
+    def get_season_index_by_id(self, item_id):
+        """Find the index of an season by its item_id."""
+        for i, season in enumerate(self.seasons):
+            if season.item_id == item_id:
+                return i
+        return None
+
     def _determine_state(self):
         if all(season.state == States.Library for season in self.seasons):
             return States.Library
@@ -233,6 +240,13 @@ class Season(MediaItem):
         self.item_id = ItemId(parent_item_id, self.number)
         super().__init__(item)
 
+    def get_episode_index_by_id(self, item_id):
+        """Find the index of an episode by its item_id."""
+        for i, episode in enumerate(self.episodes):
+            if episode.item_id == item_id:
+                return i
+        return None
+
     def _determine_state(self):
         if len(self.episodes) > 0:
             if all(episode.state == States.Library for episode in self.episodes):
@@ -250,7 +264,8 @@ class Season(MediaItem):
         return States.Unknown
 
     def __eq__(self, other):
-        return self.number == other.get('number', None)
+        if type(self) == type(other) and self.item_id.parent_id == other.item_id.parent_id:
+            return self.number == other.get('number', None)
 
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
@@ -283,7 +298,7 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __eq__(self, other):
-        if type(self) == type(other) and self.parent_id == other.parent_id:
+        if type(self) == type(other) and self.item_id.parent_id == other.item_id.parent_id:
             return self.number == other.get('number', None)
 
     def __repr__(self):

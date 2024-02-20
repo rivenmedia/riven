@@ -147,7 +147,10 @@ class Program(threading.Thread):
 
     def _service_run_item(self, func: Callable, item: MediaItem | None) -> MediaItemGenerator:
         """Some services don't intake any items so we want to make sure we don't provide them when the input is None."""
-        yield from func() if item is None else func(item)
+        if item is None:
+            yield from func()
+        else: 
+            yield from func(item)
  
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
@@ -177,7 +180,7 @@ class Program(threading.Thread):
                     continue
             # update database to current state
             existing_item = self.media_items.get(item.item_id, None)
-            item = self.media_items.upsert(item)
+            self.media_items.upsert(item)
             if service == TraktMetadata:
                 if isinstance(existing_item, (Show, Season)):
                     existing_item.fill_in_missing_info(item)
