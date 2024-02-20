@@ -1,10 +1,11 @@
 """Trakt updater module"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from utils.logger import logger
 from utils.request import get
 from program.media.item import Movie, Show, Season, Episode, MediaItem, ItemId
+from program.settings.manager import settings_manager
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
@@ -16,6 +17,7 @@ class TraktMetadata:
         self.key = 'traktmetadata'
         self.ids = []
         self.initialized = True
+        self.settings = settings_manager.settings.metadata
 
     def run(self, item: MediaItem):
         imdb_id = item.imdb_id
@@ -30,10 +32,18 @@ class TraktMetadata:
                     episode_item = _map_item_from_data(episode, "episode", season_item.item_id)
                     season_item.add_episode(episode_item)
                 item.add_season(season_item)
+        item.metadata_updated_at = datetime.now()
         yield item
 
+    @staticmethod
+    def should_submit_item(item: MediaItem) -> bool:
+        if not item.metadata_updated_at:
+            return True
+        settings = settings_manager.settings.metadata
+        interval = timedelta(seconds=settings.update_interval)
+        return item.metadata_updated_at < datetime.now() - interval
 
-def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None):
+def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None) -> MediaItem:
     """Map trakt.tv API data to MediaItemContainer"""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(
@@ -106,7 +116,7 @@ def get_show(imdb_id: str):
     return []
 
 
-def create_item_from_imdb_id(imdb_id: str):
+def create_item_from_imdb_id(imdb_id: str) -> MediaItem:
     """Wrapper for trakt.tv API search method"""
     if imdb_id is None:
         return None

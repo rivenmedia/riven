@@ -32,11 +32,11 @@ class MediaItem:
         self.symlinked = False
         self.requested_at = item.get("requested_at", None) or datetime.now()
         self.requested_by = item.get("requested_by", None)
+        self.metadata_updated_at = None
         self.file = None
         self.folder = None
         self.is_anime = item.get("is_anime", False)
         self.parsed_data = item.get("parsed_data", [])
-        # Maintained by the MediaItemContainer
         self.parent = None
 
         # Media related

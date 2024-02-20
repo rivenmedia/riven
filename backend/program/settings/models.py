@@ -125,6 +125,9 @@ class ParserModel(Observable):
 
 # Application Settings
 
+class MetadataModel(Observable):
+    update_interval: int = 60 * 60
+
 
 def get_version() -> str:
     with open(version_file_path.resolve()) as file:
@@ -141,3 +144,4 @@ class AppModel(Observable):
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
     parser: ParserModel = ParserModel()
+    metadata: MetadataModel = MetadataModel()

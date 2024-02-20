@@ -139,9 +139,6 @@ class Program(threading.Thread):
                     logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
                     continue
                 self.job_queue.put(Event(emitted_by=service, item=item))
-                break
-            else:
-                logger.debug("No results from submitting %s to %s", getattr(input_item, 'title', None), service.__name__)
         except Exception as e:
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
@@ -173,22 +170,27 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             service, item = event.emitted_by, event.item
-            
+            existing_item = self.media_items.get(item.item_id, None)
             # we always want to get metadata for content items before we compare to the container. 
             # we can't just check if the show exists we have to check if it's complete
             if service in get_args(Content):
                 if not getattr(item, 'title', None):
+                    # if we already have a copy of this item check if we've already recently 
+                    # updated the metadata
+                    if existing_item and not TraktMetadata.should_submit_item(existing_item):
+                        continue
                     next_service = TraktMetadata
                     self._submit_job(next_service, item)
                     continue
             
             if service == TraktMetadata:
                 # grab a copy of the item in the container
-                if (existing_item := self.media_items.get(item.item_id, None)):
+                if existing_item:
                     # merge our fresh metadata item to make sure there aren't any
                     # missing seasons or episodes in our library copy
                     if isinstance(item, (Show, Season)):
                         existing_item.fill_in_missing_info(item)
+                        existing_item.metadata_updated_at = item.metadata_updated_at
                         item = existing_item
                     # if after making sure we aren't missing any episodes check to 
                     # see if we need to process this, if not then skip
@@ -211,7 +213,7 @@ class Program(threading.Thread):
                     next_service = Scraping
                     items_to_submit = [e for e in item.episodes if e.state != States.Library]
             elif service == Debrid:
-                next_service =  Symlinker
+                next_service = Symlinker
                 if isinstance(item, Season):
                     items_to_submit = [e for e in item.episodes]
                 elif isinstance(item, (Movie, Episode)):
