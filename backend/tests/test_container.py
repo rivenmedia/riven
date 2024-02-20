@@ -1,13 +1,3 @@
-# import pytest
-
-# from program.media.item import MediaItem
-# from program.media.container import MediaItemContainer
-# from program.metadata.trakt import TraktMetadata
-
-# metadata_service = TraktMetadata()
-# vampire_diaries = metadata_service.run(MediaItem({'imdb_id': 'tt1405406'}))
-# mr_robot = metadata_service.run(MediaItem({'imdb_id': 'tt4158110'}))
-
 import pytest
 from program.media.container import MediaItemContainer
 from program.media.item import Show, Season, Episode
