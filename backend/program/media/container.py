@@ -121,7 +121,7 @@ class MediaItemContainer:
             with open(filename, "rb") as file:
                 self.items = dill.load(file)
         except FileNotFoundError:
-            self.items = []
+            self.items = {}
         except (EOFError, UnpicklingError):
             os.remove(filename)
-            self.items = []
+            self.items = {}
