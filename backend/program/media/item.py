@@ -166,7 +166,7 @@ class Movie(MediaItem):
         self.item_id = ItemId(parent_item_id, self.imdb_id)
 
     def __repr__(self):
-        return f"Movie:{self.title}:{self.state.__name__}"
+        return f"Movie:{self.title}:{self.state.name}"
 
     @property
     def log_string(self):
@@ -223,6 +223,7 @@ class Show(MediaItem):
     def add_season(self, season):
         """Add season to show"""
         self.seasons.append(season)
+        season.parent = self
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
     
     @property
@@ -279,6 +280,7 @@ class Season(MediaItem):
     def add_episode(self, episode):
         """Add episode to season"""
         self.episodes.append(episode)
+        episode.parent = self
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
 

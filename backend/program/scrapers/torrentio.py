@@ -6,7 +6,7 @@ from utils.request import RateLimitExceeded, get, RateLimiter, ping
 from program.settings.manager import settings_manager
 from utils.parser import parser
 from program.media.item import Show, Episode, Season
-
+import traceback
 
 class Torrentio:
     """Scraper for `Torrentio`"""
@@ -62,7 +62,7 @@ class Torrentio:
             logger.warn("Torrentio request exception: %s", e)
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Torrentio exception thrown: %s", e)
+            logger.warn("Torrentio exception thrown: %s", traceback.format_exc())
         yield item
 
     def _scrape_item(self, item):

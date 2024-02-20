@@ -155,7 +155,7 @@ class Program(threading.Thread):
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
             f"Submitting service {service.__name__} to the pool" +
-            (f" with {item.title}" if item else "")
+            (f" with {item.title or item.item_id}" if item else "")
         )
         func = self.services[service].run
         future = self.executor.submit(self._service_run_item, func, item)
@@ -173,32 +173,43 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             service, item = event.emitted_by, event.item
+            
+            # we always want to get metadata for content items before we compare to the container. 
+            # we can't just check if the show exists we have to check if it's complete
             if service in get_args(Content):
                 if not getattr(item, 'title', None):
                     next_service = TraktMetadata
                     self._submit_job(next_service, item)
                     continue
-            # update database to current state
-            existing_item = self.media_items.get(item.item_id, None)
-            self.media_items.upsert(item)
+            
             if service == TraktMetadata:
-                if isinstance(existing_item, (Show, Season)):
-                    existing_item.fill_in_missing_info(item)
-                    self.media_items.upsert(existing_item)
+                # grab a copy of the item in the container
+                if (existing_item := self.media_items.get(item.item_id, None)):
+                    # merge our fresh metadata item to make sure there aren't any
+                    # missing seasons or episodes in our library copy
+                    if isinstance(item, (Show, Season)):
+                        existing_item.fill_in_missing_info(item)
+                        item = existing_item
+                    # if after making sure we aren't missing any episodes check to 
+                    # see if we need to process this, if not then skip
+                    if existing_item.state == States.Library:
+                        logger.debug("%s is already complete and in the Library, skipping.", item.title)
+                        continue
                 next_service = Scraping
                 items_to_submit = [item]
             elif service == Scraping:
-                if item.streams:
+                # if we successfully scraped the item then send it to debrid
+                if item.state == States.Scrape:
                     next_service = Debrid
                     items_to_submit = [item]
                 # if we didn't get a stream then we have to dive into the components
                 # and try to get a stream for each one separately
                 elif isinstance(item, Show):
                     next_service = Scraping
-                    items_to_submit = item.seasons
+                    items_to_submit = [s for s in item.seasons if s.state != States.Library]
                 elif isinstance(item, Season):
                     next_service = Scraping
-                    items_to_submit = item.episodes
+                    items_to_submit = [e for e in item.episodes if e.state != States.Library]
             elif service == Debrid:
                 next_service =  Symlinker
                 if isinstance(item, Season):
@@ -214,9 +225,12 @@ class Program(threading.Thread):
                 next_service = PlexUpdater
             elif service == PlexUpdater:
                 continue
+            
+            # commit the item to the container before submitting it to be processed
+            self.media_items.upsert(item)
 
-            for item in items_to_submit:
-                self._submit_job(next_service, item)
+            for item_to_submit in items_to_submit:
+                self._submit_job(next_service, item_to_submit)
 
     def validate(self):
         return any(
