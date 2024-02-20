@@ -9,6 +9,8 @@ class MediaItemContainer:
     """MediaItemContainer class"""
 
     def __init__(self, items: Optional[dict[ItemId, MediaItem]] = None):
+        if items and not isinstance(items, dict):
+            raise TypeError(f"MediaItemContainer items cannot be of type {items.__class__.__name__}, must be dict")
         self.items = items if items is not None else {}
 
     def __iter__(self):
