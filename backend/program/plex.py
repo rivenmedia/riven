@@ -40,7 +40,10 @@ class PlexLibrary():
             logger.error("Plex exception thrown: %s", e)
             return
         self.log_worker_count = False
-        self.initialized = True
+        self.initialized = True if isinstance(self.plex, PlexServer) else False
+        if not self.initialized:
+            logger.error("Plex is not initialized!")
+            return
         logger.info("Plex initialized!")
         self.lock = Lock()
 
@@ -48,6 +51,7 @@ class PlexLibrary():
         return self.last_fetch_times.get(section.key, datetime(1800, 1, 1))
 
     def run(self):
+        """Run Plex library"""
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
@@ -86,6 +90,7 @@ class PlexLibrary():
         yield from items
 
     def _create_item(self, raw_item):
+        """Create a MediaItem from Plex API data."""
         item = _map_item_from_data(raw_item)
         if not item or raw_item.type != "show":
             return item
