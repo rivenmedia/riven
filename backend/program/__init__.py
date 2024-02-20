@@ -228,6 +228,8 @@ class Program(threading.Thread):
         if hasattr(self, 'pickly'):
             self.pickly.stop()
         settings_manager.save()
-        self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
-        self.executor.shutdown(wait=True) 
+        if hasattr(self, 'scheduler'):
+            self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=True) 
         self.running = False
