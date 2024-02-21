@@ -166,7 +166,7 @@ class Program(threading.Thread):
             existing_item = self.media_items.get(item.item_id, None)
             # we always want to get metadata for content items before we compare to the container. 
             # we can't just check if the show exists we have to check if it's complete
-            if service.state == States.Requested:
+            if item.state == States.Requested:
                 # if we already have a copy of this item check if we even need to index it
                 if existing_item and not TraktIndexer.should_submit(existing_item):
                     continue
