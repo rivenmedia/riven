@@ -41,7 +41,7 @@ async def get_services(request: Request):
     if hasattr(request.app.program, "services"):
         for service in request.app.program.services.values():
             data[service.key] = service.initialized
-            if not getattr(service, "services", False):
+            if not hasattr(service, "services"):
                 continue
             for sub_service in service.services.values():
                 data[sub_service.key] = sub_service.initialized
