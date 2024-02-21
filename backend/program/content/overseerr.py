@@ -3,7 +3,7 @@ from utils.logger import logger
 from utils.request import delete, get, ping
 from program.settings.manager import settings_manager
 from program.media.item import MediaItem
-from program.metadata.trakt import get_imdbid_from_tmdb
+from program.indexers.trakt import get_imdbid_from_tmdb
 
 
 class Overseerr():

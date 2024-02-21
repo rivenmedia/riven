@@ -6,7 +6,7 @@ from utils.request import get, ping
 from requests.exceptions import HTTPError
 from program.settings.manager import settings_manager
 from program.media.item import MediaItem
-from program.metadata.trakt import get_imdbid_from_tmdb
+from program.indexers.trakt import get_imdbid_from_tmdb
 
 
 class Listrr():

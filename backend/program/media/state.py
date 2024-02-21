@@ -2,9 +2,13 @@ from enum import Enum
 
 class States(Enum):
     Unknown = "Unknown"
-    Content = "Content"
-    Scrape = "Scrape"
-    Download = "Download"    
-    Symlink = "Symlink"
-    Library = "Library"    
-    LibraryPartial = "LibraryPartial"
+    Requested = "Requested"
+    Indexed = "Indexed"
+    Scraped = "Scraped"
+    Downloaded = "Downloaded"
+    Symlinked = "Symlinked"
+    Completed = "Completed"
+    PartiallyCompleted = "PartiallyCompleted"
+    Failed = "Failed"
+
+

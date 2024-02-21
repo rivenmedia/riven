@@ -10,14 +10,14 @@ from program.settings.manager import settings_manager
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
 
-class TraktMetadata:
+class TraktIndexer:
     """Trakt updater class"""
 
     def __init__(self):
-        self.key = 'traktmetadata'
+        self.key = 'traktindexer'
         self.ids = []
         self.initialized = True
-        self.settings = settings_manager.settings.metadata
+        self.settings = settings_manager.settings.indexer
 
     def run(self, item: MediaItem):
         imdb_id = item.imdb_id
@@ -32,16 +32,16 @@ class TraktMetadata:
                     episode_item = _map_item_from_data(episode, "episode", season_item.item_id)
                     season_item.add_episode(episode_item)
                 item.add_season(season_item)
-        item.metadata_updated_at = datetime.now()
+        item.indexed_at = datetime.now()
         yield item
 
     @staticmethod
     def should_submit_item(item: MediaItem) -> bool:
-        if not item.metadata_updated_at:
+        if not item.indexed_at:
             return True
-        settings = settings_manager.settings.metadata
+        settings = settings_manager.settings.indexer
         interval = timedelta(seconds=settings.update_interval)
-        return item.metadata_updated_at < datetime.now() - interval
+        return item.indexed_at < datetime.now() - interval
 
 def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None) -> MediaItem:
     """Map trakt.tv API data to MediaItemContainer"""

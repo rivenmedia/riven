@@ -125,7 +125,7 @@ class ParserModel(Observable):
 
 # Application Settings
 
-class MetadataModel(Observable):
+class IndexerModel(Observable):
     update_interval: int = 60 * 60
 
 
@@ -144,4 +144,6 @@ class AppModel(Observable):
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
     parser: ParserModel = ParserModel()
-    metadata: MetadataModel = MetadataModel()
+    indexer: IndexerModel = IndexerModel()
+
+

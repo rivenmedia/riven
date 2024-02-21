@@ -32,7 +32,7 @@ class MediaItem:
         self.symlinked = False
         self.requested_at = item.get("requested_at", None) or datetime.now()
         self.requested_by = item.get("requested_by", None)
-        self.metadata_updated_at = None
+        self.indexed_at = None
         self.file = None
         self.folder = None
         self.is_anime = item.get("is_anime", False)
@@ -65,18 +65,20 @@ class MediaItem:
 
     def _determine_state(self):
         if self.key or self.update_folder == "updated":
-            return States.Library
+            return States.Completed
         elif self.symlinked:
-            return States.Symlink
+            return States.Symlinked
         elif self.file and self.folder:
-            return States.Download
+            return States.Downloaded
         elif self.is_scraped() and self.is_checked_for_availability():
             if any(stream.get('cached') for stream in self.streams.values()):
-                return States.Scrape
+                return States.Scraped
             else:
-                return States.Content
+                return States.Requested
         elif self.title:
-            return States.Content
+            return States.Indexed
+        elif self.imdb_id and self.requested_by:
+            return States.Requested
         else:
             return States.Unknown
 
@@ -191,21 +193,23 @@ class Show(MediaItem):
         return None
 
     def _determine_state(self):
-        if all(season.state == States.Library for season in self.seasons):
-            return States.Library
+        if all(season.state == States.Completed for season in self.seasons):
+            return States.Completed
         if any(
-            season.state == States.Library or season.state == States.LibraryPartial
+            season.state == States.Completed or season.state == States.PartiallyCompleted
             for season in self.seasons
         ):
-            return States.LibraryPartial
-        if any(season.state == States.Symlink for season in self.seasons):
-            return States.Symlink
-        if any(season.state == States.Download for season in self.seasons):
-            return States.Download
-        if any(season.state == States.Scrape for season in self.seasons):
-            return States.Scrape
-        if any(season.state == States.Content for season in self.seasons):
-            return States.Content
+            return States.PartiallyCompleted
+        if any(season.state == States.Symlinked for season in self.seasons):
+            return States.Symlinked
+        if any(season.state == States.Downloaded for season in self.seasons):
+            return States.Downloaded
+        if any(season.state == States.Scraped for season in self.seasons):
+            return States.Scraped
+        if any(season.state == States.Indexed for season in self.seasons):
+            return States.Indexed
+        if any(season.state == States.Requested for season in self.seasons):
+            return States.Requested
         return States.Unknown
 
     def __repr__(self):
@@ -250,18 +254,20 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
-            if all(episode.state == States.Library for episode in self.episodes):
-                return States.Library
-            if any(episode.state == States.Library for episode in self.episodes):
-                return States.LibraryPartial
-            if all(episode.state == States.Symlink for episode in self.episodes):
-                return States.Symlink
+            if all(episode.state == States.Completed for episode in self.episodes):
+                return States.Completed
+            if any(episode.state == States.Completed for episode in self.episodes):
+                return States.PartiallyCompleted
+            if all(episode.state == States.Symlinked for episode in self.episodes):
+                return States.Symlinked
             if all(episode.file and episode.folder for episode in self.episodes):
-                return States.Download
+                return States.Downloaded
             if self.is_scraped():
-                return States.Scrape
-            if any(episode.state == States.Content for episode in self.episodes):
-                return States.Content
+                return States.Scraped
+            if all(episode.state == States.Indexed for episode in self.episodes):
+                return States.Indexed
+            if any(episode.state == States.Requested for episode in self.episodes):
+                return States.Requested
         return States.Unknown
 
     def __eq__(self, other):

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
-from program.metadata.trakt import TraktMetadata
+from program.indexers.trakt import TraktIndexer
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Show, Season, Movie, Episode
 from program.media.state import States
@@ -54,14 +54,14 @@ class Program(threading.Thread):
         self.library_services = {
             PlexLibrary: PlexLibrary()
         }
-        self.content_services = {
+        self.requesting_services = {
             Overseerr: Overseerr(), 
             PlexWatchlist: PlexWatchlist(), 
             Listrr: Listrr(), 
             Mdblist: Mdblist(),
         }
-        self.metadata_services = {
-            TraktMetadata: TraktMetadata()
+        self.indexing_services = {
+            TraktIndexer: TraktIndexer()
         }
         self.processing_services = {
             Scraping: Scraping(), 
@@ -71,8 +71,8 @@ class Program(threading.Thread):
         }
         self.services = {
             **self.library_services,
-            **self.metadata_services,
-            **self.content_services,
+            **self.indexing_services,
+            **self.requesting_services,
             **self.processing_services
         }
 
@@ -112,7 +112,7 @@ class Program(threading.Thread):
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_services = { **self.content_services, **self.library_services }
+        scheduled_services = { **self.requesting_services, **self.library_services }
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
@@ -177,41 +177,41 @@ class Program(threading.Thread):
                 if not getattr(item, 'title', None):
                     # if we already have a copy of this item check if we've already recently 
                     # updated the metadata
-                    if existing_item and not TraktMetadata.should_submit_item(existing_item):
+                    if existing_item and not TraktIndexer.should_submit_item(existing_item):
                         continue
-                    next_service = TraktMetadata
+                    next_service = TraktIndexer
                     self._submit_job(next_service, item)
                     continue
             
-            if service == TraktMetadata:
+            if service == TraktIndexer:
                 # grab a copy of the item in the container
                 if existing_item:
                     # merge our fresh metadata item to make sure there aren't any
                     # missing seasons or episodes in our library copy
                     if isinstance(item, (Show, Season)):
                         existing_item.fill_in_missing_info(item)
-                        existing_item.metadata_updated_at = item.metadata_updated_at
+                        existing_item.indexed_at = item.indexed_at
                         item = existing_item
                     # if after making sure we aren't missing any episodes check to 
                     # see if we need to process this, if not then skip
-                    if existing_item.state == States.Library:
+                    if existing_item.state == States.Completed:
                         logger.debug("%s is already complete and in the Library, skipping.", item.title)
                         continue
                 next_service = Scraping
                 items_to_submit = [item]
             elif service == Scraping:
                 # if we successfully scraped the item then send it to debrid
-                if item.state == States.Scrape:
+                if item.state == States.Scraped:
                     next_service = Debrid
                     items_to_submit = [item]
                 # if we didn't get a stream then we have to dive into the components
                 # and try to get a stream for each one separately
                 elif isinstance(item, Show):
                     next_service = Scraping
-                    items_to_submit = [s for s in item.seasons if s.state != States.Library]
+                    items_to_submit = [s for s in item.seasons if s.state != States.Completed]
                 elif isinstance(item, Season):
                     next_service = Scraping
-                    items_to_submit = [e for e in item.episodes if e.state != States.Library]
+                    items_to_submit = [e for e in item.episodes if e.state != States.Completed]
             elif service == Debrid:
                 next_service = Symlinker
                 if isinstance(item, Season):
@@ -237,7 +237,7 @@ class Program(threading.Thread):
     def validate(self):
         return any(
             service.initialized 
-            for service in self.content_services.values()
+            for service in self.requesting_services.values()
         ) and all(
             service.initialized 
             for service in self.processing_services.values()
