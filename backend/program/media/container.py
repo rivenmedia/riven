@@ -5,6 +5,7 @@ from typing import Optional, Iterable
 from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
 from copy import deepcopy
 
+
 class MediaItemContainer:
     """MediaItemContainer class"""
 
@@ -13,62 +14,47 @@ class MediaItemContainer:
             raise TypeError(f"MediaItemContainer items cannot be of type {items.__class__.__name__}, must be dict")
         self.items = items if items is not None else {}
 
-    def __iter__(self):
+    def __iter__(self) -> MediaItem:
         for item in self.items.values():
             yield item
             
-    def __contains__(self, item):
+    def __contains__(self, item) -> bool:
         return item in self.items
 
-    def __iadd__(self, other):
-        if not isinstance(other, MediaItem) and other is not None:
-            raise TypeError("Cannot append non-MediaItem to MediaItemContainer")
-        if other not in self.items:
-            self.items.append(other)
-        return self
-
-    def __len__(self):
+    def __len__(self) -> int:
         """Get length of container"""
         return len(self.items)
 
-    def __getitem__(self, item_id: ItemId):
+    def __getitem__(self, item_id: ItemId) -> MediaItem:
         return deepcopy(self.items[item_id])
 
-    def get(self, key, default=None):
+    def get(self, key, default=None) -> MediaItem:
         return deepcopy(self.items.get(key, default))
 
-    def sort(self, by, reverse):
+    def sort(self, by, reverse) -> None:
         """Sort container by given attribute"""
         try:
             self.items.sort(key=lambda item: item.get(by), reverse=reverse)
         except AttributeError:
             pass  # Fixes: 'NoneType' object has no attribute 'get' - caused by Trakt not able to create an item
 
-    def _swap_children_with_ids(self, item_group: list[Season | Episode]) -> list[Season | Episode]:
-        for i in range(len(item_group)):
-            item = item_group[i]
-            if hasattr(item, 'item_id'):
-                item_group[i] = item.item_id
-                self.items[item.item_id] = item
-        return item_group
-
     @property
-    def seasons(self):
+    def seasons(self) -> dict[ItemId, Season]:
         return self.get_items_of_type(Season)
     
     @property
-    def episodes(self):
+    def episodes(self) -> dict[ItemId, Episode]:
         return self.get_items_of_type(Episode)
     
     @property
-    def shows(self):
+    def shows(self) -> dict[ItemId, Show]:
         return self.get_items_of_type(Show)
     
     @property
-    def movies(self):
+    def movies(self) -> dict[ItemId, Movie]:
         return self.get_items_of_type(Movie)
 
-    def upsert(self, item: MediaItem) -> MediaItem:
+    def upsert(self, item: MediaItem) -> None:
         """Iterate through the input item and upsert all parents and children."""
         # Use deepcopy so that further modifications made to the input item
         # will not affect the container state
@@ -100,16 +86,16 @@ class MediaItemContainer:
 
         self.items[item.item_id] = item
 
-    def remove(self, item):
+    def remove(self, item) -> None:
         """Remove item from container"""
         if item.item_id in self.items:
-            self.items.remove(item)
+            del self.items[item.item_id]
 
     def count(self, state) -> int:
         """Count items with given state in container"""
         return len(self.get_items_with_state(state))
 
-    def get_items_with_state(self, state):
+    def get_items_with_state(self, state) -> dict[ItemId, MediaItem]:
         """Get items with the specified state"""
         return {
             item_id: self[item_id]
@@ -117,7 +103,7 @@ class MediaItemContainer:
             if item.state == state
         }
 
-    def get_items_of_type(self, item_type: MediaItem | Iterable[MediaItem]):
+    def get_items_of_type(self, item_type: MediaItem | Iterable[MediaItem]) -> dict[ItemId, MediaItem]:
         """Get items with one or more states"""
         return {
             item_id: self[item_id]
@@ -125,12 +111,12 @@ class MediaItemContainer:
             if isinstance(item, item_type)
         }
 
-    def save(self, filename):
+    def save(self, filename) -> None:
         """Save container to file"""
         with open(filename, "wb") as file:
             dill.dump(self.items, file)
 
-    def load(self, filename):
+    def load(self, filename) -> None:
         """Load container from file"""
         try:
             with open(filename, "rb") as file:
