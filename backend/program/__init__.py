@@ -173,17 +173,15 @@ class Program(threading.Thread):
             existing_item = self.media_items.get(item.item_id, None)
             # we always want to get metadata for content items before we compare to the container. 
             # we can't just check if the show exists we have to check if it's complete
-            if service in get_args(Content):
-                if not getattr(item, 'title', None):
-                    # if we already have a copy of this item check if we've already recently 
-                    # updated the metadata
-                    if existing_item and not TraktIndexer.should_submit_item(existing_item):
-                        continue
-                    next_service = TraktIndexer
-                    self._submit_job(next_service, item)
+            if service.state == States.Requested:
+                # if we already have a copy of this item check if we even need to index it
+                if existing_item and not TraktIndexer.should_submit(existing_item):
                     continue
+                next_service = TraktIndexer
+                self._submit_job(next_service, item)
+                continue
             
-            if service == TraktIndexer:
+            if item.state == States.Indexed:
                 # grab a copy of the item in the container
                 if existing_item:
                     # merge our fresh metadata item to make sure there aren't any
@@ -199,7 +197,7 @@ class Program(threading.Thread):
                         continue
                 next_service = Scraping
                 items_to_submit = [item]
-            elif service == Scraping:
+            elif item.state == States.Scraped:
                 # if we successfully scraped the item then send it to debrid
                 if item.state == States.Scraped:
                     next_service = Debrid
@@ -212,7 +210,7 @@ class Program(threading.Thread):
                 elif isinstance(item, Season):
                     next_service = Scraping
                     items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-            elif service == Debrid:
+            elif item.state == States.Downloaded:
                 next_service = Symlinker
                 if isinstance(item, Season):
                     items_to_submit = [e for e in item.episodes]
@@ -221,11 +219,10 @@ class Program(threading.Thread):
                 items_to_submit = filter(lambda i: i.folder and i.file, items_to_submit)
                 if not items_to_submit:
                     continue
-            elif service == Symlinker:
-                if item.symlinked:
-                    items_to_submit = [item]
+            elif item.state == States.Symlinked:
+                items_to_submit = [item]
                 next_service = PlexUpdater
-            elif service == PlexUpdater:
+            elif item.state == States.Completed:
                 continue
             
             # commit the item to the container before submitting it to be processed

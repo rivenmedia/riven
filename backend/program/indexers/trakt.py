@@ -36,7 +36,7 @@ class TraktIndexer:
         yield item
 
     @staticmethod
-    def should_submit_item(item: MediaItem) -> bool:
+    def should_submit(item: MediaItem) -> bool:
         if not item.indexed_at:
             return True
         settings = settings_manager.settings.indexer
