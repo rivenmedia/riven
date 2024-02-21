@@ -1,9 +1,11 @@
 import os
+from copy import deepcopy
 import dill
 from pickle import UnpicklingError
 from typing import Optional, Iterable
+
 from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
-from copy import deepcopy
+from program.media.state import States
 
 
 class MediaItemContainer:
@@ -101,6 +103,14 @@ class MediaItemContainer:
             item_id: self[item_id]
             for item_id, item in self.items.items()
             if item.state == state
+        }
+    
+    def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
+        """Get items with the specified state"""
+        return {
+            item_id: self[item_id]
+            for item_id, item in self.items.items()
+            if item.state not in (States.Completed, States.PartiallyCompleted)
         }
 
     def get_items_of_type(self, item_type: MediaItem | Iterable[MediaItem]) -> dict[ItemId, MediaItem]:

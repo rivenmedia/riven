@@ -1,8 +1,11 @@
 """Symlinking module"""
+from datetime import datetime
 import os
 from pathlib import Path
 from program.settings.manager import settings_manager
 from utils.logger import logger
+
+from program.media.item import Movie, Episode
 
 
 class Symlinker:
@@ -101,23 +104,28 @@ class Symlinker:
     def run(self, item):
         """Check if the media item exists and create a symlink if it does"""
         found = False
-        if os.path.exists(
-            os.path.join(self.settings.rclone_path, item.folder, item.file)
-        ):
+        rclone_path = Path(self.settings.rclone_path)
+        if os.path.exists(rclone_path / item.folder / item.file):
             found = True
-        elif os.path.exists(
-            os.path.join(self.settings.rclone_path, item.alternative_folder, item.file)
-        ):
+        elif os.path.exists(rclone_path / item.alternative_folder / item.file):
             item.set("folder", item.alternative_folder)
             found = True
-        elif os.path.exists(
-            os.path.join(self.settings.rclone_path, item.file, item.file)
-        ):
+        elif os.path.exists(rclone_path / item.file / item.file):
             item.set("folder", item.file)
             found = True
         if found:
             self._symlink(item)
+        else:
+            logger.error(
+                "Could not find %s in subdirectories of %s to create symlink,"
+                " maybe it failed to download?", item.log_string, rclone_path
+            )
+        item.symlinked_at = datetime.now()
+        item.symlinked_times += 1
         yield item
+
+    def should_submit(self, item):
+        return item.symlinked_times < 3
 
     def _determine_file_name(self, item):
         """Determine the filename of the symlink."""
@@ -166,7 +174,7 @@ class Symlinker:
             )
 
     def _create_item_folders(self, item, filename) -> str:
-        if item.type == "movie":
+        if isinstance(item, Movie):
             movie_folder = (
                 f"{item.title.replace('/', '-')} ({item.aired_at.year}) "
                 + "{imdb-"
@@ -182,7 +190,7 @@ class Symlinker:
             item.set(
                 "update_folder", os.path.join(self.library_path_movies, movie_folder)
             )
-        if item.type == "episode":
+        elif isinstance(item, Episode):
             show = item.parent.parent
             folder_name_show = (
                 f"{show.title.replace('/', '-')} ({show.aired_at.year})"
@@ -191,13 +199,11 @@ class Symlinker:
                 + "}"
             )
             show_path = os.path.join(self.library_path_shows, folder_name_show)
-            if not os.path.exists(show_path):
-                os.mkdir(show_path)
+            os.makedirs(show_path, exist_ok=True)
             season = item.parent
             folder_season_name = f"Season {str(season.number).zfill(2)}"
             season_path = os.path.join(show_path, folder_season_name)
-            if not os.path.exists(season_path):
-                os.mkdir(season_path)
+            os.makedirs(season_path, exist_ok=True)
             destination_path = os.path.join(season_path, filename.replace("/", "-"))
             item.set("update_folder", os.path.join(season_path))
         return destination_path

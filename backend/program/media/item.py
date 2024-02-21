@@ -25,14 +25,20 @@ class MediaItem:
     """MediaItem class"""
 
     def __init__(self, item):
-        self.scraped_at = datetime(1970, 1, 1)
+        self.requested_at = item.get("requested_at", None) or datetime.now()
+        self.requested_by = item.get("requested_by", None)
+
+        self.indexed_at = None
+        
+        self.scraped_at = None
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
         self.streams = {}
+
         self.symlinked = False
-        self.requested_at = item.get("requested_at", None) or datetime.now()
-        self.requested_by = item.get("requested_by", None)
-        self.indexed_at = None
+        self.symlinked_at = None
+        self.symlinked_times = 0
+        
         self.file = None
         self.folder = None
         self.is_anime = item.get("is_anime", False)

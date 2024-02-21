@@ -7,7 +7,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from queue import Queue, Empty
-from typing import Union, get_args, Generator, Callable
+from typing import Union, Generator
 from dataclasses import dataclass
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,7 +17,7 @@ from program.indexers.trakt import TraktIndexer
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Show, Season, Movie, Episode
 from program.media.state import States
-from program.plex import PlexLibrary
+from program.libaries import PlexLibrary
 from program.realdebrid import Debrid
 from program.scrapers import Scraping, Torrentio, Orionoid, Jackett
 from program.settings.manager import settings_manager
@@ -83,18 +83,19 @@ class Program(threading.Thread):
         self.job_queue = Queue()
         os.makedirs(data_dir_path, exist_ok=True)
 
-        self.media_items = MediaItemContainer()
-        if not self.startup_args.dev:
-            self.pickly = Pickly(self.media_items, data_dir_path)
-            self.pickly.start()
         try:
             self.initialize_services()
         except Exception as e:
             logger.error(traceback.format_exc())
 
-        # seed initial MIC with Library State
-        for item in self.services[PlexLibrary].run():
-            self.media_items.upsert(item)
+        self.media_items = MediaItemContainer()
+        if not self.startup_args.dev:
+            self.pickly = Pickly(self.media_items, data_dir_path)
+            self.pickly.start()
+        else:
+            # seed initial MIC with Library State
+            for item in self.services[PlexLibrary].run():
+                self.media_items.upsert(item)
 
         if self.validate():
             logger.info("Iceberg started!")
@@ -105,11 +106,37 @@ class Program(threading.Thread):
         self.scheduler = BackgroundScheduler()
         self.executor = ThreadPoolExecutor(thread_name_prefix="Worker") 
         self._schedule_services()
+        self._schedule_functions()
         super().start()
         self.scheduler.start()
         self.running = True
         self.initialized = True
 
+    def _retry_library(self) -> None:
+        for item_id, item in self.media_items.get_incomplete_items().items():
+            self.job_queue.put(Event(emitted_by=None, item=item))
+
+    def _schedule_functions(self) -> None:
+        """Schedule each service based on its update interval."""
+        scheduled_functions = { 
+            self._retry_library: {
+                'interval': 60 * 10
+            } 
+        }
+        for func, config in scheduled_functions.items():
+            self.scheduler.add_job(
+                func,
+                'interval',
+                seconds=config['interval'],
+                args=config.get('args'),
+                id=f'{func.__name__}',
+                max_instances=1,
+                replace_existing=True,  # Replace existing jobs with the same ID
+                next_run_time=datetime.now()
+            )
+            logger.info("Scheduled %s to run every %s seconds.", func.__name__, config['interval'])
+        return
+    
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_services = { **self.requesting_services, **self.library_services }
@@ -129,7 +156,7 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != PlexLibrary else None
             )
             logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
-        return None
+        return
 
     def _process_future_item(self, future: Future, service: Service, input_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -145,7 +172,7 @@ class Program(threading.Thread):
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
             f"Submitting service {service.__name__} to the pool" +
-            (f" with {item.title or item.item_id}" if item else "")
+            (f" with {getattr(item, 'log_string', None) or item.item_id}" if item else "")
         )
         func = self.services[service].run
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
@@ -166,14 +193,15 @@ class Program(threading.Thread):
             existing_item = self.media_items.get(item.item_id, None)
             # we always want to get metadata for content items before we compare to the container. 
             # we can't just check if the show exists we have to check if it's complete
-            if item.state == States.Requested:
+            if service in (*self.library_services.keys(), *self.requesting_services.keys()):
+                next_service = TraktIndexer
                 # if we already have a copy of this item check if we even need to index it
                 if existing_item and not TraktIndexer.should_submit(existing_item):
                     continue
-                next_service = TraktIndexer
                 self._submit_job(next_service, item)
                 continue
             elif item.state == States.Indexed:
+                next_service = Scraping
                 # grab a copy of the item in the container
                 if existing_item:
                     # merge our fresh metadata item to make sure there aren't any
@@ -184,36 +212,46 @@ class Program(threading.Thread):
                         item = existing_item
                     # if after making sure we aren't missing any episodes check to 
                     # see if we need to process this, if not then skip
-                    if existing_item.state == States.Completed:
+                    if item.state == States.Completed:
                         logger.debug("%s is already complete and in the Library, skipping.", item.title)
                         continue
-                next_service = Scraping
-                items_to_submit = [item]
-            elif item.state == States.Scraped:
-                # if we successfully scraped the item then send it to debrid
-                if item.state == States.Scraped:
-                    next_service = Debrid
+                # we attemted to scrape it already and it failed, scraping each component
+                if item.scraped_times:
+                    if isinstance(item, Show):
+                        items_to_submit = [s for s in item.seasons if s.state != States.Completed]
+                    elif isinstance(item, Season):
+                        items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+                elif self.services[Scraping].should_submit(item):
                     items_to_submit = [item]
-                # if we didn't get a stream then we have to dive into the components
-                # and try to get a stream for each one separately
-                elif isinstance(item, Show):
-                    next_service = Scraping
+                else:
+                    items_to_submit = []
+            # Only shows and seasons can be PartiallyCompleted.  This is also the last part of the state
+            # processing that can can be at the show level
+            elif item.state == States.PartiallyCompleted:
+                next_service = Scraping
+                if isinstance(item, Show):
                     items_to_submit = [s for s in item.seasons if s.state != States.Completed]
                 elif isinstance(item, Season):
-                    next_service = Scraping
                     items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+            # if we successfully scraped the item then send it to debrid
+            elif item.state == States.Scraped:
+                next_service = Debrid
+                items_to_submit = [item]
             elif item.state == States.Downloaded:
                 next_service = Symlinker
                 if isinstance(item, Season):
-                    items_to_submit = [e for e in item.episodes]
+                    proposed_submissions = [e for e in item.episodes]
                 elif isinstance(item, (Movie, Episode)):
-                    items_to_submit = [item]
-                items_to_submit = filter(lambda i: i.folder and i.file, items_to_submit)
-                if not items_to_submit:
-                    continue
+                    proposed_submissions = [item]
+                items_to_submit = []
+                for item in proposed_submissions:
+                    if not self.services[Symlinker].should_submit(item):
+                        logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+                    else:
+                        items_to_submit.append(item)
             elif item.state == States.Symlinked:
-                items_to_submit = [item]
                 next_service = PlexUpdater
+                items_to_submit = [item]
             elif item.state == States.Completed:
                 continue
             

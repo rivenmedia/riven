@@ -38,12 +38,12 @@ class Scraping:
         return validated
     
     def _can_we_scrape(self, item: MediaItem) -> bool:
-        return self._is_released(item) and self._needs_new_scrape(item)
+        return self._is_released(item) and self.should_submit(item)
 
     def _is_released(self, item: MediaItem) -> bool:
         return item.aired_at is not None and item.aired_at < datetime.now()
 
-    def _needs_new_scrape(self, item: MediaItem) -> bool:
+    def should_submit(self, item: MediaItem) -> bool:
         scrape_time = 5  # 5 seconds by default
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
@@ -52,7 +52,8 @@ class Scraping:
             scrape_time = self.settings.after_5 * 60 * 60
         elif item.scraped_times > 10:
             scrape_time = self.settings.after_10 * 60 * 60
-
+            
         return (
-            datetime.now() - item.scraped_at
-        ).total_seconds() > scrape_time or item.scraped_times == 0
+            not item.scraped_at
+            or (datetime.now() - item.scraped_at).total_seconds() > scrape_time 
+        )
