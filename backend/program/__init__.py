@@ -142,20 +142,13 @@ class Program(threading.Thread):
         except Exception as e:
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
-    def _service_run_item(self, func: Callable, item: MediaItem | None) -> MediaItemGenerator:
-        """Some services don't intake any items so we want to make sure we don't provide them when the input is None."""
-        if item is None:
-            yield from func()
-        else: 
-            yield from func(item)
- 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
             f"Submitting service {service.__name__} to the pool" +
             (f" with {item.title or item.item_id}" if item else "")
         )
         func = self.services[service].run
-        future = self.executor.submit(self._service_run_item, func, item)
+        future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
     
 
@@ -180,8 +173,7 @@ class Program(threading.Thread):
                 next_service = TraktIndexer
                 self._submit_job(next_service, item)
                 continue
-            
-            if item.state == States.Indexed:
+            elif item.state == States.Indexed:
                 # grab a copy of the item in the container
                 if existing_item:
                     # merge our fresh metadata item to make sure there aren't any

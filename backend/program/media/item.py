@@ -161,11 +161,11 @@ class MediaItem:
 class Movie(MediaItem):
     """Movie class"""
 
-    def __init__(self, item, parent_item_id: Optional[ItemId] = None):
+    def __init__(self, item):
         self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
-        self.item_id = ItemId(parent_item_id, self.imdb_id)
+        self.item_id = ItemId(None, self.imdb_id)
 
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.name}"
@@ -178,12 +178,12 @@ class Movie(MediaItem):
 class Show(MediaItem):
     """Show class"""
 
-    def __init__(self, item, parent_item_id: Optional[ItemId] = None):
+    def __init__(self, item):
         self.locations = item.get("locations", [])
         self.seasons: list[Season | ItemId] = item.get("seasons", [])
         self.type = "show"
         super().__init__(item)
-        self.item_id = ItemId(parent_item_id, self.imdb_id)
+        self.item_id = ItemId(None, self.imdb_id)
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its item_id."""
