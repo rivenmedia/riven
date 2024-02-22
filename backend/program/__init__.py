@@ -85,7 +85,7 @@ class Program(threading.Thread):
 
         try:
             self.initialize_services()
-        except Exception as e:
+        except Exception:
             logger.error(traceback.format_exc())
 
         self.media_items = MediaItemContainer()
@@ -166,7 +166,7 @@ class Program(threading.Thread):
                     logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
                     continue
                 self.job_queue.put(Event(emitted_by=service, item=item))
-        except Exception as e:
+        except Exception:
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
@@ -274,6 +274,9 @@ class Program(threading.Thread):
         if hasattr(self, 'pickly'):
             self.pickly.stop()
         settings_manager.save()
+        symlinker_service = self.processing_services.get(Symlinker)
+        if symlinker_service:
+            symlinker_service.stop_monitor()
         if hasattr(self, 'scheduler'):
             self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
         if hasattr(self, 'executor'):

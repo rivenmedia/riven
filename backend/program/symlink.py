@@ -1,11 +1,30 @@
 """Symlinking module"""
-from datetime import datetime
 import os
+from datetime import datetime
 from pathlib import Path
-from program.settings.manager import settings_manager
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 from utils.logger import logger
-
+from program.settings.manager import settings_manager
 from program.media.item import Movie, Episode
+
+
+
+class DeleteHandler(FileSystemEventHandler):
+    """Handles the deletion of symlinks."""
+
+    def __init__(self, symlinker):
+        super().__init__()
+        self.symlinker = symlinker
+
+    def on_deleted(self, event):
+        """Called when a file or directory is deleted."""
+        if event.src_path:
+            # TODO: Check if its a file or directory and handle accordingly.
+            # This is getting called for the file + directory as well..
+            # It will first get called on the file, then the parent folder.
+            # This is not what we want.. but atleast it's a start.
+            self.symlinker.on_symlink_deleted(event.src_path)
 
 
 class Symlinker:
@@ -25,6 +44,8 @@ class Symlinker:
         if not self.initialized:
             logger.error("Symlink initialization failed due to invalid configuration.")
             return
+        if self.initialized:
+            self.start_monitor()
         logger.info("Rclone path symlinks are pointed to: %s", self.rclone_path)
         logger.info("Symlinks will be placed in: %s", self.settings.library_path)
         logger.info("Symlink initialized!")
@@ -76,6 +97,29 @@ class Symlinker:
         except OSError as e:
             logger.error("OS error when validating paths: %s", e)
         return False
+
+    def start_monitor(self):
+        """Starts monitoring the library path for symlink deletions."""
+        self.event_handler = DeleteHandler(self)
+        self.observer = Observer()
+        self.observer.schedule(self.event_handler, self.settings.library_path, recursive=True)
+        self.observer.start()
+        logger.debug("Start monitor for symlink deletions.")
+
+    def stop_monitor(self):
+        """Stops the directory monitoring."""
+        if hasattr(self, 'observer'):
+            self.observer.stop()
+            self.observer.join()
+            logger.debug("Stopped monitoring for symlink deletions.")
+
+    def on_symlink_deleted(self, path):
+        """Handle a symlink deletion event."""
+        logger.debug(f"Detected deletion of symlink: {path}")
+        # TODO: Implement logic to handle deletion..
+        # We should use `update_path` to determine the item,
+        # and work with the item (instead of path) to remove from content services..
+        # Need to bring in media_items from the main program and remove the item from it..
 
     def create_initial_folders(self):
         """Create the initial library folders."""
