@@ -45,7 +45,7 @@ class Updatable(Observable):
             raise ValueError(f"update_interval must be at least {limit} seconds")
         return v
 
-class PlexModel(Updatable):
+class PlexLibraryModel(Updatable):
     update_interval: int = 120
     token: str = ""
     url: str = "http://localhost:32400"
@@ -138,7 +138,7 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
-    plex: PlexModel = PlexModel()
+    plex: PlexLibraryModel = PlexLibraryModel()
     real_debrid: DebridModel = DebridModel()
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()

@@ -1,4 +1,5 @@
 """ Torrentio scraper module """
+from datetime import datetime
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -45,6 +46,8 @@ class Torrentio:
     def run(self, item):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
+        item.scraped_at = datetime.now()
+        item.scraped_times += 1
         if item is None or isinstance(item, Show):
             yield item
         try:

@@ -1,4 +1,5 @@
 """ Jackett scraper module """
+from datetime import datetime
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from program.settings.manager import settings_manager
@@ -61,6 +62,8 @@ class Jackett:
 
     def run(self, item: MediaItem) -> MediaItem | None:
         """Scrape Jackett for the given media items"""
+        item.scraped_at = datetime.now()
+        item.scraped_times += 1
         if item is None or isinstance(item, Show):
             yield item
         try:

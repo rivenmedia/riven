@@ -17,7 +17,7 @@ from program.indexers.trakt import TraktIndexer
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Show, Season, Movie, Episode
 from program.media.state import States
-from program.libaries import PlexLibrary
+from program.libaries import SymlinkLibrary
 from program.realdebrid import Debrid
 from program.scrapers import Scraping, Torrentio, Orionoid, Jackett
 from program.settings.manager import settings_manager
@@ -30,7 +30,7 @@ from utils.utils import Pickly
 # Typehint classes
 Scraper = Union[Scraping, Torrentio, Orionoid, Jackett]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
-Service = Union[Content, PlexLibrary, Scraper, Debrid, Symlinker]
+Service = Union[Content, SymlinkLibrary, Scraper, Debrid, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
 @dataclass
@@ -52,7 +52,7 @@ class Program(threading.Thread):
 
     def initialize_services(self):
         self.library_services = {
-            PlexLibrary: PlexLibrary()
+            SymlinkLibrary: SymlinkLibrary()
         }
         self.requesting_services = {
             Overseerr: Overseerr(), 
@@ -94,7 +94,7 @@ class Program(threading.Thread):
             self.pickly.start()
         else:
             # seed initial MIC with Library State
-            for item in self.services[PlexLibrary].run():
+            for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
         if self.validate():
@@ -114,7 +114,7 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         for item_id, item in self.media_items.get_incomplete_items().items():
-            self.job_queue.put(Event(emitted_by=None, item=item))
+            self.job_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -144,7 +144,14 @@ class Program(threading.Thread):
             if not service_instance.initialized:
                 logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
                 continue
-            update_interval = service_instance.settings.update_interval
+            if not (update_interval := getattr(service_instance.settings, 'update_interval', False)):
+                logger.info(
+                    "Service %s update_interval set to False or missing, "
+                    + " not schedulings regular updates", 
+                    service_cls.__name__
+                )
+                continue
+
             self.scheduler.add_job(
                 self._submit_job,
                 'interval',
@@ -153,7 +160,7 @@ class Program(threading.Thread):
                 id=f'{service_cls.__name__}_update',
                 max_instances=1,
                 replace_existing=True,  # Replace existing jobs with the same ID
-                next_run_time=datetime.now() if service_cls != PlexLibrary else None
+                next_run_time=datetime.now() if service_cls != SymlinkLibrary else None
             )
             logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
         return
@@ -200,10 +207,10 @@ class Program(threading.Thread):
                     continue
                 self._submit_job(next_service, item)
                 continue
-            elif item.state == States.Indexed:
+            elif service == TraktIndexer or item.state == States.Indexed:
                 next_service = Scraping
                 # grab a copy of the item in the container
-                if existing_item:
+                if existing_item and not existing_item.indexed_at:
                     # merge our fresh metadata item to make sure there aren't any
                     # missing seasons or episodes in our library copy
                     if isinstance(item, (Show, Season)):
@@ -251,6 +258,8 @@ class Program(threading.Thread):
                         items_to_submit.append(item)
             elif item.state == States.Symlinked:
                 next_service = PlexUpdater
+                if isinstance(item, Show):
+                    items_to_submit = [s for s in item.seasons]
                 if isinstance(item, Season):
                     items_to_submit = [e for e in item.episodes]
                 else:

@@ -50,7 +50,7 @@ class MediaItem:
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, 'item_id'):
-                self.item_id = ItemId(None, self.imdb_id)
+                self.item_id = ItemId(self.imdb_id)
         self.tvdb_id = item.get("tvdb_id", None)
         self.tmdb_id = item.get("tmdb_id", None)
         self.network = item.get("network", None)
@@ -86,6 +86,16 @@ class MediaItem:
             return States.Requested
         else:
             return States.Unknown
+
+    def _copy_other_media_attr(self, other):
+        self.title = getattr(other, "title", None)
+        self.tvdb_id = getattr(other, "tvdb_id", None)
+        self.tmdb_id = getattr(other, "tmdb_id", None)
+        self.network = getattr(other, "network", None)
+        self.country = getattr(other, "country", None)
+        self.language = getattr(other, "language", None)
+        self.aired_at = getattr(other, "aired_at", None)
+        self.genres = getattr(other, "genres", [])
 
     def is_scraped(self):
         return len(self.streams) > 0
@@ -162,6 +172,9 @@ class MediaItem:
         """Set item attribute"""
         _set_nested_attr(self, key, value)
 
+    @property
+    def log_string(self):
+        return self.title or self.imdb_id
 
 class Movie(MediaItem):
     """Movie class"""
@@ -173,11 +186,7 @@ class Movie(MediaItem):
         self.item_id = ItemId(self.imdb_id)
 
     def __repr__(self):
-        return f"Movie:{self.title}:{self.state.name}"
-
-    @property
-    def log_string(self):
-        return self.title
+        return f"Movie:{self.log_string}:{self.state.name}"
 
 
 class Show(MediaItem):
@@ -185,7 +194,7 @@ class Show(MediaItem):
 
     def __init__(self, item):
         self.locations = item.get("locations", [])
-        self.seasons: list[Season | ItemId] = item.get("seasons", [])
+        self.seasons: list[Season] = item.get("seasons", [])
         self.type = "show"
         super().__init__(item)
         self.item_id = ItemId(self.imdb_id)
@@ -218,9 +227,10 @@ class Show(MediaItem):
         return States.Unknown
 
     def __repr__(self):
-        return f"Show:{self.title}:{self.state.name}"
+        return f"Show:{self.log_string}:{self.state.name}"
 
     def fill_in_missing_info(self, other: Self):
+        self._copy_other_media_attr(other)
         existing_seasons = [s.number for s in self.seasons]
         for s in other.seasons:
             if s.number not in existing_seasons:
@@ -236,10 +246,6 @@ class Show(MediaItem):
         season.item_id.parent_id = self.item_id
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
     
-    @property
-    def log_string(self):
-        return self.title
-
 
 class Season(MediaItem):
     """Season class"""
@@ -247,7 +253,7 @@ class Season(MediaItem):
     def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
-        self.episodes: list[Episode | ItemId] = item.get("episodes", [])
+        self.episodes: list[Episode] = item.get("episodes", [])
         self.item_id = ItemId(self.number)
         super().__init__(item)
 
@@ -299,7 +305,7 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        return self.parent.title + " S" + str(self.number).zfill(2)
+        return self.parent.log_string + " S" + str(self.number).zfill(2)
 
 
 class Episode(MediaItem):
@@ -324,7 +330,7 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        return f"{self.parent.parent.title} S{self.parent.number:02}E{self.number:02}"
+        return f"{self.parent.log_string}E{self.number:02}"
 
 
 def _set_nested_attr(obj, key, value):

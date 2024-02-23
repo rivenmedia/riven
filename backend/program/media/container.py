@@ -1,5 +1,5 @@
 import os
-from copy import deepcopy
+from copy import deepcopy, copy
 import dill
 from pickle import UnpicklingError
 from typing import Generator
@@ -115,10 +115,12 @@ class MediaItemContainer:
         }
     
     def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
-        """Get items with the specified state"""
+        """Get items with the specified state."""
         return {
+            # direct self access deep copies the item before passing it
             item_id: self[item_id]
-            for item_id, item in self._items.items()
+            # We need to copy first in case there are additions or deletions while we are iterating
+            for item_id, item in copy(self._items).items()
             if item.state not in (States.Completed, States.PartiallyCompleted)
         }
 

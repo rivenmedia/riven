@@ -44,7 +44,7 @@ class PlexUpdater:
     def _update_section(self, section, item):
         if item.symlinked and item.get("update_folder") != "updated":
             update_folder = item.update_folder
-            section.update(update_folder)
+            section.update(str(update_folder))
             item.set("update_folder", "updated")
             return True
         return False

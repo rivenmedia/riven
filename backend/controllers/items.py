@@ -20,7 +20,7 @@ async def get_states(request: Request):
 async def get_items(request: Request):
     return {
         "success": True,
-        "items": [item.to_dict() for item in request.app.program.media_items.items],
+        "items": [item.to_dict() for item in request.app.program.media_items],
     }
 
 

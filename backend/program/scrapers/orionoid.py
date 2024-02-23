@@ -83,7 +83,9 @@ class Orionoid:
     
     def run(self, item):
         """Scrape the Orionoid site for the given media items
-        and update the object with scraped streams"""
+        and update the object with scraped streams"""        
+        item.scraped_at = datetime.now()
+        item.scraped_times += 1
         if item is None or isinstance(item, Show):
             yield item
         try:
