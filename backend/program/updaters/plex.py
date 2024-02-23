@@ -4,7 +4,7 @@ from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.media.state import States
+from program.media.item import Episode
 
 
 class PlexUpdater:
@@ -30,9 +30,7 @@ class PlexUpdater:
 
     def run(self, item):
         """Update plex library section for a single item"""
-        item_type = item.type
-        if item.type == "episode":
-            item_type = "show"
+        item_type = "show" if isinstance(item, Episode) else "movie"
         for section in self.plex.library.sections():
             if section.type != item_type:
                 continue

@@ -31,8 +31,8 @@ def test_upsert_episode_modification_reflects_in_parent_season(container, test_s
     container.upsert(modified_episode)
 
     # Fetch the season from the container to check if it contains the updated episode data
-    container_season = container.items[modified_episode.item_id.parent_id]
-    container_episode = container.items[modified_episode.item_id]
+    container_season = container._items[modified_episode.item_id.parent_id]
+    container_episode = container._items[modified_episode.item_id]
 
     # Verify that the modified episode's attribute is updated in the container
     assert container_episode.some_attribute == modified_attribute_value
@@ -52,9 +52,9 @@ def test_upsert_season_modification_reflects_in_parent_show(container, test_show
     container.upsert(modified_season)
 
     # Fetch the show from the container to check if it contains the updated season data
-    container_show = container.items[test_show.item_id]
+    container_show = container._items[test_show.item_id]
     # Since the season was replaced with an ID reference, fetch the season directly from the container
-    container_season = container.items[modified_season.item_id]
+    container_season = container._items[modified_season.item_id]
 
     # Verify that the modified season's attribute is updated in the container
     assert container_season.some_attribute == modified_attribute_value

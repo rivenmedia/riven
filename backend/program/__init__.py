@@ -251,7 +251,10 @@ class Program(threading.Thread):
                         items_to_submit.append(item)
             elif item.state == States.Symlinked:
                 next_service = PlexUpdater
-                items_to_submit = [item]
+                if isinstance(item, Season):
+                    items_to_submit = [e for e in item.episodes]
+                else:
+                    items_to_submit = [item]
             elif item.state == States.Completed:
                 continue
             
