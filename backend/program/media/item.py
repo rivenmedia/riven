@@ -1,10 +1,8 @@
-import threading
 from datetime import datetime
 from dataclasses import dataclass
 from program.media.state import States
 from typing import Self, Optional
 from utils.parser import parser
-from pydantic import BaseModel
 
 
 @dataclass(frozen=True)

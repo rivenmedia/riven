@@ -224,39 +224,4 @@ class Parser:
         return ["English"]
 
 
-# def sort_streams(streams: dict, parser: Parser) -> dict:
-#     """Sorts streams based on user preferences."""
-#     def sorting_key(item):
-#         _, stream = item
-#         parsed_data = stream.get('parsed_data', {})
-
-#         points = 0
-#         if parser._is_dual_audio(parsed_data.get("string", "")):
-#             points += 5
-#         if parser._is_repack_or_proper(parsed_data):
-#             points += 3
-#         if parsed_data.get("is_4k", False) and (parser.settings.highest_quality or parser.settings.include_4k):
-#             points += 7
-#         if not parsed_data.get("is_unwanted", False):
-#             points -= 10  # Unwanted content should be pushed to the bottom
-#         return points
-#     sorted_streams = sorted(streams.items(), key=sorting_key, reverse=True)
-#     return dict(sorted_streams)
-
-
-# class ParserCleanup:
-#     """Cleanup the parsed data after scraping"""
-#     def __init__(self, item: MediaItem):
-#         self.item = item
-
-#     def __enter__(self):
-#         return self
-
-#     def __exit__(self, exc_type, exc_val, exc_tb):
-#         if hasattr(self.item, 'parsed_data') and len(self.item.parsed_data) > 0:
-#             cleaned_data = {k: v for k, v in self.item.parsed_data.items() if k is not None and v is not None}
-#             self.item.parsed_data = cleaned_data
-#         return False
-
-
 parser = Parser()
