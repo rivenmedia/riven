@@ -5,14 +5,15 @@ from typing import Self, Optional
 from utils.parser import parser
 
 
-@dataclass(frozen=True)
+@dataclass
 class ItemId:
-    parent_id: Optional[Self]
     value: str
+    parent_id: Optional[Self] = None
+
 
     def __repr__(self):
         if not self.parent_id:
-            return self.value
+            return str(self.value)
         return f"{self.parent_id}/{self.value}"
 
     def __hash__(self):
@@ -169,7 +170,7 @@ class Movie(MediaItem):
         self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
-        self.item_id = ItemId(None, self.imdb_id)
+        self.item_id = ItemId(self.imdb_id)
 
     def __repr__(self):
         return f"Movie:{self.title}:{self.state.name}"
@@ -187,7 +188,7 @@ class Show(MediaItem):
         self.seasons: list[Season | ItemId] = item.get("seasons", [])
         self.type = "show"
         super().__init__(item)
-        self.item_id = ItemId(None, self.imdb_id)
+        self.item_id = ItemId(self.imdb_id)
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its item_id."""
@@ -232,6 +233,7 @@ class Show(MediaItem):
         """Add season to show"""
         self.seasons.append(season)
         season.parent = self
+        season.item_id.parent_id = self.item_id
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
     
     @property
@@ -242,11 +244,11 @@ class Show(MediaItem):
 class Season(MediaItem):
     """Season class"""
 
-    def __init__(self, item, parent_item_id: ItemId):
+    def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode | ItemId] = item.get("episodes", [])
-        self.item_id = ItemId(parent_item_id, self.number)
+        self.item_id = ItemId(self.number)
         super().__init__(item)
 
     def get_episode_index_by_id(self, item_id):
@@ -291,6 +293,7 @@ class Season(MediaItem):
         """Add episode to season"""
         self.episodes.append(episode)
         episode.parent = self
+        episode.item_id.parent_id = self.item_id
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
 
@@ -302,11 +305,11 @@ class Season(MediaItem):
 class Episode(MediaItem):
     """Episode class"""
 
-    def __init__(self, item, parent_item_id: ItemId):
+    def __init__(self, item):
         self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
-        self.item_id = ItemId(parent_item_id, self.number)
+        self.item_id = ItemId(self.number)
         super().__init__(item)
 
     def __eq__(self, other):

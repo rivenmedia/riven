@@ -97,11 +97,11 @@ class PlexLibrary():
         for season in raw_item.seasons():
             if season.seasonNumber == 0:
                 continue
-            if not (season_item := _map_item_from_data(season, item.item_id)):
+            if not (season_item := _map_item_from_data(season)):
                 continue
             episode_items = []
             for episode in season.episodes():
-                episode_item = _map_item_from_data(episode, season_item.item_id)
+                episode_item = _map_item_from_data(episode)
                 if episode_item:
                     episode_items.append(episode_item)
             season_item.episodes = episode_items
@@ -115,7 +115,7 @@ class PlexLibrary():
         return section_located and section.type in ["movie", "show"]
 
 
-def _map_item_from_data(item, parent_id: Optional[ItemId] = None):
+def _map_item_from_data(item):
     """Map Plex API data to MediaItemContainer."""
     file = None
     guid = getattr(item, "guid", None)
@@ -159,11 +159,11 @@ def _map_item_from_data(item, parent_id: Optional[ItemId] = None):
         return Show(media_item_data)
     elif item.type == "season":
         media_item_data["number"] = season_number
-        return Season(media_item_data, parent_id)
+        return Season(media_item_data)
     elif item.type == "episode":
         media_item_data["number"] = episode_number
         media_item_data["season_number"] = season_number
-        return Episode(media_item_data, parent_id)
+        return Episode(media_item_data)
     else:
         # Specials may end up here..
         logger.error("Unknown Item: %s with type %s", item.title, item.type)

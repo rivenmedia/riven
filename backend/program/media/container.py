@@ -2,11 +2,11 @@ import os
 from copy import deepcopy
 import dill
 from pickle import UnpicklingError
-from typing import Optional, Iterable
+from typing import Generator
 
 from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
 from program.media.state import States
-
+from utils.logger import logger
 
 class MediaItemContainer:
     """MediaItemContainer class"""
@@ -18,7 +18,7 @@ class MediaItemContainer:
         self._episodes = {}
         self._movies = {}
 
-    def __iter__(self) -> MediaItem:
+    def __iter__(self) -> Generator[MediaItem, None, None]:
         for item in self._items.values():
             yield item
             
@@ -57,7 +57,14 @@ class MediaItemContainer:
         # will not affect the container state
         item = deepcopy(item)
         self._items[item.item_id] = item
-
+        detatched = item.item_id.parent_id is None or item.parent is None
+        if isinstance(item, (Season, Episode)) and detatched:
+            logger.error(
+                "%s item %s is detatched and not associated with a parent, and thus" +
+                " it cannot be upserted into the database", 
+                item.__class__.name, item.log_string
+            )
+            raise ValueError("Item detached from parent")
         if isinstance(item, Show):
             self._shows[item.item_id] = item
             for season in item.seasons:

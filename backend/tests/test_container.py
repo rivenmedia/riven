@@ -11,10 +11,10 @@ def container():
 def test_show():
     # Setup Show with a Season and an Episode
     show = Show({'imdb_id': 'tt1405406'})
-    season = Season({'number': 1}, show.item_id)
-    episode = Episode({'number': 1}, season.item_id)
-    season.episodes.append(episode)
-    show.seasons.append(season)
+    season = Season({'number': 1})
+    episode = Episode({'number': 1})
+    season.add_episode(episode)
+    show.add_season(season)
     return show
 
 def test_upsert_episode_modification_reflects_in_parent_season(container, test_show):

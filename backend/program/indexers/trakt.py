@@ -27,9 +27,9 @@ class TraktIndexer:
             for season in seasons:
                 if season.number == 0:
                     continue
-                season_item = _map_item_from_data(season, "season", item.item_id)
+                season_item = _map_item_from_data(season, "season")
                 for episode in season.episodes:
-                    episode_item = _map_item_from_data(episode, "episode", season_item.item_id)
+                    episode_item = _map_item_from_data(episode, "episode")
                     season_item.add_episode(episode_item)
                 item.add_season(season_item)
         item.indexed_at = datetime.now()
@@ -43,7 +43,7 @@ class TraktIndexer:
         interval = timedelta(seconds=settings.update_interval)
         return item.indexed_at < datetime.now() - interval
 
-def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None) -> MediaItem:
+def _map_item_from_data(data, item_type) -> MediaItem:
     """Map trakt.tv API data to MediaItemContainer"""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(
@@ -90,10 +90,10 @@ def _map_item_from_data(data, item_type, parent_id: Optional[ItemId] = None) -> 
             return_item = Show(item)
         case "season":
             item["number"] = getattr(data, "number")
-            return_item = Season(item, parent_id)
+            return_item = Season(item)
         case "episode":
             item["number"] = getattr(data, "number")
-            return_item = Episode(item, parent_id)
+            return_item = Episode(item)
         case _:
             logger.debug("Unknown item type %s for %s", item_type, data.title)
             return_item = None
