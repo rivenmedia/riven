@@ -1,16 +1,18 @@
 """ Torrentio scraper module """
+from datetime import datetime
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
 from program.settings.manager import settings_manager
 from utils.parser import parser
-
+from program.media.item import Show, Episode, Season
+import traceback
 
 class Torrentio:
     """Scraper for `Torrentio`"""
 
-    def __init__(self, _):
+    def __init__(self):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
         self.minute_limiter = RateLimiter(
@@ -44,29 +46,27 @@ class Torrentio:
     def run(self, item):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
-        if item is None:
-            return
+        item.scraped_at = datetime.now()
+        item.scraped_times += 1
+        if item is None or isinstance(item, Show):
+            yield item
         try:
-            self._scrape_item(item)
+            item = self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            return
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio connection timeout for item: %s", item.log_string)
-            return
         except ReadTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio read timeout for item: %s", item.log_string)
-            return
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
-            return
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Torrentio exception thrown: %s", e)
-            return
+            logger.warn("Torrentio exception thrown: %s", traceback.format_exc())
+        yield item
 
     def _scrape_item(self, item):
         """Scrape torrentio for the given media item"""
@@ -88,15 +88,19 @@ class Torrentio:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
+        return item
 
     def api_scrape(self, item):
         """Wrapper for torrentio scrape method"""
         with self.minute_limiter:
-            if item.type == "season":
+            # Torrentio can't scrape shows
+            if isinstance(item, Show):
+                return item
+            elif isinstance(item, Season):
                 identifier = f":{item.number}:1"
                 scrape_type = "series"
                 imdb_id = item.parent.imdb_id
-            elif item.type == "episode":
+            elif isinstance(item, Episode):
                 identifier = f":{item.parent.number}:{item.number}"
                 scrape_type = "series"
                 imdb_id = item.parent.parent.imdb_id
@@ -106,7 +110,7 @@ class Torrentio:
                 imdb_id = item.imdb_id
 
             url = (
-                f"{self.settings.url}/{self.settings.filter}"
+                f"{self.settings.url}{self.settings.filter}"
                 + f"/stream/{scrape_type}/{imdb_id}"
             )
             if identifier:

@@ -13,9 +13,6 @@ class Pickly(threading.Thread):
     def start(self) -> None:
         self.load()
         self.running = True
-        for item in self.media_items:
-            if item._lock.locked():
-                item._lock.release()
         return super().start()
 
     def stop(self) -> None:

@@ -1,15 +1,19 @@
+import contextlib
+import sys
+import threading
+import time
+import argparse
+import traceback
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from controllers.settings import router as settings_router
 from controllers.items import router as items_router
 from controllers.default import router as default_router
-import contextlib
-import sys
-import threading
-import time
-import uvicorn
-import argparse
+
+from utils.logger import logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dev", action="store_true", help="Enable development mode")
@@ -28,6 +32,9 @@ class Server(uvicorn.Server):
             while not self.started:
                 time.sleep(1e-3)
             yield
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            raise e
         finally:
             app.program.stop()
             self.should_exit = True

@@ -6,6 +6,7 @@ from utils.logger import logger
 from utils.request import RateLimitExceeded, RateLimiter, get
 from program.settings.manager import settings_manager
 from utils.parser import parser
+from program.media.item import Show, Season, Episode
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
@@ -13,7 +14,7 @@ KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 class Orionoid:
     """Scraper for `Orionoid`"""
 
-    def __init__(self, _):
+    def __init__(self):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
         self.is_premium = False
@@ -51,12 +52,12 @@ class Orionoid:
             if response.is_ok and hasattr(response.data, "result"):
                 if not response.data.result.status == "success":
                     logger.error(
-                        f"Orionoid API Key is invalid. Status: {response.data.result.status}"
+                        "Orionoid API Key is invalid. Status: %s", response.data.result.status
                     )
                     return False
                 if not response.is_ok:
                     logger.error(
-                        f"Orionoid Status Code: {response.status_code}, Reason: {response.reason}"
+                        "Orionoid Status Code: %s, Reason: %s", response.status_code, response.data.reason
                     )
                     return False
             self.is_unlimited = True if response.data.data.subscription.package.type == "unlimited" else False
@@ -82,29 +83,28 @@ class Orionoid:
     
     def run(self, item):
         """Scrape the Orionoid site for the given media items
-        and update the object with scraped streams"""
-        if item is None or not self.initialized:
-            return
+        and update the object with scraped streams"""        
+        item.scraped_at = datetime.now()
+        item.scraped_times += 1
+        if item is None or isinstance(item, Show):
+            yield item
         try:
-            self._scrape_item(item)
+            item = self._scrape_item(item)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Orionoid connection timeout for item: %s", item.log_string)
-            return
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.exception("Orionoid request exception: %s", e)
-            return
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Orionoid rate limit hit for item: %s", item.log_string)
-            return
         except Exception as e:
             self.minute_limiter.limit_hit()
             logger.exception(
                 "Orionoid exception for item: %s - Exception: %s", item.log_string, e
             )
-            return
+        yield item
 
     def _scrape_item(self, item):
         data, stream_count = self.api_scrape(item)
@@ -125,6 +125,7 @@ class Orionoid:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
+        return item
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""
@@ -158,10 +159,10 @@ class Orionoid:
     def api_scrape(self, item):
         """Wrapper for Orionoid scrape method"""
         with self.minute_limiter:
-            if item.type == "season":
+            if isinstance(item, Season):
                 imdb_id = item.parent.imdb_id
                 url = self.construct_url("show", imdb_id, season=item.number)
-            elif item.type == "episode":
+            elif isinstance(item, Episode):
                 imdb_id = item.parent.parent.imdb_id
                 url = self.construct_url(
                     "show", imdb_id, season=item.parent.number, episode=item.number

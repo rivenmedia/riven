@@ -6,6 +6,7 @@ from utils.logger import logger
 from utils.request import get, post, ping
 from program.settings.manager import settings_manager
 from utils.parser import parser
+from program.media.item import Season, Movie, Episode
 
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
@@ -15,7 +16,7 @@ RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 class Debrid:
     """Real-Debrid API Wrapper"""
 
-    def __init__(self, _):
+    def __init__(self):
         # Realdebrid class library is a necessity
         self.initialized = False
         self.key = "real_debrid"
@@ -32,7 +33,7 @@ class Debrid:
     def _validate(self):
         try:
             response = ping(
-                "https://api.real-debrid.com/rest/1.0/user",
+                f"{RD_BASE_URL}/user",
                 additional_headers=self.auth_headers,
             )
             if response.ok:
@@ -42,18 +43,14 @@ class Debrid:
             return False
 
     def run(self, item):
-        self.download(item)
-
-    def download(self, item):
         """Download movie from real-debrid.com"""
-        downloaded = 0
-        if self.is_cached(item):
-            if not self._is_downloaded(item):
-                downloaded = self._download_item(item)
-            else:
-                downloaded = True
-            self._set_file_paths(item)
-            return downloaded
+        if not self.is_cached(item):
+            return
+        if not self._is_downloaded(item):
+            self._download_item(item)
+        self._set_file_paths(item)
+        yield item
+
 
     def _is_downloaded(self, item):
         """Check if item is already downloaded"""
@@ -88,7 +85,6 @@ class Debrid:
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
         logger.debug("Downloaded %s", item.log_string)
-        return 1
 
     def set_active_files(self, item):
         """Set active files for item from real-debrid.com"""
@@ -111,7 +107,7 @@ class Debrid:
         for stream_chunk in stream_chunks:
             streams = "/".join(stream_chunk)
             response = get(
-                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{streams}/",
+                f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/",
                 additional_headers=self.auth_headers,
                 response_type=dict,
             )
@@ -121,11 +117,11 @@ class Debrid:
                 for containers in provider_list.values():
                     for container in containers:
                         wanted_files = {}
-                        if item.type == "movie" and all(file["filesize"] > 200000 for file in container.values()):
+                        if isinstance(item, Movie) and all(file["filesize"] > 200000 for file in container.values()):
                             wanted_files = container
-                        if item.type == "season" and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                        if isinstance(item, Season) and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
                             wanted_files = container
-                        if item.type == "episode" and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                        if isinstance(item, Episode) and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
                             wanted_files = container
                         if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
                             item.set(
@@ -139,11 +135,11 @@ class Debrid:
 
     def _set_file_paths(self, item):
         """Set file paths for item from real-debrid.com"""
-        if item.type == "movie":
+        if isinstance(item, Movie):
             self._handle_movie_paths(item)
-        if item.type == "season":
+        elif isinstance(item, Season):
             self._handle_season_paths(item)
-        if item.type == "episode":
+        elif isinstance(item, Episode):
             self._handle_episode_paths(item)
 
     def _handle_movie_paths(self, item):
@@ -177,7 +173,7 @@ class Debrid:
         if not item.active_stream.get("hash"):
             return None
         response = post(
-            "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
+            f"{RD_BASE_URL}/torrents/addMagnet",
             {
                 "magnet": "magnet:?xt=urn:btih:"
                 + item.active_stream["hash"]
@@ -192,7 +188,7 @@ class Debrid:
     def get_torrents(self) -> str:
         """Add magnet link to real-debrid.com"""
         response = get(
-            "https://api.real-debrid.com/rest/1.0/torrents/",
+            f"{RD_BASE_URL}/torrents/",
             data={"offset": 0, "limit": 2500},
             additional_headers=self.auth_headers,
         )
@@ -204,7 +200,7 @@ class Debrid:
         """Select files from real-debrid.com"""
         files = item.active_stream.get("files")
         response = post(
-            f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{request_id}",
+            f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
             {"files": ",".join(files.keys())},
             additional_headers=self.auth_headers,
         )
@@ -213,7 +209,7 @@ class Debrid:
     def get_torrent_info(self, request_id):
         """Get torrent info from real-debrid.com"""
         response = get(
-            f"https://api.real-debrid.com/rest/1.0/torrents/info/{request_id}",
+            f"{RD_BASE_URL}/torrents/info/{request_id}",
             additional_headers=self.auth_headers,
         )
         if response.is_ok:

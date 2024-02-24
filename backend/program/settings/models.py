@@ -1,10 +1,10 @@
 """Iceberg settings models"""
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl, validator
 from utils import version_file_path
 
 
-class NotifyingBaseModel(BaseModel):
+class Observable(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
@@ -22,16 +22,13 @@ class NotifyingBaseModel(BaseModel):
             self.__class__._notify_observers()
 
 
-class PlexModel(NotifyingBaseModel):
-    token: str = ""
-    url: str = "http://localhost:32400"
 
 
-class DebridModel(NotifyingBaseModel):
+class DebridModel(Observable):
     api_key: str = ""
 
 
-class SymlinkModel(NotifyingBaseModel):
+class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
 
@@ -39,11 +36,22 @@ class SymlinkModel(NotifyingBaseModel):
 # Content Services
 
 
-class ContentNotifyingBaseModel(NotifyingBaseModel):
+class Updatable(Observable):
     update_interval: int = 80
 
+    @validator('update_interval')
+    def check_update_interval(cls, v):
+        if v < (limit := 5):
+            raise ValueError(f"update_interval must be at least {limit} seconds")
+        return v
 
-class ListrrModel(ContentNotifyingBaseModel):
+class PlexLibraryModel(Updatable):
+    update_interval: int = 120
+    token: str = ""
+    url: str = "http://localhost:32400"
+
+
+class ListrrModel(Updatable):
     enabled: bool = False
     movie_lists: list[str] = [""]
     show_lists: list[str] = [""]
@@ -51,27 +59,27 @@ class ListrrModel(ContentNotifyingBaseModel):
     update_interval: int = 300
 
 
-class MdblistModel(ContentNotifyingBaseModel):
+class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
     lists: list[str] = [""]
     update_interval: int = 300
 
 
-class OverseerrModel(ContentNotifyingBaseModel):
+class OverseerrModel(Updatable):
     enabled: bool = False
     url: str = "http://localhost:5055"
     api_key: str = ""
     update_interval: int = 60
 
 
-class PlexWatchlistModel(ContentNotifyingBaseModel):
+class PlexWatchlistModel(Updatable):
     enabled: bool = False
     rss: str = ""
     update_interval: int = 60
 
 
-class ContentModel(NotifyingBaseModel):
+class ContentModel(Observable):
     listrr: ListrrModel = ListrrModel()
     mdblist: MdblistModel = MdblistModel()
     overseerr: OverseerrModel = OverseerrModel()
@@ -81,25 +89,25 @@ class ContentModel(NotifyingBaseModel):
 # Scraper Services
 
 
-class JackettConfig(NotifyingBaseModel):
+class JackettConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
 
 
-class OrionoidConfig(NotifyingBaseModel):
+class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
     limitcount: int = 5
 
 
-class TorrentioConfig(NotifyingBaseModel):
+class TorrentioConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://torrentio.strem.fun"
+    url: HttpUrl = "https://torrentio.strem.fun"
 
 
-class ScraperModel(NotifyingBaseModel):
+class ScraperModel(Observable):
     after_2: float = 2
     after_5: int = 6
     after_10: int = 24
@@ -108,7 +116,7 @@ class ScraperModel(NotifyingBaseModel):
     torrentio: TorrentioConfig = TorrentioConfig()
 
 
-class ParserModel(NotifyingBaseModel):
+class ParserModel(Observable):
     highest_quality: bool = False
     include_4k: bool = False
     repack_proper: bool = True
@@ -117,19 +125,25 @@ class ParserModel(NotifyingBaseModel):
 
 # Application Settings
 
+class IndexerModel(Observable):
+    update_interval: int = 60 * 60
+
 
 def get_version() -> str:
     with open(version_file_path.resolve()) as file:
         return file.read()
 
 
-class AppModel(NotifyingBaseModel):
+class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
-    plex: PlexModel = PlexModel()
+    plex: PlexLibraryModel = PlexLibraryModel()
     real_debrid: DebridModel = DebridModel()
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
     parser: ParserModel = ParserModel()
+    indexer: IndexerModel = IndexerModel()
+
+

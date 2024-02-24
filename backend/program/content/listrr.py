@@ -1,18 +1,18 @@
 """Listrr content module"""
-from time import time
+from typing import Generator
+
 from utils.logger import logger
 from utils.request import get, ping
 from requests.exceptions import HTTPError
 from program.settings.manager import settings_manager
-from program.media.container import MediaItemContainer
-from program.updaters.trakt import get_imdbid_from_tmdb
-from program.content.base import ContentServiceBase
+from program.media.item import MediaItem
+from program.indexers.trakt import get_imdbid_from_tmdb
 
 
-class Listrr(ContentServiceBase):
+class Listrr():
     """Content class for Listrr"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "listrr"
         self.url = "https://listrr.pro/api"
         self.settings = settings_manager.settings.content.listrr
@@ -20,7 +20,6 @@ class Listrr(ContentServiceBase):
         self.initialized = self.validate()
         if not self.initialized:
             return
-        super().__init__(media_items)
         logger.info("Listrr initialized!")
 
     def validate(self) -> bool:
@@ -49,39 +48,25 @@ class Listrr(ContentServiceBase):
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
                 logger.error(
-                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
+                    "Listrr ping failed - Status Code: %s, Reason: %s", response.status_code, response.reason
                 )
             return response.ok
         except Exception as e:
-            logger.error(f"Listrr ping exception: {e}")
+            logger.error("Listrr ping exception: %s", e)
             return False
 
-    def run(self):
+    def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Listrr`"""
-        if time() < self.next_run_time:
-            return
         self.not_found_ids.clear()
-        self.next_run_time = time() + self.settings.update_interval
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
-        items = movie_items.extend(show_items)
-        added_items = self.process_items(items, "Listrr")
-        if not added_items:
-            return
-        length = len(added_items)
-        if length >= 1 and length <= 5:
-            for item in added_items:
-                logger.info("Added %s", item.log_string)
-        elif length > 5:
-            logger.info("Added %s items", length)
-        if self.not_found_ids:
-            logger.debug(
-                "Failed to process %s items, skipping.", len(self.not_found_ids)
-            )
+        for imdb_id in movie_items + show_items:
+            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.__class__})
+        return
 
-    def _get_items_from_Listrr(self, content_type, content_lists) -> MediaItemContainer:
+    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
-        unique_ids = set()
+        unique_ids: set[str] = set()
         if not content_lists:
             return list(unique_ids)
 
@@ -110,7 +95,7 @@ class Listrr(ContentServiceBase):
                     if e.response.status_code in [400, 404, 429, 500]:
                         break
                 except Exception as e:
-                    logger.error(f"An error occurred: {e}")
+                    logger.error("An error occurred: %s", e)
                     break
                 page += 1
         return list(unique_ids)

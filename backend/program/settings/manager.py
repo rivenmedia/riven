@@ -1,12 +1,11 @@
 import json
 from pydantic import ValidationError
-from program.settings.models import AppModel, NotifyingBaseModel
+from program.settings.models import AppModel, Observable
 from utils import data_dir_path
 from utils.logger import logger
-from utils.observable import Observable
 
 
-class SettingsManager(Observable):
+class SettingsManager():
     """Class that handles settings, ensuring they are validated against a Pydantic schema."""
 
     def __init__(self):
@@ -14,7 +13,7 @@ class SettingsManager(Observable):
         self.filename = "settings.json"
         self.settings_file = data_dir_path / self.filename
 
-        NotifyingBaseModel.set_notify_observers(self.notify_observers)
+        Observable.set_notify_observers(self.notify_observers)
 
         if not self.settings_file.exists():
             self.settings = AppModel()
@@ -27,9 +26,9 @@ class SettingsManager(Observable):
 
     def notify_observers(self):
         for observer in self.observers:
-            observer.notify()
+            observer()
 
-    def load(self, settings_dict: dict = None):
+    def load(self, settings_dict: dict | None = None):
         """Load settings from file, validating against the AppModel schema."""
         try:
             if not settings_dict:
