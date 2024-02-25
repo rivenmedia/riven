@@ -168,7 +168,8 @@ class Symlinker:
         item.symlinked_times += 1
         yield item
 
-    def should_submit(self, item):
+    @staticmethod
+    def should_submit(item):
         return item.symlinked_times < 3
 
     def _determine_file_name(self, item):
