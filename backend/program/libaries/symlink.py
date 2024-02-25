@@ -30,8 +30,11 @@ class SymlinkLibrary:
             if files
         ]
         for path, filename in movies:
-            imdb_id = re.search('(tt\d+)', filename).group()
-            movie_item = Movie({'imdb_id': imdb_id})
+            imdb_id = re.search('(tt\d+)', filename)
+            if not imdb_id:
+                logger.error("Can't extract episode imdb_id at path %s", path / filename)
+                continue
+            movie_item = Movie({'imdb_id': imdb_id.group()})
             movie_item.update_folder = "updated"
             yield movie_item
         
