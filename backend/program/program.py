@@ -78,7 +78,7 @@ class Program(threading.Thread):
             logger.error(traceback.format_exc())
 
         self.media_items = MediaItemContainer()
-        if not self.startup_args.dev:
+        if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
         if not len(self.media_items):
@@ -185,7 +185,11 @@ class Program(threading.Thread):
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
             existing_item = self.media_items.get(event.item.item_id, None)
-            func = process_event_and_collect_coverage if self.startup_args.dev else process_event
+            func = (
+                process_event_and_collect_coverage 
+                if self.startup_args.profile_state_transitions 
+                else process_event
+            )
             updated_item, next_service, items_to_submit = func(
                 existing_item, event.emitted_by, event.item
             )
