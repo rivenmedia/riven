@@ -75,7 +75,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 # update the timestamp now that we have new metadata           
                 existing_item.indexed_at = item.indexed_at
                 # use the merged data for the rest of the state transition
-                item = existing_item
+                updated_item = item = existing_item
                 
             # if after filling in missing episodes we are still complete then skip
             if existing_item.state == States.Completed:
