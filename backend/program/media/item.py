@@ -173,6 +173,11 @@ class MediaItem:
     def log_string(self):
         return self.title or self.imdb_id
 
+    @property
+    def collection(self):
+        return self.parent.collection if self.parent else self.item_id
+
+
 class Movie(MediaItem):
     """Movie class"""
 
