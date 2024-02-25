@@ -260,7 +260,7 @@ class Program(threading.Thread):
                 next_service = PlexUpdater
                 if isinstance(item, Show):
                     items_to_submit = [s for s in item.seasons]
-                if isinstance(item, Season):
+                elif isinstance(item, Season):
                     items_to_submit = [e for e in item.episodes]
                 else:
                     items_to_submit = [item]
