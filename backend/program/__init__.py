@@ -223,7 +223,7 @@ class Program(threading.Thread):
                         logger.debug("%s is already complete and in the Library, skipping.", item.title)
                         continue
                 # we attemted to scrape it already and it failed, scraping each component
-                if item.scraped_times:
+                if item.scraped_times and isinstance(item, (Show, Season)):
                     if isinstance(item, Show):
                         items_to_submit = [s for s in item.seasons if s.state != States.Completed]
                     elif isinstance(item, Season):

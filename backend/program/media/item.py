@@ -75,11 +75,8 @@ class MediaItem:
             return States.Symlinked
         elif self.file and self.folder:
             return States.Downloaded
-        elif self.is_scraped() and self.is_checked_for_availability():
-            if any(stream.get('cached') for stream in self.streams.values()):
-                return States.Scraped
-            else:
-                return States.Requested
+        elif self.is_scraped():
+            return States.Scraped
         elif self.title:
             return States.Indexed
         elif self.imdb_id and self.requested_by:

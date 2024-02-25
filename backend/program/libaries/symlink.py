@@ -15,6 +15,7 @@ from program.media.item import (
 
 class SymlinkLibrary:
     def __init__(self):
+        self.key = "symlinklibrary"
         self.last_fetch_times = {}
         self.settings = settings_manager.settings.symlink
         self.initialized = True
