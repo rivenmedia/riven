@@ -233,7 +233,7 @@ class Show(MediaItem):
                 self.add_season(s)
             else:
                 existing_season = next(es for es in self.seasons if s.number == es.number) 
-                existing_season.fill_in_missing_info(s)
+                existing_season.fill_in_missing_children(s)
         
     def add_season(self, season):
         """Add season to show"""
@@ -285,7 +285,7 @@ class Season(MediaItem):
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
 
-    def fill_in_missing_info(self, other: Self):
+    def fill_in_missing_children(self, other: Self):
         existing_episodes = [s.number for s in self.episodes]
         for e in other.episodes:
             if e.number not in existing_episodes:
