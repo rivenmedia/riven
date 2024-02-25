@@ -92,7 +92,7 @@ class Program(threading.Thread):
         if not self.startup_args.dev:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
-        else:
+        if not len(self.media_items):
             # seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
@@ -185,6 +185,86 @@ class Program(threading.Thread):
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
     
+    def process_event(self, event: Event) -> (MediaItem, Service, list[MediaItem]):
+        """Take the input item
+        """
+        service, item = event.emitted_by, event.item
+        updated_item = item
+        no_further_processing = (None, None, [])
+        existing_item = self.media_items.get(item.item_id, None)
+        # we always want to get metadata for content items before we compare to the container. 
+        # we can't just check if the show exists we have to check if it's complete
+        if service in (*self.library_services.keys(), *self.requesting_services.keys()):
+            next_service = TraktIndexer
+            # if we already have a copy of this item check if we even need to index it
+            if existing_item and not TraktIndexer.should_submit(existing_item):
+                # ignore this item
+                return no_further_processing
+            # don't update the container until we've indexed the item
+            return None, next_service, [item]
+        elif service == TraktIndexer or item.state == States.Indexed:
+            next_service = Scraping
+            # grab a copy of the item in the container
+            if existing_item and not existing_item.indexed_at:
+                # merge our fresh metadata item to make sure there aren't any
+                # missing seasons or episodes in our library copy
+                if isinstance(item, (Show, Season)):
+                    existing_item.fill_in_missing_children(item)
+                existing_item.copy_other_media_attr(item)             
+                existing_item.indexed_at = item.indexed_at
+                item = existing_item
+                
+                # if after making sure we aren't missing any episodes check to 
+                # see if we still need to process this, if not then skip
+                if item.state == States.Completed:
+                    return item, None, []
+            # we attempted to scrape it already and it failed, so try scraping each component
+            if item.scraped_times and isinstance(item, (Show, Season)):
+                if isinstance(item, Show):
+                    items_to_submit = [s for s in item.seasons if s.state != States.Completed]
+                elif isinstance(item, Season):
+                    items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+            elif self.services[Scraping].should_submit(item):
+                items_to_submit = [item]
+            else:
+                items_to_submit = []
+        # Only shows and seasons can be PartiallyCompleted.  This is also the last part of the state
+        # processing that can can be at the show level
+        elif item.state == States.PartiallyCompleted:
+            next_service = Scraping
+            if isinstance(item, Show):
+                items_to_submit = [s for s in item.seasons if s.state != States.Completed]
+            elif isinstance(item, Season):
+                items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+        # if we successfully scraped the item then send it to debrid
+        elif item.state == States.Scraped:
+            next_service = Debrid
+            items_to_submit = [item]
+        elif item.state == States.Downloaded:
+            next_service = Symlinker
+            if isinstance(item, Season):
+                proposed_submissions = [e for e in item.episodes]
+            elif isinstance(item, (Movie, Episode)):
+                proposed_submissions = [item]
+            items_to_submit = []
+            for item in proposed_submissions:
+                if not self.services[Symlinker].should_submit(item):
+                    logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+                else:
+                    items_to_submit.append(item)
+        elif item.state == States.Symlinked:
+            next_service = PlexUpdater
+            if isinstance(item, Show):
+                items_to_submit = [s for s in item.seasons]
+            elif isinstance(item, Season):
+                items_to_submit = [e for e in item.episodes]
+            else:
+                items_to_submit = [item]
+        elif item.state == States.Completed:
+            return no_further_processing
+
+        return updated_item, next_service, items_to_submit
+    
 
     def run(self):
         while self.running:
@@ -196,79 +276,14 @@ class Program(threading.Thread):
             except Empty:
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
-            service, item = event.emitted_by, event.item
-            existing_item = self.media_items.get(item.item_id, None)
-            # we always want to get metadata for content items before we compare to the container. 
-            # we can't just check if the show exists we have to check if it's complete
-            if service in (*self.library_services.keys(), *self.requesting_services.keys()):
-                next_service = TraktIndexer
-                # if we already have a copy of this item check if we even need to index it
-                if existing_item and not TraktIndexer.should_submit(existing_item):
-                    continue
-                self._submit_job(next_service, item)
-                continue
-            elif service == TraktIndexer or item.state == States.Indexed:
-                next_service = Scraping
-                # grab a copy of the item in the container
-                if existing_item and not existing_item.indexed_at:
-                    # merge our fresh metadata item to make sure there aren't any
-                    # missing seasons or episodes in our library copy
-                    if isinstance(item, (Show, Season)):
-                        existing_item.fill_in_missing_info(item)
-                        existing_item.indexed_at = item.indexed_at
-                        item = existing_item
-                    # if after making sure we aren't missing any episodes check to 
-                    # see if we need to process this, if not then skip
-                    if item.state == States.Completed:
-                        logger.debug("%s is already complete and in the Library, skipping.", item.title)
-                        continue
-                # we attemted to scrape it already and it failed, scraping each component
-                if item.scraped_times and isinstance(item, (Show, Season)):
-                    if isinstance(item, Show):
-                        items_to_submit = [s for s in item.seasons if s.state != States.Completed]
-                    elif isinstance(item, Season):
-                        items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-                elif self.services[Scraping].should_submit(item):
-                    items_to_submit = [item]
-                else:
-                    items_to_submit = []
-            # Only shows and seasons can be PartiallyCompleted.  This is also the last part of the state
-            # processing that can can be at the show level
-            elif item.state == States.PartiallyCompleted:
-                next_service = Scraping
-                if isinstance(item, Show):
-                    items_to_submit = [s for s in item.seasons if s.state != States.Completed]
-                elif isinstance(item, Season):
-                    items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-            # if we successfully scraped the item then send it to debrid
-            elif item.state == States.Scraped:
-                next_service = Debrid
-                items_to_submit = [item]
-            elif item.state == States.Downloaded:
-                next_service = Symlinker
-                if isinstance(item, Season):
-                    proposed_submissions = [e for e in item.episodes]
-                elif isinstance(item, (Movie, Episode)):
-                    proposed_submissions = [item]
-                items_to_submit = []
-                for item in proposed_submissions:
-                    if not self.services[Symlinker].should_submit(item):
-                        logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
-                    else:
-                        items_to_submit.append(item)
-            elif item.state == States.Symlinked:
-                next_service = PlexUpdater
-                if isinstance(item, Show):
-                    items_to_submit = [s for s in item.seasons]
-                elif isinstance(item, Season):
-                    items_to_submit = [e for e in item.episodes]
-                else:
-                    items_to_submit = [item]
-            elif item.state == States.Completed:
-                continue
-            
-            # commit the item to the container before submitting it to be processed
-            self.media_items.upsert(item)
+            updated_item, next_service, items_to_submit = self.process_event(event)
+            # before submitting the item to be processed, commit it to the container
+            if updated_item:
+                self.media_items.upsert(updated_item)
+                if updated_item.state == States.Completed:
+                    logger.debug("%s %s has been completed", 
+                        updated_item.__class__.__name__, updated_item.log_string
+                    )
 
             for item_to_submit in items_to_submit:
                 self._submit_job(next_service, item_to_submit)

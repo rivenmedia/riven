@@ -84,7 +84,7 @@ class MediaItem:
         else:
             return States.Unknown
 
-    def _copy_other_media_attr(self, other):
+    def copy_other_media_attr(self, other):
         self.title = getattr(other, "title", None)
         self.tvdb_id = getattr(other, "tvdb_id", None)
         self.tmdb_id = getattr(other, "tmdb_id", None)
@@ -226,8 +226,7 @@ class Show(MediaItem):
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
-    def fill_in_missing_info(self, other: Self):
-        self._copy_other_media_attr(other)
+    def fill_in_missing_children(self, other: Self):
         existing_seasons = [s.number for s in self.seasons]
         for s in other.seasons:
             if s.number not in existing_seasons:
