@@ -32,6 +32,7 @@ Scraper = Union[Scraping, Torrentio, Orionoid, Jackett]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
 Service = Union[Content, SymlinkLibrary, Scraper, Debrid, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
+ProcessedEvent = (MediaItem, Service, list[MediaItem])
 
 @dataclass
 class Event:
@@ -80,7 +81,7 @@ class Program(threading.Thread):
         logger.info("Iceberg v%s starting!", settings_manager.settings.version)
         settings_manager.register_observer(self.initialize_services)
         self.initialized = False
-        self.job_queue = Queue()
+        self.event_queue = Queue()
         os.makedirs(data_dir_path, exist_ok=True)
 
         try:
@@ -114,7 +115,7 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         for item_id, item in self.media_items.get_incomplete_items().items():
-            self.job_queue.put(Event(emitted_by=self.__class__, item=item))
+            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -172,7 +173,7 @@ class Program(threading.Thread):
                 if not isinstance(item, MediaItem):
                     logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
                     continue
-                self.job_queue.put(Event(emitted_by=service, item=item))
+                self.event_queue.put(Event(emitted_by=service, item=item))
         except Exception:
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
@@ -185,17 +186,23 @@ class Program(threading.Thread):
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
     
-    def process_event(self, event: Event) -> (MediaItem, Service, list[MediaItem]):
+    def process_event(self, event: Event) -> ProcessedEvent:
         """Take the input item
         """
         service, item = event.emitted_by, event.item
+        existing_item : MediaItem = self.media_items.get(item.item_id, None)
+        next_service : Service = None
         updated_item = item
-        no_further_processing = (None, None, [])
-        existing_item = self.media_items.get(item.item_id, None)
+        no_further_processing: ProcessedEvent = (None, None, [])
         # we always want to get metadata for content items before we compare to the container. 
         # we can't just check if the show exists we have to check if it's complete
-        if service in (*self.library_services.keys(), *self.requesting_services.keys()):
+        source_services = (*self.library_services.keys(), *self.requesting_services.keys())
+        if service in source_services or item.state == States.Unknown:
             next_service = TraktIndexer
+            # seasons can't be indexed so we'll index and process the show instead
+            if isinstance(item, Season):
+                item = item.parent
+                existing_item = existing_item.parent
             # if we already have a copy of this item check if we even need to index it
             if existing_item and not TraktIndexer.should_submit(existing_item):
                 # ignore this item
@@ -272,7 +279,7 @@ class Program(threading.Thread):
                 time.sleep(1)
                 continue
             try:
-                event: Event = self.job_queue.get(timeout=1)
+                event: Event = self.event_queue.get(timeout=1)
             except Empty:
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
@@ -298,6 +305,8 @@ class Program(threading.Thread):
         )
 
     def stop(self):
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=True) 
         if hasattr(self, 'pickly'):
             self.pickly.stop()
         settings_manager.save()
@@ -306,6 +315,4 @@ class Program(threading.Thread):
             symlinker_service.stop_monitor()
         if hasattr(self, 'scheduler'):
             self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=True) 
         self.running = False

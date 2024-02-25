@@ -20,9 +20,17 @@ class TraktIndexer:
         self.settings = settings_manager.settings.indexer
 
     def run(self, item: MediaItem):
-        imdb_id = item.imdb_id
+        if not item:
+            logger.error("Item is None")
+            return None
+        if (imdb_id := item.imdb_id) is None:
+            logger.error("Item %s does not have an imdb_id, cannot index it", item.log_string)
+            return None
         item = create_item_from_imdb_id(imdb_id)
-        if item and item.type == "show":
+        if not item:
+            logger.error("Failed to get item from imdb_id: %s", imdb_id)
+            return None
+        elif item.type == "show":
             seasons = get_show(imdb_id)
             for season in seasons:
                 if season.number == 0:
@@ -34,6 +42,7 @@ class TraktIndexer:
                 item.add_season(season_item)
         item.indexed_at = datetime.now()
         yield item
+            
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
@@ -118,8 +127,6 @@ def get_show(imdb_id: str):
 
 def create_item_from_imdb_id(imdb_id: str) -> MediaItem:
     """Wrapper for trakt.tv API search method"""
-    if imdb_id is None:
-        return None
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(
         url,
