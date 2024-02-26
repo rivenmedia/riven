@@ -1,6 +1,3 @@
-from coverage import Coverage
-import inspect
-
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
@@ -12,33 +9,6 @@ from program.updaters.plex import PlexUpdater
 from program.types import ProcessedEvent, Service
 from program.media import MediaItem, Season, Episode, Show, Movie, States
 from utils.logger import logger
-
-
-# Function to execute process_event and collect coverage data
-def process_event_and_collect_coverage(
-    existing_item: MediaItem | None, 
-    emitted_by: Service, 
-    item: MediaItem
-) -> ProcessedEvent:
-    file_path = inspect.getfile(process_event)
-    cov = Coverage(source=[file_path])
-    cov.start()
-
-    # Call the process_event method
-    updated_item, next_service, items_to_submit = process_event(
-        existing_item, emitted_by, item
-    )
-
-    cov.stop()
-    cov.save()
-
-    # Analyze the coverage data for this execution
-    # Here you would extract the lines executed within process_event
-    # and log them along with the input and output
-    cov_analysis = cov.analysis2(file_path)
-    executed_lines = cov_analysis[1]  # List of executed lines
-
-    return updated_item, next_service, items_to_submit
 
 
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:
@@ -55,8 +25,8 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         # seasons can't be indexed so we'll index and process the show instead
         if isinstance(item, Season):
             item = item.parent
-            existing_item = existing_item.parent
-        # if we already have a copy of this item check if we even need to index it
+            existing_item = existing_item.parent if existing_item else None
+            # if we already have a copy of this item check if we even need to index it
         if existing_item and not TraktIndexer.should_submit(existing_item):
             # ignore this item
             return no_further_processing

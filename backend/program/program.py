@@ -2,15 +2,19 @@ import os
 import threading
 import time
 import traceback
+import inspect
+import json
 
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from queue import Queue, Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from coverage import Coverage
+from deepdiff.diff import DeepDiff, PrettyOrderedSet
 
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
-from program.state_transision import process_event, process_event_and_collect_coverage
+from program.state_transision import process_event
 from program.indexers.trakt import TraktIndexer
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
@@ -228,3 +232,89 @@ class Program(threading.Thread):
         self.running = False
 
 
+def custom_serializer(obj):
+    """
+    If input object is a type (class), return its name as a string.
+    Otherwise, raise TypeError.
+    """
+    if isinstance(obj, type):
+        return obj.__name__
+    elif isinstance(obj, PrettyOrderedSet):
+        return list(obj)
+
+# Function to execute process_event and collect coverage data
+def process_event_and_collect_coverage(
+    existing_item: MediaItem | None, 
+    emitted_by: Service, 
+    item: MediaItem
+) -> ProcessedEvent:
+    file_path = inspect.getfile(process_event)
+
+    # Load the source code and extract executed lines
+    with open(file_path, 'r') as file:
+        source_lines = file.readlines()
+    
+    lines, start_line_no = inspect.getsourcelines(process_event)
+    logic_start_line_no = next(
+        i + start_line_no + 1 
+        for i, l in enumerate(source_lines[start_line_no:]) 
+        if l.strip().startswith("if ")
+    ) 
+    end_line_no = logic_start_line_no + len(lines) - 1
+
+    cov = Coverage(branch=True)
+    cov.erase()
+    cov.start()
+
+    # Call the process_event method
+    updated_item, next_service, items_to_submit = process_event(
+        existing_item, emitted_by, item
+    )
+
+    cov.stop()
+    cov.save()
+
+    # Analyze the coverage data for this execution
+    _, executable_line_nos, excluded, not_executed, _ = cov.analysis2(file_path)
+
+
+    not_executed_set = set(not_executed)
+    executed_lines = [
+        source_lines[i-1] # Adjust line numbers to 0-based indexing
+        for i in executable_line_nos 
+        if logic_start_line_no <= i <= end_line_no
+        and i not in not_executed_set
+    ]
+
+    existing = existing_item.to_extended_dict(abbreviated_children=True) if existing_item else None
+    current = item.to_extended_dict(abbreviated_children=True) if item else None
+    updated = updated_item.to_extended_dict(abbreviated_children=True) if updated_item else None
+    frame_data = {
+        "current_state": current,
+        "diffs": {
+            "existing_to_current": (
+                DeepDiff(existing, current, ignore_order=True).to_dict()
+                if existing 
+                else {}
+            ),
+            "current_to_updated": (
+                DeepDiff(current, updated, ignore_order=True).to_dict()
+                if updated 
+                else {}
+            )
+        },
+        "executed_lines": executed_lines,
+        "next_service": next_service.__name__ if next_service else None,
+        "items_to_submit": [i.log_string for i in items_to_submit],
+    }
+    # from pprint import pprint
+    # pprint(frame_data, indent=2)
+    frames_dir = data_dir_path / "frames"
+    os.makedirs(frames_dir, exist_ok=True)
+    # Write frame data to a JSONL file within the function
+    collection_filename = frames_dir / f"{item.collection}.jsonl"
+    with open(collection_filename, 'a') as f:
+        json.dump(frame_data, f, default=custom_serializer)
+        f.write('\n')  # Newline to separate frames in the file
+
+    return updated_item, next_service, items_to_submit
