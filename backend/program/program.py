@@ -280,7 +280,7 @@ def process_event_and_collect_coverage(
 
     not_executed_set = set(not_executed)
     executed_lines = [
-        source_lines[i-1] # Adjust line numbers to 0-based indexing
+        (i, source_lines[i-1]) # Adjust line numbers to 0-based indexing
         for i in executable_line_nos 
         if logic_start_line_no <= i <= end_line_no
         and i not in not_executed_set
