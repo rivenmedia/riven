@@ -1,107 +1,176 @@
 """Symlinking module"""
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple
-from pydantic import BaseModel
-from utils.settings import settings_manager as settings
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 from utils.logger import logger
+from program.settings.manager import settings_manager
+from program.media.item import Movie, Episode
 
 
-class SymlinkConfig(BaseModel):
-    host_path: Path
-    container_path: Path
 
-class Setting(NamedTuple):
-    key: str
-    value: str
+class DeleteHandler(FileSystemEventHandler):
+    """Handles the deletion of symlinks."""
 
-class Symlinker():
+    def __init__(self, symlinker):
+        super().__init__()
+        self.symlinker = symlinker
+
+    def on_deleted(self, event):
+        """Called when a file or directory is deleted."""
+        if event.src_path:
+            # TODO: Check if its a file or directory and handle accordingly.
+            # This is getting called for the file + directory as well..
+            # It will first get called on the file, then the parent folder.
+            # This is not what we want.. but atleast it's a start.
+            self.symlinker.on_symlink_deleted(event.src_path)
+
+
+class Symlinker:
     """
     A class that represents a symlinker thread.
 
-    Attributes:
-        media_items (MediaItemContainer): The container of media items.
-        running (bool): Flag indicating if the thread is running.
-        cache (dict): A dictionary to cache file paths.
-        container_path (str): The absolute path of the container mount.
-        host_path (str): The absolute path of the host mount.
-        symlink_path (str): The path where the symlinks will be created.
+    Settings Attributes:
+        rclone_path (str): The absolute path of the rclone mount root directory.
+        library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
-    def __init__(self, _):
+
+    def __init__(self):
         self.key = "symlink"
-        self.settings = SymlinkConfig(**settings.get(self.key))
+        self.settings = settings_manager.settings.symlink
+        self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
             logger.error("Symlink initialization failed due to invalid configuration.")
             return
-        logger.info("Rclone path symlinks are pointed to: %s", self.settings.host_path)
-        logger.info("Symlinks will be placed in: %s", self.library_path)
+        if self.initialized:
+            self.start_monitor()
+        logger.info("Rclone path symlinks are pointed to: %s", self.rclone_path)
+        logger.info("Symlinks will be placed in: %s", self.settings.library_path)
         logger.info("Symlink initialized!")
-        self.initialized = True
 
     def validate(self):
         """Validate paths and create the initial folders."""
-        host_path = Path(self.settings.host_path) if self.settings.host_path else None
-        container_path = Path(self.settings.container_path) if self.settings.container_path else None
-        if not host_path or not container_path or host_path == Path('.') or container_path == Path('.'):
-            logger.error("Host or container path not provided, is empty, or is set to the current directory.")
+        library_path = self.settings.library_path
+        if (
+            not self.rclone_path
+            or not library_path
+            or self.rclone_path == Path(".")
+            or library_path == Path(".")
+        ):
+            logger.error(
+                "rclone_path or library_path not provided, is empty, or is set to the current directory."
+            )
             return False
-        if not host_path.is_absolute():
-            logger.error(f"Host path is not an absolute path: {host_path}")
+        if not self.rclone_path.is_absolute():
+            logger.error("rclone_path is not an absolute path: %s", self.rclone_path)
             return False
-        if not container_path.is_absolute():
-            logger.error(f"Container path is not an absolute path: {container_path}")
+        if not library_path.is_absolute():
+            logger.error("library_path is not an absolute path: %s", library_path)
             return False
         try:
-            if not host_path.is_dir():
-                logger.error(f"Host path is not a directory or does not exist: {host_path}")
-                return False
-            if not container_path.is_dir():
-                logger.error(f"Container path is not a directory or does not exist: {container_path}")
-                return False
-            if Path(self.settings.host_path / "__all__").exists() and Path(self.settings.host_path / "__all__").is_dir():
-                logger.debug("Detected Zurg host path. Using __all__ folder for host path.")
-                self.settings.host_path = self.settings.host_path / "__all__"
-            elif Path(self.settings.host_path / "torrents").exists() and Path(self.settings.host_path / "torrents").is_dir():
-                logger.debug("Detected standard rclone host path. Using torrents folder for host path.")
-                self.settings.host_path = self.settings.host_path / "torrents"
+            if (
+                all_path := self.settings.rclone_path / "__all__"
+            ).exists() and all_path.is_dir():
+                logger.debug(
+                    "Detected Zurg rclone_path. Using __all__ folder for rclone_path."
+                )
+                self.rclone_path = all_path
+            elif (
+                torrent_path := self.settings.rclone_path / "torrents"
+            ).exists() and torrent_path.is_dir():
+                logger.debug(
+                    "Detected standard rclone_path. Using torrents folder for rclone_path."
+                )
+                self.rclone_path = torrent_path
             if not self.create_initial_folders():
-                logger.error("Failed to create initial library folders.")
+                logger.error(
+                    "Failed to create initial library folders in your library_path."
+                )
                 return False
             return True
         except FileNotFoundError as e:
-            logger.error(f"Path not found: {e}")
+            logger.error("Path not found: %s", e)
         except PermissionError as e:
-            logger.error(f"Permission denied when accessing path: {e}")
+            logger.error("Permission denied when accessing path: %s", e)
         except OSError as e:
-            logger.error(f"OS error when validating paths: {e}")
+            logger.error("OS error when validating paths: %s", e)
         return False
+
+    def start_monitor(self):
+        """Starts monitoring the library path for symlink deletions."""
+        self.event_handler = DeleteHandler(self)
+        self.observer = Observer()
+        self.observer.schedule(self.event_handler, self.settings.library_path, recursive=True)
+        self.observer.start()
+        logger.debug("Start monitor for symlink deletions.")
+
+    def stop_monitor(self):
+        """Stops the directory monitoring."""
+        if hasattr(self, 'observer'):
+            self.observer.stop()
+            self.observer.join()
+            logger.debug("Stopped monitoring for symlink deletions.")
+
+    def on_symlink_deleted(self, path):
+        """Handle a symlink deletion event."""
+        logger.debug(f"Detected deletion of symlink: {path}")
+        # TODO: Implement logic to handle deletion..
+        # We should use `update_path` to determine the item,
+        # and work with the item (instead of path) to remove from content services..
+        # Need to bring in media_items from the main program and remove the item from it..
 
     def create_initial_folders(self):
         """Create the initial library folders."""
         try:
-            self.library_path = self.settings.container_path.parent / "library"
-            self.library_path_movies = self.library_path / "movies"
-            self.library_path_shows = self.library_path / "shows"
-            self.library_path_anime_movies = self.library_path / "anime_movies"
-            self.library_path_anime_shows = self.library_path / "anime_shows"
-            folders = [self.library_path_movies, 
-                    self.library_path_shows, 
-                    self.library_path_anime_movies, 
-                    self.library_path_anime_shows]
+            self.library_path_movies = self.settings.library_path / "movies"
+            self.library_path_shows = self.settings.library_path / "shows"
+            self.library_path_anime_movies = self.settings.library_path / "anime_movies"
+            self.library_path_anime_shows = self.settings.library_path / "anime_shows"
+            folders = [
+                self.library_path_movies,
+                self.library_path_shows,
+                self.library_path_anime_movies,
+                self.library_path_anime_shows,
+            ]
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
         except PermissionError as e:
-            logger.error(f"Permission denied when creating directory: {e}")
+            logger.error("Permission denied when creating directory: %s", e)
             return False
         except OSError as e:
-            logger.error(f"OS error when creating directory: {e}")
+            logger.error("OS error when creating directory: %c", e)
             return False
         return True
 
     def run(self, item):
-        self._run(item)
+        """Check if the media item exists and create a symlink if it does"""
+        found = False
+        rclone_path = Path(self.settings.rclone_path)
+        if os.path.exists(rclone_path / item.folder / item.file):
+            found = True
+        elif os.path.exists(rclone_path / item.alternative_folder / item.file):
+            item.set("folder", item.alternative_folder)
+            found = True
+        elif os.path.exists(rclone_path / item.file / item.file):
+            item.set("folder", item.file)
+            found = True
+        if found:
+            self._symlink(item)
+        else:
+            logger.error(
+                "Could not find %s in subdirectories of %s to create symlink,"
+                " maybe it failed to download?", item.log_string, rclone_path
+            )
+        item.symlinked_at = datetime.now()
+        item.symlinked_times += 1
+        yield item
+
+    @staticmethod
+    def should_submit(item):
+        return item.symlinked_times < 3
 
     def _determine_file_name(self, item):
         """Determine the filename of the symlink."""
@@ -124,34 +193,20 @@ class Symlinker():
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
         return filename
 
-    def _run(self, item):
-        """Check if the media item exists and create a symlink if it does"""
-        found = False
-        if os.path.exists(os.path.join(self.settings.host_path, item.folder, item.file)):
-            found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.alternative_folder, item.file)):
-            item.set("folder", item.alternative_folder)
-            found = True
-        elif os.path.exists(os.path.join(self.settings.host_path, item.file, item.file)):
-            item.set("folder", item.file)
-            found = True
-        if found:
-            self._symlink(item)
-
     def _symlink(self, item):
         """Create a symlink for the given media item"""
+        # Symlinks get created on host as: destination -> source
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
-
         destination = self._create_item_folders(item, symlink_filename)
-
+        source = os.path.join(self.rclone_path, item.folder, item.file)
         if destination:
             try:
                 os.remove(destination)
             except FileNotFoundError:
                 pass
             os.symlink(
-                os.path.join(self.settings.container_path, item.folder, item.file),
+                source,
                 destination,
             )
             logger.debug("Created symlink for %s", item.log_string)
@@ -159,35 +214,41 @@ class Symlinker():
         else:
             logger.debug(
                 "Could not create symlink for item_id (%s) to (%s)",
-                item.id,
+                item.item_id,
                 destination,
             )
 
     def _create_item_folders(self, item, filename) -> str:
-        if item.type == "movie":
+        if isinstance(item, Movie):
             movie_folder = (
-                f"{item.title.replace('/', '-')} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+                f"{item.title.replace('/', '-')} ({item.aired_at.year}) "
+                + "{imdb-"
+                + item.imdb_id
+                + "}"
             )
             destination_folder = os.path.join(self.library_path_movies, movie_folder)
             if not os.path.exists(destination_folder):
                 os.mkdir(destination_folder)
-            destination_path = os.path.join(destination_folder, filename.replace('/', '-'))
+            destination_path = os.path.join(
+                destination_folder, filename.replace("/", "-")
+            )
             item.set(
                 "update_folder", os.path.join(self.library_path_movies, movie_folder)
             )
-        if item.type == "episode":
+        elif isinstance(item, Episode):
             show = item.parent.parent
             folder_name_show = (
-                f"{show.title.replace('/', '-')} ({show.aired_at.year})" + " {" + show.imdb_id + "}"
+                f"{show.title.replace('/', '-')} ({show.aired_at.year})"
+                + " {"
+                + show.imdb_id
+                + "}"
             )
             show_path = os.path.join(self.library_path_shows, folder_name_show)
-            if not os.path.exists(show_path):
-                os.mkdir(show_path)
+            os.makedirs(show_path, exist_ok=True)
             season = item.parent
             folder_season_name = f"Season {str(season.number).zfill(2)}"
             season_path = os.path.join(show_path, folder_season_name)
-            if not os.path.exists(season_path):
-                os.mkdir(season_path)
-            destination_path = os.path.join(season_path, filename.replace('/', '-'))
+            os.makedirs(season_path, exist_ok=True)
+            destination_path = os.path.join(season_path, filename.replace("/", "-"))
             item.set("update_folder", os.path.join(season_path))
         return destination_path

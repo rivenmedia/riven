@@ -1,6 +1,66 @@
 import { type SuperValidated } from 'sveltekit-superforms';
 import { z } from 'zod';
 
+/**
+ * Sets the settings in memory in the backend.
+ *
+ * @param fetch - The fetch function used to make the request.
+ * @param toSet - The settings to be set.
+ * @param toCheck - The services to check.
+ * @returns An object containing the settings data and a boolean indicating if all the given services are true or not.
+ */
+export async function setSettings(fetch: any, toSet: any, toCheck: string[]) {
+	const settings = await fetch('http://127.0.0.1:8080/settings/set', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(toSet)
+	});
+	const settingsData = await settings.json();
+
+	const services = await fetch('http://127.0.0.1:8080/services');
+	const data = await services.json();
+	const allServicesTrue: boolean = toCheck.every((service) => data.data[service] === true);
+
+	return {
+		data: settingsData,
+		allServicesTrue: allServicesTrue
+	};
+}
+
+/**
+ * Saves the settings from memory to the json file in the backend.
+ * @param fetch - The fetch function used to make the request.
+ * @returns A promise that resolves to an object containing the response data.
+ */
+export async function saveSettings(fetch: any) {
+	const data = await fetch('http://127.0.0.1:8080/settings/save', {
+		method: 'POST'
+	});
+	const response = await data.json();
+
+	return {
+		data: response
+	};
+}
+
+/**
+ * Loads settings from the json to memory in backend.
+ * @param fetch - The fetch function used to make the HTTP request.
+ * @returns A promise that resolves to an object containing the loaded settings.
+ */
+export async function loadSettings(fetch: any) {
+	const data = await fetch('http://127.0.0.1:8080/settings/load', {
+		method: 'GET'
+	});
+	const response = await data.json();
+
+	return {
+		data: response
+	};
+}
+
 // General Settings -----------------------------------------------------------------------------------
 export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
 export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
@@ -8,8 +68,8 @@ export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
 	log: z.boolean().default(true),
-	host_path: z.string().min(1),
-	container_path: z.string().min(1),
+	rclone_path: z.string().min(1),
+	library_path: z.string().min(1),
 	realdebrid_api_key: z.string().min(1)
 });
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
@@ -18,8 +78,8 @@ export function generalSettingsToPass(data: any) {
 	return {
 		debug: data.data.debug,
 		log: data.data.log,
-		host_path: data.data.symlink.host_path,
-		container_path: data.data.symlink.container_path,
+		rclone_path: data.data.symlink.rclone_path,
+		library_path: data.data.symlink.library_path,
 		realdebrid_api_key: data.data.real_debrid.api_key
 	};
 }
@@ -37,8 +97,8 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 		{
 			key: 'symlink',
 			value: {
-				host_path: form.data.host_path,
-				container_path: form.data.container_path
+				rclone_path: form.data.rclone_path,
+				library_path: form.data.library_path
 			}
 		},
 		{
@@ -56,14 +116,14 @@ export const contentSettingsServices: string[] = ['content'];
 
 export const contentSettingsSchema = z.object({
 	overseerr_enabled: z.boolean().default(false),
-	overseerr_url: z.string().url().optional().default(''),
+	overseerr_url: z.string().optional().default(''),
 	overseerr_api_key: z.string().optional().default(''),
 	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().nonnegative().int().optional().default(80),
 	mdblist_lists: z.string().array().optional().default(['']),
 	plex_watchlist_enabled: z.boolean().default(false),
-	plex_watchlist_rss: z.union([z.string().url(), z.string().optional()]).optional().default(''),
+	plex_watchlist_rss: z.string().optional().default(''),
 	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80),
 	listrr_enabled: z.boolean().default(false),
 	listrr_api_key: z.string().optional().default(''),
@@ -131,13 +191,15 @@ export const mediaServerSettingsToGet: string[] = ['plex'];
 export const mediaServerSettingsServices: string[] = ['plex'];
 
 export const mediaServerSettingsSchema = z.object({
+	update_interval: z.string().optional().default(''),
 	plex_token: z.string().optional().default(''),
-	plex_url: z.string().url().optional().default('')
+	plex_url: z.string().optional().default('')
 });
 export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 
 export function mediaServerSettingsToPass(data: any) {
 	return {
+		update_interval: data.data.plex.update_interval,
 		plex_token: data.data.plex.token,
 		plex_url: data.data.plex.url
 	};
@@ -148,6 +210,7 @@ export function mediaServerSettingsToSet(form: SuperValidated<MediaServerSetting
 		{
 			key: 'plex',
 			value: {
+				update_interval: form.data.update_interval,
 				token: form.data.plex_token,
 				url: form.data.plex_url
 			}
@@ -172,7 +235,7 @@ export const scrapersSettingsSchema = z.object({
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	orionoid_api_key: z.string().optional().default(''),
-	jackett_url: z.string().url().optional().default('http://localhost:9117'),
+	jackett_url: z.string().optional().default('http://localhost:9117'),
 	jackett_api_key: z.string().optional().default('')
 });
 export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;

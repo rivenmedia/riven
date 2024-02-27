@@ -32,13 +32,13 @@ class ResponseObject:
 
     def handle_response(self, response: requests.Response):
         """Handle different types of responses"""
-        if not self.is_ok and self.status_code not in [429, 520, 522]:
-            logger.warning("Error: %s %s", response.status_code, response.content)
+        if not self.is_ok and self.status_code not in [404, 429, 509, 520, 522]:
+            logger.error("Error: %s %s", response.status_code, response.content)
         if self.status_code in [520, 522]:
             # Cloudflare error from Torrentio
             raise requests.exceptions.ConnectTimeout(response.content)
         if self.status_code not in [200, 201, 204]:
-            if self.status_code in [429]:
+            if self.status_code in [404, 429, 502, 509]:
                 raise requests.exceptions.RequestException(response.content)
             return {}
         if len(response.content) > 0:
@@ -58,6 +58,16 @@ class ResponseObject:
                         object_hook=lambda item: SimpleNamespace(**item),
                     )
         return {}
+
+    def raise_for_status(self):
+        """Raises HTTPError, if one occurred."""
+        http_error_msg = ""
+        if 400 <= self.status_code < 500:
+            http_error_msg = f"{self.status_code} Client Error"
+        elif 500 <= self.status_code < 600:
+            http_error_msg = f"{self.status_code} Server Error"
+        if http_error_msg:
+            raise requests.HTTPError(http_error_msg, response=self.response)
 
 
 def _handle_request_exception() -> SimpleNamespace:
@@ -149,6 +159,22 @@ def put(
         retry_if_failed=retry_if_failed,
     )
 
+def delete(
+    url: str,
+    timeout=10,
+    data=None,
+    additional_headers=None,
+    retry_if_failed=False,
+) -> ResponseObject:
+    """Requests delete wrapper"""
+    return _make_request(
+        "DELETE",
+        url,
+        data=data,
+        timeout=timeout,
+        additional_headers=additional_headers,
+        retry_if_failed=retry_if_failed,
+    )
 
 def _xml_to_simplenamespace(xml_string):
     root = etree.fromstring(xml_string)
@@ -166,10 +192,6 @@ def _xml_to_simplenamespace(xml_string):
 
 class RateLimitExceeded(Exception):
     pass
-
-
-import time
-from threading import Lock
 
 
 class RateLimiter:
