@@ -84,7 +84,7 @@ class MediaItem:
         else:
             return States.Unknown
 
-    def _copy_other_media_attr(self, other):
+    def copy_other_media_attr(self, other):
         self.title = getattr(other, "title", None)
         self.tvdb_id = getattr(other, "tvdb_id", None)
         self.tmdb_id = getattr(other, "tmdb_id", None)
@@ -109,47 +109,59 @@ class MediaItem:
     def to_dict(self):
         """Convert item to dictionary (API response)"""
         return {
-            "item_id": self.item_id,
+            "item_id": str(self.item_id),
             "title": self.title,
-            "type": self.type,
+            "type": self.__class__.__name__,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.state.__name__,
+            "state": self.state.value,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
-            "requested_at": self.requested_at,
-            "requested_by": self.requested_by.__name__,
+            "requested_at": str(self.requested_at),
+            "requested_by": self.requested_by.__name__ if self.requested_by else None,
             "scraped_at": self.scraped_at,
             "scraped_times": self.scraped_times,
         }
 
-    def to_extended_dict(self):
+    def to_extended_dict(self, abbreviated_children=False):
         """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
-        if self.type == "show":
-            dict["seasons"] = [season.to_extended_dict() for season in self.seasons]
-        if self.type == "season":
-            dict["episodes"] = [episode.to_extended_dict() for episode in self.episodes]
-        dict["language"] = (self.language if hasattr(self, "language") else None,)
-        dict["country"] = (self.country if hasattr(self, "country") else None,)
-        dict["network"] = (self.network if hasattr(self, "network") else None,)
+        match self:
+            case Show():
+                dict["seasons"] = (
+                    [season.to_extended_dict() for season in self.seasons]
+                    if not abbreviated_children
+                    else self.represent_children
+                )
+            case Season():
+                dict["episodes"] = (
+                    [episode.to_extended_dict() for episode in self.episodes]
+                    if not abbreviated_children
+                    else self.represent_children
+                )
+        dict["language"] = (self.language if hasattr(self, "language") else None)
+        dict["country"] = (self.country if hasattr(self, "country") else None)
+        dict["network"] = (self.network if hasattr(self, "network") else None)
         dict["active_stream"] = (
-            self.active_stream if hasattr(self, "active_stream") else None,
+            self.active_stream if hasattr(self, "active_stream") else None
         )
-        dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None,)
-        dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None,)
+        dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None)
+        dict["symlinked_at"] = (self.symlinked_at if hasattr(self, "symlinked_at") else None)
+        dict["symlinked_times"] = (self.symlinked_times if hasattr(self, "symlinked_times") else None)
+
+        dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None)
         dict["parsed_data"] = (
-            self.parsed_data if hasattr(self, "parsed_data") else None,
+            self.parsed_data if hasattr(self, "parsed_data") else None
         )
-        dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None,)
+        dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None)
         dict["update_folder"] = (
-            self.update_folder if hasattr(self, "update_folder") else None,
+            self.update_folder if hasattr(self, "update_folder") else None
         )
-        dict["file"] = (self.file if hasattr(self, "file") else None,)
-        dict["folder"] = (self.folder if hasattr(self, "folder") else None,)
+        dict["file"] = (self.file if hasattr(self, "file") else None)
+        dict["folder"] = (self.folder if hasattr(self, "folder") else None)
         return dict
 
     def __iter__(self):
@@ -172,6 +184,11 @@ class MediaItem:
     @property
     def log_string(self):
         return self.title or self.imdb_id
+
+    @property
+    def collection(self):
+        return self.parent.collection if self.parent else self.item_id
+
 
 class Movie(MediaItem):
     """Movie class"""
@@ -226,15 +243,14 @@ class Show(MediaItem):
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
-    def fill_in_missing_info(self, other: Self):
-        self._copy_other_media_attr(other)
+    def fill_in_missing_children(self, other: Self):
         existing_seasons = [s.number for s in self.seasons]
         for s in other.seasons:
             if s.number not in existing_seasons:
                 self.add_season(s)
             else:
                 existing_season = next(es for es in self.seasons if s.number == es.number) 
-                existing_season.fill_in_missing_info(s)
+                existing_season.fill_in_missing_children(s)
         
     def add_season(self, season):
         """Add season to show"""
@@ -243,6 +259,11 @@ class Show(MediaItem):
         season.item_id.parent_id = self.item_id
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
     
+    def represent_children(self):
+        return [
+            s.represent_children()
+            for s in self.seasons
+        ]
 
 class Season(MediaItem):
     """Season class"""
@@ -286,11 +307,14 @@ class Season(MediaItem):
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
 
-    def fill_in_missing_info(self, other: Self):
+    def fill_in_missing_children(self, other: Self):
         existing_episodes = [s.number for s in self.episodes]
         for e in other.episodes:
             if e.number not in existing_episodes:
                 self.add_episode(e)
+
+    def represent_children(self):
+        return [e.log_string for e in self.episodes]
 
     def add_episode(self, episode):
         """Add episode to season"""

@@ -1,11 +1,9 @@
 """ Jackett scraper module """
-from datetime import datetime
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from program.settings.manager import settings_manager
 from utils.parser import parser
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from program.media.item import MediaItem, Show, Season, Episode, Movie
 
 
 class Jackett:
@@ -60,24 +58,24 @@ class Jackett:
         logger.info("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item: MediaItem) -> MediaItem | None:
+    def run(self, item):
         """Scrape Jackett for the given media items"""
-        item.scraped_at = datetime.now()
-        item.scraped_times += 1
-        if item is None or isinstance(item, Show):
-            yield item
+        if item is None or not self.initialized:
+            return
         try:
-            item = self._scrape_item(item)
+            self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
+            return
         except RequestException as e:
             logger.debug("Jackett request exception: %s", e)
+            return
         except Exception as e:
             logger.error("Jackett failed to scrape item: %s", e)
-        yield item
+            return
 
-    def _scrape_item(self, item: MediaItem) -> MediaItem:
+    def _scrape_item(self, item):
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
@@ -97,18 +95,17 @@ class Jackett:
                 )
             else:
                 logger.debug("No streams found for %s", item.log_string)
-        return item
 
     def api_scrape(self, item):
         """Wrapper for `Jackett` scrape method"""
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
             query = ""
-            if isinstance(item, Movie):
+            if item.type == "movie":
                 query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
-            if isinstance(item, Season):
+            if item.type == "season":
                 query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
-            if isinstance(item, Episode):
+            if item.type == "episode":
                 query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
             url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
             with self.second_limiter:

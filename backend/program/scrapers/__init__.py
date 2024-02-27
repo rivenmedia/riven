@@ -43,15 +43,17 @@ class Scraping:
     def _is_released(self, item: MediaItem) -> bool:
         return item.aired_at is not None and item.aired_at < datetime.now()
 
-    def should_submit(self, item: MediaItem) -> bool:
+    @staticmethod
+    def should_submit(item: MediaItem) -> bool:
+        settings = settings_manager.settings.scraping
         scrape_time = 5  # 5 seconds by default
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
-            scrape_time = self.settings.after_2 * 60 * 60
+            scrape_time = settings.after_2 * 60 * 60
         elif item.scraped_times > 5 and item.scraped_times <= 10:
-            scrape_time = self.settings.after_5 * 60 * 60
+            scrape_time = settings.after_5 * 60 * 60
         elif item.scraped_times > 10:
-            scrape_time = self.settings.after_10 * 60 * 60
+            scrape_time = settings.after_10 * 60 * 60
             
         return (
             not item.scraped_at

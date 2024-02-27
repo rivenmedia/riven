@@ -127,15 +127,26 @@ class MediaItemContainer:
     def save(self, filename) -> None:
         """Save container to file"""
         with open(filename, "wb") as file:
-            dill.dump(self._items, file)
+            dill.dump(self, file)
 
     def load(self, filename) -> None:
         """Load container from file"""
+        logger.info("Loading cached media data from %s", filename)
         try:
             with open(filename, "rb") as file:
-                self._items = dill.load(file)
+                from_disk = dill.load(file)
+                self._items = from_disk._items
+                self._movies = from_disk._movies
+                self._shows = from_disk._shows
+                self._seasons = from_disk._seasons
+                self._episodes = from_disk._episodes
         except FileNotFoundError:
-            self._items = {}
+            logger.error("Cannot find cached media data at %s", filename)
         except (EOFError, UnpicklingError):
+            logger.error("Failed to unpickle media data at %s, wiping cached data", filename)
             os.remove(filename)
             self._items = {}
+            self._movies = {}
+            self._shows = {}
+            self._seasons = {}
+            self._episodes = {}

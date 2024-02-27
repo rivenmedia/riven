@@ -16,7 +16,14 @@ from controllers.default import router as default_router
 from utils.logger import logger
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dev", action="store_true", help="Enable development mode")
+parser.add_argument(
+    "--ignore_cache", action="store_true", 
+    help="Ignore the cached metadata, create new data from scratch."
+)
+parser.add_argument(
+    "--profile_state_transitions", action="store_true", 
+    help="Use a profiling process to determine what paths the state machine took"
+)
 args = parser.parse_args()
 
 
