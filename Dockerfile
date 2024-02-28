@@ -30,6 +30,7 @@ COPY --from=frontend --chown=node:node /app/node_modules /iceberg/frontend/node_
 COPY --from=frontend --chown=node:node /app/package.json /iceberg/frontend/package.json
 
 # Backend
+COPY VERSION /iceberg/VERSION
 COPY backend/ /iceberg/backend
 RUN python3 -m venv /venv
 COPY requirements.txt /iceberg/requirements.txt

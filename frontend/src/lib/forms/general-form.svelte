@@ -56,16 +56,16 @@
 
 		<FormTextField
 			{config}
-			fieldName="host_path"
-			labelName="Host Path"
-			errors={$errors.host_path}
+			fieldName="rclone_path"
+			labelName="Rclone Path"
+			errors={$errors.rclone_path}
 		/>
 
 		<FormTextField
 			{config}
-			fieldName="container_path"
-			labelName="Container Path"
-			errors={$errors.container_path}
+			fieldName="library_path"
+			labelName="Library Path"
+			errors={$errors.library_path}
 		/>
 
 		<FormTextField

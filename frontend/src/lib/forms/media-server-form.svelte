@@ -140,6 +140,7 @@
 				<Form.Validation class="text-sm text-red-500" />
 			{/if}
 		</Form.Field>
+		<FormTextField {config} fieldName="update_interval" labelName="Library Refresh Interval" errors={$errors.plex_url} />
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">

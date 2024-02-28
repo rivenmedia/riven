@@ -3,13 +3,8 @@ import datetime
 import logging
 import os
 import re
-import sys
-from .settings import settings_manager as settings
 
-
-def get_data_path():
-    main_dir = os.path.dirname(os.path.abspath(sys.modules["__main__"].__file__))
-    return os.path.join(os.path.dirname(main_dir), "data")
+from utils import data_dir_path
 
 
 class RedactSensitiveInfo(logging.Filter):
@@ -62,40 +57,49 @@ class Logger(logging.Logger):
     """Logging class"""
 
     def __init__(self):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        file_name = f"iceberg-{timestamp}.log"
-        data_path = get_data_path()
-
-        super().__init__(file_name)
-        formatter = logging.Formatter(
+        self.timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        self.filename = f"iceberg-{self.timestamp}.log"
+        super().__init__(self.filename)
+        self.formatter = logging.Formatter(
             "[%(asctime)s | %(levelname)s] <%(module)s.%(funcName)s> - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-
-        if not os.path.exists(data_path):
-            os.mkdir(data_path)
-
-        if not os.path.exists(os.path.join(data_path, "logs")):
-            os.mkdir(os.path.join(data_path, "logs"))
+        self.logs_dir_path = data_dir_path / "logs"
+        os.makedirs(self.logs_dir_path, exist_ok=True)
 
         self.addFilter(RedactSensitiveInfo())
 
-        log_level = logging.INFO
-        if settings.get("debug"):
-            log_level = logging.DEBUG
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(self.formatter)
+        self.addHandler(console_handler)
+        self.console_handler = console_handler
+        self.file_handler = None
 
-        if settings.get("log"):
+    def configure_logger(self, debug=False, log=False):
+        log_level = logging.DEBUG if debug else logging.INFO
+        self.setLevel(log_level)
+
+        # Update console handler level
+        for handler in self.handlers:
+            handler.setLevel(log_level)
+
+        # Configure file handler
+        if log and not self.file_handler:
+            # Only add a new file handler if it hasn't been added before
             file_handler = logging.FileHandler(
-                os.path.join(get_data_path(), "logs", file_name), encoding="utf-8"
+                self.logs_dir_path / self.filename, encoding="utf-8"
             )
             file_handler.setLevel(log_level)
-            file_handler.setFormatter(formatter)
+            file_handler.setFormatter(self.formatter)
             self.addHandler(file_handler)
-
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(log_level)
-        console_handler.setFormatter(formatter)
-        self.addHandler(console_handler)
+            self.file_handler = (
+                file_handler  # Keep a reference to avoid adding it again
+            )
+        elif not log and self.file_handler:
+            # If logging to file is disabled but the handler exists, remove it
+            self.removeHandler(self.file_handler)
+            self.file_handler = None
 
 
 logger = Logger()

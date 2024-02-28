@@ -1,8 +1,11 @@
 import type { PageServerLoad, Actions } from './$types';
 import { fail, error, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { saveSettings, formatWords } from '$lib/helpers';
+import { formatWords } from '$lib/helpers';
 import {
+	setSettings,
+	saveSettings,
+	loadSettings,
 	mediaServerSettingsSchema,
 	mediaServerSettingsToGet,
 	mediaServerSettingsServices,
@@ -41,27 +44,24 @@ export const actions: Actions = {
 		const toSet = mediaServerSettingsToSet(form);
 
 		try {
-			const data = await saveSettings(event.fetch, toSet);
+			const data = await setSettings(event.fetch, toSet, mediaServerSettingsServices);
+			if (!data.allServicesTrue) {
+				return message(
+					form,
+					`${mediaServerSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
+					{
+						status: 400
+					}
+				);
+			}
+
+			const save = await saveSettings(event.fetch);
+			const load = await loadSettings(event.fetch);
 		} catch (e) {
 			console.error(e);
 			return message(form, 'Unable to save settings. API is down.', {
 				status: 400
 			});
-		}
-
-		const data = await event.fetch('http://127.0.0.1:8080/services');
-		const services = await data.json();
-		const allServicesTrue: boolean = mediaServerSettingsServices.every(
-			(service) => services.data[service] === true
-		);
-		if (!allServicesTrue) {
-			return message(
-				form,
-				`${mediaServerSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
-				{
-					status: 400
-				}
-			);
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {
