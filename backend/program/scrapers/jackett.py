@@ -70,7 +70,7 @@ class Jackett:
         if item is None or not self.initialized:
             return
         try:
-            self._scrape_item(item)
+            yield self._scrape_item(item)
         except RateLimitExceeded as e:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
@@ -91,6 +91,7 @@ class Jackett:
             logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("Could not find streams for %s", item.log_string)
+        return item
 
     def api_scrape(self, item):
         """Wrapper for `Jackett` scrape method"""
