@@ -1,6 +1,6 @@
 import os
 import re
-from pathlib import Path
+from typing import Generator
 
 from utils.logger import logger
 from program.settings.manager import settings_manager
@@ -10,7 +10,6 @@ from program.media.item import (
     Show,
     Season,
     Episode,
-    ItemId
 )
 
 class SymlinkLibrary:
@@ -18,9 +17,21 @@ class SymlinkLibrary:
         self.key = "symlinklibrary"
         self.last_fetch_times = {}
         self.settings = settings_manager.settings.symlink
-        self.initialized = True
+        self.initialized = self.validate()
+        if not self.initialized:
+            logger.error("Symlink library is not initialized!")
+            return
 
-    def run(self) -> MediaItem:
+    def validate(self):
+        if not self.settings.library_path:
+            logger.error("Symlink library path is not set!")
+            return False
+        if not os.path.exists(self.settings.library_path):
+            logger.error("Symlink library path does not exist!")
+            return False
+        return True
+
+    def run(self) -> Generator[MediaItem, None, None]:
         """Create a library from the symlink paths.  Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in."""
         movies = [

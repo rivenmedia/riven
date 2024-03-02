@@ -89,7 +89,7 @@ class Orionoid:
         if item is None or isinstance(item, Show):
             yield item
         try:
-            item = self._scrape_item(item)
+            yield self._scrape_item(item)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Orionoid connection timeout for item: %s", item.log_string)
@@ -104,7 +104,6 @@ class Orionoid:
             logger.exception(
                 "Orionoid exception for item: %s - Exception: %s", item.log_string, e
             )
-        yield item
 
     def _scrape_item(self, item):
         data, stream_count = self.api_scrape(item)
@@ -148,7 +147,8 @@ class Orionoid:
         if self.is_unlimited:
             # This can use 2x towards your Orionoid limits. Only use if user is unlimited.
             params["debridlookup"] = "realdebrid"
-            params["limitcount"] = 100
+            # There are 200 results per page. We probably don't need to go over 200.
+            params["limitcount"] = 200
 
         if media_type == "show":
             params["numberseason"] = season

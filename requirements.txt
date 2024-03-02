@@ -11,3 +11,7 @@ parse-torrent-title
 thefuzz
 apscheduler
 watchdog
+coverage
+deepdiff
+pyright
+ruff

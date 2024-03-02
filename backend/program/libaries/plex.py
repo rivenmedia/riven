@@ -1,10 +1,8 @@
 """Plex library module"""
-
+import os
 import concurrent.futures
 from threading import Lock
-import os
 from datetime import datetime
-from typing import Optional
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest, Unauthorized
 from utils.logger import logger
@@ -14,7 +12,6 @@ from program.media.item import (
     Show,
     Season,
     Episode,
-    ItemId
 )
 
 class PlexLibrary():

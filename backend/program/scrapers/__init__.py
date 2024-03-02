@@ -19,9 +19,9 @@ class Scraping:
         }
         self.initialized = self.validate()
 
-    def run(self, item: MediaItem) -> MediaItem | None:
+    def run(self, item: MediaItem):
         if not self._can_we_scrape(item):
-            return None
+            yield None
         for service in self.services.values():
             if service.initialized:
                 item = next(service.run(item))

@@ -247,7 +247,7 @@ def process_event_and_collect_coverage(
     existing_item: MediaItem | None, 
     emitted_by: Service, 
     item: MediaItem
-) -> ProcessedEvent:
+) -> ProcessedEvent: # type: ignore
     file_path = inspect.getfile(process_event)
 
     # Load the source code and extract executed lines
@@ -257,8 +257,8 @@ def process_event_and_collect_coverage(
     lines, start_line_no = inspect.getsourcelines(process_event)
     logic_start_line_no = next(
         i + start_line_no + 1 
-        for i, l in enumerate(source_lines[start_line_no:]) 
-        if l.strip().startswith("if ")
+        for i, line in enumerate(source_lines[start_line_no:]) 
+        if line.strip().startswith("if ")
     ) 
     end_line_no = logic_start_line_no + len(lines) - 1
 
