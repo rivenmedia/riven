@@ -1,107 +1,152 @@
 import os
-import threading
+from copy import deepcopy, copy
 import dill
-from typing import List, Optional
-from utils.logger import logger
-from program.media.item import MediaItem
+from pickle import UnpicklingError
+from typing import Generator
 
+from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
+from program.media.state import States
+from utils.logger import logger
 
 class MediaItemContainer:
     """MediaItemContainer class"""
 
-    def __init__(self, items: Optional[List[MediaItem]] = None):
-        self.items = items if items is not None else []
-        self.lock = threading.Lock()
+    def __init__(self):
+        self._items = {}
+        self._shows = {}
+        self._seasons = {}
+        self._episodes = {}
+        self._movies = {}
 
-    def __iter__(self):
-        for item in self.items:
+    def __iter__(self) -> Generator[MediaItem, None, None]:
+        for item in self._items.values():
             yield item
+            
+    def __contains__(self, item) -> bool:
+        return item in self._items
 
-    def __iadd__(self, other):
-        if not isinstance(other, MediaItem) and other is not None:
-            raise TypeError("Cannot append non-MediaItem to MediaItemContainer")
-        if other not in self.items:
-            self.items.append(other)
-        return self
-
-    def sort(self, by, reverse):
-        """Sort container by given attribute"""
-        try:
-            self.items.sort(key=lambda item: item.get(by), reverse=reverse)
-        except AttributeError:
-            pass # Fixes: 'NoneType' object has no attribute 'get' - caused by Trakt not able to create an item
-
-    def __len__(self):
+    def __len__(self) -> int:
         """Get length of container"""
-        return len(self.items)
+        return len(self._items)
 
-    def append(self, item) -> bool:
-        """Append item to container"""
-        with self.lock:
-            self.items.append(item)
-            self.sort("requested_at", True)
+    def __getitem__(self, item_id: ItemId) -> MediaItem:
+        return deepcopy(self._items[item_id])
 
-    def get(self, item) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item == item:
-                return my_item
-        return None
+    def get(self, key, default=None) -> MediaItem:
+        return deepcopy(self._items.get(key, default))
 
-    def get_item_by_id(self, itemid) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item.itemid == int(itemid):
-                return my_item
-        return None
+    @property
+    def seasons(self) -> dict[ItemId, Season]:
+        return deepcopy(self._seasons)
+        
+    @property
+    def episodes(self) -> dict[ItemId, Episode]:
+        return deepcopy(self._episodes)
+    
+    @property
+    def shows(self) -> dict[ItemId, Show]:
+        return deepcopy(self._shows)
+    
+    @property
+    def movies(self) -> dict[ItemId, Movie]:
+        return deepcopy(self._movies)
 
-    def get_item_by_imdb_id(self, imdb_id) -> MediaItem:
-        """Get item matching given item from container"""
-        for my_item in self.items:
-            if my_item.imdb_id == imdb_id:
-                return my_item
-        return None
+    def upsert(self, item: MediaItem) -> None:
+        """Iterate through the input item and upsert all parents and children."""
+        # Use deepcopy so that further modifications made to the input item
+        # will not affect the container state
+        item = deepcopy(item)
+        self._items[item.item_id] = item
+        detatched = item.item_id.parent_id is None or item.parent is None
+        if isinstance(item, (Season, Episode)) and detatched:
+            logger.error(
+                "%s item %s is detatched and not associated with a parent, and thus" +
+                " it cannot be upserted into the database", 
+                item.__class__.name, item.log_string
+            )
+            raise ValueError("Item detached from parent")
+        if isinstance(item, Show):
+            self._shows[item.item_id] = item
+            for season in item.seasons:
+                season.parent = item
+                self._items[season.item_id] = season
+                self._seasons[season.item_id] = season
+                for episode in season.episodes:
+                    episode.parent = season
+                    self._items[episode.item_id] = episode
+                    self._episodes[episode.item_id] = episode
+        if isinstance(item, Season):
+            self._seasons[item.item_id] = item
+            # update children
+            for episode in item.episodes:
+                episode.parent = item
+                self._items[episode.item_id] = episode
+                self._episodes[episode.item_id] = episode
+            # Ensure the parent Show is updated in the container
+            container_show: Show = self._items[item.item_id.parent_id]
+            parent_index = container_show.get_season_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_show.seasons[parent_index] = item
+        elif isinstance(item, Episode):
+            self._episodes[item.item_id] = item
+            # Ensure the parent Season is updated in the container            
+            container_season: Season = self._items[item.item_id.parent_id]
+            parent_index = container_season.get_episode_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_season.episodes[parent_index] = item
+        elif isinstance(item, Movie):
+            self._movies[item.item_id] = item
 
-    def get_item(self, attr, value) -> "MediaItemContainer":
-        """Get items that match given items"""
-        return next((item for item in self.items if getattr(item, attr) == value), None)
-
-    def extend(self, items) -> "MediaItemContainer":
-        """Extend container with items"""
-        with self.lock:
-            added_items = MediaItemContainer()
-            for media_item in items:
-                if media_item not in self.items:
-                    self.items.append(media_item)
-                    added_items.append(media_item)
-            self.sort("requested_at", True)
-            return added_items
-
-    def remove(self, item):
+    def remove(self, item) -> None:
         """Remove item from container"""
-        if item in self.items:
-            self.items.remove(item)
+        if item.item_id in self._items:
+            del self._items[item.item_id]
 
     def count(self, state) -> int:
         """Count items with given state in container"""
         return len(self.get_items_with_state(state))
 
-    def get_items_with_state(self, state):
-        """Get items that need to be updated"""
-        return MediaItemContainer([item for item in self.items if item.state == state])
+    def get_items_with_state(self, state) -> dict[ItemId, MediaItem]:
+        """Get items with the specified state"""
+        return {
+            item_id: self[item_id]
+            for item_id, item in self._items.items()
+            if item.state == state
+        }
+    
+    def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
+        """Get items with the specified state."""
+        return {
+            # direct self access deep copies the item before passing it
+            item_id: self[item_id]
+            # We need to copy first in case there are additions or deletions while we are iterating
+            for item_id, item in copy(self._items).items()
+            if item.state not in (States.Completed, States.PartiallyCompleted)
+        }
 
-    def save(self, filename):
+    def save(self, filename) -> None:
         """Save container to file"""
         with open(filename, "wb") as file:
-            dill.dump(self.items, file)
+            dill.dump(self, file)
 
-    def load(self, filename):
+    def load(self, filename) -> None:
         """Load container from file"""
+        logger.info("Loading cached media data from %s", filename)
         try:
             with open(filename, "rb") as file:
-                self.items = dill.load(file)
+                from_disk = dill.load(file)
+                self._items = from_disk._items
+                self._movies = from_disk._movies
+                self._shows = from_disk._shows
+                self._seasons = from_disk._seasons
+                self._episodes = from_disk._episodes
         except FileNotFoundError:
-            self.items = []
-        except EOFError:
+            logger.error("Cannot find cached media data at %s", filename)
+        except (EOFError, UnpicklingError):
+            logger.error("Failed to unpickle media data at %s, wiping cached data", filename)
             os.remove(filename)
-            self.items = []
+            self._items = {}
+            self._movies = {}
+            self._shows = {}
+            self._seasons = {}
+            self._episodes = {}

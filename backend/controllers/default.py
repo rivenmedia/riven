@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 import requests
-from utils.settings import settings_manager
+from program.settings.manager import settings_manager
 
 
 router = APIRouter(
@@ -13,6 +13,7 @@ async def root():
     return {
         "success": True,
         "message": "Iceburg is running!",
+        "version": settings_manager.settings.version,
     }
 
 
@@ -26,7 +27,7 @@ async def health(request: Request):
 
 @router.get("/user")
 async def get_rd_user():
-    api_key = settings_manager.get("real_debrid.api_key")
+    api_key = settings_manager.settings.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         "https://api.real-debrid.com/rest/1.0/user", headers=headers
@@ -37,19 +38,11 @@ async def get_rd_user():
 @router.get("/services")
 async def get_services(request: Request):
     data = {}
-    if hasattr(request.app.program, "core_manager"):
-        for service in request.app.program.core_manager.services:
+    if hasattr(request.app.program, "services"):
+        for service in request.app.program.services.values():
             data[service.key] = service.initialized
-            if getattr(service, "sm", False):
-                for sub_service in service.sm.services:
-                    data[sub_service.key] = sub_service.initialized
-    if hasattr(request.app.program, "extras_manager"):
-        for service in request.app.program.extras_manager.services:
-            data[service.key] = service.initialized
-            if getattr(service, "sm", False):
-                for sub_service in service.sm.services:
-                    data[sub_service.key] = sub_service.initialized
-    return {
-        "success": True,
-        "data": data
-    }
+            if not hasattr(service, "services"):
+                continue
+            for sub_service in service.services.values():
+                data[sub_service.key] = sub_service.initialized
+    return {"success": True, "data": data}

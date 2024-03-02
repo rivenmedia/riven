@@ -12,6 +12,7 @@ endif
 help:
 	@echo Iceberg Local Development Environment
 	@echo -------------------------------------------------------------------------
+	@echo install   : Install the required packages
 	@echo start     : Build and run the Iceberg container
 	@echo stop      : Stop and remove the Iceberg container and image
 	@echo restart   : Restart the Iceberg container (without rebuilding image)
@@ -24,11 +25,13 @@ help:
 	@echo backend   : Start the backend development server
 	@echo -------------------------------------------------------------------------
 
+install:
+	@python3 -m pip install -r requirements.txt --break-system-packages
+
 start: stop
 	@docker build -t iceberg:latest -f Dockerfile .
 	@docker run -d --name iceberg --hostname iceberg --net host -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data -v /mnt:/mnt iceberg:latest
-	@echo Iceberg Frontend is running on http://localhost:3000/status/
-	@echo Iceberg Backend is running on http://localhost:8080/items/
+	@echo Iceberg is running on http://localhost:3000/
 	@docker logs iceberg -f
 
 stop:
@@ -55,8 +58,9 @@ ec:
 	@docker exec -it iceberg /bin/bash -c "vim /iceberg/data/settings.json"
 
 update:
-	@-git pull --rebase
-	@make start
+	@echo Not implemented yet
+	# @-git pull --rebase
+	# @make start
 
 frontend:
 	@echo Starting Frontend...
