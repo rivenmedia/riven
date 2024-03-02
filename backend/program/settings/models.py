@@ -1,4 +1,5 @@
 """Iceberg settings models"""
+from typing import Callable
 from pathlib import Path
 from pydantic import BaseModel, HttpUrl, validator
 from utils import version_file_path
@@ -9,7 +10,7 @@ class Observable(BaseModel):
         arbitrary_types_allowed = True
 
     # Assuming _notify_observers is a static method or class-level attribute
-    _notify_observers = None
+    _notify_observers: Callable = None
 
     # This method sets the change notifier on the class, not an instance
     @classmethod
