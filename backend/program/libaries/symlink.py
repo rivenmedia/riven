@@ -27,7 +27,7 @@ class SymlinkLibrary:
     def validate(self) -> bool:
         status = all(
             os.path.exists(self.settings.library_path / d) 
-            for d in ( "shows", "movies", "anime_shows", "anime_movies")
+            for d in ("shows", "movies")
         )
         if not status:
             folders = os.listdir(self.settings.library_path)
