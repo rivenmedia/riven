@@ -11,7 +11,7 @@ from program.media.item import (
     Movie,
     Show,
     Season,
-    Episode,
+    Episode
 )
 
 class PlexLibrary():

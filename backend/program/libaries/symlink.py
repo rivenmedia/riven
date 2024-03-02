@@ -17,21 +17,23 @@ class SymlinkLibrary:
         self.key = "symlinklibrary"
         self.last_fetch_times = {}
         self.settings = settings_manager.settings.symlink
+        self.initialized = True
         self.initialized = self.validate()
         if not self.initialized:
-            logger.error("Symlink library is not initialized!")
+            logger.error("SymlinkLibrary initialization failed due to invalid configuration.")
             return
-
-    def validate(self):
-        if not self.settings.library_path:
-            logger.error("Symlink library path is not set!")
-            return False
-        if not os.path.exists(self.settings.library_path):
-            logger.error("Symlink library path does not exist!")
-            return False
-        return True
-
-    def run(self) -> Generator[MediaItem, None, None]:
+    
+    def validate(self) -> bool:
+        status = all(
+            os.path.exists(self.settings.library_path / d) 
+            for d in ("shows", "movies")
+        )
+        if not status:
+            folders = os.listdir(self.settings.library_path)
+            logger.debug("library dir contains %s", ", ".join(folders))
+        return status
+    
+    def run(self) -> MediaItem:
         """Create a library from the symlink paths.  Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in."""
         movies = [
