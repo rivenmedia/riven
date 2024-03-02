@@ -107,7 +107,6 @@ class Jackett:
             if response.is_ok:
                 data = {}
                 streams = response.data["rss"]["channel"].get("item", [])
-                parsed_data_list = [parser.parse(item, stream.get("title")) for stream in streams if isinstance(stream, str)]
                 parsed_data_list = [
                     parser.parse(item, stream.get("title"))
                     for stream in streams
@@ -117,7 +116,6 @@ class Jackett:
                     if isinstance(stream, str):
                         logger.debug("Found another string: %s", stream)
                         continue
-                    if parsed_data.get("fetch", True) and parsed_data.get("title_match", False):
                     if parsed_data.get("fetch", True) and parsed_data.get(
                         "title_match", False
                     ):
