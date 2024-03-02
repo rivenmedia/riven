@@ -113,9 +113,6 @@ class Jackett:
                     if not isinstance(stream, str)
                 ]
                 for stream, parsed_data in zip(streams, parsed_data_list):
-                    if isinstance(stream, str):
-                        logger.debug("Found another string: %s", stream)
-                        continue
                     if parsed_data.get("fetch", True) and parsed_data.get(
                         "title_match", False
                     ):
