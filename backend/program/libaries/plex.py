@@ -13,8 +13,7 @@ from program.media.item import (
     Movie,
     Show,
     Season,
-    Episode,
-    ItemId
+    Episode
 )
 
 class PlexLibrary():

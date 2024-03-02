@@ -14,7 +14,7 @@ from coverage import Coverage
 from deepdiff.diff import DeepDiff, PrettyOrderedSet
 
 from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
-from program.state_transision import process_event
+from program.state_transition import process_event
 from program.indexers.trakt import TraktIndexer
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
@@ -44,9 +44,6 @@ class Program(threading.Thread):
         )
 
     def initialize_services(self):
-        self.library_services = {
-            SymlinkLibrary: SymlinkLibrary()
-        }
         self.requesting_services = {
             Overseerr: Overseerr(), 
             PlexWatchlist: PlexWatchlist(), 
@@ -62,12 +59,18 @@ class Program(threading.Thread):
             Symlinker: Symlinker(),
             PlexUpdater: PlexUpdater()
         }
+        # Depends on Symlinker having created the file structure so needs
+        #   to run after it
+        self.library_services = {
+            SymlinkLibrary: SymlinkLibrary()
+        }
         self.services = {
             **self.library_services,
             **self.indexing_services,
             **self.requesting_services,
             **self.processing_services
         }
+        
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings_manager.settings.version)
@@ -81,6 +84,14 @@ class Program(threading.Thread):
         except Exception:
             logger.error(traceback.format_exc())
 
+        logger.info("----------------------------------------------")
+        logger.info("Iceberg is waiting for configuration to start!")
+        logger.info("----------------------------------------------")
+        while not self.validate():
+            time.sleep(1)
+        
+        logger.info("Iceberg started!")
+
         self.media_items = MediaItemContainer()
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
@@ -89,13 +100,6 @@ class Program(threading.Thread):
             # seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
-
-        if self.validate():
-            logger.info("Iceberg started!")
-        else:
-            logger.info("----------------------------------------------")
-            logger.info("Iceberg is waiting for configuration to start!")
-            logger.info("----------------------------------------------")
         self.scheduler = BackgroundScheduler()
         self.executor = ThreadPoolExecutor(thread_name_prefix="Worker") 
         self._schedule_services()
@@ -210,13 +214,12 @@ class Program(threading.Thread):
                 self._submit_job(next_service, item_to_submit)
 
     def validate(self):
-        return any(
-            service.initialized 
-            for service in self.requesting_services.values()
-        ) and all(
-            service.initialized 
-            for service in self.processing_services.values()
-        )
+        return all((
+            any(s.initialized for s in self.requesting_services.values()),
+            any(s.initialized for s in self.library_services.values()),
+            any(s.initialized for s in self.indexing_services.values()),
+            all(s.initialized for s in self.processing_services.values())
+        ))
 
     def stop(self):
         if hasattr(self, 'executor'):
