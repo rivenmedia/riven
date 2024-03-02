@@ -9,10 +9,8 @@ class Observable(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    # Assuming _notify_observers is a static method or class-level attribute
     _notify_observers: Callable = None
 
-    # This method sets the change notifier on the class, not an instance
     @classmethod
     def set_notify_observers(cls, notify_observers_callable):
         cls._notify_observers = notify_observers_callable
