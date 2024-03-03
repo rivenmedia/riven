@@ -33,7 +33,7 @@ class SymlinkLibrary:
             logger.debug("library dir contains %s", ", ".join(folders))
         return status
     
-    def run(self) -> MediaItem:
+    def run(self) -> Generator[MediaItem, None, None]:
         """Create a library from the symlink paths.  Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in."""
         movies = [

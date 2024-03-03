@@ -11,12 +11,12 @@ from program.media import MediaItem, Season, Episode, Show, Movie, States
 from utils.logger import logger
 
 
-def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:
+def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore
     """Take the input event, process it, and output items to submit to a Service, and an item
     to update the container with."""
     next_service : Service = None
     updated_item = item
-    no_further_processing: ProcessedEvent = (None, None, [])
+    no_further_processing: ProcessedEvent = (None, None, []) # type: ignore
     # we always want to get metadata for content items before we compare to the container. 
     # we can't just check if the show exists we have to check if it's complete
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)

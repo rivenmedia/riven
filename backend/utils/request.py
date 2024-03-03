@@ -32,7 +32,7 @@ class ResponseObject:
 
     def handle_response(self, response: requests.Response):
         """Handle different types of responses"""
-        if not self.is_ok and self.status_code not in [404, 429, 509, 520, 522]:
+        if not self.is_ok and self.status_code not in [404, 429, 502, 509, 520, 522]:
             logger.error("Error: %s %s", response.status_code, response.content)
         if self.status_code in [520, 522]:
             # Cloudflare error from Torrentio
