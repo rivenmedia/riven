@@ -13,3 +13,5 @@ apscheduler
 watchdog
 coverage
 deepdiff
+pyright
+ruff

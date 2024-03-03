@@ -1,6 +1,6 @@
 import os
 import re
-from pathlib import Path
+from typing import Generator
 
 from utils.logger import logger
 from program.settings.manager import settings_manager
@@ -10,7 +10,6 @@ from program.media.item import (
     Show,
     Season,
     Episode,
-    ItemId
 )
 
 class SymlinkLibrary:
@@ -34,7 +33,7 @@ class SymlinkLibrary:
             logger.debug("library dir contains %s", ", ".join(folders))
         return status
     
-    def run(self) -> MediaItem:
+    def run(self) -> Generator[MediaItem, None, None]:
         """Create a library from the symlink paths.  Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in."""
         movies = [

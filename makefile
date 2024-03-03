@@ -1,4 +1,4 @@
-.PHONY: help start stop restart logs exec sc ec update frontend backend
+.PHONY: help install run start stop logs lint test pr-ready
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -13,25 +13,24 @@ help:
 	@echo Iceberg Local Development Environment
 	@echo -------------------------------------------------------------------------
 	@echo install   : Install the required packages
+	@echo run       : Run the Iceberg backend
 	@echo start     : Build and run the Iceberg container
 	@echo stop      : Stop and remove the Iceberg container and image
-	@echo restart   : Restart the Iceberg container (without rebuilding image)
-	@echo exec      : Open a shell inside the Iceberg container
 	@echo logs      : Show the logs of the Iceberg container
-	@echo sc        : Show the contents of the settings.json file inside the Iceberg container
-	@echo ec        : Edit the settings.json file inside the Iceberg container
-	@echo update    : Update this repository from GitHub and rebuild image
-	@echo frontend  : Start the frontend development server
-	@echo backend   : Start the backend development server
+	@echo lint      : Run the linter and type checker
+	@echo test      : Run the tests
+	@echo pr-ready  : Run the linter and tests
 	@echo -------------------------------------------------------------------------
 
 install:
-	@python3 -m pip install -r requirements.txt --break-system-packages
+	@pip install -r requirements.txt --upgrade --break-system-packages
+
+run:
+	@python3 backend/main.py
 
 start: stop
 	@docker build -t iceberg:latest -f Dockerfile .
 	@docker run -d --name iceberg --hostname iceberg --net host -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data -v /mnt:/mnt iceberg:latest
-	@echo Iceberg is running on http://localhost:3000/
 	@docker logs iceberg -f
 
 stop:
@@ -39,33 +38,14 @@ stop:
 	@-docker rm iceberg --force
 	@-docker rmi iceberg:latest --force
 
-restart: 
-	@-docker restart iceberg
-	@echo Iceberg Frontend is running on http://localhost:3000/status/
-	@echo Iceberg Backend is running on http://localhost:8080/items/
-	@docker logs iceberg -f
-
 logs:
 	@docker logs iceberg -f
 
-exec:
-	@docker exec -it iceberg /bin/bash
+lint:
+	ruff check backend
+	pyright backend
 
-sc:
-	@docker exec -it iceberg /bin/bash -c "cat /iceberg/data/settings.json"
+test:
+	cd backend/tests && pytest -vv
 
-ec:
-	@docker exec -it iceberg /bin/bash -c "vim /iceberg/data/settings.json"
-
-update:
-	@echo Not implemented yet
-	# @-git pull --rebase
-	# @make start
-
-frontend:
-	@echo Starting Frontend...
-	@cd frontend && pnpm install && pnpm run build && pnpm run preview --host
-
-backend:
-	@echo Starting Backend...
-	@cd backend && python main.py
+pr-ready: lint test

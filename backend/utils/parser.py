@@ -79,10 +79,8 @@ class Parser:
             "extended": parse.get("extended", False),
         }
 
-        # bandaid for now, this needs to be refactored to make less calls to _parse
         if item is not None:
             parsed_data["title_match"] = title_match
-
         parsed_data["fetch"] = self._should_fetch(parsed_data)
         return parsed_data
 
@@ -103,12 +101,9 @@ class Parser:
         # This is where we determine if the item should be fetched
         # based on the user settings and predefined rules.
         # Edit with caution. All have to match for the item to be fetched.
-        # item_language = self._get_item_language(item)
         return (
             parsed_data["resolution"] in self.resolution
-            and
-            # any(lang in parsed_data.get("language", item_language) for lang in self.language) and
-            not parsed_data["is_unwanted_quality"]
+            and not parsed_data["is_unwanted_quality"]
         )
 
     def _is_highest_quality(self, parsed_data: dict) -> bool:
@@ -124,17 +119,16 @@ class Parser:
     def _is_dual_audio(self, string) -> bool:
         """Check if any content in parsed_data has dual audio."""
         dual_audio_patterns = [
-            re.compile(
-                r"\bmulti(?:ple)?[ .-]*(?:lang(?:uages?)?|audio|VF2)?\b", re.IGNORECASE
-            ),
-            re.compile(r"\btri(?:ple)?[ .-]*(?:audio|dub\w*)\b", re.IGNORECASE),
-            re.compile(r"\bdual[ .-]*(?:au?$|[aá]udio|line)\b", re.IGNORECASE),
-            re.compile(r"\bdual\b(?![ .-]*sub)", re.IGNORECASE),
-            re.compile(r"\b(?:audio|dub(?:bed)?)[ .-]*dual\b", re.IGNORECASE),
-            re.compile(r"\bengl?(?:sub[A-Z]*)?\b", re.IGNORECASE),
-            re.compile(r"\beng?sub[A-Z]*\b", re.IGNORECASE),
-            re.compile(r"\b(?:DUBBED|dublado|dubbing|DUBS?)\b", re.IGNORECASE),
+            r"\bmulti(?:ple)?[ .-]*(?:lang(?:uages?)?|audio|VF2)?\b",
+            r"\btri(?:ple)?[ .-]*(?:audio|dub\w*)\b",
+            r"\bdual[ .-]*(?:au?$|[aá]udio|line)\b",
+            r"\bdual\b(?![ .-]*sub)",
+            r"\b(?:audio|dub(?:bed)?)[ .-]*dual\b",
+            r"\bengl?(?:sub[A-Z]*)?\b",
+            r"\beng?sub[A-Z]*\b",
+            r"\b(?:DUBBED|dublado|dubbing|DUBS?)\b",
         ]
+        dual_audio_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in dual_audio_patterns]
         return any(pattern.search(string) for pattern in dual_audio_patterns)
 
     @staticmethod
@@ -142,53 +136,40 @@ class Parser:
         """Check if string is a `complete series`."""
         # Can be used on either movie or show item types
         series_patterns = [
-            re.compile(
-                r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bmini[ .-]?series\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(?:\bthe\W)?(?:\bcomplete|full|all)\b.*\b(?:series|seasons|collection|episodes|set|pack|movies)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(?:series|seasons|movies?)\b.*\b(?:complete|collection)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(r"(?:\bthe\W)?\bultimate\b[ .]\bcollection\b", re.IGNORECASE),
-            re.compile(r"\bcollection\b.*\b(?:set|pack|movies)\b", re.IGNORECASE),
-            re.compile(r"\bcollection\b", re.IGNORECASE),
-            re.compile(
-                r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga",
-                re.IGNORECASE,
-            ),
+            r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b",
+            r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bmini[ .-]?series\b",
+            r"(?:\bthe\W)?(?:\bcomplete|full|all)\b.*\b(?:series|seasons|collection|episodes|set|pack|movies)\b",
+            r"\b(?:series|seasons|movies?)\b.*\b(?:complete|collection)\b",
+            r"(?:\bthe\W)?\bultimate\b[ .]\bcollection\b",
+            r"\bcollection\b.*\b(?:set|pack|movies)\b",
+            r"\bcollection\b",
+            r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga",
         ]
+        series_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in series_patterns]
         return any(pattern.search(string) for pattern in series_patterns)
 
     @staticmethod
     def _is_unwanted_quality(string) -> bool:
         """Check if string has an 'unwanted' quality. Default to False."""
-        unwanted_patterns = [
-            re.compile(
-                r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b", re.IGNORECASE
-            ),
-            re.compile(r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b", re.IGNORECASE),
-            re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?S(?:YNC)?(?:Rip)?\b", re.IGNORECASE),
-            re.compile(r"\b(?:HD[ .-]*)?T(?:ELE)?C(?:INE)?(?:Rip)?\b", re.IGNORECASE),
-            re.compile(r"\bP(?:re)?DVD(?:Rip)?\b", re.IGNORECASE),
-            re.compile(r"\b(?:DVD?|BD|BR)?[ .-]*Scr(?:eener)?\b", re.IGNORECASE),
-            re.compile(r"\bVHS\b", re.IGNORECASE),
-            re.compile(r"\bHD[ .-]*TV(?:Rip)?\b", re.IGNORECASE),
-            re.compile(r"\bDVB[ .-]*(?:Rip)?\b", re.IGNORECASE),
-            re.compile(r"\bSAT[ .-]*Rips?\b", re.IGNORECASE),
-            re.compile(r"\bTVRips?\b", re.IGNORECASE),
-            re.compile(r"\bR5\b", re.IGNORECASE),
-            re.compile(r"\b(DivX|XviD)\b", re.IGNORECASE),
+        unwanted_quality = [
+            r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b",
+            r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b",
+            r"\b(?:HD[ .-]*)?T(?:ELE)?S(?:YNC)?(?:Rip)?\b",
+            r"\b(?:HD[ .-]*)?T(?:ELE)?C(?:INE)?(?:Rip)?\b",
+            r"\bP(?:re)?DVD(?:Rip)?\b",
+            r"\b(?:DVD?|BD|BR)?[ .-]*Scr(?:eener)?\b",
+            r"\bVHS\b",
+            r"\bHD[ .-]*TV(?:Rip)?\b",
+            r"\bDVB[ .-]*(?:Rip)?\b",
+            r"\bSAT[ .-]*Rips?\b",
+            r"\bTVRips?\b",
+            r"\bR5|R6\b",
+            r"\b(DivX|XviD)\b",
+            r"\b(?:Deleted[ .-]*)?Scene(?:s)?\b",
+            r"\bTrailers?\b",
         ]
-        return any(pattern.search(string) for pattern in unwanted_patterns)
+        unwanted_quality = [re.compile(pattern, re.IGNORECASE) for pattern in unwanted_quality]
+        return any(pattern.search(string) for pattern in unwanted_quality)
 
     def check_for_title_match(self, item, parsed_title, threshold=90) -> bool:
         """Check if the title matches PTN title using fuzzy matching."""
@@ -197,14 +178,11 @@ class Parser:
             target_title = item.parent.title
         elif item.type == "episode":
             target_title = item.parent.parent.title
-        match_score = fuzz.ratio(parsed_title.lower(), target_title.lower())
-        if match_score >= threshold:
-            return True
-        return False
+        return bool(fuzz.ratio(parsed_title.lower(), target_title.lower()) >= threshold)
 
     def _get_item_language(self, item) -> str:
         """Get the language of the item."""
-        # This is crap. Need to switch to using a dict instead.
+        # TODO: This is crap. Need to switch to ranked sorting instead.
         if item.type == "season":
             if item.parent.language == "en":
                 if item.parent.is_anime:

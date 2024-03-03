@@ -51,7 +51,7 @@ class Torrentio:
         if item is None or isinstance(item, Show):
             yield item
         try:
-            item = self._scrape_item(item)
+            yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
         except ConnectTimeout:
@@ -63,10 +63,9 @@ class Torrentio:
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
-        except Exception as e:
+        except Exception:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio exception thrown: %s", traceback.format_exc())
-        yield item
 
     def _scrape_item(self, item):
         """Scrape torrentio for the given media item"""

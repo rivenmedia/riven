@@ -2,7 +2,6 @@
 FROM node:20-alpine AS frontend
 WORKDIR /app
 COPY frontend/package*.json ./
-RUN npm install esbuild@0.19.9
 RUN npm install
 COPY frontend/ .
 RUN npm run build && npm prune --production
