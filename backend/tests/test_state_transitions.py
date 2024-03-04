@@ -1,7 +1,7 @@
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
+from unittest.mock import patch
 
 import pytest
 from program.media import Show, Season, Episode, Movie
@@ -10,7 +10,6 @@ from program.libaries import SymlinkLibrary
 from program.settings.manager import settings_manager
 from program.media.state import States
 from program.indexers import TraktIndexer
-from program.scrapers import Scraping
 
 
 @pytest.fixture
