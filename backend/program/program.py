@@ -71,6 +71,7 @@ class Program(threading.Thread):
             **self.processing_services
         }
         
+        self.initialized = True
 
     def start(self):
         logger.info("Iceberg v%s starting!", settings_manager.settings.version)
@@ -107,7 +108,6 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         self.running = True
-        self.initialized = True
 
     def _retry_library(self) -> None:
         for item_id, item in self.media_items.get_incomplete_items().items():
