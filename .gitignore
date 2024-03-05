@@ -6,3 +6,6 @@ __pycache__
 .git
 docker-compose.yml
 makefile
+venv
+env
+.ruff-cache

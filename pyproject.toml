@@ -1,0 +1,81 @@
+[tool.poetry]
+name = "iceberg"
+version = "0.4.6"
+description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
+authors = ["Your Name <you@example.com>"]
+license = "GPL-3.0"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+dill = "^0.3.8"
+PlexAPI = "^4.15.10"
+requests = "^2.31.0"
+xmltodict = "^0.13.0"
+lxml = "^5.1.0"
+pathos = "^0.3.2"
+pydantic = "^2.6.3"
+fastapi = "^0.110.0"
+uvicorn = {extras = ["standard"], version = "^0.27.1"}
+parse-torrent-title = "^2.8.1"
+thefuzz = "^0.22.1"
+apscheduler = "^3.10.4"
+watchdog = "^4.0.0"
+deepdiff = "^6.7.1"
+
+[tool.poetry.group.dev.dependencies]
+coverage = "^7.4.3"
+pyright = "^1.1.352"
+ruff = "^0.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+    "frontend",
+]
+line-length = 88
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
