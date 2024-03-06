@@ -5,7 +5,7 @@ from requests import ConnectTimeout
 from utils.logger import logger
 from utils.request import get, post, ping
 from program.settings.manager import settings_manager
-from utils.parser import parser
+from program.versions.parser.parser import parser
 from program.media.item import Season, Movie, Episode
 
 

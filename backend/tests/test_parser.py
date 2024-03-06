@@ -1,5 +1,5 @@
 import pytest
-from utils.parser import Parser
+from program.versions.parser.parser import Parser
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
 from program.settings.manager import settings_manager
-from utils.parser import parser
+from program.versions.parser.parser import parser
 from program.media.item import Show, Episode, Season
 import traceback
 

@@ -2,7 +2,7 @@ import { type SuperValidated } from 'sveltekit-superforms';
 import { z } from 'zod';
 
 /**
- * Sets the settings in memory in the backend.
+ * Sets the settings in memory in the 
  *
  * @param fetch - The fetch function used to make the request.
  * @param toSet - The settings to be set.
@@ -30,7 +30,7 @@ export async function setSettings(fetch: any, toSet: any, toCheck: string[]) {
 }
 
 /**
- * Saves the settings from memory to the json file in the backend.
+ * Saves the settings from memory to the json file in the 
  * @param fetch - The fetch function used to make the request.
  * @returns A promise that resolves to an object containing the response data.
  */
@@ -46,7 +46,7 @@ export async function saveSettings(fetch: any) {
 }
 
 /**
- * Loads settings from the json to memory in backend.
+ * Loads settings from the json to memory in 
  * @param fetch - The fetch function used to make the HTTP request.
  * @returns A promise that resolves to an object containing the loaded settings.
  */

@@ -1,8 +1,9 @@
 """ Jackett scraper module """
 from requests import ReadTimeout, RequestException
+from program.media.item import Show
 from utils.logger import logger
 from program.settings.manager import settings_manager
-from utils.parser import parser
+from program.versions.parser.parser import parser
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
 
 
@@ -62,6 +63,8 @@ class Jackett:
         """Scrape Jackett for the given media items"""
         if item is None or not self.initialized:
             return
+        if isinstance(item, Show):
+            yield item
         try:
             yield self._scrape_item(item)
         except RateLimitExceeded:

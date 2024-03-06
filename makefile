@@ -1,4 +1,4 @@
-.PHONY: help install run start stop logs lint test pr-ready
+.PHONY: help install run start stop logs clean lint test pr-ready
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -17,16 +17,17 @@ help:
 	@echo start     : Build and run the Iceberg container
 	@echo stop      : Stop and remove the Iceberg container and image
 	@echo logs      : Show the logs of the Iceberg container
+	@echo clean     : Remove all the cache files
 	@echo lint      : Run the linter and type checker
 	@echo test      : Run the tests
 	@echo pr-ready  : Run the linter and tests
 	@echo -------------------------------------------------------------------------
 
 install:
-	@pip install -r requirements.txt --upgrade --break-system-packages
+	@poetry install
 
 run:
-	@python3 backend/main.py
+	@poetry run python backend/main.py
 
 start: stop
 	@docker build -t iceberg:latest -f Dockerfile .
@@ -41,11 +42,17 @@ stop:
 logs:
 	@docker logs iceberg -f
 
+clean:
+	@find . -type f -name '*.pyc' -exec rm -f {} +
+	@find . -type d -name '__pycache__' -exec rm -rf {} +
+	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
+	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
+
 lint:
-	ruff check backend
-	pyright backend
+	@poetry run ruff check backend
+	@poetry run pyright backend
 
 test:
-	cd backend/tests && pytest -vv
+	@cd backend/tests && poetry run pytest -vv
 
-pr-ready: lint test
+pr-ready: clean lint test
