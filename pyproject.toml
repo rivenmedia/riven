@@ -30,3 +30,30 @@ ruff = "^0.3.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+ignore = [
+  "PLR0913", # flask8-bugbear: Too many arguments for a method or function
+  "PLR0911", # flask8-bugbear: Too many return statements
+  "PLR2004", # flake8-bugbear: Magic value used in comparison
+  "S104", # flake8-bandit: Possible binding to all interfaces
+  "S108", # flake8-bandit: Probable insecure usage of temp file/directory
+  "S311", # flake8-bandit: Standard pseudo-random generators are not suitable for security/cryptographic purposes
+]
+extend-select = [
+  "I",   # isort
+  "C90", # mccabe complexity
+  "B",   # flake8-bugbear
+  "PL",  # pycodestyle
+  "S",   # flake8-bandit
+  "T10", # flake8-debugger
+  "PIE", # flake8-pie
+  "T20", # flake8-print
+  "Q",   # flake8-quotes
+  "RSE", # flake8-raise
+  "RET", # flake8-return
+  "SLF", # flake8-self
+  "SIM", # flake8-simplify
+  "ARG", # flake8-unused-arguments
+]
