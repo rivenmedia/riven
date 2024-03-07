@@ -4,10 +4,11 @@ from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimitExceeded, get, RateLimiter, ping
+from program.torrent import ScrapedTorrents, Torrent
 from program.settings.manager import settings_manager
-from program.versions.parser.parser import parser
 from program.media.item import Show, Episode, Season
 import traceback
+
 
 class Torrentio:
     """Scraper for `Torrentio`"""
@@ -71,7 +72,13 @@ class Torrentio:
         """Scrape torrentio for the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data)
+            for torrent in data.torrents:
+                stream_info = {
+                    "title": torrent.title,
+                    "infohash": torrent.infohash,
+                    "parsed_data": torrent.parsed_data,
+                }
+            item.streams.update(stream_info)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -116,30 +123,18 @@ class Torrentio:
                 url += identifier
             with self.second_limiter:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
-            if response.is_ok and len(response.data.streams) > 0:
-                parsed_data_list = [
-                    parser.parse(item, stream.title.split("\n👤")[0].split("\n")[0])
-                    for stream in response.data.streams
-                ]
-                data = {
-                    stream.infoHash: {
-                        "name": stream.title.split("\n👤")[0].split("\n")[0],
-                        "cached": None
-                    }
-                    for stream, parsed_data in zip(
-                        response.data.streams, parsed_data_list
-                    )
-                    if parsed_data.get("fetch", False)
-                    and parsed_data.get("string", False)
-                }
-                if self.parse_logging:  # For debugging parser large data sets
-                    for parsed_data in parsed_data_list:
-                        logger.debug(
-                            "Torrentio Fetch: %s - Parsed item: %s",
-                            parsed_data["fetch"],
-                            parsed_data["string"],
-                        )
-                if data:
-                    item.parsed_data.extend(parsed_data_list)
-                    return data, len(response.data.streams)
-            return {}, 0
+            scraped_torrents: ScrapedTorrents = ScrapedTorrents()
+            if not response.is_ok or len(response.data.streams) <= 0:
+                return scraped_torrents, 0
+            for stream in response.data.streams:
+                if not stream.infoHash:
+                    continue
+                raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
+                torrent: Torrent = Torrent.create(item, raw_title, stream.infoHash)
+
+                # Need to remove ones that we dont want to add to the list here..
+                if torrent:
+                    scraped_torrents.add(torrent)
+
+            # Need to return sorted scraped_torrents here...
+            return scraped_torrents, len(response.data.streams)
