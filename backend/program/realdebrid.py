@@ -1,13 +1,14 @@
 """Realdebrid module"""
+
 import time
 from pathlib import Path
-from requests import ConnectTimeout
-from utils.logger import logger
-from utils.request import get, post, ping
+
+from program.media.item import Episode, Movie, Season
 from program.settings.manager import settings_manager
 from program.versions.parser.parser import parser
-from program.media.item import Season, Movie, Episode
-
+from requests import ConnectTimeout
+from utils.logger import logger
+from utils.request import get, ping, post
 
 WANTED_FORMATS = [".mkv", ".mp4", ".avi"]
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
@@ -51,24 +52,22 @@ class Debrid:
         self._set_file_paths(item)
         yield item
 
-
     def _is_downloaded(self, item):
         """Check if item is already downloaded"""
         torrents = self.get_torrents()
         for torrent in torrents:
             if torrent.hash == item.active_stream.get("hash"):
                 info = self.get_torrent_info(torrent.id)
-                if item.type == "episode":
-                    if not any(
-                        file
-                        for file in info.files
-                        if file.selected == 1
-                        and item.number
-                        in parser.episodes_in_season(
-                            item.parent.number, Path(file.path).name
-                        )
-                    ):
-                        return False
+                if item.type == "episode" and not any(
+                    file
+                    for file in info.files
+                    if file.selected == 1
+                    and item.number
+                    in parser.episodes_in_season(
+                        item.parent.number, Path(file.path).name
+                    )
+                ):
+                    return False
 
                 item.set("active_stream.id", torrent.id)
                 self.set_active_files(item)
@@ -95,7 +94,7 @@ class Debrid:
     def is_cached(self, item):
         """Check if item is cached on real-debrid.com"""
         if len(item.streams) == 0:
-            return
+            return False
 
         def chunks(lst, n):
             for i in range(0, len(lst), n):
@@ -117,20 +116,49 @@ class Debrid:
                 for containers in provider_list.values():
                     for container in containers:
                         wanted_files = {}
-                        if isinstance(item, Movie) and all(file["filesize"] > 200000 for file in container.values()):
+                        if isinstance(item, Movie) and all(
+                            file["filesize"] > 200000 for file in container.values()
+                        ):
                             wanted_files = container
-                        if isinstance(item, Season) and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
+                        if isinstance(item, Season) and all(
+                            any(
+                                episode.number
+                                in parser.episodes_in_season(
+                                    item.number, file["filename"]
+                                )
+                                for file in container.values()
+                            )
+                            for episode in item.episodes
+                        ):
                             wanted_files = container
-                        if isinstance(item, Episode) and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
+                        if isinstance(item, Episode) and any(
+                            item.number
+                            in parser.episodes_in_season(
+                                item.parent.number, episode["filename"]
+                            )
+                            for episode in container.values()
+                        ):
                             wanted_files = container
-                        if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
+                        if len(wanted_files) > 0 and all(
+                            item
+                            for item in wanted_files.values()
+                            if Path(item["filename"]).suffix in WANTED_FORMATS
+                        ):
                             item.set(
                                 "active_stream",
-                                {"hash": stream_hash, "files": wanted_files, "id": None},
+                                {
+                                    "hash": stream_hash,
+                                    "files": wanted_files,
+                                    "id": None,
+                                },
                             )
                             return True
                     item.streams[stream_hash] = None
-        logger.debug("[%s] No cached streams found for item: %s", stream_hash[-6:], item.log_string)
+        logger.debug(
+            "[%s] No cached streams found for item: %s",
+            stream_hash[-6:],
+            item.log_string,
+        )
         return False
 
     def _set_file_paths(self, item):
@@ -146,7 +174,10 @@ class Debrid:
         """Set file paths for movie from real-debrid.com"""
         item.set("folder", item.active_stream.get("name"))
         item.set("alternative_folder", item.active_stream.get("alternative_name"))
-        item.set("file", next(file for file in item.active_stream.get("files").values())["filename"])
+        item.set(
+            "file",
+            next(file for file in item.active_stream.get("files").values())["filename"],
+        )
 
     def _handle_season_paths(self, season):
         """Set file paths for season from real-debrid.com"""
@@ -157,13 +188,19 @@ class Debrid:
                         "folder", season.active_stream.get("name")
                     )
                     season.episodes[episode - 1].set(
-                        "alternative_folder", season.active_stream.get("alternative_name")
+                        "alternative_folder",
+                        season.active_stream.get("alternative_name"),
                     )
                     season.episodes[episode - 1].set("file", file["filename"])
 
     def _handle_episode_paths(self, episode):
         """Set file paths for episode from real-debrid.com"""
-        file = next(file for file in episode.active_stream.get("files").values() if episode.number in parser.episodes_in_season(episode.parent.number, file["filename"]))
+        file = next(
+            file
+            for file in episode.active_stream.get("files").values()
+            if episode.number
+            in parser.episodes_in_season(episode.parent.number, file["filename"])
+        )
         episode.set("folder", episode.active_stream.get("name"))
         episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
         episode.set("file", file["filename"])

@@ -1,10 +1,11 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get
-from program.media.item import Movie, Show, Season, Episode, MediaItem
-from program.settings.manager import settings_manager
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
@@ -13,7 +14,7 @@ class TraktIndexer:
     """Trakt updater class"""
 
     def __init__(self):
-        self.key = 'traktindexer'
+        self.key = "traktindexer"
         self.ids = []
         self.initialized = True
         self.settings = settings_manager.settings.indexer
@@ -23,7 +24,9 @@ class TraktIndexer:
             logger.error("Item is None")
             return None
         if (imdb_id := item.imdb_id) is None:
-            logger.error("Item %s does not have an imdb_id, cannot index it", item.log_string)
+            logger.error(
+                "Item %s does not have an imdb_id, cannot index it", item.log_string
+            )
             return None
         item = create_item_from_imdb_id(imdb_id)
         if not item:
@@ -41,7 +44,6 @@ class TraktIndexer:
                 item.add_season(season_item)
         item.indexed_at = datetime.now()
         yield item
-            
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
@@ -50,6 +52,7 @@ class TraktIndexer:
         settings = settings_manager.settings.indexer
         interval = timedelta(seconds=settings.update_interval)
         return item.indexed_at < datetime.now() - interval
+
 
 def _map_item_from_data(data, item_type) -> MediaItem:
     """Map trakt.tv API data to MediaItemContainer"""

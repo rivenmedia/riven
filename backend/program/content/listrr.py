@@ -1,15 +1,16 @@
 """Listrr content module"""
+
 from typing import Generator
 
+from program.indexers.trakt import get_imdbid_from_tmdb
+from program.media.item import MediaItem
+from program.settings.manager import settings_manager
+from requests.exceptions import HTTPError
 from utils.logger import logger
 from utils.request import get, ping
-from requests.exceptions import HTTPError
-from program.settings.manager import settings_manager
-from program.media.item import MediaItem
-from program.indexers.trakt import get_imdbid_from_tmdb
 
 
-class Listrr():
+class Listrr:
     """Content class for Listrr"""
 
     def __init__(self):
@@ -48,7 +49,9 @@ class Listrr():
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
                 logger.error(
-                    "Listrr ping failed - Status Code: %s, Reason: %s", response.status_code, response.reason
+                    "Listrr ping failed - Status Code: %s, Reason: %s",
+                    response.status_code,
+                    response.reason,
                 )
             return response.ok
         except Exception as e:
@@ -61,7 +64,7 @@ class Listrr():
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
-            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.__class__})
+            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
         return
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:

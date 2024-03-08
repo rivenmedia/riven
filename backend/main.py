@@ -1,28 +1,29 @@
+import argparse
 import contextlib
 import sys
 import threading
 import time
-import argparse
 import traceback
 
 import uvicorn
+from controllers.default import router as default_router
+from controllers.items import router as items_router
+from controllers.settings import router as settings_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
-from controllers.settings import router as settings_router
-from controllers.items import router as items_router
-from controllers.default import router as default_router
-
 from utils.logger import logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--ignore_cache", action="store_true", 
-    help="Ignore the cached metadata, create new data from scratch."
+    "--ignore_cache",
+    action="store_true",
+    help="Ignore the cached metadata, create new data from scratch.",
 )
 parser.add_argument(
-    "--profile_state_transitions", action="store_true", 
-    help="Use a profiling process to determine what paths the state machine took"
+    "--profile_state_transitions",
+    action="store_true",
+    help="Use a profiling process to determine what paths the state machine took",
 )
 args = parser.parse_args()
 

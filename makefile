@@ -48,11 +48,14 @@ clean:
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
 
-lint:
+format:
+	@poetry run black backend
+
+lint: format
 	@poetry run ruff check backend
 	@poetry run pyright backend
 
 test:
-	@cd backend/tests && poetry run pytest -vv
+	@cd backend/tests && poetry run pytest
 
 pr-ready: clean lint test

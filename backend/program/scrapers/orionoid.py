@@ -1,12 +1,13 @@
 """ Orionoid scraper module """
 from datetime import datetime
+
+from program.media.item import Episode, Season, Show
+from program.settings.manager import settings_manager
+from program.torrent import ScrapedTorrents, Torrent
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimitExceeded, RateLimiter, get
-from program.settings.manager import settings_manager
-from program.versions.parser.parser import parser
-from program.media.item import Show, Season, Episode
+from utils.request import RateLimiter, RateLimitExceeded, get
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
@@ -50,17 +51,21 @@ class Orionoid:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = get(url, retry_if_failed=False)
             if response.is_ok and hasattr(response.data, "result"):
-                if not response.data.result.status == "success":
+                if response.data.result.status != "success":
                     logger.error(
-                        "Orionoid API Key is invalid. Status: %s", response.data.result.status
+                        "Orionoid API Key is invalid. Status: %s",
+                        response.data.result.status,
                     )
                     return False
                 if not response.is_ok:
                     logger.error(
-                        "Orionoid Status Code: %s, Reason: %s", response.status_code, response.data.reason
+                        "Orionoid Status Code: %s, Reason: %s",
+                        response.status_code,
+                        response.data.reason,
                     )
                     return False
-            self.is_unlimited = True if response.data.data.subscription.package.type == "unlimited" else False
+                if response.data.data.subscription.package.type == "unlimited":
+                    self.is_unlimited = True
             return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
@@ -71,7 +76,7 @@ class Orionoid:
         url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
         if response.is_ok and hasattr(response.data, "data"):
-            active = True if response.data.data.status == "active" else False
+            active = response.data.data.status == "active"
             premium = response.data.data.subscription.package.premium
             debrid = response.data.data.service.realdebrid
             if active and premium and debrid:
@@ -80,12 +85,10 @@ class Orionoid:
             else:
                 logger.error("Orionoid Free Account Detected.")
         return False
-    
+
     def run(self, item):
-        """Scrape the Orionoid site for the given media items
-        and update the object with scraped streams"""        
-        item.scraped_at = datetime.now()
-        item.scraped_times += 1
+        """Scrape the orionoid site for the given media items
+        and update the object with scraped streams"""
         if item is None or isinstance(item, Show):
             yield item
         try:
@@ -106,24 +109,25 @@ class Orionoid:
             )
 
     def _scrape_item(self, item):
+        """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data)
+            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
+            item.streams.update(streams)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
                 stream_count,
                 item.log_string,
             )
+        elif stream_count > 0:
+            logger.debug(
+                "Could not find good streams for %s out of %s",
+                item.log_string,
+                stream_count,
+            )
         else:
-            if stream_count > 0:
-                logger.debug(
-                    "Could not find good streams for %s out of %s",
-                    item.log_string,
-                    stream_count,
-                )
-            else:
-                logger.debug("No streams found for %s", item.log_string)
+            logger.debug("No streams found for %s", item.log_string)
         return item
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
@@ -141,7 +145,7 @@ class Orionoid:
             "limitcount": self.settings.limitcount if self.settings.limitcount else 5,
             "video3d": "false",
             "sortorder": "descending",
-            "sortvalue": "best" if self.is_premium else "popularity"
+            "sortvalue": "best" if self.is_premium else "popularity",
         }
 
         if self.is_unlimited:
@@ -156,8 +160,10 @@ class Orionoid:
 
         return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
-    def api_scrape(self, item):
-        """Wrapper for Orionoid scrape method"""
+    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
+        """Wrapper for `Orionoid` scrape method"""
+        if isinstance(item, Show):
+            return item
         with self.minute_limiter:
             if isinstance(item, Season):
                 imdb_id = item.parent.imdb_id
@@ -173,28 +179,13 @@ class Orionoid:
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
-            if response.is_ok and hasattr(response.data, "data"):
-                parsed_data_list = [
-                    parser.parse(item, stream.file.name)
-                    for stream in response.data.data.streams
-                    if stream.file.hash
-                ]
-                data = {
-                    stream.file.hash: {
-                        "name": stream.file.name,
-                        "cached": None
-                    }
-                    for stream, parsed_data in zip(response.data.data.streams, parsed_data_list)
-                    if parsed_data["fetch"]
-                }
-                if self.parse_logging:  # For debugging parser large data sets
-                    for parsed_data in parsed_data_list:
-                        logger.debug(
-                            "Orionoid Fetch: %s - Parsed item: %s",
-                            parsed_data["fetch"],
-                            parsed_data["string"],
-                        )
-                if data:
-                    item.parsed_data.extend(parsed_data_list)
-                    return data, len(response.data.data.streams)
-            return {}, 0
+            if not response.is_ok or not hasattr(response.data, "data"):
+                return {}, 0
+            scraped_torrents = ScrapedTorrents()
+            for stream in response.data.data.streams:
+                if not stream.file.hash:
+                    continue
+                torrent: Torrent = Torrent.create(item, stream.file.name, stream.file.hash)
+                if torrent and torrent.parsed_data.fetch:
+                    scraped_torrents.add(torrent)
+            return scraped_torrents, len(response.data.data.streams)

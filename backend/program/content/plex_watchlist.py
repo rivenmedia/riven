@@ -1,14 +1,15 @@
 """Plex Watchlist Module"""
-from requests import HTTPError
+
 from typing import Generator
 
-from utils.request import get, ping
-from utils.logger import logger
-from program.settings.manager import settings_manager
 from program.media.item import MediaItem
+from program.settings.manager import settings_manager
+from requests import HTTPError
+from utils.logger import logger
+from utils.request import get, ping
 
 
-class PlexWatchlist():
+class PlexWatchlist:
     """Class for managing Plex Watchlists"""
 
     def __init__(self):
@@ -39,7 +40,8 @@ class PlexWatchlist():
                     )
                 else:
                     logger.warn(
-                        "Plex RSS URL is not reachable (HTTP status code: %s). Falling back to using user Watchlist.", e.response.status_codez
+                        "Plex RSS URL is not reachable (HTTP status code: %s). Falling back to using user Watchlist.",
+                        e.response.status_codez,
                     )
                 return True
             except Exception as e:
@@ -56,10 +58,9 @@ class PlexWatchlist():
             watchlist_items = set(self._get_items_from_watchlist())
             rss_items = set(self._get_items_from_rss())
             yield from (
-                MediaItem({'imdb_id': id, 'requested_by': self.__class__}) 
+                MediaItem({"imdb_id": id, "requested_by": self.__class__})
                 for id in watchlist_items.union(rss_items)
             )
-            
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feed."""
@@ -80,7 +81,7 @@ class PlexWatchlist():
             logger.error(
                 "An unexpected error occurred while fetching Plex RSS feed: %s", e
             )
-            
+
             return
 
     def _get_items_from_watchlist(self) -> Generator[MediaItem, None, None]:

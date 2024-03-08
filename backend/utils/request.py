@@ -1,15 +1,16 @@
 """Requests wrapper"""
-from multiprocessing import Lock
-from types import SimpleNamespace
-from lxml import etree
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
+
 import json
 import logging
-import requests
 import time
-import xmltodict
+from multiprocessing import Lock
+from types import SimpleNamespace
 
+import requests
+import xmltodict
+from lxml import etree
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,7 @@ def put(
         retry_if_failed=retry_if_failed,
     )
 
+
 def delete(
     url: str,
     timeout=10,
@@ -175,6 +177,7 @@ def delete(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
     )
+
 
 def _xml_to_simplenamespace(xml_string):
     root = etree.fromstring(xml_string)

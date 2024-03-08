@@ -31,6 +31,26 @@ ruff = "^0.3.0"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 88
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
 [tool.ruff.lint]
 # https://docs.astral.sh/ruff/rules/
 ignore = [
@@ -40,6 +60,9 @@ ignore = [
   "S104", # flake8-bandit: Possible binding to all interfaces
   "S108", # flake8-bandit: Probable insecure usage of temp file/directory
   "S311", # flake8-bandit: Standard pseudo-random generators are not suitable for security/cryptographic purposes
+  "S101", # ruff: Ignore assert warnings on tests
+  "RET505", # 
+  "RET503"  # ruff: Ignore required explicit returns (is this desired?)
 ]
 extend-select = [
   "I",   # isort

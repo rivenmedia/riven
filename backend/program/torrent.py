@@ -1,12 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import Any, Dict, Set, List
-from program.media.item import MediaItem
+from typing import Any, Dict, List, Set
 
+from program.media.item import MediaItem
+from program.versions.parser.parser import ParsedMediaItem, parser
 from program.versions.sorter.sorter import RankingConfig, rank_items
-from program.versions.parser.parser import parser, ParsedMediaItem
+from pydantic import BaseModel, Field
 
 
 class Torrent(BaseModel):
+    """Torrent class for storing torrent data."""
     title: str = Field(default="")
     infohash: str = Field(default="")
     parsed_data: ParsedMediaItem = Field(default=None)
@@ -16,16 +17,17 @@ class Torrent(BaseModel):
             return False
         return self.infohash == other.infohash
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.infohash)
 
     @classmethod
-    def create(cls, item: MediaItem, raw_title: str, infohash: str):
+    def create(cls, item: MediaItem, raw_title: str, infohash: str) -> "Torrent":
+        """Create a Torrent object from the given data."""
         parsed_data: ParsedMediaItem = parser.parse(raw_title)
         if parser.check_title_match(item, parsed_data.parsed_title):
-            return cls(title=raw_title, infohash=infohash, parsed_data=parsed_data.model_dump())
-        else:
-            return None
+            return cls(
+                title=raw_title, infohash=infohash, parsed_data=parsed_data
+            )
 
 
 class ScrapedTorrents:

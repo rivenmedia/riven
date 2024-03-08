@@ -48,7 +48,15 @@ UNWANTED_QUALITY_PATTERNS = [
     r"\bTrailers?\b",
 ]
 
-MULTI_AUDIO_COMPILED = [re.compile(pattern, re.IGNORECASE) for pattern in MULTI_AUDIO_PATTERNS]
-MULTI_SUBTITLE_COMPILED = [re.compile(pattern, re.IGNORECASE) for pattern in MULTI_SUBTITLE_PATTERNS]
-COMPLETE_SERIES_COMPILED = [re.compile(pattern, re.IGNORECASE) for pattern in COMPLETE_SERIES_PATTERNS]
-UNWANTED_QUALITY_COMPILED = [re.compile(pattern, re.IGNORECASE) for pattern in UNWANTED_QUALITY_PATTERNS]
+MULTI_AUDIO_COMPILED = [
+    re.compile(pattern, re.IGNORECASE) for pattern in MULTI_AUDIO_PATTERNS
+]
+MULTI_SUBTITLE_COMPILED = [
+    re.compile(pattern, re.IGNORECASE) for pattern in MULTI_SUBTITLE_PATTERNS
+]
+COMPLETE_SERIES_COMPILED = [
+    re.compile(pattern, re.IGNORECASE) for pattern in COMPLETE_SERIES_PATTERNS
+]
+UNWANTED_QUALITY_COMPILED = [
+    re.compile(pattern, re.IGNORECASE) for pattern in UNWANTED_QUALITY_PATTERNS
+]

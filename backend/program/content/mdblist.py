@@ -1,14 +1,14 @@
 """Mdblist content module"""
+
 from typing import Generator
 
-from utils.logger import logger
-from program.settings.manager import settings_manager
 from program.media.item import MediaItem
-from utils.request import RateLimitExceeded, RateLimiter, get, ping
+from program.settings.manager import settings_manager
+from utils.logger import logger
+from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
-
-class Mdblist():
+class Mdblist:
     """Content class for mdblist"""
 
     def __init__(self):
@@ -47,7 +47,9 @@ class Mdblist():
                     if not list_id:
                         continue
                     for item in list_items(list_id, self.settings.api_key):
-                        yield MediaItem({'imdb_id': item.imdb_id, 'requested_by': self.__class__})
+                        yield MediaItem(
+                            {"imdb_id": item.imdb_id, "requested_by": self.__class__}
+                        )
         except RateLimitExceeded:
             pass
         return

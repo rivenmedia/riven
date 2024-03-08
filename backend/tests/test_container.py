@@ -1,21 +1,24 @@
 import pytest
 from program.media.container import MediaItemContainer
-from program.media.item import Show, Season, Episode
+from program.media.item import Episode, Season, Show
+
 
 # Fixture to setup a MediaItemContainer
 @pytest.fixture
 def container():
     return MediaItemContainer()
 
+
 @pytest.fixture
 def test_show():
     # Setup Show with a Season and an Episode
-    show = Show({'imdb_id': 'tt1405406'})
-    season = Season({'number': 1})
-    episode = Episode({'number': 1})
+    show = Show({"imdb_id": "tt1405406"})
+    season = Season({"number": 1})
+    episode = Episode({"number": 1})
     season.add_episode(episode)
     show.add_season(season)
     return show
+
 
 def test_upsert_episode_modification_reflects_in_parent_season(container, test_show):
     # Upsert the show with its season and episode
@@ -37,7 +40,11 @@ def test_upsert_episode_modification_reflects_in_parent_season(container, test_s
     # Verify that the modified episode's attribute is updated in the container
     assert container_episode.some_attribute == modified_attribute_value
     # Verify that the season in the container now points to the updated episode
-    assert container_season.episodes[container_episode.number - 1].some_attribute == modified_attribute_value
+    assert (
+        container_season.episodes[container_episode.number - 1].some_attribute
+        == modified_attribute_value
+    )
+
 
 def test_upsert_season_modification_reflects_in_parent_show(container, test_show):
     container.upsert(test_show)
@@ -59,4 +66,7 @@ def test_upsert_season_modification_reflects_in_parent_show(container, test_show
     # Verify that the modified season's attribute is updated in the container
     assert container_season.some_attribute == modified_attribute_value
     # Verify that the show in the container now references the updated season
-    assert container_show.seasons[container_season.number - 1].some_attribute == modified_attribute_value
+    assert (
+        container_show.seasons[container_season.number - 1].some_attribute
+        == modified_attribute_value
+    )

@@ -1,7 +1,9 @@
 """Iceberg settings models"""
-from typing import Callable
+
 from pathlib import Path
-from pydantic import BaseModel, HttpUrl, validator
+from typing import Callable
+
+from pydantic import BaseModel, HttpUrl, field_validator
 from utils import version_file_path
 
 
@@ -21,8 +23,6 @@ class Observable(BaseModel):
             self.__class__._notify_observers()
 
 
-
-
 class DebridModel(Observable):
     api_key: str = ""
 
@@ -38,11 +38,12 @@ class SymlinkModel(Observable):
 class Updatable(Observable):
     update_interval: int = 80
 
-    @validator('update_interval')
+    @field_validator("update_interval")
     def check_update_interval(cls, v):
         if v < (limit := 5):
             raise ValueError(f"update_interval must be at least {limit} seconds")
         return v
+
 
 class PlexLibraryModel(Updatable):
     update_interval: int = 120
@@ -124,6 +125,7 @@ class ParserModel(Observable):
 
 # Application Settings
 
+
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
 
@@ -144,5 +146,3 @@ class AppModel(Observable):
     scraping: ScraperModel = ScraperModel()
     parser: ParserModel = ParserModel()
     indexer: IndexerModel = IndexerModel()
-
-

@@ -1,2 +1,3 @@
 """Program main module"""
-from program.program import Program, Event # noqa: F401
+
+from program.program import Event, Program  # noqa: F401

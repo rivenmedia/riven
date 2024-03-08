@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class States(Enum):
     Unknown = "Unknown"
     Requested = "Requested"
@@ -10,5 +11,3 @@ class States(Enum):
     Completed = "Completed"
     PartiallyCompleted = "PartiallyCompleted"
     Failed = "Failed"
-
-

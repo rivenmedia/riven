@@ -1,10 +1,11 @@
 from thefuzz import fuzz
+
 from .models import ParsedMediaItem
 
 
 class Parser:
     """Parser class for parsing media items."""
-    
+
     def parse(self, query: str) -> ParsedMediaItem:
         """Parse the given string using the ParsedMediaItem model."""
         return ParsedMediaItem(raw_title=query)

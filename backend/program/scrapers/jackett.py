@@ -1,10 +1,10 @@
 """ Jackett scraper module """
-from requests import ReadTimeout, RequestException
 from program.media.item import Show
-from utils.logger import logger
 from program.settings.manager import settings_manager
-from program.versions.parser.parser import parser
-from utils.request import RateLimitExceeded, get, RateLimiter, ping
+from program.torrent import ScrapedTorrents, Torrent
+from requests import ReadTimeout, RequestException
+from utils.logger import logger
+from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
 class Jackett:
@@ -41,48 +41,30 @@ class Jackett:
             except Exception as e:
                 logger.error("Jackett failed to initialize with API Key: %s", e)
                 return False
-        if self.settings.url:
-            try:
-                url = f"{self.settings.url}/api/v2.0/server/config"
-                response = get(url=url, retry_if_failed=False, timeout=60)
-                if response.is_ok and response.data.api_key is not None:
-                    self.api_key = response.data.api_key
-                    return True
-                if not response.is_ok:
-                    return False
-            except ReadTimeout:
-                logger.warn("Jackett connection timeout.")
-                return True
-            except Exception as e:
-                logger.error("Jackett failed to initialize: %s", e)
-                return False
         logger.info("Jackett is not configured and will not be used.")
         return False
 
     def run(self, item):
-        """Scrape Jackett for the given media items"""
-        if item is None or not self.initialized:
-            return
-        if isinstance(item, Show):
+        """Scrape the jackett site for the given media items
+        and update the object with scraped streams"""
+        if item is None or isinstance(item, Show):
             yield item
         try:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Jackett rate limit hit for item: %s", item.log_string)
-            return
         except RequestException as e:
             logger.debug("Jackett request exception: %s", e)
-            return
         except Exception as e:
             logger.error("Jackett failed to scrape item: %s", e)
-            return
 
     def _scrape_item(self, item):
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data)
+            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
+            item.streams.update(streams)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -93,7 +75,7 @@ class Jackett:
             logger.debug("Could not find streams for %s", item.log_string)
         return item
 
-    def api_scrape(self, item):
+    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
         """Wrapper for `Jackett` scrape method"""
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
@@ -107,36 +89,20 @@ class Jackett:
             url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
-            if response.is_ok:
-                data = {}
-                streams = response.data["rss"]["channel"].get("item", [])
-                parsed_data_list = [
-                    parser.parse(item, stream.get("title"))
-                    for stream in streams
-                    if not isinstance(stream, str)
-                ]
-                for stream, parsed_data in zip(streams, parsed_data_list):
-                    if parsed_data.get("fetch", True) and parsed_data.get(
-                        "title_match", False
-                    ):
-                        attr = stream.get("torznab:attr", [])
-                        infohash_attr = next(
-                            (a for a in attr if a.get("@name") == "infohash"), None
-                        )
-                        if infohash_attr:
-                            infohash = infohash_attr.get("@value")
-                            data[infohash] = {
-                                "name": stream.get("title"),
-                                "cached": None
-                            }
-                if self.parse_logging:  # For debugging parser large data sets
-                    for parsed_data in parsed_data_list:
-                        logger.debug(
-                            "Jackett Fetch: %s - Parsed item: %s",
-                            parsed_data["fetch"],
-                            parsed_data["string"],
-                        )
-                if data:
-                    item.parsed_data.extend(parsed_data_list)
-                    return data, len(streams)
+            if not response.is_ok or response.data["rss"]["channel"].get("item", []) <= 0:
                 return {}, 0
+            streams = response.data["rss"]["channel"].get("item", [])
+            if not streams:
+                return {}, 0
+            scraped_torrents = ScrapedTorrents()
+            for stream in streams:
+                attr = stream.get("torznab:attr", [])
+                infohash_attr = next(
+                    (a for a in attr if a.get("@name") == "infohash"), None
+                )
+                if infohash_attr:
+                    infohash = infohash_attr.get("@value")
+                    torrent: Torrent = Torrent.create(item, stream.get("title"), infohash)
+                    if torrent and torrent.parsed_data.fetch:
+                        scraped_torrents.add(torrent)
+            return scraped_torrents, len(response.data.data.streams)

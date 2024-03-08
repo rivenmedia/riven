@@ -1,20 +1,18 @@
 """Plex library module"""
-import os
-import concurrent.futures
-from threading import Lock
-from datetime import datetime
-from plexapi.server import PlexServer
-from plexapi.exceptions import BadRequest, Unauthorized
-from utils.logger import logger
-from program.settings.manager import settings_manager
-from program.media.item import (
-    Movie,
-    Show,
-    Season,
-    Episode
-)
 
-class PlexLibrary():
+import concurrent.futures
+import os
+from datetime import datetime
+from threading import Lock
+
+from plexapi.exceptions import BadRequest, Unauthorized
+from plexapi.server import PlexServer
+from program.media.item import Episode, Movie, Season, Show
+from program.settings.manager import settings_manager
+from utils.logger import logger
+
+
+class PlexLibrary:
     """Plex library class"""
 
     def __init__(self):
@@ -65,7 +63,9 @@ class PlexLibrary():
                     continue
                 # Fetch only items that have been added or updated since the last fetch
                 last_fetch_time = self._get_last_fetch_time(section)
-                filters = {} if not self.last_fetch_times else {"addedAt>>": last_fetch_time}
+                filters = (
+                    {} if not self.last_fetch_times else {"addedAt>>": last_fetch_time}
+                )
                 future_items = {
                     executor.submit(self._create_item, item)
                     for item in section.search(libtype=section.type, filters=filters)

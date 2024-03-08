@@ -1,9 +1,10 @@
-from starlette.testclient import TestClient
-from fastapi import FastAPI
-from program.media.state import States
-import controllers.items as items
-from program.media.container import MediaItemContainer
 from unittest.mock import MagicMock
+
+from controllers import items
+from fastapi import FastAPI
+from program.media.container import MediaItemContainer
+from program.media.state import States
+from starlette.testclient import TestClient
 
 app = FastAPI()
 app.include_router(items.router)

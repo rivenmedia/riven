@@ -1,7 +1,10 @@
 """Mdblist content module"""
+
 from time import time
+
 from program.settings.manager import settings_manager
 from utils.logger import logger
+
 # from program.indexers.trakt import TraktIndexer
 
 

@@ -1,68 +1,132 @@
-import pytest
-from program.versions.parser.parser import Parser
+from program.versions.parser.models import ParsedMediaItem
 
 
-@pytest.fixture
-def parser():
-    return Parser()
+def test_movie_parse():
+    # Given
+    raw_title = "Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole"
 
+    # When
+    item = ParsedMediaItem(raw_title=raw_title)
 
-# Test parser
-def test_fetch_with_movie(parser):
-    # Use mocked movie item in parser test
-    parsed_data = parser.parse(item=None, string="Inception 2010 1080p BluRay x264")
-    assert parsed_data["fetch"] is True
-    # Add more assertions as needed
+    # Then
+    assert item.raw_title == raw_title
+    assert item.parsed_title == "Jumanji"
+    assert item.is_4k is False
+    assert item.is_multi_audio is False
+    assert item.is_multi_subtitle is False
+    assert item.is_complete is False
+    assert item.is_unwanted_quality is False
+    assert item.year == 2003
+    assert item.resolution == "1080p"
+    assert item.quality == "Blu-ray"
+    assert item.season == []
+    assert item.episodes == []
+    assert item.codec == "H.265"
+    assert item.audio == "AAC 5.1"
+    assert item.bitdepth == 10
+    assert item.hdr is False
+    assert item.upscaled is False
+    assert item.remastered is False
+    assert item.proper is False
+    assert item.repack is False
+    assert item.subtitles is False
+    assert item.language == []
+    assert item.remux is False
+    assert item.extended is False
 
+def test_show_parse():
+    # Given
+    raw_title = "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)"
 
-def test_fetch_with_episode(parser):
-    # Use mocked episode item in parser test
-    parsed_data = parser.parse(item=None, string="Breaking Bad S01E01 720p BluRay x264")
-    assert parsed_data["fetch"] is True
-    # Add more assertions as needed
+    # When
+    item = ParsedMediaItem(raw_title=raw_title)
 
+    # Then
+    assert item.raw_title == raw_title
+    assert item.parsed_title == "The Simpsons"
+    assert item.is_4k is False
+    assert item.is_multi_audio is False
+    assert item.is_multi_subtitle is False
+    assert item.is_complete is True
+    assert item.is_unwanted_quality is False
+    assert item.year == 1989
+    assert item.resolution == "1080p"
+    assert item.quality == "DVDRip"
+    assert item.season == list(range(1, 29))
+    assert item.episodes == []
+    assert item.codec == []
+    assert item.audio == []
+    assert item.hdr is False
+    assert item.upscaled is False
+    assert item.remastered is False
+    assert item.proper is False
+    assert item.repack is False
+    assert item.subtitles is False
+    assert item.language == []
+    assert item.remux is False
+    assert item.extended is False
 
-def test_parse_resolution_4k(parser):
-    parsed_data = parser.parse(
-        item=None, string="Movie.Name.2018.2160p.UHD.BluRay.x265"
-    )
-    assert parsed_data["is_4k"] is True
-    assert parsed_data["resolution"] == "2160p"
+def test_season_parse():
+    # Given
+    raw_title = "The Simpsons S01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole"
 
+    # When
+    item = ParsedMediaItem(raw_title=raw_title)
 
-def test_parse_resolution_1080p(parser):
-    parsed_data = parser.parse(item=None, string="Another.Movie.2019.1080p.WEB-DL.x264")
-    assert parsed_data["is_4k"] is False
-    assert parsed_data["resolution"] == "1080p"
+    # Then
+    assert item.raw_title == raw_title
+    assert item.parsed_title == "The Simpsons"
+    assert item.is_4k is False
+    assert item.is_multi_audio is False
+    assert item.is_multi_subtitle is False
+    assert item.is_complete is False
+    assert item.is_unwanted_quality is False
+    assert item.year == 1989
+    assert item.resolution == "1080p"
+    assert item.quality == "Blu-ray"
+    assert item.season == 1
+    assert item.episodes == [1]
+    assert item.codec == "H.265"
+    assert item.audio == "AAC 5.1"
+    assert item.bitdepth == 10
+    assert item.hdr is False
+    assert item.upscaled is False
+    assert item.remastered is False
+    assert item.proper is False
+    assert item.repack is False
+    assert item.subtitles is False
+    assert item.language == []
+    assert item.remux is False
+    assert item.extended is False
 
+def test_episode_parse():
+    # Given
+    raw_title = "Doctor Who S08E11 Dark Water 720p HDTV x264-FoV"
 
-def test_parse_dual_audio_present(parser):
-    parsed_data = parser.parse(
-        item=None, string="Series S01E01 720p BluRay x264 Dual-Audio"
-    )
-    assert parsed_data["is_dual_audio"] is True
+    # When
+    item = ParsedMediaItem(raw_title=raw_title)
 
-
-def test_parse_dual_audio_absent(parser):
-    parsed_data = parser.parse(item=None, string="Series S01E02 720p BluRay x264")
-    assert parsed_data["is_dual_audio"] is False
-
-
-def test_parse_complete_series_detected(parser):
-    parsed_data = parser.parse(item=None, string="The Complete Series Box Set 1080p")
-    assert parsed_data["is_complete"] is True
-
-
-def test_parse_complete_series_not_detected(parser):
-    parsed_data = parser.parse(item=None, string="Single.Movie.2020.1080p.BluRay")
-    assert parsed_data["is_complete"] is False
-
-
-def test_parse_unwanted_quality_detected(parser):
-    parsed_data = parser.parse(item=None, string="Low.Quality.Movie.CAM.2020")
-    assert parsed_data["is_unwanted_quality"] is True
-
-
-def test_parse_unwanted_quality_not_detected(parser):
-    parsed_data = parser.parse(item=None, string="High.Quality.Movie.1080p.2020")
-    assert parsed_data["is_unwanted_quality"] is False
+    # Then
+    assert item.raw_title == raw_title
+    assert item.parsed_title == "Doctor Who"
+    assert item.is_4k is False
+    assert item.is_multi_audio is False
+    assert item.is_multi_subtitle is False
+    assert item.is_complete is False
+    assert item.is_unwanted_quality is False
+    assert item.year == 2005
+    assert item.resolution == "720p"
+    assert item.quality == ["HDTV"]
+    assert item.season == 8
+    assert item.episodes == [11]
+    assert item.codec == ["x264"]
+    assert item.audio == []
+    assert item.hdr is False
+    assert item.upscaled is False
+    assert item.remastered is False
+    assert item.proper is False
+    assert item.repack is False
+    assert item.subtitles is False
+    assert item.language == []
+    assert item.remux is False
+    assert item.extended is False

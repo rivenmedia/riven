@@ -1,13 +1,13 @@
 """ Torrentio scraper module """
 from datetime import datetime
+
+from program.media.item import Episode, Season, Show
+from program.settings.manager import settings_manager
+from program.torrent import ScrapedTorrents, Torrent
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from program.torrent import ScrapedTorrents, Torrent
-from program.settings.manager import settings_manager
-from program.media.item import Show, Episode, Season
-import traceback
+from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
 class Torrentio:
@@ -64,40 +64,34 @@ class Torrentio:
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
-        except Exception:
+        except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Torrentio exception thrown: %s", traceback.format_exc())
+            logger.warn("Torrentio exception thrown: %s", e)
 
     def _scrape_item(self, item):
-        """Scrape torrentio for the given media item"""
+        """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            for torrent in data.torrents:
-                stream_info = {
-                    "title": torrent.title,
-                    "infohash": torrent.infohash,
-                    "parsed_data": torrent.parsed_data,
-                }
-            item.streams.update(stream_info)
+            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
+            item.streams.update(streams)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
                 stream_count,
                 item.log_string,
             )
+        elif stream_count > 0:
+            logger.debug(
+                "Could not find good streams for %s out of %s",
+                item.log_string,
+                stream_count,
+            )
         else:
-            if stream_count > 0:
-                logger.debug(
-                    "Could not find good streams for %s out of %s",
-                    item.log_string,
-                    stream_count,
-                )
-            else:
-                logger.debug("No streams found for %s", item.log_string)
+            logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item):
-        """Wrapper for torrentio scrape method"""
+    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
+        """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
             # Torrentio can't scrape shows
             if isinstance(item, Show):
@@ -123,18 +117,14 @@ class Torrentio:
                 url += identifier
             with self.second_limiter:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
-            scraped_torrents: ScrapedTorrents = ScrapedTorrents()
             if not response.is_ok or len(response.data.streams) <= 0:
-                return scraped_torrents, 0
+                return {}, 0
+            scraped_torrents = ScrapedTorrents()
             for stream in response.data.streams:
                 if not stream.infoHash:
                     continue
                 raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
                 torrent: Torrent = Torrent.create(item, raw_title, stream.infoHash)
-
-                # Need to remove ones that we dont want to add to the list here..
-                if torrent:
+                if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)
-
-            # Need to return sorted scraped_torrents here...
             return scraped_torrents, len(response.data.streams)
