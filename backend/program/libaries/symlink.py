@@ -13,7 +13,6 @@ class SymlinkLibrary:
         self.key = "symlinklibrary"
         self.last_fetch_times = {}
         self.settings = settings_manager.settings.symlink
-        self.initialized = True
         self.initialized = self.validate()
         if not self.initialized:
             logger.error(
