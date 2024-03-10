@@ -104,8 +104,13 @@ class OrionoidConfig(Observable):
 class TorrentioConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: HttpUrl = "https://torrentio.strem.fun"
+    url: str = "https://torrentio.strem.fun"
 
+class AnnatarConfig(Observable):
+    enabled: bool = False
+    url: str = "https://annatar.elfhosted.com"
+    limit: int = 10
+    timeout: int = 10
 
 class ScraperModel(Observable):
     after_2: float = 2
@@ -114,6 +119,7 @@ class ScraperModel(Observable):
     jackett: JackettConfig = JackettConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
     torrentio: TorrentioConfig = TorrentioConfig()
+    annatar: AnnatarConfig = AnnatarConfig()
 
 
 class ParserModel(Observable):

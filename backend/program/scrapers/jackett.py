@@ -58,6 +58,7 @@ class Jackett:
             logger.debug("Jackett request exception: %s", e)
         except Exception as e:
             logger.error("Jackett failed to scrape item: %s", e)
+        return item
 
     def _scrape_item(self, item):
         """Scrape the given media item"""

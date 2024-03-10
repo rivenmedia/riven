@@ -107,6 +107,7 @@ class Orionoid:
             logger.exception(
                 "Orionoid exception for item: %s - Exception: %s", item.log_string, e
             )
+        return item
 
     def _scrape_item(self, item):
         """Scrape the given media item"""
@@ -150,7 +151,9 @@ class Orionoid:
         if self.is_unlimited:
             # This can use 2x towards your Orionoid limits. Only use if user is unlimited.
             params["debridlookup"] = "realdebrid"
-            # There are 200 results per page. We probably don't need to go over 200.
+
+         # There are 200 results per page. We probably don't need to go over 200.
+        if self.settings.limitcount > 200:
             params["limitcount"] = 200
 
         if media_type == "show":
@@ -161,8 +164,6 @@ class Orionoid:
 
     def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Orionoid` scrape method"""
-        if isinstance(item, Show):
-            return item
         with self.minute_limiter:
             if isinstance(item, Season):
                 imdb_id = item.parent.imdb_id

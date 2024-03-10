@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from program.media.item import MediaItem
+from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.orionoid import Orionoid
 from program.scrapers.torrentio import Torrentio
@@ -14,8 +15,9 @@ class Scraping:
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.services = {
-            Orionoid: Orionoid(),
+            Annatar: Annatar(),
             Torrentio: Torrentio(),
+            Orionoid: Orionoid(),
             Jackett: Jackett(),
         }
         self.initialized = self.validate()

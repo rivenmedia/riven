@@ -92,10 +92,7 @@ class Torrentio:
     def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
-            # Torrentio can't scrape shows
-            if isinstance(item, Show):
-                return item
-            elif isinstance(item, Season):
+            if isinstance(item, Season):
                 identifier = f":{item.number}:1"
                 scrape_type = "series"
                 imdb_id = item.parent.imdb_id
