@@ -78,6 +78,7 @@ class Annatar:
         except Exception as e:
             self.minute_limiter.limit_hit()
             logger.warn("Annatar exception thrown: %s", e)
+        return item
 
     def _scrape_item(self, item):
         """Scrape the given media item"""
@@ -102,10 +103,6 @@ class Annatar:
 
     def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Annatar` scrape method"""
-        # movie
-        # https://annatar.elfhosted.com/search/imdb/movie/tt0172495?limit=10&timeout=10
-        # show
-        # https://annatar.elfhosted.com/search/imdb/series/tt1632701?season=2&episode=4&limit=100&timeout=15
         with self.minute_limiter:
             if isinstance(item, Season):
                 scrape_type = "series"
