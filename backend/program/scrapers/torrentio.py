@@ -3,7 +3,7 @@ from datetime import datetime
 
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
-from program.torrent import ScrapedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -72,8 +72,7 @@ class Torrentio:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
-            item.streams.update(streams)
+            item.streams.update(data.torrents)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -90,7 +89,7 @@ class Torrentio:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
+    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
             # Torrentio can't scrape shows
@@ -119,7 +118,7 @@ class Torrentio:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
             if not response.is_ok or len(response.data.streams) <= 0:
                 return {}, 0
-            scraped_torrents = ScrapedTorrents()
+            scraped_torrents = ParsedTorrents()
             for stream in response.data.streams:
                 if not stream.infoHash:
                     continue

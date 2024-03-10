@@ -1,7 +1,7 @@
 """ Jackett scraper module """
 from program.media.item import Show
 from program.settings.manager import settings_manager
-from program.torrent import ScrapedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
@@ -63,8 +63,7 @@ class Jackett:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
-            item.streams.update(streams)
+            item.streams.update(data.torrents)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -75,7 +74,7 @@ class Jackett:
             logger.debug("Could not find streams for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
+    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Jackett` scrape method"""
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
@@ -94,7 +93,7 @@ class Jackett:
             streams = response.data["rss"]["channel"].get("item", [])
             if not streams:
                 return {}, 0
-            scraped_torrents = ScrapedTorrents()
+            scraped_torrents = ParsedTorrents()
             for stream in streams:
                 attr = stream.get("torznab:attr", [])
                 infohash_attr = next(

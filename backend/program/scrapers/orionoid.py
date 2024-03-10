@@ -3,7 +3,7 @@ from datetime import datetime
 
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
-from program.torrent import ScrapedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -112,8 +112,7 @@ class Orionoid:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            streams = {torrent.infohash: {"title": torrent.title, "parsed_data": torrent.parsed_data} for torrent in data}
-            item.streams.update(streams)
+            item.streams.update(data.torrents)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -160,7 +159,7 @@ class Orionoid:
 
         return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
-    def api_scrape(self, item) -> tuple[ScrapedTorrents, int]:
+    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
         """Wrapper for `Orionoid` scrape method"""
         if isinstance(item, Show):
             return item
@@ -181,7 +180,7 @@ class Orionoid:
                 response = get(url, retry_if_failed=False, timeout=60)
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
-            scraped_torrents = ScrapedTorrents()
+            scraped_torrents = ParsedTorrents()
             for stream in response.data.data.streams:
                 if not stream.file.hash:
                     continue

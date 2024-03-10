@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Self
+from typing import List, Optional, Self
 
 from program.media.state import States
-from program.versions.parser.parser import parser
+from program.versions.parser import parse_episodes
 
 
 @dataclass
@@ -156,7 +156,6 @@ class MediaItem:
             self.symlinked_times if hasattr(self, "symlinked_times") else None
         )
 
-        dict["parsed"] = self.parsed if hasattr(self, "parsed") else None
         dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
         dict["update_folder"] = (
@@ -353,8 +352,8 @@ class Episode(MediaItem):
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.name}"
 
-    def get_file_episodes(self):
-        return parser.episodes(self.file)
+    def get_file_episodes(self) -> List[int]:
+        return parse_episodes(self.file)
 
     @property
     def log_string(self):
@@ -371,8 +370,7 @@ def _set_nested_attr(obj, key, value):
 
         current_obj = getattr(obj, current_key)
         _set_nested_attr(current_obj, rest_of_keys, value)
+    elif isinstance(obj, dict):
+        obj[key] = value
     else:
-        if isinstance(obj, dict):
-            obj[key] = value
-        else:
-            setattr(obj, key, value)
+        setattr(obj, key, value)

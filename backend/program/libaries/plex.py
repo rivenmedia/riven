@@ -31,11 +31,14 @@ class PlexLibrary:
         except BadRequest as e:
             logger.error("Plex is not configured correctly: %s", e)
             return
+        except ConnectionError as e:
+            logger.error("Plex connection error: %s", e)
+            return
         except Exception as e:
             logger.error("Plex exception thrown: %s", e)
             return
         self.log_worker_count = False
-        self.initialized = True if isinstance(self.plex, PlexServer) else False
+        self.initialized = bool(isinstance(self.plex, PlexServer))
         if not self.initialized:
             logger.error("Plex is not initialized!")
             return
