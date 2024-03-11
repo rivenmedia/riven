@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 
 import PTN
+from program.versions.ranks import BaseRankingModel, calculate_ranking
 from pydantic import BaseModel, root_validator
 from thefuzz import fuzz
 
@@ -47,8 +48,6 @@ class ParsedMediaItem(BaseModel):
             return values
 
         parsed = PTN.parse(raw_title, coherent_types=True)
-        
-        # Update values with parsed data
         values.update({
             "parsed_title": parsed.get("title"),
             "fetch": cls.check_unwanted_quality(raw_title),
@@ -125,18 +124,21 @@ class ParsedMediaItem(BaseModel):
 
 class Torrent(BaseModel):
     """Torrent class for storing torrent data."""
-    title: str = ""
-    infohash: str = ""
+    title: str
+    infohash: str
     parsed_data: ParsedMediaItem = None
     rank: int = 0
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Torrent):
             return False
-        return self.infohash == other.infohash
+        return self.infohash.lower() == other.infohash.lower()
 
     def __hash__(self) -> int:
         return hash(self.infohash)
+
+    def update_rank(self, ranking_model: BaseRankingModel):
+        self.rank = calculate_ranking(self.parsed_data, ranking_model)
 
     @classmethod
     def create(cls, item, raw_title: str, infohash: str) -> "Torrent":
@@ -153,7 +155,7 @@ class ParsedTorrents:
     """ParsedTorrents class for storing scraped torrents."""
 
     def __init__(self):
-        self.torrents: Dict[str, Dict[str, Any]] = {}
+        self.torrents: Dict[List[Torrent]] = {}
 
     def __iter__(self):
         return iter(self.torrents.values())
@@ -165,22 +167,33 @@ class ParsedTorrents:
         """Add a Torrent object."""
         self.torrents[torrent.infohash] = {
             "title": torrent.title,
-            "parsed_data": torrent.parsed_data
+            "parsed_data": torrent.parsed_data,
+            "rank": torrent.rank,
         }
-
+    
+    def sort(self):
+        """Sort the torrents by rank and remove low ranked torrents."""
+        self.torrents = dict(sorted(self.torrents.items(), key=lambda x: x[1]["rank"], reverse=True))
+        
 
 def parser(query: str) -> ParsedMediaItem:
     """Parse the given string using the ParsedMediaItem model."""
     return ParsedMediaItem(raw_title=query)
 
-def check_title_match(item, raw_title: str, threshold: int = 90) -> bool:
-    """Check if the title matches PTN title using fuzzy matching."""
-    target_title = item.title
-    if item.type == "season":
-        target_title = item.parent.title
-    elif item.type == "episode":
-        target_title = item.parent.parent.title
-    return fuzz.ratio(raw_title.lower(), target_title.lower()) >= threshold
+def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
+    """Check if the title matches PTN title using levenshtein algorithm."""
+    # Lets make this more globally usable by allowing str or MediaItem as input
+    if item is None or not raw_title:
+        return False
+    elif not isinstance(item, str):
+        target_title = item.title
+        if item.type == "season":
+            target_title = item.parent.title
+        elif item.type == "episode":
+            target_title = item.parent.parent.title
+        return fuzz.ratio(raw_title.lower(), target_title.lower()) >= threshold
+    else:
+        return fuzz.ratio(raw_title.lower(), item.lower()) >= threshold
 
 def parse_episodes(string: str, season: int = None) -> List[int]:
     """Get episode numbers from the file name."""
