@@ -132,7 +132,11 @@ class Annatar:
             for stream in response.data.media:
                 if not stream.hash:
                     continue
-                torrent: Torrent = Torrent.create(item, stream.title, stream.hash)
+                torrent: Torrent = Torrent(
+                    item=item,
+                    raw_title=stream.title,
+                    infohash=stream.hash
+                    )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.media)

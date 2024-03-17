@@ -1,7 +1,7 @@
 """ Torrentio scraper module """
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent, check_title_match
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -113,10 +113,15 @@ class Torrentio:
                 return {}, 0
             scraped_torrents = ParsedTorrents()
             for stream in response.data.streams:
-                if not stream.infoHash:
-                    continue
                 raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
-                torrent: Torrent = Torrent.create(item, raw_title, stream.infoHash)
+                if not stream.infoHash or not check_title_match(item, raw_title):
+                    continue
+                torrent: Torrent = Torrent(
+                    item=item,
+                    raw_title=raw_title,
+                    infohash=stream.infoHash
+                    )
                 if torrent and torrent.parsed_data.fetch:
+                    # fetch removes all the unwanted junk, like cams, telesyncs, etc.
                     scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.streams)

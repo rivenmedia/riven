@@ -102,7 +102,11 @@ class Jackett:
                 )
                 if infohash_attr:
                     infohash = infohash_attr.get("@value")
-                    torrent: Torrent = Torrent.create(item, stream.get("title"), infohash)
+                    torrent: Torrent = Torrent(
+                        item=item,
+                        raw_title=stream.get("title"),
+                        infohash=infohash
+                        )
                     if torrent and torrent.parsed_data.fetch:
                         scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.data.streams)

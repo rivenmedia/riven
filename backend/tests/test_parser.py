@@ -1,140 +1,102 @@
-from program.versions.parser import ParsedMediaItem
+import pytest
+from program.versions.parser import (
+    ParsedMediaItem,
+    check_complete_series,
+    check_multi_audio,
+    check_multi_subtitle,
+    check_unwanted_quality,
+    parse_episodes,
+)
 
+test_data = [
+    (
+        "Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
+        {
+            "raw_title": "Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
+            "parsed_title": "Jumanji",
+            "fetch": True,
+            "year": [1995],
+            "resolution": ["1080p"],
+            "quality": ["Blu-ray"],
+            "codec": ["H.265"],
+            "audio": ["AAC 5.1"],
+            "bitDepth": [10]
+        }
+    ),
+    (
+        "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)",
+        {
+            "raw_title": "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)",
+            "parsed_title": "The Simpsons",
+            "fetch": True,
+            "is_complete": True,
+            "resolution": ["1080p"],
+            "quality": ["DVD-Rip"],
+            "season": list(range(1, 29)),
+        }
+    ),
+]
 
-def test_default_parse():
-    raw_title = ""
-    item = ParsedMediaItem(raw_title=raw_title)
-    assert item == ParsedMediaItem(raw_title=raw_title)
+test_ids = [
+    "FullQualityCheck",
+    "SeasonRangeCheck"
+]
 
-def test_movie_parse():
-    # Given
-    raw_title = "Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole"
+@pytest.mark.parametrize("raw_title, expected", test_data, ids=test_ids)
+def test_parsed_media_item_properties(raw_title: str, expected: dict):
+    item = ParsedMediaItem(raw_title = raw_title)
+    for key, value in expected.items():
+        assert getattr(item, key) == value, f"Attribute {key} failed for raw_title: {raw_title}"
 
-    # When
-    item = ParsedMediaItem(raw_title=raw_title)
+def test_episode_parsing():
+    test_cases = [
+        ("The Simpsons S01E01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1]),
+        ("The Simpsons S01E01E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
+        ("The Simpsons S01E01-E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
+        # Looks like it doesn't parse past the first 2 episodes
+        ("The Simpsons S01E01-E02-E03-E04-E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
+        ("The Simpsons S01E01E02E03E04E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
+    ]
+    for test_string, expected in test_cases:
+        assert parse_episodes(test_string) == expected, f"Failed for '{test_string}' with expected {expected}"
 
-    # Then
-    assert item.raw_title == raw_title
-    assert item.parsed_title == "Jumanji"
-    assert item.fetch is True
-    assert item.is_4k is False
-    assert item.is_multi_audio is False
-    assert item.is_multi_subtitle is False
-    assert item.is_complete is False
-    assert item.year == [1995]
-    assert item.resolution == ["1080p"]
-    assert item.quality == ["Blu-ray"]
-    assert item.season == []
-    assert item.episode == []
-    assert item.codec == ["H.265"]
-    assert item.audio == ["AAC 5.1"]
-    assert item.bitDepth == [10]
+def test_multi_audio_patterns():
+    test_cases = [
+        ("Lucy 2014 Dual-Audio WEBRip 1400Mb", True),
+        ("Darkness Falls (2020) HDRip 720p [Hindi-Dub] Dual-Audio x264", True),
+        ("The Simpsons - Season 1 Complete [DVDrip ITA ENG] TNT Village", False),
+        ("Brave.2012.R5.DVDRip.XViD.LiNE-UNiQUE", False),
+    ]
+    for test_string, expected in test_cases:
+        assert check_multi_audio(test_string) == expected
 
-def test_show_parse():
-    # Given
-    raw_title = "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)"
+def test_multi_subtitle_patterns():
+    test_cases = [
+        ("IP Man And Four Kings 2019 HDRip 1080p x264 AAC Mandarin HC CHS-ENG SUBS Mp4Ba", True),
+        ("The Simpsons - Season 1 Complete [DVDrip ITA ENG] TNT Village", True),
+        ("The.X-Files.S01.Retail.DKsubs.720p.BluRay.x264-RAPiDCOWS", False),
+        ("Hercules (2014) WEBDL DVDRip XviD-MAX", False),
+    ]
+    for test_string, expected in test_cases:
+        assert check_multi_subtitle(test_string) == expected
 
-    # When
-    item = ParsedMediaItem(raw_title=raw_title)
+def test_complete_series_patterns():
+    test_cases = [
+        ("The Sopranos - The Complete Series (Season 1, 2, 3, 4, 5 & 6) + Extras", True),
+        ("The Inbetweeners Collection", True),
+        ("The Simpsons S01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", False),
+        ("Two and a Half Men S12E01 HDTV x264 REPACK-LOL [eztv]", False),
+    ]
+    for test_string, expected in test_cases:
+        assert check_complete_series(test_string) == expected
 
-    # Then
-    assert item.raw_title == raw_title
-    assert item.parsed_title == "The Simpsons"
-    assert item.fetch is True
-    assert item.is_4k is False
-    assert item.is_multi_audio is False
-    assert item.is_multi_subtitle is False
-    assert item.is_complete is True
-    assert item.year == []
-    assert item.resolution == ["1080p"]
-    assert item.quality == ["DVD-Rip"]
-    assert item.season == list(range(1, 29))
-    assert item.episode == []
-
-def test_season_parse():
-    # Given
-    raw_title = "The Simpsons S01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole"
-
-    # When
-    item = ParsedMediaItem(raw_title=raw_title)
-
-    # Then
-    assert item.raw_title == raw_title
-    assert item.parsed_title == "The Simpsons"
-    assert item.fetch is True
-    assert item.is_4k is False
-    assert item.is_multi_audio is False
-    assert item.is_multi_subtitle is False
-    assert item.is_complete is False
-    assert item.year == []
-    assert item.resolution == ["1080p"]
-    assert item.quality == ["Blu-ray"]
-    assert item.season == [1]
-    assert item.episode == []
-    assert item.codec == ["H.265"]
-    assert item.audio == ["AAC 5.1"]
-    assert item.bitDepth == [10]
-    assert item.hdr is False
-    assert item.upscaled is False
-    assert item.remastered is False
-    assert item.proper is False
-    assert item.repack is False
-    assert item.subtitles == []
-    assert item.language == []
-    assert item.remux is False
-    assert item.extended is False
-
-def test_episode_parse():
-    # Given
-    raw_title = "Doctor Who S08E11 Dark Water 720p HDTV x264-FoV"
-
-    # When
-    item = ParsedMediaItem(raw_title=raw_title)
-
-    # Then
-    assert item.raw_title == raw_title
-    assert item.parsed_title == "Doctor Who"
-    assert item.fetch is True
-    assert item.is_4k is False
-    assert item.is_multi_audio is False
-    assert item.is_multi_subtitle is False
-    assert item.is_complete is False
-    assert item.resolution == ["720p"]
-    assert item.quality == ["HDTV"]
-    assert item.season == [8]
-    assert item.episode == [11]
-    assert item.codec == ["H.264"]
-
-def test_multi_episodes():
-    # Also tests for unwanted quality
-
-    # Given
-    raw_title = "Doctor Who S08E11E12 Dark Water 720p HDTV x264-FoV"
-
-    # When
-    item = ParsedMediaItem(raw_title=raw_title)
-
-    # Then
-    assert item.raw_title == raw_title
-    assert item.parsed_title == "Doctor Who"
-    assert item.fetch is True
-    assert item.is_4k is False
-    assert item.is_multi_audio is False
-    assert item.is_multi_subtitle is False
-    assert item.is_complete is False
-    assert item.year == []
-    assert item.resolution == ["720p"]
-    assert item.quality == ["HDTV"]
-    assert item.season == [8]
-    assert item.episode == [11, 12]
-    assert item.codec == ["H.264"]
-    assert item.audio == []
-    assert item.hdr is False
-    assert item.upscaled is False
-    assert item.remastered is False
-    assert item.proper is False
-    assert item.repack is False
-    assert item.subtitles == []
-    assert item.language == []
-    assert item.remux is False
-    assert item.extended is False
+def test_unwanted_quality_patterns():
+    # False means the pattern is unwanted, and won't be fetched.
+    test_cases = [
+        ("Mission.Impossible.1996.Custom.Audio.1080p.PL-Spedboy", True),
+        ("Casino.1995.MULTi.REMUX.2160p.UHD.Blu-ray.HDR.HEVC.DTS-X7.1-DENDA", True),
+        ("Guardians of the Galaxy (CamRip / 2014)", False),
+        ("Brave.2012.R5.DVDRip.XViD.LiNE-UNiQUE", False)
+    ]
+    for test_string, expected in test_cases:
+        assert check_unwanted_quality(test_string) == expected

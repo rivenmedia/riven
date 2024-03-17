@@ -185,7 +185,11 @@ class Orionoid:
             for stream in response.data.data.streams:
                 if not stream.file.hash:
                     continue
-                torrent: Torrent = Torrent.create(item, stream.file.name, stream.file.hash)
+                torrent: Torrent = Torrent(
+                    item=item,
+                    raw_title=stream.file.name,
+                    infohash=stream.file.hash
+                    )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.data.streams)
