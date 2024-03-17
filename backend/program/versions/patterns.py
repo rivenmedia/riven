@@ -17,6 +17,12 @@ MULTI_SUBTITLE_PATTERNS = [
     r"\beng?sub[A-Z]*\b",
 ]
 
+HDR_DOLBY_VIDEO_PATTERNS = [
+    (r"\bDV\b|dolby.?vision|\bDoVi\b", "DV"),
+    (r"HDR10(?:\+|plus)", "HDR10+"),
+    (r"\bHDR(?:10)?\b", "HDR"),
+]
+
 # Pattern for identifying a complete series.
 COMPLETE_SERIES_PATTERNS = [
     r"(?:\bthe\W)?(?:\bcomplete|collection|dvd)?\b[ .]?\bbox[ .-]?set\b",
@@ -29,7 +35,7 @@ COMPLETE_SERIES_PATTERNS = [
     r"duology|trilogy|quadr[oi]logy|tetralogy|pentalogy|hexalogy|heptalogy|anthology|saga",
 ]
 
-# Pattern for identifying unwanted quality. (We don't fetch any of this!)
+# Pattern for identifying unwanted quality. We don't fetch any of this!
 UNWANTED_QUALITY_PATTERNS = [
     r"\b(?:H[DQ][ .-]*)?CAM(?:H[DQ])?(?:[ .-]*Rip)?\b",
     r"\b(?:H[DQ][ .-]*)?S[ .-]*print\b",
@@ -47,6 +53,7 @@ UNWANTED_QUALITY_PATTERNS = [
     r"\b(?:Deleted[ .-]*)?Scene(?:s)?\b",
     r"\bTrailers?\b",
     r"\b((Half.)?SBS|3D)\b"
+    r"\bWEB[ .-]?DL[ .-]?Rip\b",
 ]
 
 MULTI_AUDIO_COMPILED = [
@@ -60,4 +67,7 @@ COMPLETE_SERIES_COMPILED = [
 ]
 UNWANTED_QUALITY_COMPILED = [
     re.compile(pattern, re.IGNORECASE) for pattern in UNWANTED_QUALITY_PATTERNS
+]
+HDR_DOLBY_VIDEO_COMPILED = [
+    (re.compile(pattern, re.IGNORECASE), value) for pattern, value in HDR_DOLBY_VIDEO_PATTERNS
 ]

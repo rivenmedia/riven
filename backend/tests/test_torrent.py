@@ -49,7 +49,7 @@ def test_valid_torrent_from_item():
     assert isinstance(torrent.parsed_data, ParsedMediaItem)
     assert torrent.parsed_data.parsed_title == "The Walking Dead"
     assert torrent.parsed_data.fetch is True
-    assert torrent.rank == 80
+    assert torrent.rank == 83
 
 def test_torrent_creation_from_scraper(parsed_torrents: ParsedTorrents):
     """Test creating a torrent from scraper"""
@@ -61,12 +61,12 @@ def test_default_ranking_model():
     """Test default ranking model"""
     ranking = DefaultRanking()
     items = [
-        (ParsedMediaItem(raw_title="Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)"), 100),
-        (ParsedMediaItem(raw_title="The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"), 80),
-        (ParsedMediaItem(raw_title="The Simpsons S01 4K BluRay x265 HEVC 10bit AAC 5.1 Tigole"), -990),
-        (ParsedMediaItem(raw_title="Attack.on.Titan.S01.S02.S03.1080p.Blu-Ray.Remux.Dual-Audio.TrueHD"), -899),
-        (ParsedMediaItem(raw_title="Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]"), 140),
-        (ParsedMediaItem(raw_title="Transformers.The.Last.Knight.2017.1080p.BluRay.x264.DTS-HD.MA.7.1-FGT"), 90),
+        (ParsedMediaItem(raw_title="Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)"), 250),
+        (ParsedMediaItem(raw_title="Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]"), 223),
+        (ParsedMediaItem(raw_title="Transformers.The.Last.Knight.2017.1080p.BluRay.x264.DTS-HD.MA.7.1-FGT"), 183),
+        (ParsedMediaItem(raw_title="The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"), 83),
+        (ParsedMediaItem(raw_title="Attack.on.Titan.S01.S02.S03.1080p.Blu-Ray.Remux.Dual-Audio.TrueHD"), -779),
+        (ParsedMediaItem(raw_title="The Simpsons S01 4K BluRay x265 HEVC 10bit AAC 5.1 Tigole"), -840),
     ]
 
     for item, expected in items:
@@ -76,19 +76,19 @@ def test_sorted_torrents(parsed_torrents: ParsedTorrents):
     """Test sorted parsed_torrents"""
     parsed_torrents.sort()
     sorted_title_order = [
-        "Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]",
-        "Are You Being Served (1972) Season 1-10 S01-S10 + Extras (576p AMZN WEB-DL x265 HEVC 10bit EAC3 2.0 MONOLITH) [QxR]",
         "Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)",
         "Casino (1995) (1080p BluRay x265 HEVC 10bit HDR AAC 7.1 afm72) [QxR]",
         "The Simpsons S01E01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
+        "Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]",
+        "Are You Being Served (1972) Season 1-10 S01-S10 + Extras (576p AMZN WEB-DL x265 HEVC 10bit EAC3 2.0 MONOLITH) [QxR]",
         "Transformers.The.Last.Knight.2017.1080p.BluRay.x264.DTS-HD.MA.7.1-FGT",
         "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)",
         "X-men The Last Stand (2006) (720p BluRay x265 HEVC 10bit AAC 6.1 Vyndros)",
-        "Guardians Of The Galaxy 2014 R6 720p HDCAM x264-JYK",
         "The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]",
-        "Brave.2012.R5.DVDRip.XViD.LiNE-UNiQUE",
         "Attack.on.Titan.S01.S02.S03.1080p.Blu-Ray.Remux.Dual-Audio.TrueHD",
         "The Simpsons S01 4K BluRay x265 HEVC 10bit AAC 5.1 Tigole",
+        "Guardians Of The Galaxy 2014 R6 720p HDCAM x264-JYK",
+        "Brave.2012.R5.DVDRip.XViD.LiNE-UNiQUE",
     ]
     # On the default rank model we shove 4K and Remux to the bottom, and sort the rest by rank
     for index, torrent in enumerate(parsed_torrents):

@@ -2,11 +2,13 @@ from typing import Dict, List
 
 import PTN
 from program.versions.ranks import BaseRankingModel, DefaultRanking, calculate_ranking
+from program.settings.manager import settings_manager as sm
 from pydantic import BaseModel, Field
 from thefuzz import fuzz
 
 from .patterns import (
     COMPLETE_SERIES_COMPILED,
+    HDR_DOLBY_VIDEO_COMPILED,
     MULTI_AUDIO_COMPILED,
     MULTI_SUBTITLE_COMPILED,
     UNWANTED_QUALITY_COMPILED,
@@ -32,7 +34,7 @@ class ParsedMediaItem(BaseModel):
     subtitles: List[str] = []
     language: List[str] = []
     bitDepth: List[int] = []
-    hdr: bool = False
+    hdr: str = None
     proper: bool = False
     repack: bool = False
     remux: bool = False
@@ -40,13 +42,13 @@ class ParsedMediaItem(BaseModel):
     remastered: bool = False
     directorsCut: bool = False
     extended: bool = False
+    excess: list = []
 
     def __init__(self, raw_title: str, **kwargs):
         super().__init__(raw_title=raw_title, **kwargs)
-        parsed = PTN.parse(raw_title, coherent_types=True)
+        parsed: dict = PTN.parse(raw_title, coherent_types=True)
         self.raw_title = raw_title
         self.parsed_title = parsed.get("title")
-        self.fetch = check_unwanted_quality(raw_title)
         self.is_multi_audio = check_multi_audio(raw_title)
         self.is_multi_subtitle = check_multi_subtitle(raw_title)
         self.is_complete = check_complete_series(raw_title)
@@ -61,7 +63,7 @@ class ParsedMediaItem(BaseModel):
         self.subtitles = parsed.get("subtitles", [])
         self.language = parsed.get("language", [])
         self.bitDepth = parsed.get("bitDepth", [])
-        self.hdr = parsed.get("hdr", False)
+        self.hdr = check_hdr_dolby_video(raw_title)
         self.proper = parsed.get("proper", False)
         self.repack = parsed.get("repack", False)
         self.remux = parsed.get("remux", False)
@@ -69,6 +71,8 @@ class ParsedMediaItem(BaseModel):
         self.remastered = parsed.get("remastered", False)
         self.directorsCut = parsed.get("directorsCut", False)
         self.extended = parsed.get("extended", False)
+        self.excess = parsed.get("excess", [])
+        self.fetch = check_fetch(raw_title, self.is_4k)
 
 
 class Torrent(BaseModel):
@@ -86,6 +90,8 @@ class Torrent(BaseModel):
     ):
         super().__init__(raw_title=raw_title, infohash=infohash)
         self.parsed_data = ParsedMediaItem(raw_title)
+        if not ranking_model:
+            ranking_model = DefaultRanking()
         self.rank = calculate_ranking(self.parsed_data, ranking_model)
 
     def __eq__(self, other: object) -> bool:
@@ -111,6 +117,8 @@ class ParsedTorrents(BaseModel):
 
     def add(self, torrent: Torrent):
         """Add a Torrent object."""
+        if torrent.parsed_data.is_4k and not sm.ranking.include_4k:
+            return
         self.torrents[torrent.infohash] = torrent
     
     def sort(self):
@@ -155,18 +163,31 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
         episodes = []
     return episodes
 
-def check_unwanted_quality(string) -> bool:
+def check_fetch(input_string: str, is_4k: bool) -> bool:
+    """Check user settings and unwanted quality to determine if torrent should be fetched."""
+    if not sm.ranking.include_4k and is_4k:
+        return False
+    return check_unwanted_quality(input_string)
+
+def check_unwanted_quality(input_string: str) -> bool:
     """Check if the string contains unwanted quality pattern."""
-    return not any(pattern.search(string) for pattern in UNWANTED_QUALITY_COMPILED)
+    return not any(pattern.search(input_string) for pattern in UNWANTED_QUALITY_COMPILED)
 
-def check_multi_audio(string) -> bool:
+def check_multi_audio(input_string: str) -> bool:
     """Check if the string contains multi-audio pattern."""
-    return any(pattern.search(string) for pattern in MULTI_AUDIO_COMPILED)
+    return any(pattern.search(input_string) for pattern in MULTI_AUDIO_COMPILED)
 
-def check_multi_subtitle(string) -> bool:
+def check_multi_subtitle(input_string: str) -> bool:
     """Check if the string contains multi-subtitle pattern."""
-    return any(pattern.search(string) for pattern in MULTI_SUBTITLE_COMPILED)
+    return any(pattern.search(input_string) for pattern in MULTI_SUBTITLE_COMPILED)
 
-def check_complete_series(string) -> bool:
+def check_complete_series(input_string: str) -> bool:
     """Check if the string contains complete series pattern."""
-    return any(pattern.search(string) for pattern in COMPLETE_SERIES_COMPILED)
+    return any(pattern.search(input_string) for pattern in COMPLETE_SERIES_COMPILED)
+
+def check_hdr_dolby_video(input_string: str):
+    """Check if the string contains HDR/Dolby video pattern."""
+    for pattern, value in HDR_DOLBY_VIDEO_COMPILED:
+        if pattern.search(input_string):
+            return value
+    return None

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Callable
 
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, field_validator
 from utils import version_file_path
 
 
@@ -109,7 +109,7 @@ class TorrentioConfig(Observable):
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "https://annatar.elfhosted.com"
-    limit: int = 10
+    limit: int = 20
     timeout: int = 10
 
 class ScraperModel(Observable):
@@ -122,11 +122,10 @@ class ScraperModel(Observable):
     annatar: AnnatarConfig = AnnatarConfig()
 
 
-class ParserModel(Observable):
-    highest_quality: bool = False
+class RankingModel(Observable):
+    profile: str = "default"
     include_4k: bool = False
-    repack_proper: bool = True
-    language: list[str] = ["English"]
+    rank_av1: int = 0
 
 
 # Application Settings
@@ -150,5 +149,5 @@ class AppModel(Observable):
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
-    parser: ParserModel = ParserModel()
+    ranking: RankingModel = RankingModel()
     indexer: IndexerModel = IndexerModel()
