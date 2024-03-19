@@ -1,12 +1,16 @@
 import pytest
+from program.settings.manager import settings_manager as sm
+from program.settings.models import RankingModel
 from program.versions.parser import (
     ParsedMediaItem,
+    Torrent,
     check_complete_series,
     check_multi_audio,
     check_multi_subtitle,
     check_unwanted_quality,
     parse_episodes,
 )
+from program.versions.rank_models import DefaultRanking
 
 test_data = [
     (
@@ -41,6 +45,31 @@ test_ids = [
     "FullQualityCheck",
     "SeasonRangeCheck"
 ]
+
+CUSTOM_RANKS = sm.settings.ranking.custom_ranks
+
+def test_valid_torrent_from_item():
+    ranking_model = DefaultRanking()
+    torrent = Torrent(
+        ranking_model=ranking_model,
+        raw_title="The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]",
+        infohash="1234567890"
+    )
+
+    assert torrent.raw_title == "The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"
+    assert torrent.infohash == "1234567890"
+    assert isinstance(torrent.parsed_data, ParsedMediaItem)
+    assert torrent.parsed_data.parsed_title == "The Walking Dead"
+    assert torrent.parsed_data.fetch is True
+    assert torrent.rank == 83
+
+def test_custom_ranks_is_mapped():
+    # Ensure that CUSTOM_RANKS is an instance of RankingModel
+    assert isinstance(sm.settings.ranking, RankingModel)
+    # Access the custom ranks through the custom_ranks attribute
+    custom_ranks = sm.settings.ranking.custom_ranks
+    # Now you can access individual ranks
+    assert custom_ranks["uhd"].fetch is False
 
 @pytest.mark.parametrize("raw_title, expected", test_data, ids=test_ids)
 def test_parsed_media_item_properties(raw_title: str, expected: dict):

@@ -1,170 +1,11 @@
 import re
 
 from program.settings.manager import settings_manager as sm
-from pydantic import BaseModel
+from program.versions.rank_models import BaseRankingModel
 
-
-class BaseRankingModel(BaseModel):
-    # resolution
-    uhd: int = 0   # 4K
-    fhd: int = 0   # 1080p
-    hd: int = 0    # 720p
-    sd: int = 0    # 480p
-    # quality
-    bluray: int = 0
-    dolby_video: int = 0
-    hdr: int = 0
-    # audio
-    dts_x: int = 0
-    dts_hd: int = 0
-    dts_hd_ma: int = 0
-    atmos: int = 0
-    truehd: int = 0
-    ddplus: int = 0
-    ac3: int = 0
-    aac: int = 0
-    # other
-    remux: int = 0
-    webdl: int = 0
-    repack: int = 5
-    proper: int = 4
-    # extras
-    dubbed: int = 4
-    subbed: int = 2
-    av1: int = sm.settings.ranking.rank_av1 or 0
-
-
-class DefaultRanking(BaseRankingModel):
-    uhd: int = -1000
-    fhd: int = 90
-    hd: int = 80
-    sd: int = -20
-    dolby_video: int = -20
-    aac: int = 70
-    ac3: int = 50
-    remux: int = -1000
-    webdl: int = 90
-    bluray: int = 80
-
-
-class BestRemuxRanking(BaseRankingModel):
-    uhd: int = 100
-    fhd: int = 60
-    hd: int = 40
-    sd: int = 20
-    dolby_video: int = 100
-    hdr: int = 80
-    dts_x: int = 100
-    dts_hd: int = 80
-    dts_hd_ma: int = 90
-    atmos: int = 90
-    truehd: int = 60
-    aac: int = 30
-    ac3: int = 20
-    remux: int = 150
-    webdl: int = -1000
-
-
-class BestWebRanking(BaseRankingModel):
-    uhd: int = 100
-    fhd: int = 90
-    hd: int = 80
-    sd: int = 20
-    dolby_video: int = 100
-    hdr: int = 80
-    aac: int = 50
-    ac3: int = 40
-    remux: int = -1000
-    webdl: int = 100
-
-
-class BestResolutionRanking(BaseRankingModel):
-    uhd: int = 100
-    fhd: int = 90
-    hd: int = 80
-    sd: int = 70
-    dolby_video: int = 100
-    hdr: int = 80
-    dts_x: int = 100
-    dts_hd: int = 80
-    dts_hd_ma: int = 90
-    atmos: int = 90
-    truehd: int = 60
-    ddplus: int = 90
-    aac: int = 30
-    ac3: int = 20
-    remux: int = 150
-    bluray: int = 120
-    webdl: int = -1000
-
-
-class BestOverallRanking(BaseRankingModel):
-    uhd: int = 100
-    fhd: int = 90
-    hd: int = 80
-    sd: int = 70
-    dolby_video: int = 100
-    hdr: int = 80
-    dts_x: int = 100
-    dts_hd: int = 80
-    dts_hd_ma: int = 90
-    atmos: int = 90
-    truehd: int = 60
-    ddplus: int = 40
-    aac: int = 30
-    ac3: int = 20
-    remux: int = 150
-    bluray: int = 120
-    webdl: int = 90
-
-
-class AnimeRanking(BaseRankingModel):
-    uhd: int = -1000
-    fhd: int = 90
-    hd: int = 80
-    sd: int = 20
-    aac: int = 70
-    ac3: int = 50
-    remux: int = -1000
-    webdl: int = 90
-    bluray: int = 50
-    dubbed: int = 60
-    subbed: int = 40
-
-
-class AnyRanking(BaseRankingModel):
-    uhd: int = 2
-    fhd: int = 3
-    hd: int = 2
-    sd: int = 1
-    dolby_video: int = 1
-    hdr: int = 1
-    dts_x: int = 1
-    dts_hd: int = 1
-    dts_hd_ma: int = 1
-    atmos: int = 1
-    truehd: int = 1
-    ddplus: int = 1
-    aac: int = 2
-    ac3: int = 1
-    remux: int = 1
-    webdl: int = 1
-    bluray: int = 1
-
-
-class RankModels:
-    """RankModels class for storing all ranking models."""
-    default: DefaultRanking = DefaultRanking()
-    remux: BestRemuxRanking = BestRemuxRanking()
-    web: BestWebRanking = BestWebRanking()
-    resolution: BestResolutionRanking = BestResolutionRanking()
-    overall: BestOverallRanking = BestOverallRanking()
-    anime: AnimeRanking = AnimeRanking()
-    any: AnyRanking = AnyRanking()
-
-    def get(name: str) -> BaseRankingModel:
-        """Get a ranking model by name."""
-        return getattr(RankModels, name, RankModels.default)
+SETTINGS = sm.settings.ranking
+CUSTOM_RANKS = sm.settings.ranking.custom_ranks
+SETTINGS.compile_patterns()
 
 
 def calculate_ranking(parsed_data, ranking: BaseRankingModel) -> int:
@@ -174,39 +15,41 @@ def calculate_ranking(parsed_data, ranking: BaseRankingModel) -> int:
     rank += calculate_codec_rank(parsed_data, ranking)
     rank += calculate_audio_rank(parsed_data, ranking)
     rank += calculate_other_ranks(parsed_data, ranking)
+    rank += calculate_preferred(parsed_data)
     if parsed_data.repack:
-        rank += ranking.repack
+        rank += ranking.repack if not CUSTOM_RANKS["repack"].enable else CUSTOM_RANKS["repack"].rank
     if parsed_data.proper:
-        rank += ranking.proper
+        rank += ranking.proper if not CUSTOM_RANKS["proper"].enable else CUSTOM_RANKS["proper"].rank
     if parsed_data.remux:
-        rank += ranking.remux
+        rank += ranking.remux if not CUSTOM_RANKS["remux"].enable else CUSTOM_RANKS["remux"].rank
     if parsed_data.is_multi_audio:
-        rank += ranking.dubbed
+        rank += ranking.dubbed if not CUSTOM_RANKS["dubbed"].enable else CUSTOM_RANKS["dubbed"].rank
     if parsed_data.is_multi_subtitle:
-        rank += ranking.subbed
+        rank += ranking.subbed if not CUSTOM_RANKS["subbed"].enable else CUSTOM_RANKS["subbed"].rank
     return rank
 
 def calculate_resolution_rank(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate the resolution ranking of a given ParsedMediaItem"""
     resolution: str = parsed_data.resolution[0] if parsed_data.resolution else None
-    if parsed_data.is_4k and sm.settings.ranking.include_4k:
-        return ranking.uhd
-    elif parsed_data.is_4k:
-        return -1000
+    if not resolution:
+        return 0
+    if parsed_data.is_4k:
+        return ranking.uhd if not CUSTOM_RANKS["uhd"].enable else CUSTOM_RANKS["uhd"].rank
     elif resolution == "1080p":
-        return ranking.fhd
+        return ranking.fhd if not CUSTOM_RANKS["fhd"].enable else CUSTOM_RANKS["fhd"].rank
     elif resolution == "720p":
-        return ranking.hd
+        return ranking.hd if not CUSTOM_RANKS["hd"].enable else CUSTOM_RANKS["hd"].rank
     elif resolution in ("576p", "480p"):
-        return ranking.sd
+        return ranking.sd if not CUSTOM_RANKS["sd"].enable else CUSTOM_RANKS["sd"].rank
     return 0
 
 def calculate_quality_rank(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate the quality ranking of a given ParsedMediaItem"""
     total_rank = 0
     quality_rank = {
-        "WEB-DL": ranking.webdl,
-        "Blu-ray": ranking.bluray,
+        "WEB-DL": ranking.webdl if not CUSTOM_RANKS["webdl"].enable else CUSTOM_RANKS["webdl"].rank,
+        "Blu-ray": ranking.bluray if not CUSTOM_RANKS["bluray"].enable else CUSTOM_RANKS["bluray"].rank,
+        # These should already be taken care of, but as a precaution, we add them here too.
         "WEBCap": -1000,
         "Cam": -1000,
         "Telesync": -1000,
@@ -228,7 +71,7 @@ def calculate_codec_rank(parsed_data, ranking: BaseRankingModel) -> int:
     total_rank = 0
     codec_rank = {
         "Xvid": -1000,
-        "AV1": ranking.av1,
+        "AV1": ranking.av1 if not CUSTOM_RANKS["av1"].enable else CUSTOM_RANKS["av1"].rank,
         "H.263": -1000,
         "H.264": 3,
         "H.265": 0,
@@ -254,22 +97,22 @@ def calculate_audio_rank(parsed_data, ranking: BaseRankingModel) -> int:
     audio_format = re.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio_format).strip()
     
     audio_rank = {
-        "Dolby TrueHD": ranking.truehd,
-        "Dolby Atmos": ranking.atmos,
-        "Dolby Digital": ranking.ac3,
-        "Dolby Digital EX": ranking.dts_x,
-        "Dolby Digital Plus": ranking.ddplus,
-        "DTS": ranking.dts_hd,
-        "DTS-HD": ranking.dts_hd + 5,
-        "DTS-HD MA": ranking.dts_hd_ma + 10,
-        "DTS-ES": ranking.dts_x + 5,
-        "DTS-EX": ranking.dts_x + 5,
-        "DTS:X": ranking.dts_x + 10,
-        "AAC": ranking.aac,
-        "AAC-LC": ranking.aac + 2,
-        "HE-AAC": ranking.aac + 5,
-        "HE-AAC v2": ranking.aac + 10,
-        "AC3": ranking.ac3,
+        "Dolby TrueHD": ranking.truehd if not CUSTOM_RANKS["truehd"].enable else CUSTOM_RANKS["truehd"].rank,
+        "Dolby Atmos": ranking.atmos if not CUSTOM_RANKS["atmos"].enable else CUSTOM_RANKS["atmos"].rank,
+        "Dolby Digital": ranking.ac3 if not CUSTOM_RANKS["ac3"].enable else CUSTOM_RANKS["ac3"].rank,
+        "Dolby Digital EX": ranking.dts_x if not CUSTOM_RANKS["dts_x"].enable else CUSTOM_RANKS["dts_x"].rank,
+        "Dolby Digital Plus": ranking.ddplus if not CUSTOM_RANKS["ddplus"].enable else CUSTOM_RANKS["ddplus"].rank,
+        "DTS": ranking.dts_hd if not CUSTOM_RANKS["dts_hd"].enable else CUSTOM_RANKS["dts_hd"].rank,
+        "DTS-HD": ranking.dts_hd + 5 if not CUSTOM_RANKS["dts_hd"].enable else CUSTOM_RANKS["dts_hd"].rank,
+        "DTS-HD MA": ranking.dts_hd_ma + 10 if not CUSTOM_RANKS["dts_hd_ma"].enable else CUSTOM_RANKS["dts_hd_ma"].rank,
+        "DTS-ES": ranking.dts_x + 5 if not CUSTOM_RANKS["dts_x"].enable else CUSTOM_RANKS["dts_x"].rank,
+        "DTS-EX": ranking.dts_x + 5 if not CUSTOM_RANKS["dts_x"].enable else CUSTOM_RANKS["dts_x"].rank,
+        "DTS:X": ranking.dts_x + 10 if not CUSTOM_RANKS["dts_x"].enable else CUSTOM_RANKS["dts_x"].rank,
+        "AAC": ranking.aac if not CUSTOM_RANKS["aac"].enable else CUSTOM_RANKS["aac"].rank,
+        "AAC-LC": ranking.aac + 2 if not CUSTOM_RANKS["aac"].enable else CUSTOM_RANKS["aac"].rank,
+        "HE-AAC": ranking.aac + 5 if not CUSTOM_RANKS["aac"].enable else CUSTOM_RANKS["aac"].rank,
+        "HE-AAC v2": ranking.aac + 10 if not CUSTOM_RANKS["aac"].enable else CUSTOM_RANKS["aac"].rank,
+        "AC3": ranking.ac3 if not CUSTOM_RANKS["ac3"].enable else CUSTOM_RANKS["ac3"].rank,
         "FLAC": -1000,
         "OGG": -1000
     }
@@ -278,18 +121,18 @@ def calculate_audio_rank(parsed_data, ranking: BaseRankingModel) -> int:
             total_rank += rank
     return total_rank
 
-def calculate_other_ranks(parsed_data, ranking: BaseRankingModel) -> int:  # noqa: C901
+def calculate_other_ranks(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate all the other rankings of a given ParsedMediaItem"""
     total_rank = 0
     if parsed_data.bitDepth and parsed_data.bitDepth[0] > 8:
         total_rank += 10
     if parsed_data.hdr:
         if parsed_data.hdr == "HDR":
-            total_rank += ranking.hdr
+            total_rank += CUSTOM_RANKS["hdr"].rank if CUSTOM_RANKS["hdr"].enable else ranking.hdr
         elif parsed_data.hdr == "HDR10+":
-            total_rank += ranking.hdr + 10
+            total_rank += CUSTOM_RANKS["hdr10"].rank if CUSTOM_RANKS["hdr10"].enable else ranking.hdr10
         elif parsed_data.hdr == "DV":
-            total_rank += ranking.dolby_video
+            total_rank += CUSTOM_RANKS["dolby_video"].rank if CUSTOM_RANKS["dolby_video"].enable else ranking.dolby_video
     if parsed_data.is_complete:
         total_rank += 100
     elif len(parsed_data.season) > 1:
@@ -299,3 +142,9 @@ def calculate_other_ranks(parsed_data, ranking: BaseRankingModel) -> int:  # noq
     if parsed_data.excess and "Extras" in parsed_data.excess:
         total_rank += -20
     return total_rank
+
+def calculate_preferred(parsed_data) -> int:
+    """Calculate the preferred ranking of a given ParsedMediaItem"""
+    if not SETTINGS.preferred or all(pattern is None for pattern in SETTINGS.preferred):
+        return 0
+    return 5000 if any(pattern.search(parsed_data.raw_title) for pattern in SETTINGS.preferred if pattern) else 0

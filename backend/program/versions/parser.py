@@ -1,8 +1,15 @@
+import re
 from typing import Dict, List
 
 import PTN
-from program.versions.ranks import BaseRankingModel, DefaultRanking, calculate_ranking
 from program.settings.manager import settings_manager as sm
+from program.versions.rank_models import DefaultRanking
+from program.versions.ranks import (
+    CUSTOM_RANKS,
+    SETTINGS,
+    BaseRankingModel,
+    calculate_ranking,
+)
 from pydantic import BaseModel, Field
 from thefuzz import fuzz
 
@@ -72,7 +79,7 @@ class ParsedMediaItem(BaseModel):
         self.directorsCut = parsed.get("directorsCut", False)
         self.extended = parsed.get("extended", False)
         self.excess = parsed.get("excess", [])
-        self.fetch = check_fetch(raw_title, self.is_4k)
+        self.fetch = check_fetch(self)
 
 
 class Torrent(BaseModel):
@@ -117,8 +124,6 @@ class ParsedTorrents(BaseModel):
 
     def add(self, torrent: Torrent):
         """Add a Torrent object."""
-        if torrent.parsed_data.is_4k and not sm.ranking.include_4k:
-            return
         self.torrents[torrent.infohash] = torrent
     
     def sort(self):
@@ -154,7 +159,7 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
 
     if season is not None and (not parsed_seasons or season not in parsed_seasons):
         return []
-    
+
     if isinstance(parsed_episodes, list):
         episodes = parsed_episodes
     elif parsed_episodes is not None:
@@ -163,11 +168,89 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
         episodes = []
     return episodes
 
-def check_fetch(input_string: str, is_4k: bool) -> bool:
+def check_fetch(data: ParsedMediaItem) -> bool:
     """Check user settings and unwanted quality to determine if torrent should be fetched."""
-    if not sm.ranking.include_4k and is_4k:
+    if not check_unwanted_quality(data.raw_title):
         return False
-    return check_unwanted_quality(input_string)
+    if SETTINGS.require and any(pattern.search(data.raw_title) for pattern in SETTINGS.require if pattern):
+        return True
+    if SETTINGS.exclude and any(pattern.search(data.raw_title) for pattern in SETTINGS.exclude if pattern):
+        return False
+    fetch_conditions = (
+        fetch_quality(data),
+        fetch_resolution(data),
+        fetch_codec(data),
+        fetch_audio(data),
+        fetch_other(data)
+    )
+    return any(fetch_condition for fetch_condition in fetch_conditions)
+
+def fetch_quality(data: ParsedMediaItem) -> bool:
+    """Check if the quality is fetchable based on user settings."""
+    if not CUSTOM_RANKS["webdl"].enable and "WEB-DL" in data.quality:
+        return False
+    if not CUSTOM_RANKS["remux"].enable and data.remux:
+        return False
+    if not CUSTOM_RANKS["ddplus"].enable and "Dolby Digital Plus" in data.audio:
+        return False
+    if not CUSTOM_RANKS["aac"].enable and "AAC" in data.audio:
+        return False
+    return True
+
+def fetch_resolution(data: ParsedMediaItem) -> bool:
+    """Check if the resolution is fetchable based on user settings."""
+    if not CUSTOM_RANKS["uhd"].enable and data.is_4k:
+        return False
+    if not CUSTOM_RANKS["fhd"].enable and "1080p" in data.resolution:
+        return False
+    if not CUSTOM_RANKS["hd"].enable and "720p" in data.resolution:
+        return False
+    if not CUSTOM_RANKS["sd"].enable and any(res in ["576p", "480p"] for res in data.resolution):
+        return False
+    return True
+
+def fetch_codec(data: ParsedMediaItem) -> bool:
+    """Check if the codec is fetchable based on user settings."""
+    # May add more to this later...
+    if not CUSTOM_RANKS["av1"].enable and "AV1" in data.codec:
+        return False
+    return True
+
+def fetch_audio(data: ParsedMediaItem) -> bool:
+    """Check if the audio is fetchable based on user settings."""
+    audio: str = data.audio[0] if data.audio else None
+    if not audio:
+        return True
+
+    audio = re.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio).strip()
+
+    if not CUSTOM_RANKS["truehd"].enable and audio == "Dolby TrueHD":
+        return False
+    if not CUSTOM_RANKS["atmos"].enable and audio == "Dolby Atmos":
+        return False
+    if not CUSTOM_RANKS["ac3"].enable and audio == "Dolby Digital":
+        return False
+    if not CUSTOM_RANKS["dts_x"].enable and audio == "Dolby Digital EX":
+        return False
+    if not CUSTOM_RANKS["ddplus"].enable and audio == "Dolby Digital Plus":
+        return False
+    if not CUSTOM_RANKS["dts_hd"].enable and audio == "DTS":
+        return False
+    if not CUSTOM_RANKS["dts_hd_ma"].enable and audio == "DTS-HD MA":
+        return False
+    if not CUSTOM_RANKS["aac"].enable and audio == "AAC":
+        return False
+    return True
+
+def fetch_other(data: ParsedMediaItem) -> bool:
+    """Check if the other data is fetchable based on user settings."""
+    if not CUSTOM_RANKS["proper"].enable and data.proper:
+        return False
+    if not CUSTOM_RANKS["repack"].enable and data.repack:
+        return False
+    if not CUSTOM_RANKS["remux"].enable and data.remux:
+        return False
+    return True
 
 def check_unwanted_quality(input_string: str) -> bool:
     """Check if the string contains unwanted quality pattern."""

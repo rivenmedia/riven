@@ -3,7 +3,6 @@ from program.media.container import MediaItemContainer
 from program.media.item import Episode, Season, Show
 
 
-# Fixture to setup a MediaItemContainer
 @pytest.fixture
 def container():
     return MediaItemContainer()

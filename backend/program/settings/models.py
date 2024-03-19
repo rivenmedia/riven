@@ -1,9 +1,10 @@
 """Iceberg settings models"""
 
+import re
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Dict
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from utils import version_file_path
 
 
@@ -122,10 +123,50 @@ class ScraperModel(Observable):
     annatar: AnnatarConfig = AnnatarConfig()
 
 
-class RankingModel(Observable):
+# Version Ranks
+
+
+class CustomRank(BaseModel):
+    enable: bool = False
+    fetch: bool = False
+    rank: int = Field(default=0, ge=-10000, le=10000)
+
+class RankingModel(BaseModel):
     profile: str = "default"
-    include_4k: bool = False
-    rank_av1: int = 0
+    require: list[str] = [""]
+    exclude: list[str] = [""]
+    preferred: list[str] = [""]
+    custom_ranks: Dict[str, CustomRank] = {
+        "uhd": CustomRank(fetch=False, rank=100),
+        "fhd": CustomRank(fetch=True, rank=90),
+        "hd": CustomRank(fetch=True, rank=80),
+        "sd": CustomRank(fetch=False, rank=-20),
+        "bluray": CustomRank(fetch=False, rank=80),
+        "hdr": CustomRank(fetch=False, rank=80),
+        "hdr10": CustomRank(fetch=False, rank=90),
+        "dolby_video": CustomRank(fetch=False, rank=-20),
+        "dts_x": CustomRank(fetch=False),
+        "dts_hd": CustomRank(fetch=False),
+        "dts_hd_ma": CustomRank(fetch=False),
+        "atmos": CustomRank(fetch=False),
+        "truehd": CustomRank(fetch=False),
+        "ddplus": CustomRank(fetch=False),
+        "aac": CustomRank(fetch=True, rank=70),
+        "ac3": CustomRank(fetch=True, rank=50),
+        "remux": CustomRank(fetch=False, rank=-1000),
+        "webdl": CustomRank(fetch=True, rank=90),
+        "repack": CustomRank(fetch=True, rank=5),
+        "proper": CustomRank(fetch=True, rank=4),
+        "dubbed": CustomRank(fetch=True, rank=4),
+        "subbed": CustomRank(fetch=True, rank=2),
+        "av1": CustomRank(fetch=False, rank=0),
+    }
+
+    def compile_patterns(self) -> None:
+        """Compile regex patterns."""
+        self.require = [re.compile(pattern, re.IGNORECASE) for pattern in self.require if pattern and pattern.strip()]
+        self.exclude = [re.compile(pattern, re.IGNORECASE) for pattern in self.exclude if pattern and pattern.strip()]
+        self.preferred = [re.compile(pattern, re.IGNORECASE) for pattern in self.preferred if pattern and pattern.strip()]
 
 
 # Application Settings
