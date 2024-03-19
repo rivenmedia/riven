@@ -121,6 +121,6 @@ class Torrentio:
                     item=item, raw_title=raw_title, infohash=stream.infoHash
                 )
                 if torrent and torrent.parsed_data.fetch:
-                    # fetch removes all the unwanted junk, like cams, telesyncs, etc.
                     scraped_torrents.add(torrent)
+            scraped_torrents.sort()
             return scraped_torrents, len(response.data.streams)

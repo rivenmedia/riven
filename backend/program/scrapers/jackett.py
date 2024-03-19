@@ -113,4 +113,5 @@ class Jackett:
                     )
                     if torrent and torrent.parsed_data.fetch:
                         scraped_torrents.add(torrent)
+            scraped_torrents.sort()
             return scraped_torrents, len(response.data.data.streams)
