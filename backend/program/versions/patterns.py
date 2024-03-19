@@ -52,8 +52,7 @@ UNWANTED_QUALITY_PATTERNS = [
     r"\b(DivX|XviD)\b",
     r"\b(?:Deleted[ .-]*)?Scene(?:s)?\b",
     r"\bTrailers?\b",
-    r"\b((Half.)?SBS|3D)\b"
-    r"\bWEB[ .-]?DL[ .-]?Rip\b",
+    r"\b((Half.)?SBS|3D)\b" r"\bWEB[ .-]?DL[ .-]?Rip\b",
 ]
 
 MULTI_AUDIO_COMPILED = [
@@ -69,5 +68,6 @@ UNWANTED_QUALITY_COMPILED = [
     re.compile(pattern, re.IGNORECASE) for pattern in UNWANTED_QUALITY_PATTERNS
 ]
 HDR_DOLBY_VIDEO_COMPILED = [
-    (re.compile(pattern, re.IGNORECASE), value) for pattern, value in HDR_DOLBY_VIDEO_PATTERNS
+    (re.compile(pattern, re.IGNORECASE), value)
+    for pattern, value in HDR_DOLBY_VIDEO_PATTERNS
 ]

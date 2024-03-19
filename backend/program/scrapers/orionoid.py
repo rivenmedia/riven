@@ -1,4 +1,5 @@
 """ Orionoid scraper module """
+
 from datetime import datetime
 
 from program.media.item import Episode, Season, Show
@@ -152,7 +153,7 @@ class Orionoid:
             # This can use 2x towards your Orionoid limits. Only use if user is unlimited.
             params["debridlookup"] = "realdebrid"
 
-         # There are 200 results per page. We probably don't need to go over 200.
+        # There are 200 results per page. We probably don't need to go over 200.
         if self.settings.limitcount > 200:
             params["limitcount"] = 200
 
@@ -186,10 +187,8 @@ class Orionoid:
                 if not stream.file.hash:
                     continue
                 torrent: Torrent = Torrent(
-                    item=item,
-                    raw_title=stream.file.name,
-                    infohash=stream.file.hash
-                    )
+                    item=item, raw_title=stream.file.name, infohash=stream.file.hash
+                )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.data.streams)

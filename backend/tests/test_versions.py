@@ -21,33 +21,79 @@ def parsed_torrents():
         "0987654330": "X-men The Last Stand (2006) (720p BluRay x265 HEVC 10bit AAC 6.1 Vyndros)",
         "0987654331": "The Simpsons S01E01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
         "0987654332": "Are You Being Served (1972) Season 1-10 S01-S10 + Extras (576p AMZN WEB-DL x265 HEVC 10bit EAC3 2.0 MONOLITH) [QxR]",
-        "0987654333": "Escape.Room.Tournament.of.Champions.2021.PL.EXTENDED.1080p.BRRip.HE-AACv2.AV1"
+        "0987654333": "Escape.Room.Tournament.of.Champions.2021.PL.EXTENDED.1080p.BRRip.HE-AACv2.AV1",
     }
 
     for infohash, raw_title in test_data.items():
         ranking_model = DefaultRanking()
-        torrent = Torrent(ranking_model=ranking_model, raw_title=raw_title, infohash=infohash)
+        torrent = Torrent(
+            ranking_model=ranking_model, raw_title=raw_title, infohash=infohash
+        )
         parsed_torrents.add(torrent)
     assert len(parsed_torrents) == 14
     return parsed_torrents
+
 
 def test_default_ranking_model():
     """Test default ranking model"""
     ranking = DefaultRanking()
     items: list[ParsedMediaItem] = [
-        (ParsedMediaItem(raw_title="Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)"), 250),
-        (ParsedMediaItem(raw_title="Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]"), 223),
-        (ParsedMediaItem(raw_title="[Yameii] Solo Leveling - S01E08 [English Dub] [CR WEB-DL 1080p] [DABC4BF4] (Ore dake Level Up na Ken)"), 184),
-        (ParsedMediaItem(raw_title="Transformers.The.Last.Knight.2017.1080p.BluRay.x264.DTS-HD.MA.7.1-FGT"), 183),
-        (ParsedMediaItem(raw_title="The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"), 83),
-        (ParsedMediaItem(raw_title="Attack.on.Titan.S01.S02.S03.1080p.Blu-Ray.Remux.Dual-Audio.TrueHD"), -779),
-        (ParsedMediaItem(raw_title="Escape.Room.Tournament.of.Champions.2021.PL.EXTENDED.1080p.BRRip.HE-AACv2.AV1"), -830),
-        (ParsedMediaItem(raw_title="The Simpsons S01 4K BluRay x265 HEVC 10bit AAC 5.1 Tigole"), -840),
+        (
+            ParsedMediaItem(
+                raw_title="Jumanji (1995) RM4K (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)"
+            ),
+            250,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="Inception (2010) 1080p BluRay x264 DTS [Hindi DD5.1 + English DD5.1]"
+            ),
+            223,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="[Yameii] Solo Leveling - S01E08 [English Dub] [CR WEB-DL 1080p] [DABC4BF4] (Ore dake Level Up na Ken)"
+            ),
+            184,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="Transformers.The.Last.Knight.2017.1080p.BluRay.x264.DTS-HD.MA.7.1-FGT"
+            ),
+            183,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"
+            ),
+            83,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="Attack.on.Titan.S01.S02.S03.1080p.Blu-Ray.Remux.Dual-Audio.TrueHD"
+            ),
+            -779,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="Escape.Room.Tournament.of.Champions.2021.PL.EXTENDED.1080p.BRRip.HE-AACv2.AV1"
+            ),
+            -830,
+        ),
+        (
+            ParsedMediaItem(
+                raw_title="The Simpsons S01 4K BluRay x265 HEVC 10bit AAC 5.1 Tigole"
+            ),
+            -840,
+        ),
         (ParsedMediaItem(raw_title="Brave.2012.R5.DVDRip.XViD.LiNE-UNiQUE"), -1000),
     ]
 
     for item, expected in items:
-        assert calculate_ranking(item, ranking) == expected, f"Failed for item: {item.raw_title}"
+        assert (
+            calculate_ranking(item, ranking) == expected
+        ), f"Failed for item: {item.raw_title}"
+
 
 def test_sorted_torrents(parsed_torrents: ParsedTorrents):
     """Test sorted parsed_torrents"""
@@ -70,7 +116,10 @@ def test_sorted_torrents(parsed_torrents: ParsedTorrents):
     ]
     # On the default rank model we shove 4K and Remux to the bottom, and sort the rest by rank.
     for index, torrent in enumerate(parsed_torrents):
-        assert torrent.raw_title == sorted_title_order[index], f"Failed for index: {index}"
+        assert (
+            torrent.raw_title == sorted_title_order[index]
+        ), f"Failed for index: {index}"
+
 
 def test_get_ranking_model():
     """Test getting a ranking model"""

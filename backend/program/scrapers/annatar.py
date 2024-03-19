@@ -1,4 +1,5 @@
 """ Annatar scraper module """
+
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
 from program.versions.parser import ParsedTorrents, Torrent
@@ -43,7 +44,9 @@ class Annatar:
             response = ping(url=url, timeout=60)
             if not response.ok:
                 return False
-            self.query_limits = f"limit={self.settings.limit}&timeout={self.settings.timeout}"
+            self.query_limits = (
+                f"limit={self.settings.limit}&timeout={self.settings.timeout}"
+            )
             return True
         except ReadTimeout:
             logger.debug("Annatar read timeout during initialization.")
@@ -133,10 +136,8 @@ class Annatar:
                 if not stream.hash:
                     continue
                 torrent: Torrent = Torrent(
-                    item=item,
-                    raw_title=stream.title,
-                    infohash=stream.hash
-                    )
+                    item=item, raw_title=stream.title, infohash=stream.hash
+                )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.media)

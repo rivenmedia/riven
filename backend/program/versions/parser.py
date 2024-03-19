@@ -2,7 +2,6 @@ import re
 from typing import Dict, List
 
 import PTN
-from program.settings.manager import settings_manager as sm
 from program.versions.rank_models import DefaultRanking
 from program.versions.ranks import (
     CUSTOM_RANKS,
@@ -24,6 +23,7 @@ from .patterns import (
 
 class ParsedMediaItem(BaseModel):
     """ParsedMediaItem class containing parsed data."""
+
     raw_title: str
     parsed_title: str = None
     fetch: bool = False
@@ -59,7 +59,10 @@ class ParsedMediaItem(BaseModel):
         self.is_multi_audio = check_multi_audio(raw_title)
         self.is_multi_subtitle = check_multi_subtitle(raw_title)
         self.is_complete = check_complete_series(raw_title)
-        self.is_4k = any(resolution in ["2160p", "4K", "UHD"] for resolution in parsed.get("resolution", []))
+        self.is_4k = any(
+            resolution in ["2160p", "4K", "UHD"]
+            for resolution in parsed.get("resolution", [])
+        )
         self.year = parsed.get("year", [])
         self.resolution = parsed.get("resolution", [])
         self.quality = parsed.get("quality", [])
@@ -84,17 +87,13 @@ class ParsedMediaItem(BaseModel):
 
 class Torrent(BaseModel):
     """Torrent class for storing torrent data."""
+
     raw_title: str
     infohash: str
     parsed_data: ParsedMediaItem = None
     rank: int = 0
 
-    def __init__(
-            self,
-            ranking_model: BaseRankingModel,
-            raw_title: str,
-            infohash: str
-    ):
+    def __init__(self, ranking_model: BaseRankingModel, raw_title: str, infohash: str):
         super().__init__(raw_title=raw_title, infohash=infohash)
         self.parsed_data = ParsedMediaItem(raw_title)
         if not ranking_model:
@@ -114,6 +113,7 @@ class Torrent(BaseModel):
 
 class ParsedTorrents(BaseModel):
     """ParsedTorrents class for storing scraped torrents."""
+
     torrents: Dict[str, Torrent] = Field(default_factory=dict)
 
     def __iter__(self):
@@ -125,16 +125,19 @@ class ParsedTorrents(BaseModel):
     def add(self, torrent: Torrent):
         """Add a Torrent object."""
         self.torrents[torrent.infohash] = torrent
-    
+
     def sort(self):
         """Sort the torrents by rank and update the dictionary accordingly."""
-        sorted_torrents = sorted(self.torrents.values(), key=lambda x: x.rank, reverse=True)
+        sorted_torrents = sorted(
+            self.torrents.values(), key=lambda x: x.rank, reverse=True
+        )
         self.torrents = {torrent.infohash: torrent for torrent in sorted_torrents}
 
 
 def parser(query: str | None) -> ParsedMediaItem:
     """Parse the given string using the ParsedMediaItem model."""
     return ParsedMediaItem(raw_title=query)
+
 
 def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
     """Check if the title matches PTN title using levenshtein algorithm."""
@@ -150,6 +153,7 @@ def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
         elif item.type == "episode":
             target_title = item.parent.parent.title
         return fuzz.ratio(raw_title.lower(), target_title.lower()) >= threshold
+
 
 def parse_episodes(string: str, season: int = None) -> List[int]:
     """Get episode numbers from the file name."""
@@ -168,22 +172,28 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
         episodes = []
     return episodes
 
+
 def check_fetch(data: ParsedMediaItem) -> bool:
     """Check user settings and unwanted quality to determine if torrent should be fetched."""
     if not check_unwanted_quality(data.raw_title):
         return False
-    if SETTINGS.require and any(pattern.search(data.raw_title) for pattern in SETTINGS.require if pattern):
+    if SETTINGS.require and any(
+        pattern.search(data.raw_title) for pattern in SETTINGS.require if pattern
+    ):
         return True
-    if SETTINGS.exclude and any(pattern.search(data.raw_title) for pattern in SETTINGS.exclude if pattern):
+    if SETTINGS.exclude and any(
+        pattern.search(data.raw_title) for pattern in SETTINGS.exclude if pattern
+    ):
         return False
     fetch_conditions = (
         fetch_quality(data),
         fetch_resolution(data),
         fetch_codec(data),
         fetch_audio(data),
-        fetch_other(data)
+        fetch_other(data),
     )
     return any(fetch_condition for fetch_condition in fetch_conditions)
+
 
 def fetch_quality(data: ParsedMediaItem) -> bool:
     """Check if the quality is fetchable based on user settings."""
@@ -197,6 +207,7 @@ def fetch_quality(data: ParsedMediaItem) -> bool:
         return False
     return True
 
+
 def fetch_resolution(data: ParsedMediaItem) -> bool:
     """Check if the resolution is fetchable based on user settings."""
     if not CUSTOM_RANKS["uhd"].enable and data.is_4k:
@@ -205,9 +216,12 @@ def fetch_resolution(data: ParsedMediaItem) -> bool:
         return False
     if not CUSTOM_RANKS["hd"].enable and "720p" in data.resolution:
         return False
-    if not CUSTOM_RANKS["sd"].enable and any(res in ["576p", "480p"] for res in data.resolution):
+    if not CUSTOM_RANKS["sd"].enable and any(
+        res in ["576p", "480p"] for res in data.resolution
+    ):
         return False
     return True
+
 
 def fetch_codec(data: ParsedMediaItem) -> bool:
     """Check if the codec is fetchable based on user settings."""
@@ -215,6 +229,7 @@ def fetch_codec(data: ParsedMediaItem) -> bool:
     if not CUSTOM_RANKS["av1"].enable and "AV1" in data.codec:
         return False
     return True
+
 
 def fetch_audio(data: ParsedMediaItem) -> bool:
     """Check if the audio is fetchable based on user settings."""
@@ -242,6 +257,7 @@ def fetch_audio(data: ParsedMediaItem) -> bool:
         return False
     return True
 
+
 def fetch_other(data: ParsedMediaItem) -> bool:
     """Check if the other data is fetchable based on user settings."""
     if not CUSTOM_RANKS["proper"].enable and data.proper:
@@ -252,21 +268,28 @@ def fetch_other(data: ParsedMediaItem) -> bool:
         return False
     return True
 
+
 def check_unwanted_quality(input_string: str) -> bool:
     """Check if the string contains unwanted quality pattern."""
-    return not any(pattern.search(input_string) for pattern in UNWANTED_QUALITY_COMPILED)
+    return not any(
+        pattern.search(input_string) for pattern in UNWANTED_QUALITY_COMPILED
+    )
+
 
 def check_multi_audio(input_string: str) -> bool:
     """Check if the string contains multi-audio pattern."""
     return any(pattern.search(input_string) for pattern in MULTI_AUDIO_COMPILED)
 
+
 def check_multi_subtitle(input_string: str) -> bool:
     """Check if the string contains multi-subtitle pattern."""
     return any(pattern.search(input_string) for pattern in MULTI_SUBTITLE_COMPILED)
 
+
 def check_complete_series(input_string: str) -> bool:
     """Check if the string contains complete series pattern."""
     return any(pattern.search(input_string) for pattern in COMPLETE_SERIES_COMPILED)
+
 
 def check_hdr_dolby_video(input_string: str):
     """Check if the string contains HDR/Dolby video pattern."""

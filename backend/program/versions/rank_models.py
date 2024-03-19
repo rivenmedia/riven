@@ -29,7 +29,7 @@ class BaseRankingModel(BaseModel):
     # extras
     dubbed: int = 4
     subbed: int = 2
-    av1: int =  0
+    av1: int = 0
 
 
 class DefaultRanking(BaseRankingModel):
@@ -156,6 +156,7 @@ class AllRanking(BaseRankingModel):
 
 class RankModels:
     """RankModels class for storing all ranking models."""
+
     default: DefaultRanking = DefaultRanking()
     remux: BestRemuxRanking = BestRemuxRanking()
     web: BestWebRanking = BestWebRanking()

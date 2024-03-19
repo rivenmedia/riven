@@ -1,4 +1,5 @@
 """ Jackett scraper module """
+
 from program.media.item import Show
 from program.settings.manager import settings_manager
 from program.versions.parser import ParsedTorrents, Torrent
@@ -83,13 +84,18 @@ class Jackett:
             if item.type == "movie":
                 query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
             if item.type == "season":
-                query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
+                query = (
+                    f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
+                )
             if item.type == "episode":
                 query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
             url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
-            if not response.is_ok or response.data["rss"]["channel"].get("item", []) <= 0:
+            if (
+                not response.is_ok
+                or response.data["rss"]["channel"].get("item", []) <= 0
+            ):
                 return {}, 0
             streams = response.data["rss"]["channel"].get("item", [])
             if not streams:
@@ -103,10 +109,8 @@ class Jackett:
                 if infohash_attr:
                     infohash = infohash_attr.get("@value")
                     torrent: Torrent = Torrent(
-                        item=item,
-                        raw_title=stream.get("title"),
-                        infohash=infohash
-                        )
+                        item=item, raw_title=stream.get("title"), infohash=infohash
+                    )
                     if torrent and torrent.parsed_data.fetch:
                         scraped_torrents.add(torrent)
             return scraped_torrents, len(response.data.data.streams)

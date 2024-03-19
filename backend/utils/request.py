@@ -53,7 +53,10 @@ class ResponseObject:
                 if self.response_type == dict:
                     return json.loads(response.content)
                 else:
-                    return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
+                    return json.loads(
+                        response.content,
+                        object_hook=lambda item: SimpleNamespace(**item),
+                    )
         return {}
 
     def raise_for_status(self):

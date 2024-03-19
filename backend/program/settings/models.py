@@ -107,11 +107,13 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://torrentio.strem.fun"
 
+
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "https://annatar.elfhosted.com"
     limit: int = 20
     timeout: int = 10
+
 
 class ScraperModel(Observable):
     after_2: float = 2
@@ -130,6 +132,7 @@ class CustomRank(BaseModel):
     enable: bool = False
     fetch: bool = False
     rank: int = Field(default=0, ge=-10000, le=10000)
+
 
 class RankingModel(BaseModel):
     profile: str = "default"
@@ -164,9 +167,21 @@ class RankingModel(BaseModel):
 
     def compile_patterns(self) -> None:
         """Compile regex patterns."""
-        self.require = [re.compile(pattern, re.IGNORECASE) for pattern in self.require if pattern and pattern.strip()]
-        self.exclude = [re.compile(pattern, re.IGNORECASE) for pattern in self.exclude if pattern and pattern.strip()]
-        self.preferred = [re.compile(pattern, re.IGNORECASE) for pattern in self.preferred if pattern and pattern.strip()]
+        self.require = [
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in self.require
+            if pattern and pattern.strip()
+        ]
+        self.exclude = [
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in self.exclude
+            if pattern and pattern.strip()
+        ]
+        self.preferred = [
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in self.preferred
+            if pattern and pattern.strip()
+        ]
 
 
 # Application Settings
