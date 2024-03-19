@@ -52,7 +52,8 @@ UNWANTED_QUALITY_PATTERNS = [
     r"\b(DivX|XviD)\b",
     r"\b(?:Deleted[ .-]*)?Scene(?:s)?\b",
     r"\bTrailers?\b",
-    r"\b((Half.)?SBS|3D)\b" r"\bWEB[ .-]?DL[ .-]?Rip\b",
+    r"\b((Half.)?SBS|3D)\b",
+    r"\bWEB[ .-]?DL[ .-]?Rip\b",
 ]
 
 MULTI_AUDIO_COMPILED = [
