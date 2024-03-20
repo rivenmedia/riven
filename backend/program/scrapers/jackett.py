@@ -1,9 +1,9 @@
 """ Jackett scraper module """
 
 from program.media.item import Show
-from program.settings import models
 from program.settings.manager import settings_manager
 from program.versions.parser import ParsedTorrents, Torrent, check_title_match
+from program.versions.rank_models import models
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping

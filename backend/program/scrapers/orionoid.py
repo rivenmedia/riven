@@ -3,9 +3,9 @@
 from datetime import datetime
 
 from program.media.item import Episode, Season, Show
-from program.settings import models
 from program.settings.manager import settings_manager
 from program.versions.parser import ParsedTorrents, Torrent, check_title_match
+from program.versions.rank_models import models
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
