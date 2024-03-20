@@ -3,8 +3,9 @@
 from datetime import datetime
 
 from program.media.item import Episode, Season, Show
+from program.settings import models
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent, check_title_match
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -19,6 +20,8 @@ class Orionoid:
     def __init__(self):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
+        self.rank_profile = settings_manager.settings.ranking.profile
+        self.ranking_model = None
         self.is_premium = False
         self.is_unlimited = False
         self.initialized = False
@@ -67,6 +70,7 @@ class Orionoid:
                     return False
                 if response.data.data.subscription.package.type == "unlimited":
                     self.is_unlimited = True
+            self.ranking_model = models.get(self.rank_profile)
             return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
@@ -184,10 +188,12 @@ class Orionoid:
                 return {}, 0
             scraped_torrents = ParsedTorrents()
             for stream in response.data.data.streams:
-                if not stream.file.hash:
+                if not stream.file.hash or check_title_match(item, stream.file.name):
                     continue
                 torrent: Torrent = Torrent(
-                    item=item, raw_title=stream.file.name, infohash=stream.file.hash
+                    self.ranking_model,
+                    raw_title=stream.file.name,
+                    infohash=stream.file.hash,
                 )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)

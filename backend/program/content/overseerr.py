@@ -57,7 +57,8 @@ class Overseerr:
                 imdb_id = self.get_imdb_id(item.media)
             else:
                 imdb_id = item.media.imdbId
-            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
+            if imdb_id:
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

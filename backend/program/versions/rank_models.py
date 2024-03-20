@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from utils.logger import logger
 
 
 class BaseRankingModel(BaseModel):
@@ -34,10 +35,10 @@ class BaseRankingModel(BaseModel):
 
 class DefaultRanking(BaseRankingModel):
     uhd: int = -1000
-    fhd: int = 90
-    hd: int = 80
-    sd: int = -20
-    dolby_video: int = -20
+    fhd: int = 100
+    hd: int = 50
+    sd: int = -100
+    dolby_video: int = -100
     aac: int = 70
     ac3: int = 50
     remux: int = -1000
@@ -155,7 +156,23 @@ class AllRanking(BaseRankingModel):
 
 
 class RankModels:
-    """RankModels class for storing all ranking models."""
+    """
+    The `RankModels` class represents a collection of ranking models for different categories.
+    Each ranking model is a subclass of the `BaseRankingModel` class.
+
+    Attributes:
+        `default` (DefaultRanking): The default ranking model.
+        `remux` (BestRemuxRanking): The ranking model for the best remux.
+        `web` (BestWebRanking): The ranking model for the best web release.
+        `resolution` (BestResolutionRanking): The ranking model for the best resolution.
+        `overall` (BestOverallRanking): The ranking model for the best overall quality.
+        `anime` (AnimeRanking): The ranking model for anime releases.
+        `all` (AllRanking): The ranking model for all releases.
+
+    Methods:
+        `get(name: str) -> BaseRankingModel`: Returns a ranking model based on the given name.
+        If the name is not found, the default ranking model is returned.
+    """
 
     default: DefaultRanking = DefaultRanking()
     remux: BestRemuxRanking = BestRemuxRanking()
@@ -165,6 +182,16 @@ class RankModels:
     anime: AnimeRanking = AnimeRanking()
     all: AllRanking = AllRanking()
 
-    def get(name: str) -> BaseRankingModel:
+    @classmethod
+    def get(cls, name: str) -> BaseRankingModel:
         """Get a ranking model by name."""
-        return getattr(RankModels, name, RankModels.default)
+        model = getattr(cls, name, None)
+        if model is None:
+            logger.warning(
+                f"Ranking model '{name}' not found. Using default Rank Model."
+            )
+            return cls.default
+        return model
+
+
+models = RankModels()

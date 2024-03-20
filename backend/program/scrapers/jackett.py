@@ -1,8 +1,9 @@
 """ Jackett scraper module """
 
 from program.media.item import Show
+from program.settings import models
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent, check_title_match
 from requests import ReadTimeout, RequestException
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
@@ -15,6 +16,8 @@ class Jackett:
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
+        self.rank_profile = settings_manager.settings.ranking.profile
+        self.ranking_model = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -34,6 +37,7 @@ class Jackett:
             self.api_key = self.settings.api_key
             try:
                 url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}&cat=2000&t=movie&q=test"
+                self.ranking_model = models.get(self.rank_profile)
                 response = ping(url=url, timeout=60)
                 if response.ok:
                     return True
@@ -106,12 +110,13 @@ class Jackett:
                 infohash_attr = next(
                     (a for a in attr if a.get("@name") == "infohash"), None
                 )
-                if infohash_attr:
-                    infohash = infohash_attr.get("@value")
-                    torrent: Torrent = Torrent(
-                        item=item, raw_title=stream.get("title"), infohash=infohash
-                    )
-                    if torrent and torrent.parsed_data.fetch:
-                        scraped_torrents.add(torrent)
+                if not infohash_attr or check_title_match(item, stream.get("title")):
+                    continue
+                infohash = infohash_attr.get("@value")
+                torrent: Torrent = Torrent(
+                    self.ranking_model, raw_title=stream.get("title"), infohash=infohash
+                )
+                if torrent and torrent.parsed_data.fetch:
+                    scraped_torrents.add(torrent)
             scraped_torrents.sort()
             return scraped_torrents, len(response.data.data.streams)

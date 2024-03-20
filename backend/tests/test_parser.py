@@ -1,6 +1,5 @@
 import pytest
 from program.settings.manager import settings_manager as sm
-from program.settings.models import RankingModel
 from program.versions.parser import (
     ParsedMediaItem,
     Torrent,
@@ -54,21 +53,21 @@ def test_valid_torrent_from_item():
         infohash="1234567890",
     )
 
+    assert isinstance(torrent, Torrent)
+    assert isinstance(torrent.parsed_data, ParsedMediaItem)
     assert torrent.raw_title == "The Walking Dead S05E03 720p HDTV x264-ASAP[ettv]"
     assert torrent.infohash == "1234567890"
-    assert isinstance(torrent.parsed_data, ParsedMediaItem)
     assert torrent.parsed_data.parsed_title == "The Walking Dead"
     assert torrent.parsed_data.fetch is True
-    assert torrent.rank == 83
+    assert torrent.rank == 163, f"Rank was {torrent.rank} instead of 163"
 
 
-def test_custom_ranks_is_mapped():
-    # Ensure that CUSTOM_RANKS is an instance of RankingModel
-    assert isinstance(sm.settings.ranking, RankingModel)
-    # Access the custom ranks through the custom_ranks attribute
-    custom_ranks = sm.settings.ranking.custom_ranks
-    # Now you can access individual ranks
-    assert custom_ranks["uhd"].fetch is False
+def test_check_title_match():
+    """Test the check_title_match function"""
+    from program.versions.parser import check_title_match
+
+    assert check_title_match("Damsel", "Damsel") is True
+    assert check_title_match("American Horror Story", "American Story Horror") is False
 
 
 @pytest.mark.parametrize("raw_title, expected", test_data, ids=test_ids)

@@ -95,10 +95,13 @@ class Torrent(BaseModel):
 
     def __init__(self, ranking_model: BaseRankingModel, raw_title: str, infohash: str):
         super().__init__(raw_title=raw_title, infohash=infohash)
+        if not isinstance(raw_title, str) or not isinstance(infohash, str):
+            return
         self.parsed_data = ParsedMediaItem(raw_title)
         if not ranking_model:
             ranking_model = DefaultRanking()
-        self.rank = calculate_ranking(self.parsed_data, ranking_model)
+        if self.parsed_data.fetch:
+            self.rank = calculate_ranking(self.parsed_data, ranking_model)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Torrent):
@@ -185,39 +188,41 @@ def check_fetch(data: ParsedMediaItem) -> bool:
         pattern.search(data.raw_title) for pattern in SETTINGS.exclude if pattern
     ):
         return False
-    fetch_conditions = (
-        fetch_quality(data),
-        fetch_resolution(data),
-        fetch_codec(data),
-        fetch_audio(data),
-        fetch_other(data),
+    return all(
+        [
+            fetch_resolution(data),
+            fetch_quality(data),
+            fetch_audio(data),
+            fetch_codec(data),
+            fetch_other(data),
+        ]
     )
-    return any(fetch_condition for fetch_condition in fetch_conditions)
 
 
 def fetch_quality(data: ParsedMediaItem) -> bool:
     """Check if the quality is fetchable based on user settings."""
-    if not CUSTOM_RANKS["webdl"].enable and "WEB-DL" in data.quality:
+    if not CUSTOM_RANKS["webdl"].fetch and "WEB-DL" in data.quality:
         return False
-    if not CUSTOM_RANKS["remux"].enable and data.remux:
+    if not CUSTOM_RANKS["remux"].fetch and data.remux:
         return False
-    if not CUSTOM_RANKS["ddplus"].enable and "Dolby Digital Plus" in data.audio:
+    if not CUSTOM_RANKS["ddplus"].fetch and "Dolby Digital Plus" in data.audio:
         return False
-    if not CUSTOM_RANKS["aac"].enable and "AAC" in data.audio:
+    if not CUSTOM_RANKS["aac"].fetch and "AAC" in data.audio:
         return False
     return True
 
 
 def fetch_resolution(data: ParsedMediaItem) -> bool:
     """Check if the resolution is fetchable based on user settings."""
-    if not CUSTOM_RANKS["uhd"].enable and data.is_4k:
+    if data.is_4k and not CUSTOM_RANKS["uhd"].fetch:
         return False
-    if not CUSTOM_RANKS["fhd"].enable and "1080p" in data.resolution:
+    if "1080p" in data.resolution and not CUSTOM_RANKS["fhd"].fetch:
         return False
-    if not CUSTOM_RANKS["hd"].enable and "720p" in data.resolution:
+    if "720p" in data.resolution and not CUSTOM_RANKS["hd"].fetch:
         return False
-    if not CUSTOM_RANKS["sd"].enable and any(
-        res in ["576p", "480p"] for res in data.resolution
+    if (
+        any(res in data.resolution for res in ["576p", "480p"])
+        and not CUSTOM_RANKS["sd"].fetch
     ):
         return False
     return True
@@ -226,7 +231,7 @@ def fetch_resolution(data: ParsedMediaItem) -> bool:
 def fetch_codec(data: ParsedMediaItem) -> bool:
     """Check if the codec is fetchable based on user settings."""
     # May add more to this later...
-    if not CUSTOM_RANKS["av1"].enable and "AV1" in data.codec:
+    if not CUSTOM_RANKS["av1"].fetch and "AV1" in data.codec:
         return False
     return True
 
@@ -234,37 +239,36 @@ def fetch_codec(data: ParsedMediaItem) -> bool:
 def fetch_audio(data: ParsedMediaItem) -> bool:
     """Check if the audio is fetchable based on user settings."""
     audio: str = data.audio[0] if data.audio else None
-    if not audio:
+    if audio is None:
         return True
 
+    # Remove unwanted audio concatenations.
     audio = re.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio).strip()
 
-    if not CUSTOM_RANKS["truehd"].enable and audio == "Dolby TrueHD":
+    if not CUSTOM_RANKS["truehd"].fetch and audio == "Dolby TrueHD":
         return False
-    if not CUSTOM_RANKS["atmos"].enable and audio == "Dolby Atmos":
+    if not CUSTOM_RANKS["atmos"].fetch and audio == "Dolby Atmos":
         return False
-    if not CUSTOM_RANKS["ac3"].enable and audio == "Dolby Digital":
+    if not CUSTOM_RANKS["ac3"].fetch and audio == "Dolby Digital":
         return False
-    if not CUSTOM_RANKS["dts_x"].enable and audio == "Dolby Digital EX":
+    if not CUSTOM_RANKS["dts_x"].fetch and audio == "Dolby Digital EX":
         return False
-    if not CUSTOM_RANKS["ddplus"].enable and audio == "Dolby Digital Plus":
+    if not CUSTOM_RANKS["ddplus"].fetch and audio == "Dolby Digital Plus":
         return False
-    if not CUSTOM_RANKS["dts_hd"].enable and audio == "DTS":
+    if not CUSTOM_RANKS["dts_hd"].fetch and audio == "DTS":
         return False
-    if not CUSTOM_RANKS["dts_hd_ma"].enable and audio == "DTS-HD MA":
+    if not CUSTOM_RANKS["dts_hd_ma"].fetch and audio == "DTS-HD MA":
         return False
-    if not CUSTOM_RANKS["aac"].enable and audio == "AAC":
+    if not CUSTOM_RANKS["aac"].fetch and audio == "AAC":
         return False
     return True
 
 
 def fetch_other(data: ParsedMediaItem) -> bool:
     """Check if the other data is fetchable based on user settings."""
-    if not CUSTOM_RANKS["proper"].enable and data.proper:
+    if not CUSTOM_RANKS["proper"].fetch and data.proper:
         return False
-    if not CUSTOM_RANKS["repack"].enable and data.repack:
-        return False
-    if not CUSTOM_RANKS["remux"].enable and data.remux:
+    if not CUSTOM_RANKS["repack"].fetch and data.repack:
         return False
     return True
 

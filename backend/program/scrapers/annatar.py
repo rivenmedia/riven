@@ -1,8 +1,9 @@
 """ Annatar scraper module """
 
 from program.media.item import Episode, Season, Show
+from program.settings import models
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent
+from program.versions.parser import ParsedTorrents, Torrent, check_title_match
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -15,14 +16,16 @@ class Annatar:
     def __init__(self):
         self.key = "annatar"
         self.settings = settings_manager.settings.scraping.annatar
+        self.rank_profile = settings_manager.settings.ranking.profile
+        self.ranking_model = None
         self.query_limits = None
+        self.initialized = self.validate()
+        if not self.initialized:
+            return
         self.minute_limiter = RateLimiter(
             max_calls=300, period=3600, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
         logger.info("Annatar initialized!")
 
     def validate(self) -> bool:
@@ -41,6 +44,7 @@ class Annatar:
             return False
         try:
             url = self.settings.url + "/manifest.json"
+            self.ranking_model = models.get(self.rank_profile)
             response = ping(url=url, timeout=60)
             if not response.ok:
                 return False
@@ -133,10 +137,10 @@ class Annatar:
                 return {}, 0
             scraped_torrents = ParsedTorrents()
             for stream in response.data.media:
-                if not stream.hash:
+                if not stream.hash or check_title_match(item, stream.title):
                     continue
                 torrent: Torrent = Torrent(
-                    item=item, raw_title=stream.title, infohash=stream.hash
+                    self.ranking_model, raw_title=stream.title, infohash=stream.hash
                 )
                 if torrent and torrent.parsed_data.fetch:
                     scraped_torrents.add(torrent)

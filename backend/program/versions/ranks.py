@@ -83,14 +83,13 @@ def calculate_quality_rank(parsed_data, ranking: BaseRankingModel) -> int:
             if not CUSTOM_RANKS["bluray"].enable
             else CUSTOM_RANKS["bluray"].rank
         ),
-        # These should already be taken care of, but as a precaution, we add them here too.
         "WEBCap": -1000,
         "Cam": -1000,
         "Telesync": -1000,
         "Telecine": -1000,
         "Screener": -1000,
-        "BRRip": -1000,
-        "BDRip": -1000,
+        "BRRip": 0,
+        "BDRip": 10,  # This ones a little better than BRRip
         "VODRip": -1000,
         "TVRip": -1000,
         "DVD-R": -1000,
@@ -242,12 +241,10 @@ def calculate_other_ranks(parsed_data, ranking: BaseRankingModel) -> int:
             )
     if parsed_data.is_complete:
         total_rank += 100
-    elif len(parsed_data.season) > 1:
-        total_rank += 15 * len(parsed_data.season)
-    elif len(parsed_data.episode) > 1:
+    if parsed_data.season:
+        total_rank += 100 * len(parsed_data.season)
+    if parsed_data.episode:
         total_rank += 10 * len(parsed_data.episode)
-    if parsed_data.excess and "Extras" in parsed_data.excess:
-        total_rank += -20
     return total_rank
 
 

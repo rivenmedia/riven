@@ -144,7 +144,7 @@ class RankingModel(BaseModel):
         "fhd": CustomRank(fetch=True, rank=90),
         "hd": CustomRank(fetch=True, rank=80),
         "sd": CustomRank(fetch=False, rank=-20),
-        "bluray": CustomRank(fetch=False, rank=80),
+        "bluray": CustomRank(fetch=True, rank=80),
         "hdr": CustomRank(fetch=False, rank=80),
         "hdr10": CustomRank(fetch=False, rank=90),
         "dolby_video": CustomRank(fetch=False, rank=-20),
