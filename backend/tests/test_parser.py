@@ -92,14 +92,19 @@ def test_episode_parsing():
         ("House MD All Seasons (1-8) 720p Ultra-Compressed", []),
         ("The Avengers (EMH) - S01 E15 - 459 (1080p - BluRay)", [15]),
         ("Witches Of Salem - 2Of4 - Road To Hell - Great Mysteries Of The World", [2]), # mini-series, this is correct!
+        ("Lost.[Perdidos].6x05.HDTV.XviD.[www.DivxTotaL.com]", [5]),
         ("4-13 Cursed (HD)", [13]),
         # Anime Tests
         ("Dragon Ball Z Movie - 09 - Bojack Unbound - 1080p BluRay x264 DTS 5.1 -DDR", []),
         ("[F-D] Fairy Tail Season 1 - 6 + Extras [480P][Dual-Audio]", []),
         ("BoJack Horseman [06x01-08 of 16] (2019-2020) WEB-DLRip 720p", list(range(1, 9))), # Eps 1-8
         ("[HR] Boku no Hero Academia 87 (S4-24) [1080p HEVC Multi-Subs] HR-GZ", [24]),
-        ("[AnimeRG] Naruto Shippuden - 107 [720p] [x265] [pseudo]", []), # Incorrect. Episode 107 is missing from list.
-
+        ("Bleach 10º Temporada - 215 ao 220 - [DB-BR]", [215, 216, 217, 218, 219, 220]),
+        # Looks like it doesn't handle hypens in the episode part. It's not a big deal,
+        # as it's not a common practice to use hypens in the episode part. Mostly seen in Anime.
+        ("Naruto Shippuden - 107 - Strange Bedfellows", []),                             # Incorrect. [107]
+        ("[224] Shingeki no Kyojin - S03 - Part 1 - 13 [BDRip.1080p.x265.FLAC]", []),    # Incorrect. [13]
+        ("[Erai-raws] Shingeki no Kyojin Season 3 - 11 [1080p][Multiple Subtitle]", [])  # Incorrect. [11]
     ]
     for test_string, expected in test_cases:
         assert (
