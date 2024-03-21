@@ -2,6 +2,7 @@ import re
 from typing import Dict, List
 
 import PTN
+import regex
 from program.versions.rank_models import DefaultRanking
 from program.versions.ranks import (
     CUSTOM_RANKS,
@@ -14,6 +15,7 @@ from thefuzz import fuzz
 
 from .patterns import (
     COMPLETE_SERIES_COMPILED,
+    EPISODE_PATTERNS,
     HDR_DOLBY_VIDEO_COMPILED,
     MULTI_AUDIO_COMPILED,
     MULTI_SUBTITLE_COMPILED,
@@ -157,6 +159,41 @@ def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
             target_title = item.parent.parent.title
         return fuzz.ratio(raw_title.lower(), target_title.lower()) >= threshold
 
+def range_transform(input_str) -> set[int]:
+    """
+    Expands a range string into a list of individual episode numbers.
+    Example input: '1-3', '1&2&3', '1E2E3'
+    Returns: [1, 2, 3]
+    """
+    episodes = set()
+    # Split input string on non-digit characters, filter empty strings.
+    parts = [part for part in regex.split(r"\D+", input_str) if part]
+    # Convert parts to integers, ignoring non-numeric parts.
+    episode_nums = [int(part) for part in parts if part.isdigit()]
+    # If it's a simple range (e.g., '1-3'), expand it.
+    if len(episode_nums) == 2 and episode_nums[0] < episode_nums[1]:
+        episodes.update(range(episode_nums[0], episode_nums[1] + 1))
+    else:
+        episodes.update(episode_nums)
+    return episodes
+
+def extract_episodes(title) -> List[int]:
+    """Extract episode numbers from the title."""
+    episodes = set()
+    for compiled_pattern, transform in EPISODE_PATTERNS:
+        matches = compiled_pattern.findall(title)
+        for match in matches:
+            if transform == "range":
+                if isinstance(match, tuple):
+                    for m in match:
+                        episodes.update(range_transform(m))
+                else:
+                    episodes.update(range_transform(match))
+            elif transform == "array(integer)":
+                normalized_match = [match] if isinstance(match, str) else match
+                episodes.update(int(m) for m in normalized_match if m.isdigit())
+    return sorted(episodes)
+
 
 def parse_episodes(string: str, season: int = None) -> List[int]:
     """Get episode numbers from the file name."""
@@ -278,7 +315,6 @@ def check_unwanted_quality(input_string: str) -> bool:
     return not any(
         pattern.search(input_string) for pattern in UNWANTED_QUALITY_COMPILED
     )
-
 
 def check_multi_audio(input_string: str) -> bool:
     """Check if the string contains multi-audio pattern."""

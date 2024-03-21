@@ -179,7 +179,7 @@ def delete(
 
 
 def _xml_to_simplenamespace(xml_string):
-    root = etree.fromstring(xml_string)
+    root = etree.fromstring(xml_string)  # noqa: S320
 
     def element_to_simplenamespace(element):
         children_as_ns = {
@@ -264,4 +264,3 @@ class RateLimiter:
         """
         Exits the rate limiter context.
         """
-        pass

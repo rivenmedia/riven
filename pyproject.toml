@@ -26,6 +26,7 @@ coverage = "^7.4.3"
 deepdiff = "^6.7.1"
 pyright = "^1.1.352"
 ruff = "^0.3.0"
+regex = "^2023.12.25"
 
 [build-system]
 requires = ["poetry-core"]

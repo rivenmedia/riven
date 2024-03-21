@@ -53,7 +53,7 @@ class SymlinkLibrary:
             imdb_id = re.search("(tt\d+)", filename)
             if not imdb_id:
                 logger.error(
-                    "Can't extract episode imdb_id at path %s", path / filename
+                    "Can't extract movie imdb_id at path %s", path / filename
                 )
                 continue
             movie_item = Movie({"imdb_id": imdb_id.group()})
@@ -74,7 +74,7 @@ class SymlinkLibrary:
             for season in os.listdir(shows_dir / show):
                 if not (season_number := re.search(r"(\d+)", season)):
                     logger.error(
-                        "Can't extract episode number at path %s",
+                        "Can't extract season number at path %s",
                         shows_dir / show / season,
                     )
                     continue
