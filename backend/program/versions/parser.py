@@ -1,4 +1,3 @@
-import re
 from typing import Dict, List
 
 import PTN
@@ -69,7 +68,7 @@ class ParsedMediaItem(BaseModel):
         self.resolution = parsed.get("resolution", [])
         self.quality = parsed.get("quality", [])
         self.season = parsed.get("season", [])
-        self.episode = parsed.get("episode", [])
+        self.episode = extract_episodes(raw_title)
         self.codec = parsed.get("codec", [])
         self.audio = parsed.get("audio", [])
         self.subtitles = parsed.get("subtitles", [])
@@ -143,7 +142,6 @@ def parser(query: str | None) -> ParsedMediaItem:
     """Parse the given string using the ParsedMediaItem model."""
     return ParsedMediaItem(raw_title=query)
 
-
 def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
     """Check if the title matches PTN title using levenshtein algorithm."""
     # Lets make this more globally usable by allowing str or MediaItem as input
@@ -194,7 +192,6 @@ def extract_episodes(title) -> List[int]:
                 episodes.update(int(m) for m in normalized_match if m.isdigit())
     return sorted(episodes)
 
-
 def parse_episodes(string: str, season: int = None) -> List[int]:
     """Get episode numbers from the file name."""
     parsed_data = PTN.parse(string, coherent_types=True)
@@ -211,7 +208,6 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
     else:
         episodes = []
     return episodes
-
 
 def check_fetch(data: ParsedMediaItem) -> bool:
     """Check user settings and unwanted quality to determine if torrent should be fetched."""
@@ -235,7 +231,6 @@ def check_fetch(data: ParsedMediaItem) -> bool:
         ]
     )
 
-
 def fetch_quality(data: ParsedMediaItem) -> bool:
     """Check if the quality is fetchable based on user settings."""
     if not CUSTOM_RANKS["webdl"].fetch and "WEB-DL" in data.quality:
@@ -247,7 +242,6 @@ def fetch_quality(data: ParsedMediaItem) -> bool:
     if not CUSTOM_RANKS["aac"].fetch and "AAC" in data.audio:
         return False
     return True
-
 
 def fetch_resolution(data: ParsedMediaItem) -> bool:
     """Check if the resolution is fetchable based on user settings."""
@@ -264,14 +258,12 @@ def fetch_resolution(data: ParsedMediaItem) -> bool:
         return False
     return True
 
-
 def fetch_codec(data: ParsedMediaItem) -> bool:
     """Check if the codec is fetchable based on user settings."""
     # May add more to this later...
     if not CUSTOM_RANKS["av1"].fetch and "AV1" in data.codec:
         return False
     return True
-
 
 def fetch_audio(data: ParsedMediaItem) -> bool:
     """Check if the audio is fetchable based on user settings."""
@@ -280,7 +272,7 @@ def fetch_audio(data: ParsedMediaItem) -> bool:
         return True
 
     # Remove unwanted audio concatenations.
-    audio = re.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio).strip()
+    audio = regex.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio).strip()
 
     if not CUSTOM_RANKS["truehd"].fetch and audio == "Dolby TrueHD":
         return False
@@ -299,7 +291,6 @@ def fetch_audio(data: ParsedMediaItem) -> bool:
     if not CUSTOM_RANKS["aac"].fetch and audio == "AAC":
         return False
     return True
-
 
 def fetch_other(data: ParsedMediaItem) -> bool:
     """Check if the other data is fetchable based on user settings."""

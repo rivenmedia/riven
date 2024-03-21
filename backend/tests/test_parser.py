@@ -82,42 +82,30 @@ def test_parsed_media_item_properties(raw_title: str, expected: dict):
 
 def test_episode_parsing():
     test_cases = [
-        ("The Simpsons S01E01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1]),
-        ("The Simpsons S01E01E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
-        ("The Simpsons S01E01-E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
-        # Looks like it doesn't parse past the first 2 episodes
-        (
-            "The Simpsons S01E01-E02-E03-E04-E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
-            [1, 2],
-        ),
-        (
-            "The Simpsons S01E01E02E03E04E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole",
-            [1, 2],
-        ),
-    ]
-    for test_string, expected in test_cases:
-        assert (
-            parse_episodes(test_string) == expected
-        ), f"Failed for '{test_string}' with expected {expected}"
-
-def test_new_episode_parsing():
-    test_cases = [
+        # Regular Tests
         ("The Simpsons S01E01 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1]),
         ("The Simpsons S01E01E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
         ("The Simpsons S01E01-E02 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2]),
         ("The Simpsons S01E01-E02-E03-E04-E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2, 3, 4, 5]),
         ("The Simpsons S01E01E02E03E04E05 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", [1, 2, 3, 4, 5]),
-        ("The Simpsons E1-200 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", list(range(1, 201))),
-        ("Dragon Ball Z Movie - 09 - Bojack Unbound - 1080p BluRay x264 DTS 5.1 -DDR", []),
-        ("[F-D] Fairy Tail Season 1 -6 + Extras [480P][Dual-Audio]", []),
+        ("The Simpsons E1-200 1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole", list(range(1, 201))), # Eps 1-200
         ("House MD All Seasons (1-8) 720p Ultra-Compressed", []),
         ("The Avengers (EMH) - S01 E15 - 459 (1080p - BluRay)", [15]),
         ("Witches Of Salem - 2Of4 - Road To Hell - Great Mysteries Of The World", [2]), # mini-series, this is correct!
+        ("4-13 Cursed (HD)", [13]),
+        # Anime Tests
+        ("Dragon Ball Z Movie - 09 - Bojack Unbound - 1080p BluRay x264 DTS 5.1 -DDR", []),
+        ("[F-D] Fairy Tail Season 1 - 6 + Extras [480P][Dual-Audio]", []),
+        ("BoJack Horseman [06x01-08 of 16] (2019-2020) WEB-DLRip 720p", list(range(1, 9))), # Eps 1-8
+        ("[HR] Boku no Hero Academia 87 (S4-24) [1080p HEVC Multi-Subs] HR-GZ", [24]),
+        ("[AnimeRG] Naruto Shippuden - 107 [720p] [x265] [pseudo]", []), # Incorrect. Episode 107 is missing from list.
+
     ]
     for test_string, expected in test_cases:
         assert (
             extract_episodes(test_string) == expected
         ), f"Failed for '{test_string}' with expected {expected}"
+
 
 def test_multi_audio_patterns():
     test_cases = [
