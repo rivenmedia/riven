@@ -105,7 +105,7 @@ class PlexWatchlist:
         )
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={self.token}&{filter_params}"
         response = get(url)
-        if response.is_ok and hasattr(response.data, "MediaContainer"):
+        if response.is_ok and hasattr(response.data, "MediaContainer"):  # noqa: SIM102
             if hasattr(response.data.MediaContainer.Metadata[0], "Guid"):
                 for guid in response.data.MediaContainer.Metadata[0].Guid:
                     if "imdb://" in guid.id:

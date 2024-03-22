@@ -196,6 +196,6 @@ class Orionoid:
                     infohash=stream.file.hash,
                 )
                 if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add(torrent)
-            scraped_torrents.sort()
+                    scraped_torrents.add_torrent(torrent)
+            scraped_torrents.sort_torrents()
             return scraped_torrents, len(response.data.data.streams)

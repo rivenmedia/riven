@@ -8,7 +8,6 @@ from program.versions.parser import (
     check_multi_subtitle,
     check_unwanted_quality,
     extract_episodes,
-    parse_episodes,
 )
 from program.versions.rank_models import DefaultRanking
 
@@ -100,7 +99,7 @@ def test_episode_parsing():
         ("BoJack Horseman [06x01-08 of 16] (2019-2020) WEB-DLRip 720p", list(range(1, 9))), # Eps 1-8
         ("[HR] Boku no Hero Academia 87 (S4-24) [1080p HEVC Multi-Subs] HR-GZ", [24]),
         ("Bleach 10º Temporada - 215 ao 220 - [DB-BR]", [215, 216, 217, 218, 219, 220]),
-        # Looks like it doesn't handle hypens in the episode part. It's not a big deal,
+        # Looks like it doesn't handle hyphens in the episode part. It's not a big deal,
         # as it's not a common practice to use hypens in the episode part. Mostly seen in Anime.
         ("Naruto Shippuden - 107 - Strange Bedfellows", []),                             # Incorrect. [107]
         ("[224] Shingeki no Kyojin - S03 - Part 1 - 13 [BDRip.1080p.x265.FLAC]", []),    # Incorrect. [13]

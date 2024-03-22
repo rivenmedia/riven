@@ -125,6 +125,6 @@ class Torrentio:
                     self.ranking_model, raw_title=raw_title, infohash=stream.infoHash
                 )
                 if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add(torrent)
-            scraped_torrents.sort()
+                    scraped_torrents.add_torrent(torrent)
+            scraped_torrents.sort_torrents()
             return scraped_torrents, len(response.data.streams)

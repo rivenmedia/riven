@@ -126,11 +126,11 @@ class ParsedTorrents(BaseModel):
     def __len__(self):
         return len(self.torrents)
 
-    def add(self, torrent: Torrent):
+    def add_torrent(self, torrent: Torrent):
         """Add a Torrent object."""
         self.torrents[torrent.infohash] = torrent
 
-    def sort(self):
+    def sort_torrents(self):
         """Sort the torrents by rank and update the dictionary accordingly."""
         sorted_torrents = sorted(
             self.torrents.values(), key=lambda x: x.rank, reverse=True
@@ -141,6 +141,7 @@ class ParsedTorrents(BaseModel):
 def parser(query: str | None) -> ParsedMediaItem:
     """Parse the given string using the ParsedMediaItem model."""
     return ParsedMediaItem(raw_title=query)
+
 
 def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
     """Check if the title matches PTN title using levenshtein algorithm."""
@@ -156,6 +157,7 @@ def check_title_match(item, raw_title: str = str, threshold: int = 90) -> bool:
         elif item.type == "episode":
             target_title = item.parent.parent.title
         return fuzz.ratio(raw_title.lower(), target_title.lower()) >= threshold
+
 
 def range_transform(input_str) -> set[int]:
     """
@@ -175,6 +177,7 @@ def range_transform(input_str) -> set[int]:
         episodes.update(episode_nums)
     return episodes
 
+
 def extract_episodes(title) -> List[int]:
     """Extract episode numbers from the title."""
     episodes = set()
@@ -192,6 +195,7 @@ def extract_episodes(title) -> List[int]:
                 episodes.update(int(m) for m in normalized_match if m.isdigit())
     return sorted(episodes)
 
+
 def parse_episodes(string: str, season: int = None) -> List[int]:
     """Get episode numbers from the file name."""
     parsed_data = PTN.parse(string, coherent_types=True)
@@ -208,6 +212,7 @@ def parse_episodes(string: str, season: int = None) -> List[int]:
     else:
         episodes = []
     return episodes
+
 
 def check_fetch(data: ParsedMediaItem) -> bool:
     """Check user settings and unwanted quality to determine if torrent should be fetched."""
@@ -231,6 +236,7 @@ def check_fetch(data: ParsedMediaItem) -> bool:
         ]
     )
 
+
 def fetch_quality(data: ParsedMediaItem) -> bool:
     """Check if the quality is fetchable based on user settings."""
     if not CUSTOM_RANKS["webdl"].fetch and "WEB-DL" in data.quality:
@@ -242,6 +248,7 @@ def fetch_quality(data: ParsedMediaItem) -> bool:
     if not CUSTOM_RANKS["aac"].fetch and "AAC" in data.audio:
         return False
     return True
+
 
 def fetch_resolution(data: ParsedMediaItem) -> bool:
     """Check if the resolution is fetchable based on user settings."""
@@ -258,12 +265,14 @@ def fetch_resolution(data: ParsedMediaItem) -> bool:
         return False
     return True
 
+
 def fetch_codec(data: ParsedMediaItem) -> bool:
     """Check if the codec is fetchable based on user settings."""
     # May add more to this later...
     if not CUSTOM_RANKS["av1"].fetch and "AV1" in data.codec:
         return False
     return True
+
 
 def fetch_audio(data: ParsedMediaItem) -> bool:
     """Check if the audio is fetchable based on user settings."""
@@ -292,6 +301,7 @@ def fetch_audio(data: ParsedMediaItem) -> bool:
         return False
     return True
 
+
 def fetch_other(data: ParsedMediaItem) -> bool:
     """Check if the other data is fetchable based on user settings."""
     if not CUSTOM_RANKS["proper"].fetch and data.proper:
@@ -306,6 +316,7 @@ def check_unwanted_quality(input_string: str) -> bool:
     return not any(
         pattern.search(input_string) for pattern in UNWANTED_QUALITY_COMPILED
     )
+
 
 def check_multi_audio(input_string: str) -> bool:
     """Check if the string contains multi-audio pattern."""

@@ -54,167 +54,197 @@ def calculate_resolution_rank(parsed_data, ranking: BaseRankingModel) -> int:
     resolution: str = parsed_data.resolution[0] if parsed_data.resolution else None
     if not resolution:
         return 0
+
     if parsed_data.is_4k:
         return (
             ranking.uhd if not CUSTOM_RANKS["uhd"].enable else CUSTOM_RANKS["uhd"].rank
         )
-    elif resolution == "1080p":
-        return (
-            ranking.fhd if not CUSTOM_RANKS["fhd"].enable else CUSTOM_RANKS["fhd"].rank
-        )
-    elif resolution == "720p":
-        return ranking.hd if not CUSTOM_RANKS["hd"].enable else CUSTOM_RANKS["hd"].rank
-    elif resolution in ("576p", "480p"):
-        return ranking.sd if not CUSTOM_RANKS["sd"].enable else CUSTOM_RANKS["sd"].rank
-    return 0
+
+    match resolution:
+        case "1080p":
+            return (
+                ranking.fhd
+                if not CUSTOM_RANKS["fhd"].enable
+                else CUSTOM_RANKS["fhd"].rank
+            )
+        case "720p":
+            return (
+                ranking.hd if not CUSTOM_RANKS["hd"].enable else CUSTOM_RANKS["hd"].rank
+            )
+        case "576p" | "480p":
+            return (
+                ranking.sd if not CUSTOM_RANKS["sd"].enable else CUSTOM_RANKS["sd"].rank
+            )
+        case _:
+            return 0
 
 
 def calculate_quality_rank(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate the quality ranking of a given ParsedMediaItem"""
-    total_rank = 0
-    quality_rank = {
-        "WEB-DL": (
-            ranking.webdl
-            if not CUSTOM_RANKS["webdl"].enable
-            else CUSTOM_RANKS["webdl"].rank
-        ),
-        "Blu-ray": (
-            ranking.bluray
-            if not CUSTOM_RANKS["bluray"].enable
-            else CUSTOM_RANKS["bluray"].rank
-        ),
-        "WEBCap": -1000,
-        "Cam": -1000,
-        "Telesync": -1000,
-        "Telecine": -1000,
-        "Screener": -1000,
-        "BRRip": 0,
-        "BDRip": 10,  # This ones a little better than BRRip
-        "VODRip": -1000,
-        "TVRip": -1000,
-        "DVD-R": -1000,
-    }
-    for quality, rank in quality_rank.items():
-        if quality in parsed_data.quality:
-            total_rank += rank
-    return total_rank
+    quality = parsed_data.quality[0] if parsed_data.quality else None
+    if not quality:
+        return 0
+
+    match quality:
+        case "WEB-DL":
+            return (
+                ranking.webdl
+                if not CUSTOM_RANKS["webdl"].enable
+                else CUSTOM_RANKS["webdl"].rank
+            )
+        case "Blu-ray":
+            return (
+                ranking.bluray
+                if not CUSTOM_RANKS["bluray"].enable
+                else CUSTOM_RANKS["bluray"].rank
+            )
+        case (
+            "WEBCap"
+            | "Cam"
+            | "Telesync"
+            | "Telecine"
+            | "Screener"
+            | "VODRip"
+            | "TVRip"
+            | "DVD-R"
+        ):
+            return -1000
+        case "BDRip":
+            return 5  # This one's a little better than BRRip
+        case "BRRip":
+            return 0
+        case _:
+            return 0
 
 
 def calculate_codec_rank(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate the codec ranking of a given ParsedMediaItem"""
-    total_rank = 0
-    codec_rank = {
-        "Xvid": -1000,
-        "AV1": (
-            ranking.av1 if not CUSTOM_RANKS["av1"].enable else CUSTOM_RANKS["av1"].rank
-        ),
-        "H.263": -1000,
-        "H.264": 3,
-        "H.265": 0,
-        "H.265 Main 10": 0,
-        "HEVC": 0,
-        "VC-1": -1000,
-        "MPEG-2": -1000,
-    }
-    for codec, rank in codec_rank.items():
-        if codec in parsed_data.codec:
-            total_rank += rank
-    return total_rank
+    codec = parsed_data.codec[0] if parsed_data.codec else None
+    if not codec:
+        return 0
+
+    match codec:
+        case "Xvid" | "H.263" | "VC-1" | "MPEG-2":
+            return -1000
+        case "AV1":
+            return (
+                ranking.av1
+                if not CUSTOM_RANKS["av1"].enable
+                else CUSTOM_RANKS["av1"].rank
+            )
+        case "H.264":
+            return 3
+        case "H.265" | "H.265 Main 10" | "HEVC":
+            return 0
+        case _:
+            return 0
 
 
 def calculate_audio_rank(parsed_data, ranking: BaseRankingModel) -> int:
     """Calculate the audio ranking of a given ParsedMediaItem"""
-    total_rank = 0
     audio_format: str = parsed_data.audio[0] if parsed_data.audio else None
     if not audio_format:
-        return total_rank
+        return 0
 
     # Remove any unwanted audio formats. We dont support surround sound formats yet.
     # These also make it harder to compare audio formats.
     audio_format = re.sub(r"7.1|5.1|Dual|Mono|Original|LiNE", "", audio_format).strip()
 
-    audio_rank = {
-        "Dolby TrueHD": (
-            ranking.truehd
-            if not CUSTOM_RANKS["truehd"].enable
-            else CUSTOM_RANKS["truehd"].rank
-        ),
-        "Dolby Atmos": (
-            ranking.atmos
-            if not CUSTOM_RANKS["atmos"].enable
-            else CUSTOM_RANKS["atmos"].rank
-        ),
-        "Dolby Digital": (
-            ranking.ac3 if not CUSTOM_RANKS["ac3"].enable else CUSTOM_RANKS["ac3"].rank
-        ),
-        "Dolby Digital EX": (
-            ranking.dts_x
-            if not CUSTOM_RANKS["dts_x"].enable
-            else CUSTOM_RANKS["dts_x"].rank
-        ),
-        "Dolby Digital Plus": (
-            ranking.ddplus
-            if not CUSTOM_RANKS["ddplus"].enable
-            else CUSTOM_RANKS["ddplus"].rank
-        ),
-        "DTS": (
-            ranking.dts_hd
-            if not CUSTOM_RANKS["dts_hd"].enable
-            else CUSTOM_RANKS["dts_hd"].rank
-        ),
-        "DTS-HD": (
-            ranking.dts_hd + 5
-            if not CUSTOM_RANKS["dts_hd"].enable
-            else CUSTOM_RANKS["dts_hd"].rank
-        ),
-        "DTS-HD MA": (
-            ranking.dts_hd_ma + 10
-            if not CUSTOM_RANKS["dts_hd_ma"].enable
-            else CUSTOM_RANKS["dts_hd_ma"].rank
-        ),
-        "DTS-ES": (
-            ranking.dts_x + 5
-            if not CUSTOM_RANKS["dts_x"].enable
-            else CUSTOM_RANKS["dts_x"].rank
-        ),
-        "DTS-EX": (
-            ranking.dts_x + 5
-            if not CUSTOM_RANKS["dts_x"].enable
-            else CUSTOM_RANKS["dts_x"].rank
-        ),
-        "DTS:X": (
-            ranking.dts_x + 10
-            if not CUSTOM_RANKS["dts_x"].enable
-            else CUSTOM_RANKS["dts_x"].rank
-        ),
-        "AAC": (
-            ranking.aac if not CUSTOM_RANKS["aac"].enable else CUSTOM_RANKS["aac"].rank
-        ),
-        "AAC-LC": (
-            ranking.aac + 2
-            if not CUSTOM_RANKS["aac"].enable
-            else CUSTOM_RANKS["aac"].rank
-        ),
-        "HE-AAC": (
-            ranking.aac + 5
-            if not CUSTOM_RANKS["aac"].enable
-            else CUSTOM_RANKS["aac"].rank
-        ),
-        "HE-AAC v2": (
-            ranking.aac + 10
-            if not CUSTOM_RANKS["aac"].enable
-            else CUSTOM_RANKS["aac"].rank
-        ),
-        "AC3": (
-            ranking.ac3 if not CUSTOM_RANKS["ac3"].enable else CUSTOM_RANKS["ac3"].rank
-        ),
-        "FLAC": -1000,
-        "OGG": -1000,
-    }
-    for audio, rank in audio_rank.items():
-        if audio == audio_format:
-            total_rank += rank
-    return total_rank
+    match audio_format:
+        case "Dolby TrueHD":
+            return (
+                ranking.truehd
+                if not CUSTOM_RANKS["truehd"].enable
+                else CUSTOM_RANKS["truehd"].rank
+            )
+        case "Dolby Atmos":
+            return (
+                ranking.atmos
+                if not CUSTOM_RANKS["atmos"].enable
+                else CUSTOM_RANKS["atmos"].rank
+            )
+        case "Dolby Digital":
+            return (
+                ranking.ac3
+                if not CUSTOM_RANKS["ac3"].enable
+                else CUSTOM_RANKS["ac3"].rank
+            )
+        case "Dolby Digital EX":
+            return (
+                ranking.dts_x
+                if not CUSTOM_RANKS["dts_x"].enable
+                else CUSTOM_RANKS["dts_x"].rank
+            )
+        case "Dolby Digital Plus":
+            return (
+                ranking.ddplus
+                if not CUSTOM_RANKS["ddplus"].enable
+                else CUSTOM_RANKS["ddplus"].rank
+            )
+        case "DTS":
+            return (
+                ranking.dts_hd
+                if not CUSTOM_RANKS["dts_hd"].enable
+                else CUSTOM_RANKS["dts_hd"].rank
+            )
+        case "DTS-HD":
+            return (
+                (ranking.dts_hd + 5)
+                if not CUSTOM_RANKS["dts_hd"].enable
+                else CUSTOM_RANKS["dts_hd"].rank
+            )
+        case "DTS-HD MA":
+            return (
+                (ranking.dts_hd_ma + 10)
+                if not CUSTOM_RANKS["dts_hd_ma"].enable
+                else CUSTOM_RANKS["dts_hd_ma"].rank
+            )
+        case "DTS-ES" | "DTS-EX":
+            return (
+                (ranking.dts_x + 5)
+                if not CUSTOM_RANKS["dts_x"].enable
+                else CUSTOM_RANKS["dts_x"].rank
+            )
+        case "DTS:X":
+            return (
+                (ranking.dts_x + 10)
+                if not CUSTOM_RANKS["dts_x"].enable
+                else CUSTOM_RANKS["dts_x"].rank
+            )
+        case "AAC":
+            return (
+                ranking.aac
+                if not CUSTOM_RANKS["aac"].enable
+                else CUSTOM_RANKS["aac"].rank
+            )
+        case "AAC-LC":
+            return (
+                (ranking.aac + 2)
+                if not CUSTOM_RANKS["aac"].enable
+                else CUSTOM_RANKS["aac"].rank
+            )
+        case "HE-AAC":
+            return (
+                (ranking.aac + 5)
+                if not CUSTOM_RANKS["aac"].enable
+                else CUSTOM_RANKS["aac"].rank
+            )
+        case "HE-AAC v2":
+            return (
+                (ranking.aac + 10)
+                if not CUSTOM_RANKS["aac"].enable
+                else CUSTOM_RANKS["aac"].rank
+            )
+        case "AC3":
+            return (
+                ranking.ac3
+                if not CUSTOM_RANKS["ac3"].enable
+                else CUSTOM_RANKS["ac3"].rank
+            )
+        case "FLAC" | "OGG":
+            return -1000
+        case _:
+            return 0
 
 
 def calculate_other_ranks(parsed_data, ranking: BaseRankingModel) -> int:

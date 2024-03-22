@@ -54,6 +54,7 @@ UNWANTED_QUALITY_PATTERNS = [
     r"\bTrailers?\b",
     r"\b((Half.)?SBS|3D)\b",
     r"\bWEB[ .-]?DL[ .-]?Rip\b",
+    r"\bUm Actually|Captive Audience|Copycat Killers\b"
 ]
 
 EPISODE_PATTERNS = [

@@ -1,5 +1,4 @@
 """ Jackett scraper module """
-
 from program.media.item import Show
 from program.settings.manager import settings_manager
 from program.versions.parser import ParsedTorrents, Torrent, check_title_match
@@ -42,7 +41,8 @@ class Jackett:
                 if response.ok:
                     return True
             except ReadTimeout:
-                return True
+                logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+                return False
             except Exception as e:
                 logger.error("Jackett failed to initialize with API Key: %s", e)
                 return False
@@ -86,7 +86,10 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
+                if not item.aired_at.year:
+                    query = f"cat=2000&t=movie&q={item.title}"
+                else:
+                    query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
             if item.type == "season":
                 query = (
                     f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
@@ -98,7 +101,7 @@ class Jackett:
                 response = get(url=url, retry_if_failed=False, timeout=60)
             if (
                 not response.is_ok
-                or response.data["rss"]["channel"].get("item", []) <= 0
+                or len(response.data["rss"]["channel"].get("item", [])) <= 0
             ):
                 return {}, 0
             streams = response.data["rss"]["channel"].get("item", [])
@@ -117,6 +120,6 @@ class Jackett:
                     self.ranking_model, raw_title=stream.get("title"), infohash=infohash
                 )
                 if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add(torrent)
-            scraped_torrents.sort()
-            return scraped_torrents, len(response.data.data.streams)
+                    scraped_torrents.add_torrent(torrent)
+            scraped_torrents.sort_torrents()
+            return scraped_torrents, len(streams) or 0

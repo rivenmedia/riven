@@ -100,10 +100,10 @@ def _map_item_from_data(data, item_type) -> MediaItem:
         case "show":
             return_item = Show(item)
         case "season":
-            item["number"] = getattr(data, "number")
+            item["number"] = data.number
             return_item = Season(item)
         case "episode":
-            item["number"] = getattr(data, "number")
+            item["number"] = data.number
             return_item = Episode(item)
         case _:
             logger.debug("Unknown item type %s for %s", item_type, data.title)
@@ -121,9 +121,8 @@ def get_show(imdb_id: str):
         url,
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
-    if response.is_ok:
-        if response.data:
-            return response.data
+    if response.is_ok and response.data:
+        return response.data
     return []
 
 

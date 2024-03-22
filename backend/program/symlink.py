@@ -1,5 +1,6 @@
 """Symlinking module"""
 
+import contextlib
 import os
 from datetime import datetime
 from pathlib import Path
@@ -206,10 +207,8 @@ class Symlinker:
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
         if destination:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(destination)
-            except FileNotFoundError:
-                pass
             os.symlink(
                 source,
                 destination,

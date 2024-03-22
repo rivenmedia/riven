@@ -29,7 +29,7 @@ def parsed_torrents():
         torrent = Torrent(
             ranking_model=ranking_model, raw_title=raw_title, infohash=infohash
         )
-        parsed_torrents.add(torrent)
+        parsed_torrents.add_torrent(torrent)
     assert len(parsed_torrents) == 14
     return parsed_torrents
 
@@ -97,7 +97,7 @@ def test_default_ranking_model():
 
 def test_sorted_torrents(parsed_torrents: ParsedTorrents):
     """Test sorted parsed_torrents"""
-    parsed_torrents.sort()
+    parsed_torrents.sort_torrents()
     sorted_title_order = [
         "The Simpsons - Complete Seasons S01 to S28 (1080p, 720p, DVDRip)",
         "Are You Being Served (1972) Season 1-10 S01-S10 + Extras (576p AMZN WEB-DL x265 HEVC 10bit EAC3 2.0 MONOLITH) [QxR]",

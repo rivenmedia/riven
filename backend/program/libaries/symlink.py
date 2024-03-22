@@ -52,9 +52,7 @@ class SymlinkLibrary:
         for path, filename in movies:
             imdb_id = re.search("(tt\d+)", filename)
             if not imdb_id:
-                logger.error(
-                    "Can't extract movie imdb_id at path %s", path / filename
-                )
+                logger.error("Can't extract movie imdb_id at path %s", path / filename)
                 continue
             movie_item = Movie({"imdb_id": imdb_id.group()})
             movie_item.update_folder = "updated"
