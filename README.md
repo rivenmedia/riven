@@ -152,7 +152,7 @@ If you don't want to use `make` and docker, you can use the following commands t
 ```sh
 pip install poetry
 poetry install
-python backend/main.py
+poetry run python backend/main.py
 ```
 
 ```sh
