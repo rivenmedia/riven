@@ -19,7 +19,7 @@
 		"@types/luxon": "^3.3.7",
 		"@types/nprogress": "^0.2.3",
 		"@types/uuid": "^9.0.7",
-		"@typescript-eslint/eslint-plugin": "^7.1.0",
+		"@typescript-eslint/eslint-plugin": "^7.4.0",
 		"@typescript-eslint/parser": "^7.1.0",
 		"autoprefixer": "^10.4.14",
 		"eslint": "^8.57.0",
