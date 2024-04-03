@@ -1,0 +1,50 @@
+name: Run Battery of Checks for Backend
+
+on: [push, pull_request]
+
+jobs:
+  battery:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11, 3.12]
+
+    steps:
+    - uses: actions/checkout@v4.1.2
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5.1.0
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache Poetry dependencies
+      uses: actions/cache@v4.0.2
+      with:
+        path: |
+          ~/.cache/pypoetry
+          .venv
+        key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-
+
+    - name: Install dependencies
+      run: |
+        pip install poetry
+        poetry install --no-root --with dev
+
+    - name: Ruff & Isort Check
+      run: |
+        poetry run ruff check ./backend
+        poetry run isort --check-only ./backend
+
+    - name: Type check
+      run: poetry run pyright
+
+    - name: Run Tests & Coverage
+      run: poetry run pytest --cov=./backend --cov-report=xml
+
+    - name: Upload Coverage Report to Codecov
+      uses: codecov/codecov-action@v4.1.1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml

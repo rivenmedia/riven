@@ -1,13 +1,16 @@
 """ Orionoid scraper module """
 
+import contextlib
 from datetime import datetime
+from typing import Dict
 
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent, check_title_match
-from program.versions.rank_models import models
+from program.settings.versions import models
 from requests import ConnectTimeout
 from requests.exceptions import RequestException
+from RTN import RTN, Torrent, sort_torrents
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get
 
@@ -20,8 +23,8 @@ class Orionoid:
     def __init__(self):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
-        self.rank_profile = settings_manager.settings.ranking.profile
-        self.ranking_model = None
+        self.settings_model = settings_manager.settings.ranking
+        self.ranking_model = models.get(self.settings_model.profile)
         self.is_premium = False
         self.is_unlimited = False
         self.initialized = False
@@ -39,6 +42,7 @@ class Orionoid:
             max_calls=self.max_calls, period=self.period, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.info("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -70,7 +74,6 @@ class Orionoid:
                     return False
                 if response.data.data.subscription.package.type == "unlimited":
                     self.is_unlimited = True
-            self.ranking_model = models.get(self.rank_profile)
             return True
         except Exception as e:
             logger.exception("Orionoid failed to initialize: %s", e)
@@ -118,7 +121,7 @@ class Orionoid:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data.torrents)
+            item.streams.update(data)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -167,7 +170,7 @@ class Orionoid:
 
         return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
-    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
+    def api_scrape(self, item) -> tuple[Dict, int]:
         """Wrapper for `Orionoid` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):
@@ -186,16 +189,18 @@ class Orionoid:
                 response = get(url, retry_if_failed=False, timeout=60)
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
-            scraped_torrents = ParsedTorrents()
+            torrents = set()
+            correct_title = item.get_top_title()
+            if not correct_title:
+                return {}, 0
             for stream in response.data.data.streams:
-                if not stream.file.hash or check_title_match(item, stream.file.name):
+                if not stream.file.hash or not stream.file.name:
                     continue
-                torrent: Torrent = Torrent(
-                    self.ranking_model,
-                    raw_title=stream.file.name,
-                    infohash=stream.file.hash,
-                )
-                if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add_torrent(torrent)
-            scraped_torrents.sort_torrents()
+                with contextlib.suppress(GarbageTorrent):
+                    torrent: Torrent = self.rtn.rank(
+                        raw_title=stream.file.name, infohash=stream.file.hash, correct_title=correct_title, remove_trash=True
+                    )
+                if torrent and torrent.fetch:
+                    torrents.add(torrent)
+            scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(response.data.data.streams)

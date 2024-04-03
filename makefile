@@ -41,28 +41,33 @@ logs:
 
 # Poetry related commands
 
-install:
-	poetry install
-
-run:
-	poetry run python backend/main.py
-
-format:
-	poetry run black backend
-
-lint: format
-	poetry run ruff check backend
-	poetry run pyright backend
-
-test:
-	poetry run pytest backend/tests
-
-pr-ready: lint test
-
-# Other commands
-
 clean:
 	@find . -type f -name '*.pyc' -exec rm -f {} +
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
+
+install:
+	@poetry install --with dev
+
+run:
+	@poetry run python backend/main.py
+
+format:
+	@poetry run isort backend
+
+check:
+	@poetry run pyright
+
+lint:
+	@poetry run ruff check backend
+	@poetry run isort --check-only backend
+
+test:
+	@poetry run pytest backend
+	@poetry run pyright
+
+coverage: clean
+	@poetry run pytest backend --cov=backend --cov-report=xml --cov-report=term
+
+pr-ready: clean format lint check test

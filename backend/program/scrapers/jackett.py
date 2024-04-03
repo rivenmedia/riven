@@ -1,9 +1,13 @@
 """ Jackett scraper module """
+import contextlib
+from typing import Dict
+
 from program.media.item import Show
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent, check_title_match
-from program.versions.rank_models import models
+from program.settings.versions import models
 from requests import ReadTimeout, RequestException
+from RTN import RTN, Torrent, sort_torrents
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -15,8 +19,8 @@ class Jackett:
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
-        self.rank_profile = settings_manager.settings.ranking.profile
-        self.ranking_model = None
+        self.settings_model = settings_manager.settings.ranking
+        self.ranking_model = models.get(self.settings_model.profile)
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -25,6 +29,7 @@ class Jackett:
             max_calls=1000, period=3600, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.info("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -36,7 +41,6 @@ class Jackett:
             self.api_key = self.settings.api_key
             try:
                 url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}&cat=2000&t=movie&q=test"
-                self.ranking_model = models.get(self.rank_profile)
                 response = ping(url=url, timeout=60)
                 if response.ok:
                     return True
@@ -69,7 +73,7 @@ class Jackett:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data.torrents)
+            item.streams.update(data)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -80,7 +84,7 @@ class Jackett:
             logger.debug("Could not find streams for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
+    def api_scrape(self, item) -> tuple[Dict, int]:  # noqa: C901
         """Wrapper for `Jackett` scrape method"""
         # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
@@ -107,19 +111,21 @@ class Jackett:
             streams = response.data["rss"]["channel"].get("item", [])
             if not streams:
                 return {}, 0
-            scraped_torrents = ParsedTorrents()
+            torrents = set()
+            correct_title = item.get_top_title()
+            if not correct_title:
+                return {}, 0
             for stream in streams:
                 attr = stream.get("torznab:attr", [])
-                infohash_attr = next(
-                    (a for a in attr if a.get("@name") == "infohash"), None
-                )
-                if not infohash_attr or check_title_match(item, stream.get("title")):
-                    continue
+                infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
                 infohash = infohash_attr.get("@value")
-                torrent: Torrent = Torrent(
-                    self.ranking_model, raw_title=stream.get("title"), infohash=infohash
-                )
-                if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add_torrent(torrent)
-            scraped_torrents.sort_torrents()
+                if not infohash:
+                    continue
+                with contextlib.suppress(GarbageTorrent):
+                    torrent: Torrent = self.rtn.rank(
+                        raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True
+                    )
+                if torrent and torrent.fetch:
+                    torrents.add(torrent)
+            scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(streams) or 0

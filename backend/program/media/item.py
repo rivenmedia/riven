@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
-from program.versions.parser import parse_episodes
+from RTN.parser import extract_episodes
 
 
 @dataclass
@@ -182,6 +182,16 @@ class MediaItem:
         """Set item attribute"""
         _set_nested_attr(self, key, value)
 
+    def get_top_title(self) -> str:
+        """Get the top title of the item."""
+        match self.__class__.__name__:
+            case "Season":
+                return self.parent.title
+            case "Episode":
+                return self.parent.parent.title
+            case _:
+                return self.title
+
     @property
     def log_string(self):
         return self.title or self.imdb_id
@@ -353,7 +363,7 @@ class Episode(MediaItem):
         return f"Episode:{self.number}:{self.state.name}"
 
     def get_file_episodes(self) -> List[int]:
-        return parse_episodes(self.file)
+        return extract_episodes(self.file)
 
     @property
     def log_string(self):

@@ -1,36 +1,5 @@
-from pydantic import BaseModel
+from RTN.models import BaseRankingModel
 from utils.logger import logger
-
-
-class BaseRankingModel(BaseModel):
-    # resolution
-    uhd: int = 0
-    fhd: int = 0
-    hd: int = 0
-    sd: int = 0
-    # quality
-    bluray: int = 0
-    hdr: int = 0
-    hdr10: int = 0
-    dolby_video: int = 0
-    # audio
-    dts_x: int = 0
-    dts_hd: int = 0
-    dts_hd_ma: int = 0
-    atmos: int = 0
-    truehd: int = 0
-    ddplus: int = 0
-    ac3: int = 0
-    aac: int = 0
-    # other
-    remux: int = 0
-    webdl: int = 0
-    repack: int = 5
-    proper: int = 4
-    # extras
-    dubbed: int = 4
-    subbed: int = 2
-    av1: int = 0
 
 
 class DefaultRanking(BaseRankingModel):
@@ -170,11 +139,12 @@ class RankModels:
         `all` (AllRanking): The ranking model for all releases.
 
     Methods:
-        `get(name: str) -> BaseRankingModel`: Returns a ranking model based on the given name.
+        `get(name: str)` -> `BaseRankingModel`: Returns a ranking model based on the given name.
         If the name is not found, the default ranking model is returned.
     """
 
     default: DefaultRanking = DefaultRanking()
+    custom: BaseRankingModel = BaseRankingModel()
     remux: BestRemuxRanking = BestRemuxRanking()
     web: BestWebRanking = BestWebRanking()
     resolution: BestResolutionRanking = BestResolutionRanking()
@@ -188,9 +158,9 @@ class RankModels:
         model = getattr(cls, name, None)
         if model is None:
             logger.warning(
-                f"Ranking model '{name}' not found. Using default Rank Model."
+                f"Ranking model '{name}' not found. Setting to custom model."
             )
-            return cls.default
+            return cls.custom
         return model
 
 

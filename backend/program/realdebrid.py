@@ -5,8 +5,8 @@ from pathlib import Path
 
 from program.media.item import Episode, Movie, Season
 from program.settings.manager import settings_manager
-from program.versions.parser import parse_episodes
 from requests import ConnectTimeout
+from RTN.parser import episodes_from_season
 from utils.logger import logger
 from utils.request import get, ping, post
 
@@ -58,14 +58,15 @@ class Debrid:
         for torrent in torrents:
             if torrent.hash == item.active_stream.get("hash"):
                 info = self.get_torrent_info(torrent.id)
-                if item.type == "episode" and not any(
-                    file
-                    for file in info.files
-                    if file.selected == 1
-                    and item.number
-                    in parse_episodes(Path(file.path).name, item.parent.number)
-                ):
-                    return False
+                if item.type == "episode": # noqa: SIM102 - linter is wrong here
+                    if not any(
+                        file
+                        for file in info.files
+                        if file.selected == 1
+                        and item.number
+                        in episodes_from_season(Path(file.path).name, item.parent.number)
+                    ):
+                        return False
 
                 item.set("active_stream.id", torrent.id)
                 self.set_active_files(item)
@@ -89,7 +90,7 @@ class Debrid:
         item.active_stream["alternative_name"] = info.original_filename
         item.active_stream["name"] = info.filename
 
-    def is_cached(self, item):
+    def is_cached(self, item):  # noqa: C901
         """Check if item is cached on real-debrid.com"""
         if len(item.streams) == 0:
             return False
@@ -128,7 +129,7 @@ class Debrid:
                         if isinstance(item, Season) and all(
                             any(
                                 episode.number
-                                in parse_episodes(file["filename"], item.number)
+                                in episodes_from_season(file["filename"], item.number)
                                 for file in container.values()
                             )
                             for episode in item.episodes
@@ -136,7 +137,7 @@ class Debrid:
                             wanted_files = container
                         if isinstance(item, Episode) and any(
                             item.number
-                            in parse_episodes(episode["filename"], item.parent.number)
+                            in episodes_from_season(episode["filename"], item.parent.number)
                             for episode in container.values()
                         ):
                             wanted_files = container
@@ -182,7 +183,7 @@ class Debrid:
     def _handle_season_paths(self, season):
         """Set file paths for season from real-debrid.com"""
         for file in season.active_stream["files"].values():
-            for episode in parse_episodes(file["filename"], season.number):
+            for episode in episodes_from_season(file["filename"], season.number):
                 if episode - 1 in range(len(season.episodes)):
                     season.episodes[episode - 1].set(
                         "folder", season.active_stream.get("name")
@@ -198,7 +199,7 @@ class Debrid:
         file = next(
             file
             for file in episode.active_stream.get("files").values()
-            if episode.number in parse_episodes(file["filename"], episode.parent.number)
+            if episode.number in episodes_from_season(file["filename"], episode.parent.number)
         )
         episode.set("folder", episode.active_stream.get("name"))
         episode.set("alternative_folder", episode.active_stream.get("alternative_name"))

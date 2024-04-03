@@ -1,11 +1,15 @@
 """ Torrentio scraper module """
 
+import contextlib
+from typing import Dict
+
 from program.media.item import Episode, Season, Show
 from program.settings.manager import settings_manager
-from program.versions.parser import ParsedTorrents, Torrent, check_title_match
-from program.versions.rank_models import models
+from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
+from RTN import RTN, sort_torrents
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -16,8 +20,8 @@ class Torrentio:
     def __init__(self):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
-        self.rank_profile = settings_manager.settings.ranking.profile
-        self.ranking_model = None
+        self.settings_model = settings_manager.settings.ranking
+        self.ranking_model = models.get(self.settings_model.profile)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -25,7 +29,7 @@ class Torrentio:
             max_calls=300, period=3600, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-        self.parse_logging = False
+        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.info("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -38,7 +42,6 @@ class Torrentio:
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            self.ranking_model = models.get(self.rank_profile)
             response = ping(url=url, timeout=10)
             if response.ok:
                 return True
@@ -73,7 +76,7 @@ class Torrentio:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
-            item.streams.update(data.torrents)
+            item.streams.update(data)
             logger.debug(
                 "Found %s streams out of %s for %s",
                 len(data),
@@ -90,7 +93,7 @@ class Torrentio:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[ParsedTorrents, int]:
+    def api_scrape(self, item) -> tuple[Dict, int]:
         """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):
@@ -116,15 +119,19 @@ class Torrentio:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
             if not response.is_ok or len(response.data.streams) <= 0:
                 return {}, 0
-            scraped_torrents = ParsedTorrents()
+            torrents = set()
+            correct_title = item.get_top_title()
+            if not correct_title:
+                return {}, 0
             for stream in response.data.streams:
                 raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
-                if not stream.infoHash or check_title_match(item, raw_title):
+                if not stream.infoHash or not raw_title:
                     continue
-                torrent: Torrent = Torrent(
-                    self.ranking_model, raw_title=raw_title, infohash=stream.infoHash
-                )
-                if torrent and torrent.parsed_data.fetch:
-                    scraped_torrents.add_torrent(torrent)
-            scraped_torrents.sort_torrents()
+                with contextlib.suppress(GarbageTorrent):
+                    torrent = self.rtn.rank(
+                        raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True
+                    )
+                if torrent and torrent.fetch:
+                    torrents.add(torrent)
+            scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(response.data.streams)

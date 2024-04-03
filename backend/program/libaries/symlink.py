@@ -1,8 +1,8 @@
 import os
-import re
 from pathlib import Path
 from typing import Generator
 
+import regex
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
@@ -50,7 +50,7 @@ class SymlinkLibrary:
             if files
         ]
         for path, filename in movies:
-            imdb_id = re.search("(tt\d+)", filename)
+            imdb_id = regex.search("(tt\d+)", filename)
             if not imdb_id:
                 logger.error("Can't extract movie imdb_id at path %s", path / filename)
                 continue
@@ -60,8 +60,8 @@ class SymlinkLibrary:
 
         shows_dir = self.settings.library_path / "shows"
         for show in os.listdir(shows_dir):
-            imdb_id = re.search(r"(tt\d+)", show)
-            title = re.search(r"(.+)?( \()", show)
+            imdb_id = regex.search(r"(tt\d+)", show)
+            title = regex.search(r"(.+)?( \()", show)
             if not imdb_id or not title:
                 logger.error(
                     "Can't extract episode imdb_id or title at path %s",
@@ -70,7 +70,7 @@ class SymlinkLibrary:
                 continue
             show_item = Show({"imdb_id": imdb_id.group(), "title": title.group(1)})
             for season in os.listdir(shows_dir / show):
-                if not (season_number := re.search(r"(\d+)", season)):
+                if not (season_number := regex.search(r"(\d+)", season)):
                     logger.error(
                         "Can't extract season number at path %s",
                         shows_dir / show / season,
@@ -78,7 +78,7 @@ class SymlinkLibrary:
                     continue
                 season_item = Season({"number": int(season_number.group())})
                 for episode in os.listdir(shows_dir / show / season):
-                    if not (episode_number := re.search(r"s\d+e(\d+)", episode)):
+                    if not (episode_number := regex.search(r"s\d+e(\d+)", episode)):
                         logger.error(
                             "Can't extract episode number at path %s",
                             shows_dir / show / season / episode,
