@@ -27,7 +27,7 @@ class Annatar:
         if not self.initialized:
             return
         self.minute_limiter = RateLimiter(
-            max_calls=1000, period=3600, raise_on_limit=True
+            max_calls=100, period=3600, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
@@ -72,7 +72,6 @@ class Annatar:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar rate limit hit for item: %s", item.log_string)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warn("Annatar connection timeout for item: %s", item.log_string)
