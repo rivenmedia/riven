@@ -1,8 +1,9 @@
 from copy import copy
+from typing import Any, List
+
 from fastapi import APIRouter, HTTPException
 from program.settings.manager import settings_manager
 from pydantic import BaseModel
-from typing import Any, List
 
 
 class SetSettings(BaseModel):

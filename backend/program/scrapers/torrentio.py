@@ -1,13 +1,18 @@
 """ Torrentio scraper module """
-from datetime import datetime
+
+import contextlib
+from typing import Dict
+
+from program.media.item import Episode, Season, Show
+from program.settings.manager import settings_manager
+from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
+from RTN import RTN, sort_torrents
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
-from utils.request import RateLimitExceeded, get, RateLimiter, ping
-from program.settings.manager import settings_manager
-from utils.parser import parser
-from program.media.item import Show, Episode, Season
-import traceback
+from utils.request import RateLimiter, RateLimitExceeded, get, ping
+
 
 class Torrentio:
     """Scraper for `Torrentio`"""
@@ -15,14 +20,16 @@ class Torrentio:
     def __init__(self):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
+        self.settings_model = settings_manager.settings.ranking
+        self.ranking_model = models.get(self.settings_model.profile)
+        self.initialized = self.validate()
+        if not self.initialized:
+            return
         self.minute_limiter = RateLimiter(
             max_calls=300, period=3600, raise_on_limit=True
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        self.parse_logging = False
+        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.info("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -46,8 +53,6 @@ class Torrentio:
     def run(self, item):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
-        item.scraped_at = datetime.now()
-        item.scraped_times += 1
         if item is None or isinstance(item, Show):
             yield item
         try:
@@ -63,12 +68,12 @@ class Torrentio:
         except RequestException as e:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio request exception: %s", e)
-        except Exception:
+        except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Torrentio exception thrown: %s", traceback.format_exc())
+            logger.warn("Torrentio exception thrown: %s", e)
 
     def _scrape_item(self, item):
-        """Scrape torrentio for the given media item"""
+        """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
@@ -78,24 +83,20 @@ class Torrentio:
                 stream_count,
                 item.log_string,
             )
+        elif stream_count > 0:
+            logger.debug(
+                "Could not find good streams for %s out of %s",
+                item.log_string,
+                stream_count,
+            )
         else:
-            if stream_count > 0:
-                logger.debug(
-                    "Could not find good streams for %s out of %s",
-                    item.log_string,
-                    stream_count,
-                )
-            else:
-                logger.debug("No streams found for %s", item.log_string)
+            logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item):
-        """Wrapper for torrentio scrape method"""
+    def api_scrape(self, item) -> tuple[Dict, int]:
+        """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
-            # Torrentio can't scrape shows
-            if isinstance(item, Show):
-                return item
-            elif isinstance(item, Season):
+            if isinstance(item, Season):
                 identifier = f":{item.number}:1"
                 scrape_type = "series"
                 imdb_id = item.parent.imdb_id
@@ -109,37 +110,28 @@ class Torrentio:
                 imdb_id = item.imdb_id
 
             url = (
-                f"{self.settings.url}{self.settings.filter}"
+                f"{self.settings.url}/{self.settings.filter}"
                 + f"/stream/{scrape_type}/{imdb_id}"
             )
             if identifier:
                 url += identifier
             with self.second_limiter:
                 response = get(f"{url}.json", retry_if_failed=False, timeout=60)
-            if response.is_ok and len(response.data.streams) > 0:
-                parsed_data_list = [
-                    parser.parse(item, stream.title.split("\n👤")[0].split("\n")[0])
-                    for stream in response.data.streams
-                ]
-                data = {
-                    stream.infoHash: {
-                        "name": stream.title.split("\n👤")[0].split("\n")[0],
-                        "cached": None
-                    }
-                    for stream, parsed_data in zip(
-                        response.data.streams, parsed_data_list
+            if not response.is_ok or len(response.data.streams) <= 0:
+                return {}, 0
+            torrents = set()
+            correct_title = item.get_top_title()
+            if not correct_title:
+                return {}, 0
+            for stream in response.data.streams:
+                raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
+                if not stream.infoHash or not raw_title:
+                    continue
+                with contextlib.suppress(GarbageTorrent):
+                    torrent = self.rtn.rank(
+                        raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True
                     )
-                    if parsed_data.get("fetch", False)
-                    and parsed_data.get("string", False)
-                }
-                if self.parse_logging:  # For debugging parser large data sets
-                    for parsed_data in parsed_data_list:
-                        logger.debug(
-                            "Torrentio Fetch: %s - Parsed item: %s",
-                            parsed_data["fetch"],
-                            parsed_data["string"],
-                        )
-                if data:
-                    item.parsed_data.extend(parsed_data_list)
-                    return data, len(response.data.streams)
-            return {}, 0
+                if torrent and torrent.fetch:
+                    torrents.add(torrent)
+            scraped_torrents = sort_torrents(torrents)
+            return scraped_torrents, len(response.data.streams)

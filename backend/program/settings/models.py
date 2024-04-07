@@ -1,7 +1,9 @@
 """Iceberg settings models"""
-from typing import Callable
 from pathlib import Path
-from pydantic import BaseModel, HttpUrl, validator
+from typing import Callable, Dict
+
+from pydantic import BaseModel, field_validator
+from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
 
@@ -21,8 +23,6 @@ class Observable(BaseModel):
             self.__class__._notify_observers()
 
 
-
-
 class DebridModel(Observable):
     api_key: str = ""
 
@@ -38,11 +38,12 @@ class SymlinkModel(Observable):
 class Updatable(Observable):
     update_interval: int = 80
 
-    @validator('update_interval')
+    @field_validator("update_interval")
     def check_update_interval(cls, v):
         if v < (limit := 5):
             raise ValueError(f"update_interval must be at least {limit} seconds")
         return v
+
 
 class PlexLibraryModel(Updatable):
     update_interval: int = 120
@@ -103,7 +104,14 @@ class OrionoidConfig(Observable):
 class TorrentioConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: HttpUrl = "https://torrentio.strem.fun"
+    url: str = "https://torrentio.strem.fun"
+
+
+class AnnatarConfig(Observable):
+    enabled: bool = False
+    url: str = "https://annatar.elfhosted.com"
+    limit: int = 20
+    timeout: int = 10
 
 
 class ScraperModel(Observable):
@@ -113,16 +121,43 @@ class ScraperModel(Observable):
     jackett: JackettConfig = JackettConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
     torrentio: TorrentioConfig = TorrentioConfig()
+    annatar: AnnatarConfig = AnnatarConfig()
 
 
-class ParserModel(Observable):
-    highest_quality: bool = False
-    include_4k: bool = False
-    repack_proper: bool = True
-    language: list[str] = ["English"]
+# Version Ranking Model (set application defaults here!)
+
+
+class RTNSettingsModel(SettingsModel, Observable):
+    profile: str = "default"
+    custom_ranks: Dict[str, CustomRank] = {
+        "uhd": CustomRank(fetch=False, rank=120),
+        "fhd": CustomRank(fetch=True, rank=90),
+        "hd": CustomRank(fetch=True, rank=80),
+        "sd": CustomRank(fetch=False, rank=-120),
+        "bluray": CustomRank(fetch=True, rank=80),
+        "hdr": CustomRank(fetch=False, rank=80),
+        "hdr10": CustomRank(fetch=False, rank=90),
+        "dolby_video": CustomRank(fetch=False, rank=-100),
+        "dts_x": CustomRank(fetch=False, rank=0),
+        "dts_hd": CustomRank(fetch=False, rank=0),
+        "dts_hd_ma": CustomRank(fetch=False, rank=0),
+        "atmos": CustomRank(fetch=False, rank=0),
+        "truehd": CustomRank(fetch=False, rank=0),
+        "ddplus": CustomRank(fetch=False, rank=0),
+        "aac": CustomRank(fetch=True, rank=70),
+        "ac3": CustomRank(fetch=True, rank=50),
+        "remux": CustomRank(fetch=False, rank=-1000),
+        "webdl": CustomRank(fetch=True, rank=90),
+        "repack": CustomRank(fetch=True, rank=5),
+        "proper": CustomRank(fetch=True, rank=4),
+        "dubbed": CustomRank(fetch=True, rank=4),
+        "subbed": CustomRank(fetch=True, rank=2),
+        "av1": CustomRank(fetch=False, rank=0),
+    }
 
 
 # Application Settings
+
 
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
@@ -142,7 +177,5 @@ class AppModel(Observable):
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
-    parser: ParserModel = ParserModel()
+    ranking: RTNSettingsModel = RTNSettingsModel()
     indexer: IndexerModel = IndexerModel()
-
-

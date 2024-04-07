@@ -1,15 +1,15 @@
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Optional, Self
+
 from program.media.state import States
-from typing import Self, Optional
-from utils.parser import parser
+from RTN.parser import extract_episodes
 
 
 @dataclass
 class ItemId:
     value: str
     parent_id: Optional[Self] = None
-
 
     def __repr__(self):
         if not self.parent_id:
@@ -18,7 +18,7 @@ class ItemId:
 
     def __hash__(self):
         return hash(self.__repr__())
-    
+
 
 class MediaItem:
     """MediaItem class"""
@@ -28,7 +28,7 @@ class MediaItem:
         self.requested_by = item.get("requested_by", None)
 
         self.indexed_at = None
-        
+
         self.scraped_at = None
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", None)
@@ -37,7 +37,7 @@ class MediaItem:
         self.symlinked = False
         self.symlinked_at = None
         self.symlinked_times = 0
-        
+
         self.file = None
         self.folder = None
         self.is_anime = item.get("is_anime", False)
@@ -49,7 +49,7 @@ class MediaItem:
         self.imdb_id = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
-            if not hasattr(self, 'item_id'):
+            if not hasattr(self, "item_id"):
                 self.item_id = ItemId(self.imdb_id)
         self.tvdb_id = item.get("tvdb_id", None)
         self.tmdb_id = item.get("tmdb_id", None)
@@ -142,26 +142,27 @@ class MediaItem:
                     if not abbreviated_children
                     else self.represent_children
                 )
-        dict["language"] = (self.language if hasattr(self, "language") else None)
-        dict["country"] = (self.country if hasattr(self, "country") else None)
-        dict["network"] = (self.network if hasattr(self, "network") else None)
+        dict["language"] = self.language if hasattr(self, "language") else None
+        dict["country"] = self.country if hasattr(self, "country") else None
+        dict["network"] = self.network if hasattr(self, "network") else None
         dict["active_stream"] = (
             self.active_stream if hasattr(self, "active_stream") else None
         )
-        dict["symlinked"] = (self.symlinked if hasattr(self, "symlinked") else None)
-        dict["symlinked_at"] = (self.symlinked_at if hasattr(self, "symlinked_at") else None)
-        dict["symlinked_times"] = (self.symlinked_times if hasattr(self, "symlinked_times") else None)
-
-        dict["parsed"] = (self.parsed if hasattr(self, "parsed") else None)
-        dict["parsed_data"] = (
-            self.parsed_data if hasattr(self, "parsed_data") else None
+        dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
+        dict["symlinked_at"] = (
+            self.symlinked_at if hasattr(self, "symlinked_at") else None
         )
-        dict["is_anime"] = (self.is_anime if hasattr(self, "is_anime") else None)
+        dict["symlinked_times"] = (
+            self.symlinked_times if hasattr(self, "symlinked_times") else None
+        )
+
+        dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
+        dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
         dict["update_folder"] = (
             self.update_folder if hasattr(self, "update_folder") else None
         )
-        dict["file"] = (self.file if hasattr(self, "file") else None)
-        dict["folder"] = (self.folder if hasattr(self, "folder") else None)
+        dict["file"] = self.file if hasattr(self, "file") else None
+        dict["folder"] = self.folder if hasattr(self, "folder") else None
         return dict
 
     def __iter__(self):
@@ -180,6 +181,16 @@ class MediaItem:
     def set(self, key, value):
         """Set item attribute"""
         _set_nested_attr(self, key, value)
+
+    def get_top_title(self) -> str:
+        """Get the top title of the item."""
+        match self.__class__.__name__:
+            case "Season":
+                return self.parent.title
+            case "Episode":
+                return self.parent.parent.title
+            case _:
+                return self.title
 
     @property
     def log_string(self):
@@ -224,7 +235,7 @@ class Show(MediaItem):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
         if any(
-            season.state == States.Completed or season.state == States.PartiallyCompleted
+            season.state in (States.Completed, States.PartiallyCompleted)
             for season in self.seasons
         ):
             return States.PartiallyCompleted
@@ -249,21 +260,21 @@ class Show(MediaItem):
             if s.number not in existing_seasons:
                 self.add_season(s)
             else:
-                existing_season = next(es for es in self.seasons if s.number == es.number) 
+                existing_season = next(
+                    es for es in self.seasons if s.number == es.number
+                )
                 existing_season.fill_in_missing_children(s)
-        
+
     def add_season(self, season):
         """Add season to show"""
         self.seasons.append(season)
         season.parent = self
         season.item_id.parent_id = self.item_id
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
-    
+
     def represent_children(self):
-        return [
-            s.represent_children()
-            for s in self.seasons
-        ]
+        return [s.represent_children() for s in self.seasons]
+
 
 class Season(MediaItem):
     """Season class"""
@@ -301,8 +312,11 @@ class Season(MediaItem):
         return States.Unknown
 
     def __eq__(self, other):
-        if type(self) == type(other) and self.item_id.parent_id == other.item_id.parent_id:
-            return self.number == other.get('number', None)
+        if (
+            type(self) == type(other)
+            and self.item_id.parent_id == other.item_id.parent_id
+        ):
+            return self.number == other.get("number", None)
 
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
@@ -323,7 +337,6 @@ class Season(MediaItem):
         episode.item_id.parent_id = self.item_id
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
-
     @property
     def log_string(self):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
@@ -340,14 +353,17 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __eq__(self, other):
-        if type(self) == type(other) and self.item_id.parent_id == other.item_id.parent_id:
-            return self.number == other.get('number', None)
+        if (
+            type(self) == type(other)
+            and self.item_id.parent_id == other.item_id.parent_id
+        ):
+            return self.number == other.get("number", None)
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.name}"
 
-    def get_file_episodes(self):
-        return parser.episodes(self.file)
+    def get_file_episodes(self) -> List[int]:
+        return extract_episodes(self.file)
 
     @property
     def log_string(self):
@@ -364,8 +380,7 @@ def _set_nested_attr(obj, key, value):
 
         current_obj = getattr(obj, current_key)
         _set_nested_attr(current_obj, rest_of_keys, value)
+    elif isinstance(obj, dict):
+        obj[key] = value
     else:
-        if isinstance(obj, dict):
-            obj[key] = value
-        else:
-            setattr(obj, key, value)
+        setattr(obj, key, value)

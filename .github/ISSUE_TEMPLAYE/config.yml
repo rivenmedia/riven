@@ -1,0 +1,11 @@
+# Ref: https://help.github.com/en/github/building-a-strong-community/configuring-issue-templates-for-your-repository#configuring-the-template-chooser
+blank_issues_enabled: false
+contact_links:
+- name: '💬 Discussions'
+  url: https://github.com/dreulavelle/rank-torrent-name/discussions
+  about: |
+    Ask questions about using Iceberg, features and roadmap, or get support and feedback!
+- name: '💬 Discord Server'
+  url: https://discord.gg/38SFhtN8ph
+  about: |
+    Chat with the community and Iceberg maintainers about both the usage of and development of the project.

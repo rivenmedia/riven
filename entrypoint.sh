@@ -1,5 +1,4 @@
 #!/bin/bash
-
 echo "Starting Container with ${PUID:-1000}:${PGID:-1000} permissions..."
 
 if ! [ "$PUID" -eq "$PUID" ] 2> /dev/null; then
@@ -27,9 +26,14 @@ else
     USERNAME=$(getent passwd ${PUID} | cut -d: -f1)
 fi
 
+USER_HOME="/home/${USERNAME}"
+mkdir -p ${USER_HOME}
+chown ${USERNAME}:${GROUPNAME} ${USER_HOME}
 chown -R ${USERNAME}:${GROUPNAME} /iceberg
-
+export XDG_CONFIG_HOME="${USER_HOME}/.config"
+export POETRY_CACHE_DIR="${USER_HOME}/.cache/pypoetry"
+su -m $USERNAME -c "poetry config virtualenvs.create false"
 ORIGIN=${ORIGIN:-http://localhost:3000}
 
 echo "Container Initialization complete."
-exec su -m $USERNAME -c 'cd backend && source /venv/bin/activate && exec python /iceberg/backend/main.py & ORIGIN=$ORIGIN node /iceberg/frontend/build'
+exec su -m $USERNAME -c "cd /iceberg/backend && poetry run python3 main.py & ORIGIN=$ORIGIN node /iceberg/frontend/build"

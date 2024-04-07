@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Request
 import requests
+from fastapi import APIRouter, Request
 from program.settings.manager import settings_manager
-
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},

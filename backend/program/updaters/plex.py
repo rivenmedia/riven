@@ -1,10 +1,12 @@
 """Plex Updater module"""
+
 import os
-from plexapi.server import PlexServer
+
 from plexapi.exceptions import BadRequest, Unauthorized
-from utils.logger import logger
-from program.settings.manager import settings_manager
+from plexapi.server import PlexServer
 from program.media.item import Episode
+from program.settings.manager import settings_manager
+from utils.logger import logger
 
 
 class PlexUpdater:

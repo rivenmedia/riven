@@ -150,8 +150,9 @@ You can also restart the container with `make restart`, or view the logs with `m
 If you don't want to use `make` and docker, you can use the following commands to run development environment.
 
 ```sh
-pip install -r requirements.txt
-python backend/main.py
+pip install poetry
+poetry install
+poetry run python backend/main.py
 ```
 
 ```sh
@@ -167,6 +168,16 @@ npm run dev
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 We use Black for backend and Prettier for frontend. Please make sure to run the formatters before submitting a pull request. Also use CRLF line endings unless it is a shell script or something that requires LF line endings.
+
+We've switched to Poetry!
+
+Poetry simplifies dependency management by automatically handling package versions and resolving conflicts, ensuring that every contributor works with a consistent set of dependencies. To contribute to this project using Poetry, you'll need to install Poetry on your system. This can be done by `pip install poetry`. Once installed, you can easily manage the project's dependencies.
+
+For starters, after cloning the repository, run `poetry install` in the project's root directory. This command installs all the necessary dependencies as defined in the `pyproject.toml` file, creating an isolated virtual environment for the project. Contributors can then activate the virtual environment using `poetry shell` or run project-related commands directly using `poetry run`. 
+
+Poetry also simplifies the process of adding new dependencies or updating existing ones with commands like `poetry add package-name` and `poetry update package-name`, respectively. Before submitting a pull request, ensure your changes are compatible with the project's dependencies and coding standards. To facilitate this, we encourage contributors to use `poetry run command` to run tests and linters.
+
+---
 
 <a href="https://github.com/dreulavelle/iceberg/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=dreulavelle/iceberg" />

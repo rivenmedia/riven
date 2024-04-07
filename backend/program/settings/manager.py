@@ -1,11 +1,12 @@
 import json
-from pydantic import ValidationError
+
 from program.settings.models import AppModel, Observable
+from pydantic import ValidationError
 from utils import data_dir_path
 from utils.logger import logger
 
 
-class SettingsManager():
+class SettingsManager:
     """Class that handles settings, ensuring they are validated against a Pydantic schema."""
 
     def __init__(self):

@@ -9,7 +9,7 @@ router = APIRouter(
 
 
 @router.get("/states")
-async def get_states(request: Request):
+async def get_states():
     return {
         "success": True,
         "states": [state for state in States],

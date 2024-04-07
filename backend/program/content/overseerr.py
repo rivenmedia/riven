@@ -1,12 +1,13 @@
 """Mdblist content module"""
+
+from program.indexers.trakt import get_imdbid_from_tmdb
+from program.media.item import MediaItem
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping
-from program.settings.manager import settings_manager
-from program.media.item import MediaItem
-from program.indexers.trakt import get_imdbid_from_tmdb
 
 
-class Overseerr():
+class Overseerr:
     """Content class for overseerr"""
 
     def __init__(self):
@@ -56,9 +57,8 @@ class Overseerr():
                 imdb_id = self.get_imdb_id(item.media)
             else:
                 imdb_id = item.media.imdbId
-            yield MediaItem({'imdb_id': imdb_id, 'requested_by': self.__class__})
-
-
+            if imdb_id:
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
@@ -73,8 +73,7 @@ class Overseerr():
         if f"{id_extension}{external_id}" in self.not_found_ids:
             return None
         response = get(
-            self.settings.url
-            + f"/api/v1/{data.mediaType}/{external_id}?language=en",
+            self.settings.url + f"/api/v1/{data.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
         if not response.is_ok or not hasattr(response.data, "externalIds"):

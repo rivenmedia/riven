@@ -2,7 +2,45 @@ data/
 logs/
 settings.json
 .vscode
-__pycache__
 .git
 docker-compose.yml
 makefile
+.ruff_cache/
+
+# Python bytecode / Byte-compiled / optimized / DLL files
+__pycache__/
+__pypackages__/
+*.pyc
+*.pyo
+*.pyd
+/.venv/
+*.py[cod]
+*$py.class
+.ruff_cache/
+
+# Local Poetry artifact cache
+/.cache/pypoetry/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Environments
+*.env
+*.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/

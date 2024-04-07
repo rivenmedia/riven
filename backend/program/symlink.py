@@ -1,13 +1,15 @@
 """Symlinking module"""
+
+import contextlib
 import os
 from datetime import datetime
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from utils.logger import logger
-from program.settings.manager import settings_manager
-from program.media.item import Movie, Episode
 
+from program.media.item import Episode, Movie
+from program.settings.manager import settings_manager
+from utils.logger import logger
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 
 class DeleteHandler(FileSystemEventHandler):
@@ -102,13 +104,15 @@ class Symlinker:
         """Starts monitoring the library path for symlink deletions."""
         self.event_handler = DeleteHandler(self)
         self.observer = Observer()
-        self.observer.schedule(self.event_handler, self.settings.library_path, recursive=True)
+        self.observer.schedule(
+            self.event_handler, self.settings.library_path, recursive=True
+        )
         self.observer.start()
         logger.debug("Start monitor for symlink deletions.")
 
     def stop_monitor(self):
         """Stops the directory monitoring."""
-        if hasattr(self, 'observer'):
+        if hasattr(self, "observer"):
             self.observer.stop()
             self.observer.join()
             logger.debug("Stopped monitoring for symlink deletions.")
@@ -162,7 +166,9 @@ class Symlinker:
         else:
             logger.error(
                 "Could not find %s in subdirectories of %s to create symlink,"
-                " maybe it failed to download?", item.log_string, rclone_path
+                " maybe it failed to download?",
+                item.log_string,
+                rclone_path,
             )
         item.symlinked_at = datetime.now()
         item.symlinked_times += 1
@@ -201,10 +207,8 @@ class Symlinker:
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
         if destination:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.remove(destination)
-            except FileNotFoundError:
-                pass
             os.symlink(
                 source,
                 destination,

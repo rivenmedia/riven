@@ -1,31 +1,29 @@
+import inspect
+import json
 import os
 import threading
 import time
 import traceback
-import inspect
-import json
-
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
-from queue import Queue, Empty
+from queue import Empty, Queue
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from coverage import Coverage
 from deepdiff.diff import DeepDiff, PrettyOrderedSet
-
-from program.content import Overseerr, PlexWatchlist, Listrr, Mdblist
-from program.state_transition import process_event
+from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
+from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.media.state import States
-from program.libaries import SymlinkLibrary
 from program.realdebrid import Debrid
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
+from program.state_transition import process_event
 from program.symlink import Symlinker
+from program.types import Event, ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
-from program.types import Event, Service, ProcessedEvent
 from utils import data_dir_path
 from utils.logger import logger
 from utils.utils import Pickly
@@ -39,38 +37,33 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         logger.configure_logger(
-            debug=settings_manager.settings.debug, 
-            log=settings_manager.settings.log
+            debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
 
     def initialize_services(self):
         self.requesting_services = {
-            Overseerr: Overseerr(), 
-            PlexWatchlist: PlexWatchlist(), 
-            Listrr: Listrr(), 
+            Overseerr: Overseerr(),
+            PlexWatchlist: PlexWatchlist(),
+            Listrr: Listrr(),
             Mdblist: Mdblist(),
         }
-        self.indexing_services = {
-            TraktIndexer: TraktIndexer()
-        }
+        self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
-            Scraping: Scraping(), 
-            Debrid: Debrid(), 
+            Scraping: Scraping(),
+            Debrid: Debrid(),
             Symlinker: Symlinker(),
-            PlexUpdater: PlexUpdater()
+            PlexUpdater: PlexUpdater(),
         }
         # Depends on Symlinker having created the file structure so needs
         #   to run after it
-        self.library_services = {
-            SymlinkLibrary: SymlinkLibrary()
-        }
+        self.library_services = {SymlinkLibrary: SymlinkLibrary()}
         self.services = {
             **self.library_services,
             **self.indexing_services,
             **self.requesting_services,
-            **self.processing_services
+            **self.processing_services,
         }
-        
+
         self.initialized = True
 
     def start(self):
@@ -90,7 +83,7 @@ class Program(threading.Thread):
         logger.info("----------------------------------------------")
         while not self.validate():
             time.sleep(1)
-        
+
         logger.info("Iceberg started!")
 
         self.media_items = MediaItemContainer()
@@ -102,7 +95,7 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
         self.scheduler = BackgroundScheduler()
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker") 
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
         self._schedule_services()
         self._schedule_functions()
         super().start()
@@ -115,71 +108,101 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_functions = { 
-            self._retry_library: {
-                'interval': 60 * 10
-            } 
-        }
+        scheduled_functions = {self._retry_library: {"interval": 60 * 10}}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
-                'interval',
-                seconds=config['interval'],
-                args=config.get('args'),
-                id=f'{func.__name__}',
+                "interval",
+                seconds=config["interval"],
+                args=config.get("args"),
+                id=f"{func.__name__}",
                 max_instances=1,
                 replace_existing=True,  # Replace existing jobs with the same ID
-                next_run_time=datetime.now()
+                next_run_time=datetime.now(),
             )
-            logger.info("Scheduled %s to run every %s seconds.", func.__name__, config['interval'])
+            logger.info(
+                "Scheduled %s to run every %s seconds.",
+                func.__name__,
+                config["interval"],
+            )
         return
-    
+
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_services = { **self.requesting_services, **self.library_services }
+        scheduled_services = {**self.requesting_services, **self.library_services}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
-                logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
+                logger.info(
+                    "Not scheduling %s due to not being initialized",
+                    service_cls.__name__,
+                )
                 continue
-            if not (update_interval := getattr(service_instance.settings, 'update_interval', False)):
+            if not (
+                update_interval := getattr(
+                    service_instance.settings, "update_interval", False
+                )
+            ):
                 logger.info(
                     "Service %s update_interval set to False or missing, "
-                    + " not schedulings regular updates", 
-                    service_cls.__name__
+                    + " not schedulings regular updates",
+                    service_cls.__name__,
                 )
                 continue
 
             self.scheduler.add_job(
                 self._submit_job,
-                'interval',
+                "interval",
                 seconds=update_interval,
                 args=[service_cls, None],
-                id=f'{service_cls.__name__}_update',
+                id=f"{service_cls.__name__}_update",
                 max_instances=1,
                 replace_existing=True,  # Replace existing jobs with the same ID
-                next_run_time=datetime.now() if service_cls != SymlinkLibrary else None
+                next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
             )
-            logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
+            logger.info(
+                "Scheduled %s to run every %s seconds.",
+                service_cls.__name__,
+                update_interval,
+            )
         return
 
-    def _process_future_item(self, future: Future, service: Service, input_item: MediaItem) -> None:
+    def _process_future_item(
+        self, future: Future, service: Service, input_item: MediaItem
+    ) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
                 if not isinstance(item, MediaItem):
-                    logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
+                    logger.error(
+                        "Service %s emitted item %s of type %s, skipping",
+                        service.__name__,
+                        item,
+                        item.__class__.__name__,
+                    )
                     continue
                 self.event_queue.put(Event(emitted_by=service, item=item))
         except Exception:
-            logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
+            logger.error(
+                "Service %s failed with exception %s",
+                service.__name__,
+                traceback.format_exc(),
+            )
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         logger.debug(
-            f"Submitting service {service.__name__} to the pool" +
-            (f" with {getattr(item, 'log_string', None) or item.item_id}" if item else "")
+            f"Submitting service {service.__name__} to the pool"
+            + (
+                f" with {getattr(item, 'log_string', None) or item.item_id}"
+                if item
+                else ""
+            )
         )
         func = self.services[service].run
-        future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
+        future = (
+            self.executor.submit(func)
+            if item is None
+            else self.executor.submit(func, item)
+        )
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def run(self):
@@ -194,8 +217,8 @@ class Program(threading.Thread):
                 continue
             existing_item = self.media_items.get(event.item.item_id, None)
             func = (
-                process_event_and_collect_coverage 
-                if self.startup_args.profile_state_transitions 
+                process_event_and_collect_coverage
+                if self.startup_args.profile_state_transitions
                 else process_event
             )
             updated_item, next_service, items_to_submit = func(
@@ -206,32 +229,38 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
                 if updated_item.state == States.Completed:
-                    logger.debug("%s %s has been completed", 
-                        updated_item.__class__.__name__, updated_item.log_string
+                    logger.debug(
+                        "%s %s has been completed",
+                        updated_item.__class__.__name__,
+                        updated_item.log_string,
                     )
 
             for item_to_submit in items_to_submit:
                 self._submit_job(next_service, item_to_submit)
 
     def validate(self):
-        return all((
-            any(s.initialized for s in self.requesting_services.values()),
-            any(s.initialized for s in self.library_services.values()),
-            any(s.initialized for s in self.indexing_services.values()),
-            all(s.initialized for s in self.processing_services.values())
-        ))
+        return all(
+            (
+                any(s.initialized for s in self.requesting_services.values()),
+                any(s.initialized for s in self.library_services.values()),
+                any(s.initialized for s in self.indexing_services.values()),
+                all(s.initialized for s in self.processing_services.values()),
+            )
+        )
 
     def stop(self):
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=True) 
-        if hasattr(self, 'pickly'):
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=True)
+        if hasattr(self, "pickly"):
             self.pickly.stop()
         settings_manager.save()
         symlinker_service = self.processing_services.get(Symlinker)
         if symlinker_service:
             symlinker_service.stop_monitor()
-        if hasattr(self, 'scheduler'):
-            self.scheduler.shutdown(wait=False)  # Don't block, doesn't contain data to consume
+        if hasattr(self, "scheduler"):
+            self.scheduler.shutdown(
+                wait=False
+            )  # Don't block, doesn't contain data to consume
         self.running = False
 
 
@@ -245,24 +274,23 @@ def custom_serializer(obj):
     elif isinstance(obj, PrettyOrderedSet):
         return list(obj)
 
+
 # Function to execute process_event and collect coverage data
 def process_event_and_collect_coverage(
-    existing_item: MediaItem | None, 
-    emitted_by: Service, 
-    item: MediaItem
-) -> ProcessedEvent: # type: ignore
+    existing_item: MediaItem | None, emitted_by: Service, item: MediaItem
+) -> ProcessedEvent:  # type: ignore
     file_path = inspect.getfile(process_event)
 
     # Load the source code and extract executed lines
-    with open(file_path, 'r') as file:
+    with open(file_path, "r") as file:
         source_lines = file.readlines()
-    
+
     lines, start_line_no = inspect.getsourcelines(process_event)
     logic_start_line_no = next(
-        i + start_line_no + 1 
-        for i, line in enumerate(source_lines[start_line_no:]) 
+        i + start_line_no + 1
+        for i, line in enumerate(source_lines[start_line_no:])
         if line.strip().startswith("if ")
-    ) 
+    )
     end_line_no = logic_start_line_no + len(lines) - 1
 
     cov = Coverage(branch=True)
@@ -280,31 +308,37 @@ def process_event_and_collect_coverage(
     # Analyze the coverage data for this execution
     _, executable_line_nos, excluded, not_executed, _ = cov.analysis2(file_path)
 
-
     not_executed_set = set(not_executed)
     executed_lines = [
-        (i, source_lines[i-1]) # Adjust line numbers to 0-based indexing
-        for i in executable_line_nos 
-        if logic_start_line_no <= i <= end_line_no
-        and i not in not_executed_set
+        (i, source_lines[i - 1])  # Adjust line numbers to 0-based indexing
+        for i in executable_line_nos
+        if logic_start_line_no <= i <= end_line_no and i not in not_executed_set
     ]
 
-    existing = existing_item.to_extended_dict(abbreviated_children=True) if existing_item else None
+    existing = (
+        existing_item.to_extended_dict(abbreviated_children=True)
+        if existing_item
+        else None
+    )
     current = item.to_extended_dict(abbreviated_children=True) if item else None
-    updated = updated_item.to_extended_dict(abbreviated_children=True) if updated_item else None
+    updated = (
+        updated_item.to_extended_dict(abbreviated_children=True)
+        if updated_item
+        else None
+    )
     frame_data = {
         "current_state": current,
         "diffs": {
             "existing_to_current": (
                 DeepDiff(existing, current, ignore_order=True).to_dict()
-                if existing 
+                if existing
                 else {}
             ),
             "current_to_updated": (
                 DeepDiff(current, updated, ignore_order=True).to_dict()
-                if updated 
+                if updated
                 else {}
-            )
+            ),
         },
         "executed_lines": executed_lines,
         "next_service": next_service.__name__ if next_service else None,
@@ -316,8 +350,8 @@ def process_event_and_collect_coverage(
     os.makedirs(frames_dir, exist_ok=True)
     # Write frame data to a JSONL file within the function
     collection_filename = frames_dir / f"{item.collection}.jsonl"
-    with open(collection_filename, 'a') as f:
+    with open(collection_filename, "a") as f:
         json.dump(frame_data, f, default=custom_serializer)
-        f.write('\n')  # Newline to separate frames in the file
+        f.write("\n")  # Newline to separate frames in the file
 
     return updated_item, next_service, items_to_submit

@@ -1,15 +1,16 @@
 """Requests wrapper"""
-from multiprocessing import Lock
-from types import SimpleNamespace
-from lxml import etree
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
+
 import json
 import logging
-import requests
 import time
-import xmltodict
+from multiprocessing import Lock
+from types import SimpleNamespace
 
+import requests
+import xmltodict
+from lxml import etree
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -31,28 +32,27 @@ class ResponseObject:
         self.data = self.handle_response(response)
 
     def handle_response(self, response: requests.Response):
-        """Handle different types of responses"""
-        if not self.is_ok and self.status_code not in [404, 429, 502, 509, 520, 522]:
-            logger.error("Error: %s %s", response.status_code, response.content)
-        if self.status_code in [520, 522]:
-            # Cloudflare error from Torrentio
-            raise requests.exceptions.ConnectTimeout(response.content)
-        if self.status_code not in [200, 201, 204]:
-            if self.status_code in [404, 429, 502, 509]:
+        """Handle different types of responses."""
+        # Check for response success
+        if response.status_code not in [200, 201, 204]:
+            if response.status_code in [404, 429, 502, 509]:
                 raise requests.exceptions.RequestException(response.content)
+            if response.status_code in [520, 522]:
+                raise requests.exceptions.ConnectTimeout(response.content)
+            if response.status_code not in [404, 429, 502, 509, 520, 522]:
+                logger.error("Error: %s %s", response.status_code, response.content)
             return {}
-        if len(response.content) > 0:
-            if "handler error" not in response.text:
-                content_type = response.headers.get("Content-Type")
-                if "application/rss+xml" in content_type:
-                    return xmltodict.parse(response.content)
-                if "text/xml" in content_type:
-                    if self.response_type == dict:
-                        return xmltodict.parse(response.content)
-                    return _xml_to_simplenamespace(response.content)
-                if "application/json" in content_type:
-                    if self.response_type == dict:
-                        return json.loads(response.content)
+
+        if response.content and "handler error" not in response.text:
+            content_type = response.headers.get("Content-Type", "")
+
+            if "application/rss+xml" in content_type or "text/xml" in content_type:
+                return xmltodict.parse(response.content)
+
+            elif "application/json" in content_type:
+                if self.response_type == dict:
+                    return json.loads(response.content)
+                else:
                     return json.loads(
                         response.content,
                         object_hook=lambda item: SimpleNamespace(**item),
@@ -159,6 +159,7 @@ def put(
         retry_if_failed=retry_if_failed,
     )
 
+
 def delete(
     url: str,
     timeout=10,
@@ -176,8 +177,9 @@ def delete(
         retry_if_failed=retry_if_failed,
     )
 
+
 def _xml_to_simplenamespace(xml_string):
-    root = etree.fromstring(xml_string)
+    root = etree.fromstring(xml_string)  # noqa: S320
 
     def element_to_simplenamespace(element):
         children_as_ns = {
@@ -262,4 +264,3 @@ class RateLimiter:
         """
         Exits the rate limiter context.
         """
-        pass

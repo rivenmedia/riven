@@ -1,12 +1,13 @@
 import os
-from copy import deepcopy, copy
-import dill
+from copy import copy, deepcopy
 from pickle import UnpicklingError
 from typing import Generator
 
-from program.media.item import MediaItem, Episode, Season, Show, ItemId, Movie
+import dill
+from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
 from program.media.state import States
 from utils.logger import logger
+
 
 class MediaItemContainer:
     """MediaItemContainer class"""
@@ -21,7 +22,7 @@ class MediaItemContainer:
     def __iter__(self) -> Generator[MediaItem, None, None]:
         for item in self._items.values():
             yield item
-            
+
     def __contains__(self, item) -> bool:
         return item in self._items
 
@@ -38,15 +39,15 @@ class MediaItemContainer:
     @property
     def seasons(self) -> dict[ItemId, Season]:
         return deepcopy(self._seasons)
-        
+
     @property
     def episodes(self) -> dict[ItemId, Episode]:
         return deepcopy(self._episodes)
-    
+
     @property
     def shows(self) -> dict[ItemId, Show]:
         return deepcopy(self._shows)
-    
+
     @property
     def movies(self) -> dict[ItemId, Movie]:
         return deepcopy(self._movies)
@@ -60,9 +61,10 @@ class MediaItemContainer:
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
             logger.error(
-                "%s item %s is detatched and not associated with a parent, and thus" +
-                " it cannot be upserted into the database", 
-                item.__class__.name, item.log_string
+                "%s item %s is detatched and not associated with a parent, and thus"
+                + " it cannot be upserted into the database",
+                item.__class__.name,
+                item.log_string,
             )
             raise ValueError("Item detached from parent")
         if isinstance(item, Show):
@@ -89,7 +91,7 @@ class MediaItemContainer:
                 container_show.seasons[parent_index] = item
         elif isinstance(item, Episode):
             self._episodes[item.item_id] = item
-            # Ensure the parent Season is updated in the container            
+            # Ensure the parent Season is updated in the container
             container_season: Season = self._items[item.item_id.parent_id]
             parent_index = container_season.get_episode_index_by_id(item.item_id)
             if parent_index is not None:
@@ -113,7 +115,7 @@ class MediaItemContainer:
             for item_id, item in self._items.items()
             if item.state == state
         }
-    
+
     def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
         """Get items with the specified state."""
         return {
@@ -143,7 +145,9 @@ class MediaItemContainer:
         except FileNotFoundError:
             logger.error("Cannot find cached media data at %s", filename)
         except (EOFError, UnpicklingError):
-            logger.error("Failed to unpickle media data at %s, wiping cached data", filename)
+            logger.error(
+                "Failed to unpickle media data at %s, wiping cached data", filename
+            )
             os.remove(filename)
             self._items = {}
             self._movies = {}
