@@ -17,7 +17,7 @@ lxml = "^5.1.0"
 pathos = "^0.3.2"
 pydantic = "^2.6.3"
 fastapi = "^0.110.0"
-uvicorn = {extras = ["standard"], version = "^0.27.1"}
+uvicorn = {extras = ["standard"], version = "^0.29.0"}
 apscheduler = "^3.10.4"
 watchdog = "^4.0.0"
 deepdiff = "^6.7.1"
