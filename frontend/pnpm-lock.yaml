@@ -12,8 +12,8 @@ dependencies:
     specifier: ^2.0.0
     version: 2.1.0
   cmdk-sv:
-    specifier: ^0.0.12
-    version: 0.0.12(svelte@4.2.9)
+    specifier: ^0.0.17
+    version: 0.0.17(svelte@4.2.9)
   embla-carousel-svelte:
     specifier: 8.0.0-rc20
     version: 8.0.0-rc20(svelte@4.2.9)
@@ -1237,13 +1237,13 @@ packages:
     engines: {node: '>=6'}
     dev: false
 
-  /cmdk-sv@0.0.12(svelte@4.2.9):
-    resolution: {integrity: sha512-d+eILSOb2W+/3U/j7xGTgGRrZkFB/z4Xlvj0ADrWhf34y9YLzJon3JCGP2hMil5IrVm0P/+IFIeCF5l3//kcjA==}
+  /cmdk-sv@0.0.17(svelte@4.2.9):
+    resolution: {integrity: sha512-28QTrK1tT1TSNoGq9MVnzjeLNNjCgjmsM8c2HJfDpRt9t+GD+9m3wX/WdAPaP9jdoNYU0SSdZVdgsGgpaSQOYQ==}
     peerDependencies:
       svelte: ^4.0.0
     dependencies:
       bits-ui: 0.9.9(svelte@4.2.9)
-      nanoid: 5.0.4
+      nanoid: 5.0.6
       svelte: 4.2.9
     dev: false
 
@@ -2166,12 +2166,6 @@ packages:
   /nanoid@4.0.2:
     resolution: {integrity: sha512-7ZtY5KTCNheRGfEFxnedV5zFiORN1+Y1N6zvPTnHQd8ENUvfaDBeuJDZb2bN/oXwXxu3qkTXDzy57W5vAmDTBw==}
     engines: {node: ^14 || ^16 || >=18}
-    hasBin: true
-    dev: false
-
-  /nanoid@5.0.4:
-    resolution: {integrity: sha512-vAjmBf13gsmhXSgBrtIclinISzFFy22WwCYoyilZlsrRXNIHSwgFQ1bEdjRwMT3aoadeIF6HMuDRlOxzfXV8ig==}
-    engines: {node: ^18 || >=20}
     hasBin: true
     dev: false
 
