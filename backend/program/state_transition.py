@@ -54,7 +54,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 logger.debug("Merging metadata for item: %s", item.log_string)
                 if isinstance(item, (Show, Season)):
                     existing_item.fill_in_missing_children(item)
+                # merge in the metadata in case its missing (like on cold boot)
                 existing_item.copy_other_media_attr(item)
+                # update the timestamp now that we have new metadata
                 existing_item.indexed_at = item.indexed_at
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
