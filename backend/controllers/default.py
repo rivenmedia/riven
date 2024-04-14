@@ -29,7 +29,7 @@ async def get_rd_user():
     api_key = settings_manager.settings.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user", headers=headers
+        "https://api.real-debrid.com/rest/1.0/user", headers=headers, timeout=10
     )
     return response.json()
 

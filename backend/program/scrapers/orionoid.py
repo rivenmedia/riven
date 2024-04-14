@@ -1,6 +1,4 @@
 """ Orionoid scraper module """
-
-import contextlib
 from datetime import datetime
 from typing import Dict
 
@@ -192,14 +190,17 @@ class Orionoid:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
+                logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in response.data.data.streams:
                 if not stream.file.hash or not stream.file.name:
                     continue
-                with contextlib.suppress(GarbageTorrent):
+                try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.file.name, infohash=stream.file.hash, correct_title=correct_title, remove_trash=True
                     )
+                except GarbageTorrent:
+                    continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)

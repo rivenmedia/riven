@@ -1,5 +1,4 @@
 """ Jackett scraper module """
-import contextlib
 from typing import Dict
 
 from program.media.item import Show
@@ -56,7 +55,7 @@ class Jackett:
     def run(self, item):
         """Scrape the jackett site for the given media items
         and update the object with scraped streams"""
-        if item is None or isinstance(item, Show):
+        if item is None or isinstance(item, Show) or not item:
             yield item
         try:
             yield self._scrape_item(item)
@@ -114,17 +113,20 @@ class Jackett:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
+                logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in streams:
                 attr = stream.get("torznab:attr", [])
                 infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
-                infohash = infohash_attr.get("@value")
-                if not infohash:
+                if not infohash_attr:
                     continue
-                with contextlib.suppress(GarbageTorrent):
+                infohash = infohash_attr.get("@value")
+                try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True
                     )
+                except GarbageTorrent:
+                    continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)

@@ -1,6 +1,4 @@
 """ Annatar scraper module """
-
-import contextlib
 from typing import Dict
 
 from program.media.item import Episode, Season, Show
@@ -141,14 +139,17 @@ class Annatar:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
+                logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in response.data.media:
                 if not stream.hash:
                     continue
-                with contextlib.suppress(GarbageTorrent):
+                try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.title, infohash=stream.hash, correct_title=correct_title, remove_trash=True
                     )
+                except GarbageTorrent:
+                    continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)

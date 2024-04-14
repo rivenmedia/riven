@@ -1,6 +1,4 @@
 """ Torrentio scraper module """
-
-import contextlib
 from typing import Dict
 
 from program.media.item import Episode, Season, Show
@@ -122,15 +120,18 @@ class Torrentio:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
+                logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in response.data.streams:
                 raw_title: str = stream.title.split("\n👤")[0].split("\n")[0]
                 if not stream.infoHash or not raw_title:
                     continue
-                with contextlib.suppress(GarbageTorrent):
+                try:
                     torrent = self.rtn.rank(
                         raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True
                     )
+                except GarbageTorrent:
+                    continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)

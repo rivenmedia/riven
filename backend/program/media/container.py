@@ -129,7 +129,10 @@ class MediaItemContainer:
     def save(self, filename) -> None:
         """Save container to file"""
         with open(filename, "wb") as file:
-            dill.dump(self, file)
+            try:
+                dill.dump(self, file)
+            except RuntimeError as e:
+                logger.error("Failed to pickle media data: %s", e)
 
     def load(self, filename) -> None:
         """Load container from file"""

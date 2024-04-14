@@ -1,6 +1,4 @@
 """Symlinking module"""
-
-import contextlib
 import os
 from datetime import datetime
 from pathlib import Path
@@ -72,20 +70,6 @@ class Symlinker:
             logger.error("library_path is not an absolute path: %s", library_path)
             return False
         try:
-            if (
-                all_path := self.settings.rclone_path / "__all__"
-            ).exists() and all_path.is_dir():
-                logger.debug(
-                    "Detected Zurg rclone_path. Using __all__ folder for rclone_path."
-                )
-                self.rclone_path = all_path
-            elif (
-                torrent_path := self.settings.rclone_path / "torrents"
-            ).exists() and torrent_path.is_dir():
-                logger.debug(
-                    "Detected standard rclone_path. Using torrents folder for rclone_path."
-                )
-                self.rclone_path = torrent_path
             if not self.create_initial_folders():
                 logger.error(
                     "Failed to create initial library folders in your library_path."
@@ -123,7 +107,6 @@ class Symlinker:
         # TODO: Implement logic to handle deletion..
         # We should use `update_path` to determine the item,
         # and work with the item (instead of path) to remove from content services..
-        # Need to bring in media_items from the main program and remove the item from it..
 
     def create_initial_folders(self):
         """Create the initial library folders."""
@@ -200,27 +183,23 @@ class Symlinker:
         return filename
 
     def _symlink(self, item):
-        """Create a symlink for the given media item"""
+        """Create a symlink for the given media item if it does not already exist."""
         # Symlinks get created on host as: destination -> source
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
-        if destination:
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(destination)
-            os.symlink(
-                source,
-                destination,
-            )
-            logger.debug("Created symlink for %s", item.log_string)
-            item.symlinked = True
+
+        if not os.path.exists(destination):
+            if destination:
+                try:
+                    os.symlink(source, destination)
+                    logger.debug("Created symlink for %s", item.log_string)
+                    item.symlinked = True
+                except OSError as e:
+                    logger.error("Failed to create symlink for %s: %s", item.log_string, e)
         else:
-            logger.debug(
-                "Could not create symlink for item_id (%s) to (%s)",
-                item.item_id,
-                destination,
-            )
+            logger.debug("Symlink already exists for %s, skipping...", item.log_string)
 
     def _create_item_folders(self, item, filename) -> str:
         if isinstance(item, Movie):

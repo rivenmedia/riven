@@ -103,7 +103,7 @@ class Program(threading.Thread):
         self.running = True
 
     def _retry_library(self) -> None:
-        for item_id, item in self.media_items.get_incomplete_items().items():
+        for _, item in self.media_items.get_incomplete_items().items():
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
@@ -125,7 +125,6 @@ class Program(threading.Thread):
                 func.__name__,
                 config["interval"],
             )
-        return
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
@@ -164,11 +163,8 @@ class Program(threading.Thread):
                 service_cls.__name__,
                 update_interval,
             )
-        return
 
-    def _process_future_item(
-        self, future: Future, service: Service, input_item: MediaItem
-    ) -> None:
+    def _process_future_item(self, future: Future, service: Service) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():

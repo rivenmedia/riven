@@ -24,10 +24,14 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self._can_we_scrape(item):
-            yield None
+            yield item
         for service in self.services.values():
-            if service.initialized:
-                item = next(service.run(item))
+            try:
+                if service.initialized:
+                    item = next(service.run(item))
+            except StopIteration:
+                logger.error(f"Service {service.key} failed to scrape {item} - Received StopIteration")
+                continue
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
