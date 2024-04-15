@@ -15,8 +15,8 @@ dependencies:
     specifier: ^0.0.12
     version: 0.0.12(svelte@4.2.9)
   embla-carousel-svelte:
-    specifier: 8.0.0-rc20
-    version: 8.0.0-rc20(svelte@4.2.9)
+    specifier: 8.0.2
+    version: 8.0.2(svelte@4.2.9)
   formsnap:
     specifier: ^0.4.2
     version: 0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.4)
@@ -1371,26 +1371,26 @@ packages:
     resolution: {integrity: sha512-M4+u22ZJGpk4RY7tne6W+APkZhnnhmAH48FNl8iEFK2lEgob+U5rUQsIqQhvAwCXYpfd3H20pHK/ENsCvwTbsA==}
     dev: true
 
-  /embla-carousel-reactive-utils@8.0.0-rc20(embla-carousel@8.0.0-rc20):
-    resolution: {integrity: sha512-fE7IeSS8HqwDnTDMP8eo0i4pcYQAemmJq53zCLXnp3Yj/p5+IpB1nC7aKQjd2ug1dGOSwwNRFaPI3shlAVVW/A==}
+  /embla-carousel-reactive-utils@8.0.2(embla-carousel@8.0.2):
+    resolution: {integrity: sha512-nLZqDkQdO0hvOP49/dUwjkkepMnUXgIzhyRuDjwGqswpB4Ibnc5M+w7rSQQAM+uMj0cPaXnYOTlv8XD7I/zVNw==}
     peerDependencies:
-      embla-carousel: 8.0.0-rc20
+      embla-carousel: 8.0.2
     dependencies:
-      embla-carousel: 8.0.0-rc20
+      embla-carousel: 8.0.2
     dev: false
 
-  /embla-carousel-svelte@8.0.0-rc20(svelte@4.2.9):
-    resolution: {integrity: sha512-MpON0Pw1EcYMjJt1VCnDk+HXTQrNwyHTlhdQ/WFx5QrXOpqvSup1nXKiLYsjxKkwBv5vYU9e04akNdqEJQ3iIg==}
+  /embla-carousel-svelte@8.0.2(svelte@4.2.9):
+    resolution: {integrity: sha512-pJ4mXcyqvd3sLVyeLTOjz9XuIuhlBe1mHLqJ7X7llpc55B4xs/HZT5qof6IfETCN5rtE+cQdsNEkxI6el7uJxQ==}
     peerDependencies:
       svelte: ^3.49.0 || ^4.0.0
     dependencies:
-      embla-carousel: 8.0.0-rc20
-      embla-carousel-reactive-utils: 8.0.0-rc20(embla-carousel@8.0.0-rc20)
+      embla-carousel: 8.0.2
+      embla-carousel-reactive-utils: 8.0.2(embla-carousel@8.0.2)
       svelte: 4.2.9
     dev: false
 
-  /embla-carousel@8.0.0-rc20:
-    resolution: {integrity: sha512-fhzhbIAcsjSpUsg5jWsg0+zVyJhY5x2SPXtuS4MPAWQWoVQpvkcbX9r0FvPBn6emTbgNFRtAcWczstJy2msdUw==}
+  /embla-carousel@8.0.2:
+    resolution: {integrity: sha512-bogsDO8xosuh/l3PxIvA5AMl3+BnRVAse9sDW/60amzj4MbGS5re4WH5eVEXiuH8G1/3G7QUAX2QNr3Yx8z5rA==}
     dev: false
 
   /emoji-regex@8.0.0:
