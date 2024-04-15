@@ -14,7 +14,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^4.0.1",
-		"@sveltejs/kit": "^2.5.0",
+		"@sveltejs/kit": "^2.5.6",
 		"@sveltejs/vite-plugin-svelte": "^3.0.0",
 		"@types/luxon": "^3.3.7",
 		"@types/nprogress": "^0.2.3",
