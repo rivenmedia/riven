@@ -15,7 +15,7 @@ requests = "^2.31.0"
 xmltodict = "^0.13.0"
 lxml = "^5.1.0"
 pathos = "^0.3.2"
-pydantic = "^2.6.3"
+pydantic = "^2.7.1"
 fastapi = "^0.110.0"
 uvicorn = {extras = ["standard"], version = "^0.27.1"}
 apscheduler = "^3.10.4"
