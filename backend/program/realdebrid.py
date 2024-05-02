@@ -155,11 +155,7 @@ class Debrid:
                                 },
                             )
                             return True
-        logger.debug(
-            "[%s] No cached streams found for item: %s",
-            stream_hash[-6:],
-            item.log_string,
-        )
+        logger.warning("No cached streams found for item: %s", item.log_string)
         return False
 
     def _set_file_paths(self, item):

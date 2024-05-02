@@ -27,6 +27,21 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+app = FastAPI()
+app.program = Program(args)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(default_router)
+app.include_router(settings_router)
+app.include_router(items_router)
+
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -42,27 +57,14 @@ class Server(uvicorn.Server):
             yield
         except Exception as e:
             logger.error(traceback.format_exc())
+            logger.critical("Error in server thread: %s", e)
             raise e
         finally:
+            logger.info("Beginning shut down of server.")
             app.program.stop()
             self.should_exit = True
+            logger.info("Server shut down.")
             sys.exit(0)
-
-
-app = FastAPI()
-app.program = Program(args)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(default_router)
-app.include_router(settings_router)
-app.include_router(items_router)
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080)
 server = Server(config=config)

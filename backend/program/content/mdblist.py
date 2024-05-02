@@ -57,8 +57,7 @@ class Mdblist:
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits
         daily_requests = limits.api_requests
-        requests_per_2_minutes = daily_requests / 24 / 60 * 2
-        return requests_per_2_minutes
+        return daily_requests / 24 / 60 * 2
 
 
 # API METHODS

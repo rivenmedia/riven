@@ -184,7 +184,11 @@ class Orionoid:
                 url = self.construct_url("movie", imdb_id)
 
             with self.second_limiter:
-                response = get(url, retry_if_failed=False, timeout=60)
+                try:
+                    response = get(url, retry_if_failed=False, timeout=60)
+                except RequestException as e:
+                    logger.debug("Orionoid request exception: %s", str(e))
+                    return {}, 0
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
             torrents = set()

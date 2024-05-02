@@ -53,12 +53,13 @@ class Overseerr:
         if not response.is_ok:
             return
         for item in response.data.results:
-            if not item.media.imdbId:
-                imdb_id = self.get_imdb_id(item.media)
-            else:
-                imdb_id = item.media.imdbId
-            if imdb_id:
-                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
+            if not hasattr(item.media, "plexUrl"):
+                if item.media.imdbId:
+                    yield MediaItem({"imdb_id": item.media.imdbId, "requested_by": self.__class__})
+                else:
+                    imdb_id = self.get_imdb_id(item.media)
+                    if imdb_id:
+                        yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
@@ -82,15 +83,15 @@ class Overseerr:
             )
             return None
 
-        title = getattr(response.data, "title", None) or getattr(
-            response.data, "originalName", None
-        )
         imdb_id = getattr(response.data.externalIds, "imdbId", None)
         if imdb_id:
             return imdb_id
 
+        title = getattr(response.data, "title", None) or getattr(
+            response.data, "originalName", None
+        )
+
         # Try alternate IDs if IMDb ID is not available
-        # alternate_ids = [('tvdbId', get_imdbid_from_tvdb), ('tmdbId', get_imdbid_from_tmdb)]
         alternate_ids = [("tmdbId", get_imdbid_from_tmdb)]
         for id_attr, fetcher in alternate_ids:
             external_id_value = getattr(response.data.externalIds, id_attr, None)
@@ -103,7 +104,6 @@ class Overseerr:
                     return new_imdb_id
 
         self.not_found_ids.append(f"{id_extension}{external_id}")
-        logger.debug("Could not get imdbId for %s, or match with external id", title)
         return None
 
     def delete_request(self, request_id: int) -> bool:

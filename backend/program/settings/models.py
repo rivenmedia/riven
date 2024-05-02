@@ -20,7 +20,8 @@ class Observable(BaseModel):
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
         if self.__class__._notify_observers:
-            self.__class__._notify_observers()
+            with self._notify_observers_context():
+                self.__class__._notify_observers()
 
 
 class DebridModel(Observable):

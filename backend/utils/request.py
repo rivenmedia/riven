@@ -15,7 +15,8 @@ from xmltodict import parse as parse_xml
 logger = logging.getLogger(__name__)
 
 _retry_strategy = Retry(
-    total=5,
+    total=3,
+    backoff_factor=0.1,
     status_forcelist=[500, 502, 503, 504],
 )
 _adapter = HTTPAdapter(max_retries=_retry_strategy)
@@ -31,34 +32,30 @@ class ResponseObject:
         self.response_type = response_type
         self.data = self.handle_response(response)
 
-    def handle_response(self, response: requests.Response):
+    def handle_response(self, response: requests.Response) -> dict:
         """Handle different types of responses."""
-        # Check for response success
-        if not response.ok:
-            self.handle_errors(response)
+        if self.status_code in [408, 460, 504, 520, 524, 522, 598, 599]:
+            raise ConnectTimeout(f"Connection timed out with status {self.status_code}", response=response)
+        if not self.is_ok:
+            raise RequestException(f"Request failed with status {self.status_code}", response=response)
 
         content_type = response.headers.get("Content-Type", "")
-        if not content_type:
+        if not content_type or response.content == b"":
             return {}
-            
-        if "application/json" in content_type:
-            if self.response_type == dict:
-                return json.loads(response.content)
-            return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
-        elif "application/xml" in content_type or "text/xml" in content_type:
-            return xml_to_simplenamespace(response.content)
-        elif "application/rss+xml" in content_type or "application/atom+xml" in content_type:
-            return parse_xml(response.content)
-        else:
+        
+        try:
+            if "application/json" in content_type:
+                if self.response_type == dict:
+                    return json.loads(response.content)
+                return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
+            elif "application/xml" in content_type or "text/xml" in content_type:
+                return xml_to_simplenamespace(response.content)
+            elif "application/rss+xml" in content_type or "application/atom+xml" in content_type:
+                return parse_xml(response.content)
+            else:
+                return {}
+        except Exception:
             return {}
-
-    def handle_errors(self, response):
-        """Handle HTTP errors based on status codes."""
-        if response.status_code in [404, 429, 502, 509]:
-            raise RequestException(f"Request failed with status {response.status_code}", response=response)
-        if response.status_code in [520, 522]:
-            raise ConnectTimeout(f"Connection timed out with status {response.status_code}", response=response)
-        response.raise_for_status()
 
 
 def _handle_request_exception() -> SimpleNamespace:
@@ -88,7 +85,7 @@ def _make_request(
         response = session.request(
             method, url, headers=headers, data=data, timeout=timeout
         )
-    except requests.RequestException:
+    except Exception:
         response = _handle_request_exception()
 
     session.close()

@@ -1,6 +1,8 @@
 import os
+import shutil
+import tempfile
+import threading
 from copy import copy, deepcopy
-from pickle import UnpicklingError
 from typing import Generator
 
 import dill
@@ -18,6 +20,7 @@ class MediaItemContainer:
         self._seasons = {}
         self._episodes = {}
         self._movies = {}
+        self.lock = threading.Lock()
 
     def __iter__(self) -> Generator[MediaItem, None, None]:
         for item in self._items.values():
@@ -52,7 +55,7 @@ class MediaItemContainer:
     def movies(self) -> dict[ItemId, Movie]:
         return deepcopy(self._movies)
 
-    def upsert(self, item: MediaItem) -> None:
+    def upsert(self, item: MediaItem) -> None:  # noqa: C901
         """Iterate through the input item and upsert all parents and children."""
         # Use deepcopy so that further modifications made to the input item
         # will not affect the container state
@@ -126,34 +129,55 @@ class MediaItemContainer:
             if item.state not in (States.Completed, States.PartiallyCompleted)
         }
 
-    def save(self, filename) -> None:
-        """Save container to file"""
-        with open(filename, "wb") as file:
-            try:
-                dill.dump(self, file)
-            except RuntimeError as e:
-                logger.error("Failed to pickle media data: %s", e)
+    def save(self, filename):
+        """Save media data to file with better error handling and using context managers."""
+        if not self._items:
+            return
 
-    def load(self, filename) -> None:
-        """Load container from file"""
-        logger.info("Loading cached media data from %s", filename)
+        with self.lock, tempfile.NamedTemporaryFile(delete=False, mode="wb") as temp_file:
+            try:
+                # Serialize the data to a temporary file first to avoid corruption of the main file on error
+                dill.dump(self, temp_file, dill.HIGHEST_PROTOCOL)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            except Exception as e:
+                logger.error("Failed to serialize data: %s", e)
+                return
+
+        try:
+            backup_filename = filename + ".bak"
+            if os.path.exists(filename):
+                shutil.copyfile(filename, backup_filename)
+            shutil.move(temp_file.name, filename)
+            logger.debug("Successfully saved %d items to %s", len(self._items), filename)
+        except Exception as e:
+            logger.error("Failed to replace old file with new file: %s", e)
+            try:
+                os.remove(temp_file.name)
+            except OSError as remove_error:
+                logger.error("Failed to remove temporary file: %s", remove_error)
+
+    def load(self, filename):
+        """Load media data from a file with improved error handling and integrity checks."""
         try:
             with open(filename, "rb") as file:
-                from_disk = dill.load(file)
-                self._items = from_disk._items
-                self._movies = from_disk._movies
-                self._shows = from_disk._shows
-                self._seasons = from_disk._seasons
-                self._episodes = from_disk._episodes
+                from_disk: MediaItemContainer = dill.load(file) # noqa: S301
         except FileNotFoundError:
             logger.error("Cannot find cached media data at %s", filename)
-        except (EOFError, UnpicklingError):
-            logger.error(
-                "Failed to unpickle media data at %s, wiping cached data", filename
-            )
-            os.remove(filename)
-            self._items = {}
-            self._movies = {}
-            self._shows = {}
-            self._seasons = {}
-            self._episodes = {}
+            return
+        except (EOFError, dill.UnpicklingError) as e:
+            logger.error("Failed to unpickle media data: %s. Starting fresh.", e)
+            return
+        if not isinstance(from_disk, MediaItemContainer):
+            logger.error("Loaded data is malformed. Resetting to blank slate.")
+            return
+
+        with self.lock:
+            # Ensure thread safety while updating the container's internal state
+            self._items = from_disk._items
+            self._movies = from_disk._movies
+            self._shows = from_disk._shows
+            self._seasons = from_disk._seasons
+            self._episodes = from_disk._episodes
+
+        logger.info("Loaded %s items from %s", len(self._items), filename)

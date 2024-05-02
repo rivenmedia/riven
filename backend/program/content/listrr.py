@@ -32,7 +32,7 @@ class Listrr:
             logger.error("Listrr api key is not set or invalid.")
             return False
         valid_list_found = False
-        for list_name, content_list in [
+        for _, content_list in [
             ("movie_lists", self.settings.movie_lists),
             ("show_lists", self.settings.show_lists),
         ]:
@@ -67,7 +67,7 @@ class Listrr:
             yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
         return
 
-    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:
+    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
         unique_ids: set[str] = set()
         if not content_lists:

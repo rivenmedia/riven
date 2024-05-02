@@ -56,6 +56,8 @@ class SymlinkLibrary:
                 continue
             movie_item = Movie({"imdb_id": imdb_id.group()})
             movie_item.update_folder = "updated"
+            movie_item.symlinked = True
+            movie_item._determine_state()
             yield movie_item
 
         shows_dir = self.settings.library_path / "shows"
@@ -90,3 +92,18 @@ class SymlinkLibrary:
                     season_item.add_episode(episode_item)
                 show_item.add_season(season_item)
             yield show_item
+
+
+def validate_symlink(symlink_path: str, remove: bool = False) -> bool:
+    """Validate that the symlink points to a valid target file."""
+    if not os.path.islink(symlink_path):
+        logger.error("Symlink path %s is not a symlink", symlink_path)
+        return False
+    target_path: str = os.readlink(symlink_path)
+    if not os.path.exists(target_path):
+        logger.error("Symlink target %s does not exist", target_path)
+        if remove:
+            os.remove(symlink_path)
+            logger.debug("Removed invalid symlink %s -> %s", symlink_path, target_path)
+        return False
+    return True

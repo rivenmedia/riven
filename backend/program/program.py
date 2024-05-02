@@ -17,16 +17,17 @@ from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.media.state import States
-from program.realdebrid import Debrid
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
-from program.state_transition import process_event
-from program.symlink import Symlinker
-from program.types import Event, ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
 from utils.logger import logger
-from utils.utils import Pickly
+
+from .pickly import Pickly
+from .realdebrid import Debrid
+from .state_transition import process_event
+from .symlink import Symlinker
+from .types import Event, ProcessedEvent, Service
 
 
 class Program(threading.Thread):
@@ -90,6 +91,7 @@ class Program(threading.Thread):
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
+
         if not len(self.media_items):
             # seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
@@ -199,7 +201,7 @@ class Program(threading.Thread):
             if item is None
             else self.executor.submit(func, item)
         )
-        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        future.add_done_callback(lambda f: self._process_future_item(f, service))
 
     def run(self):
         while self.running:
@@ -250,9 +252,10 @@ class Program(threading.Thread):
         if hasattr(self, "pickly"):
             self.pickly.stop()
         settings_manager.save()
-        symlinker_service = self.processing_services.get(Symlinker)
-        if symlinker_service:
-            symlinker_service.stop_monitor()
+        # This does nothing currently. Reenable later..
+        # symlinker_service = self.processing_services.get(Symlinker)
+        # if symlinker_service:
+        #     symlinker_service.stop_monitor()
         if hasattr(self, "scheduler"):
             self.scheduler.shutdown(
                 wait=False

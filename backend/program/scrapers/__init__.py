@@ -1,3 +1,4 @@
+import contextlib
 from datetime import datetime
 
 from program.media.item import MediaItem
@@ -26,12 +27,9 @@ class Scraping:
         if not self._can_we_scrape(item):
             yield item
         for service in self.services.values():
-            try:
                 if service.initialized:
-                    item = next(service.run(item))
-            except StopIteration:
-                logger.error(f"Service {service.key} failed to scrape {item} - Received StopIteration")
-                continue
+                    with contextlib.suppress(StopIteration):
+                        item = next(service.run(item))
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
@@ -41,7 +39,7 @@ class Scraping:
             validated := any(service.initialized for service in self.services.values())
         ):
             logger.error(
-                "You have no scraping services enabled," " please enable at least one!"
+                "You have no scraping services enabled, please enable at least one!"
             )
         return validated
 

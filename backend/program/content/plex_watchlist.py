@@ -111,4 +111,5 @@ class PlexWatchlist:
                     if "imdb://" in guid.id:
                         return guid.id.split("//")[-1]
         self.not_found_ids.append(ratingKey)
+        logger.debug("Failed to fetch IMDb ID for ratingKey: %s", ratingKey)
         return None

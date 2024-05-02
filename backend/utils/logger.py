@@ -68,7 +68,7 @@ class Logger(logging.Logger):
         self.logs_dir_path = data_dir_path / "logs"
         os.makedirs(self.logs_dir_path, exist_ok=True)
 
-        self.addFilter(RedactSensitiveInfo())
+        # self.addFilter(RedactSensitiveInfo())
 
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)

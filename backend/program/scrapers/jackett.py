@@ -89,7 +89,7 @@ class Jackett:
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
-                if not item.aired_at.year:
+                if not hasattr(item.aired_at, "year") or not item.aired_at.year:
                     query = f"cat=2000&t=movie&q={item.title}"
                 else:
                     query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
@@ -116,11 +116,15 @@ class Jackett:
                 logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in streams:
-                attr = stream.get("torznab:attr", [])
-                infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
-                if not infohash_attr:
+                try:
+                    attr = stream.get("torznab:attr", [])
+                    infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
+                    if not infohash_attr:
+                        continue
+                    infohash = infohash_attr.get("@value")
+                except (TypeError, ValueError) as e:
+                    logger.error("Failed to get infohash from stream: %s", e)
                     continue
-                infohash = infohash_attr.get("@value")
                 try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True

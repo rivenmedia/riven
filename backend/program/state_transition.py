@@ -10,132 +10,93 @@ from program.updaters.plex import PlexUpdater
 from utils.logger import logger
 
 
-def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore  # noqa: PLR0912, C901
-    """
-    Process the state transition of a media item based on the service that emitted the event.
-
-    Args:
-        existing_item (MediaItem | None): The current state of the media item in the system, if any.
-        emitted_by (Service): The service that emitted the current event.
-        item (MediaItem): The media item that is being processed.
-
-    Returns:
-        ProcessedEvent: A tuple containing the updated item, the next service to handle this item, and any items to submit.
-    """
-    # Initialize default values for the return structure
+def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:  # type: ignore  # noqa: C901, PLR0915, PLR0912 - this function is complex.. needs refactoring
+    """Take the input event, process it, and output items to submit to a Service, and an item
+    to update the container with."""
     next_service: Service = None
     updated_item = item
-    no_further_processing: ProcessedEvent = (None, None, []) # type: ignore
-    items_to_submit = []
-
-    # Define source services that trigger metadata fetching
+    no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+    # we always want to get metadata for content items before we compare to the container.
+    # we can't just check if the show exists we have to check if it's complete
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
-    
-    # Processing logic for items from source services or unknown state
     if emitted_by in source_services or item.state == States.Unknown:
-        # found new item
-        logger.info("Found new item: %s", item.log_string)
         next_service = TraktIndexer
+        # seasons can't be indexed so we'll index and process the show instead
         if isinstance(item, Season):
-            logger.debug("Item '%s' is a season, converting to show for processing.", item.log_string)
             item = item.parent
             existing_item = existing_item.parent if existing_item else None
+            # if we already have a copy of this item check if we even need to index it
         if existing_item and not TraktIndexer.should_submit(existing_item):
+            # ignore this item
             return no_further_processing
+        # don't update the container until we've indexed the item
         return None, next_service, [item]
-
-    # Logic for items that have been indexed
     elif emitted_by == TraktIndexer or item.state == States.Indexed:
-        logger.debug("Item has been indexed, determining further actions: %s", item.log_string)
         next_service = Scraping
         if existing_item:
-            # Merge metadata and update timestamps
             if not existing_item.indexed_at:
-                logger.debug("Merging metadata for item: %s", item.log_string)
+                # merge our fresh metadata item to make sure there aren't any
+                # missing seasons or episodes in our library copy
                 if isinstance(item, (Show, Season)):
                     existing_item.fill_in_missing_children(item)
                 # merge in the metadata in case its missing (like on cold boot)
                 existing_item.copy_other_media_attr(item)
                 # update the timestamp now that we have new metadata
                 existing_item.indexed_at = item.indexed_at
+                # use the merged data for the rest of the state transition
                 updated_item = item = existing_item
+
+            # if after filling in missing episodes we are still complete then skip
             if existing_item.state == States.Completed:
-                logger.debug("Item state is completed, no further processing required: %s", item.log_string)
-                return updated_item, None, []
-        items_to_submit = _determine_items_to_submit_for_scraping(item)
-
-    # Logic for partially completed items
+                # make sure to update with the (potentially) newly merged item
+                return existing_item, None, []
+        # we attempted to scrape it already and it failed, so try scraping each component
+        if item.scraped_times and isinstance(item, (Show, Season)):
+            if isinstance(item, Show):
+                items_to_submit = [
+                    s for s in item.seasons if s.state != States.Completed
+                ]
+            elif isinstance(item, Season):
+                items_to_submit = [
+                    e for e in item.episodes if e.state != States.Completed
+                ]
+        elif Scraping.should_submit(item):
+            items_to_submit = [item]
+        else:
+            items_to_submit = []
+    # Only shows and seasons can be PartiallyCompleted.  This is also the last part of the state
+    # processing that can can be at the show level
     elif item.state == States.PartiallyCompleted:
-        logger.debug("Item is partially completed, determining further actions: %s", item.log_string)
         next_service = Scraping
-        items_to_submit = _filter_incomplete_media(item)
-
-    # Logic for scraped items ready for download
+        if isinstance(item, Show):
+            items_to_submit = [s for s in item.seasons if s.state != States.Completed]
+        elif isinstance(item, Season):
+            items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+    # if we successfully scraped the item then send it to debrid
     elif item.state == States.Scraped:
         next_service = Debrid
         items_to_submit = [item]
-
-    # Logic for downloaded items ready for symlink creation
     elif item.state == States.Downloaded:
         next_service = Symlinker
-        proposed_submissions = _get_proposed_submissions(item)
-        items_to_submit = _filter_valid_symlinks(proposed_submissions)
-
-    # Update Plex with symlinked items
+        if isinstance(item, Season):
+            proposed_submissions = [e for e in item.episodes]
+        elif isinstance(item, (Movie, Episode)):
+            proposed_submissions = [item]
+        items_to_submit = []
+        for item in proposed_submissions:
+            if not Symlinker.should_submit(item):
+                logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+            else:
+                items_to_submit.append(item)
     elif item.state == States.Symlinked:
-        logger.debug("Item symlinked, updating Plex for item: %s", item.log_string)
         next_service = PlexUpdater
-        items_to_submit = _expand_media_items(item)
-
-    # Completed items require no further action
+        if isinstance(item, Show):
+            items_to_submit = [s for s in item.seasons]
+        elif isinstance(item, Season):
+            items_to_submit = [e for e in item.episodes]
+        else:
+            items_to_submit = [item]
     elif item.state == States.Completed:
-        logger.info("Item Completed Processing: %s", item.log_string)
         return no_further_processing
 
     return updated_item, next_service, items_to_submit
-
-
-# Helper functions
-
-def _determine_items_to_submit_for_scraping(item):
-    """
-    Determine which items should be submitted for scraping based on their state and previous attempts.
-
-    Args:
-        item (MediaItem): The media item being considered for scraping.
-
-    Returns:
-        List[MediaItem]: A list of media items that need scraping.
-    """
-    logger.debug("Determining items to submit for scraping for: %s", item.log_string)
-    if item.scraped_times and isinstance(item, (Show, Season)):
-        if isinstance(item, Show):
-            return [s for s in item.seasons if s.state != States.Completed]
-        elif isinstance(item, Season):
-            return [e for e in item.episodes if e.state != States.Completed]
-    return [item] if Scraping.should_submit(item) else []
-
-
-def _filter_incomplete_media(item):
-    if isinstance(item, Show):
-        return [s for s in item.seasons if s.state != States.Completed]
-    elif isinstance(item, Season):
-        return [e for e in item.episodes if e.state != States.Completed]
-    return []
-
-def _get_proposed_submissions(item):
-    if isinstance(item, Season):
-        return [e for e in item.episodes]
-    elif isinstance(item, (Movie, Episode)):
-        return [item]
-    return []
-
-def _filter_valid_symlinks(proposed_submissions):
-    return [item for item in proposed_submissions if Symlinker.should_submit(item)]
-
-def _expand_media_items(item):
-    if isinstance(item, Show):
-        return [s for s in item.seasons]
-    elif isinstance(item, Season):
-        return [e for e in item.episodes]
-    return [item]

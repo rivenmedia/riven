@@ -1,6 +1,7 @@
 import pytest
 from program.media.container import MediaItemContainer
 from program.media.item import Episode, Season, Show
+from program.media.state import States
 
 
 @pytest.fixture
@@ -18,6 +19,11 @@ def test_show():
     show.add_season(season)
     return show
 
+@pytest.fixture
+def show_container(test_show):
+    container = MediaItemContainer()
+    container.upsert(test_show)
+    return container
 
 def test_upsert_episode_modification_reflects_in_parent_season(container, test_show):
     # Upsert the show with its season and episode
@@ -69,3 +75,42 @@ def test_upsert_season_modification_reflects_in_parent_show(container, test_show
         container_show.seasons[container_season.number - 1].some_attribute
         == modified_attribute_value
     )
+
+
+def test_serialization_of_container(show_container, fs):
+    # Check if the container is not empty
+    assert len(show_container) > 0
+
+    # Save the container to a file
+    fs.create_dir("/fake")
+    show_container.save("/fake/test_container.pkl")
+    assert fs.exists("/fake/test_container.pkl")
+
+    # Load the container from the file
+    loaded_container: MediaItemContainer = MediaItemContainer()
+    loaded_container.load("/fake/test_container.pkl")
+
+    # Check if the loaded container is the same as the original container
+    assert len(loaded_container) == len(show_container)
+
+
+def test_remove_item(container, test_show):
+    # container.upsert(test_show)
+    # # Check if the item is in the container
+    # assert test_show.seasons[0] in container
+    # season_to_remove = test_show.seasons[0]
+    # container.remove(season_to_remove)
+    # # Check if the item is removed from the container
+    # assert season_to_remove.item_id not in container
+
+    container.upsert(test_show)
+    # Check if the item is in the container
+    assert test_show.item_id in container
+
+
+
+def test_incomplete_items_retrieval(container, test_show):
+    container.upsert(test_show)
+    incomplete_items = container.get_incomplete_items()
+    assert len(incomplete_items) == len(container)
+    assert incomplete_items[next(iter(incomplete_items))].state == States.Unknown

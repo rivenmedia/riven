@@ -106,15 +106,14 @@ def _map_item_from_data(data, item_type) -> MediaItem:
             item["number"] = data.number
             return_item = Episode(item)
         case _:
-            logger.debug("Unknown item type %s for %s", item_type, data.title)
-            return_item = None
+            pass
     return return_item
 
 
 # API METHODS
 
 
-def get_show(imdb_id: str):
+def get_show(imdb_id: str) -> dict:
     """Wrapper for trakt.tv API show method"""
     url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
     response = get(
@@ -123,7 +122,7 @@ def get_show(imdb_id: str):
     )
     if response.is_ok and response.data:
         return response.data
-    return []
+    return {}
 
 
 def create_item_from_imdb_id(imdb_id: str) -> MediaItem:
@@ -133,24 +132,21 @@ def create_item_from_imdb_id(imdb_id: str) -> MediaItem:
         url,
         additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID},
     )
-    if response.is_ok and len(response.data) > 0:
-        try:
-            media_type = response.data[0].type
-            if media_type == "movie":
-                data = response.data[0].movie
-            elif media_type == "show":
-                data = response.data[0].show
-            elif media_type == "season":
-                data = response.data[0].season
-            elif media_type == "episode":
-                data = response.data[0].episode
-            if data:
-                return _map_item_from_data(data, media_type)
-        except UnboundLocalError:
+    if not response.is_ok or len(response.data) <= 0:
+        return None
+    media_type = response.data[0].type
+    match media_type:
+        case "movie":
+            return _map_item_from_data(response.data[0].movie, media_type)
+        case "show":
+            return _map_item_from_data(response.data[0].show, media_type)
+        case "season":
+            return _map_item_from_data(response.data[0].season, media_type)
+        case "episode":
+            return _map_item_from_data(response.data[0].episode, media_type)
+        case _:
             logger.error("Unknown item %s with response %s", imdb_id, response.content)
             return None
-    return None
-
 
 def get_imdbid_from_tvdb(tvdb_id: str) -> str | None:
     """Get IMDb ID from TVDB ID in Trakt"""

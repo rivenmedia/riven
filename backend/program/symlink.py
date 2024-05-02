@@ -101,12 +101,10 @@ class Symlinker:
             self.observer.join()
             logger.debug("Stopped monitoring for symlink deletions.")
 
-    def on_symlink_deleted(self, path):
+    def on_symlink_deleted(self, symlink_path):
         """Handle a symlink deletion event."""
-        logger.debug(f"Detected deletion of symlink: {path}")
+        # logger.debug(f"Detected deletion of symlink: {symlink_path}")
         # TODO: Implement logic to handle deletion..
-        # We should use `update_path` to determine the item,
-        # and work with the item (instead of path) to remove from content services..
 
     def create_initial_folders(self):
         """Create the initial library folders."""
