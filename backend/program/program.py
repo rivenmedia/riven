@@ -1,5 +1,3 @@
-import inspect
-import json
 import os
 import threading
 import time
@@ -9,8 +7,6 @@ from datetime import datetime
 from queue import Empty, Queue
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from coverage import Coverage
-from deepdiff.diff import DeepDiff, PrettyOrderedSet
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
@@ -27,7 +23,7 @@ from .pickly import Pickly
 from .realdebrid import Debrid
 from .state_transition import process_event
 from .symlink import Symlinker
-from .types import Event, ProcessedEvent, Service
+from .types import Event, Service
 
 
 class Program(threading.Thread):
@@ -97,12 +93,13 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
         self.scheduler = BackgroundScheduler()
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=4)
         self._schedule_services()
         self._schedule_functions()
         super().start()
         self.scheduler.start()
         self.running = True
+        logger.info("Iceberg is running!")
 
     def _retry_library(self) -> None:
         for _, item in self.media_items.get_incomplete_items().items():
@@ -166,7 +163,7 @@ class Program(threading.Thread):
                 update_interval,
             )
 
-    def _process_future_item(self, future: Future, service: Service) -> None:
+    def _process_future_item(self, future: Future, service: Service, item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
@@ -178,7 +175,9 @@ class Program(threading.Thread):
                         item.__class__.__name__,
                     )
                     continue
-                self.event_queue.put(Event(emitted_by=service, item=item))
+                if item.state != States.Completed:
+                    self.event_queue.put(Event(emitted_by=service, item=item))
+
         except Exception:
             logger.error(
                 "Service %s failed with exception %s",
@@ -187,21 +186,16 @@ class Program(threading.Thread):
             )
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        logger.debug(
-            f"Submitting service {service.__name__} to the pool"
-            + (
-                f" with {getattr(item, 'log_string', None) or item.item_id}"
-                if item
-                else ""
-            )
-        )
+        if item:
+            # lets cleanup the log output so we aren't spamming the logs..
+            logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
         future = (
             self.executor.submit(func)
             if item is None
             else self.executor.submit(func, item)
         )
-        future.add_done_callback(lambda f: self._process_future_item(f, service))
+        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def run(self):
         while self.running:
@@ -213,13 +207,25 @@ class Program(threading.Thread):
             except Empty:
                 # Unblock after waiting in case we are no longer supposed to be running
                 continue
+
+            if event.item.state == States.Completed:
+                logger.debug(
+                    "Item %s is already completed, skipping",
+                    event.item.state.log_string,
+                )
+                self.event_queue.task_done()
+                continue
+
             existing_item = self.media_items.get(event.item.item_id, None)
-            func = (
-                process_event_and_collect_coverage
-                if self.startup_args.profile_state_transitions
-                else process_event
-            )
-            updated_item, next_service, items_to_submit = func(
+            if not existing_item:
+                logger.error(
+                    "Event emitted by %s for item %s, but item not found in container",
+                    event.emitted_by.__name__,
+                    event.item.item_id,
+                )
+                continue
+
+            updated_item, next_service, items_to_submit = process_event(
                 existing_item, event.emitted_by, event.item
             )
 
@@ -227,7 +233,7 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
                 if updated_item.state == States.Completed:
-                    logger.debug(
+                    logger.info(
                         "%s %s has been completed",
                         updated_item.__class__.__name__,
                         updated_item.log_string,
@@ -235,6 +241,8 @@ class Program(threading.Thread):
 
             for item_to_submit in items_to_submit:
                 self._submit_job(next_service, item_to_submit)
+        
+            self.event_queue.task_done()
 
     def validate(self):
         return all(
@@ -247,110 +255,24 @@ class Program(threading.Thread):
         )
 
     def stop(self):
-        if hasattr(self, "executor"):
-            self.executor.shutdown(wait=True)
-        if hasattr(self, "pickly"):
-            self.pickly.stop()
-        settings_manager.save()
-        # This does nothing currently. Reenable later..
-        # symlinker_service = self.processing_services.get(Symlinker)
-        # if symlinker_service:
-        #     symlinker_service.stop_monitor()
-        if hasattr(self, "scheduler"):
-            self.scheduler.shutdown(
-                wait=False
-            )  # Don't block, doesn't contain data to consume
         self.running = False
+        if hasattr(self, "scheduler") and self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
+        if hasattr(self, "executor") and not self.executor.shutdown:
+            self.executor.shutdown(wait=False)
+        if hasattr(self, "pickly") and self.pickly.running:
+            self.pickly.stop()
+        if hasattr(self, "services"):
+            for service in self.services.values():
+                if hasattr(service, "stop"):
+                    service.stop()
+        logger.info("Iceberg has been stopped.")
 
-
-def custom_serializer(obj):
-    """
-    If input object is a type (class), return its name as a string.
-    Otherwise, raise TypeError.
-    """
-    if isinstance(obj, type):
-        return obj.__name__
-    elif isinstance(obj, PrettyOrderedSet):
-        return list(obj)
-
-
-# Function to execute process_event and collect coverage data
-def process_event_and_collect_coverage(
-    existing_item: MediaItem | None, emitted_by: Service, item: MediaItem
-) -> ProcessedEvent:  # type: ignore
-    file_path = inspect.getfile(process_event)
-
-    # Load the source code and extract executed lines
-    with open(file_path, "r") as file:
-        source_lines = file.readlines()
-
-    lines, start_line_no = inspect.getsourcelines(process_event)
-    logic_start_line_no = next(
-        i + start_line_no + 1
-        for i, line in enumerate(source_lines[start_line_no:])
-        if line.strip().startswith("if ")
-    )
-    end_line_no = logic_start_line_no + len(lines) - 1
-
-    cov = Coverage(branch=True)
-    cov.erase()
-    cov.start()
-
-    # Call the process_event method
-    updated_item, next_service, items_to_submit = process_event(
-        existing_item, emitted_by, item
-    )
-
-    cov.stop()
-    cov.save()
-
-    # Analyze the coverage data for this execution
-    _, executable_line_nos, excluded, not_executed, _ = cov.analysis2(file_path)
-
-    not_executed_set = set(not_executed)
-    executed_lines = [
-        (i, source_lines[i - 1])  # Adjust line numbers to 0-based indexing
-        for i in executable_line_nos
-        if logic_start_line_no <= i <= end_line_no and i not in not_executed_set
-    ]
-
-    existing = (
-        existing_item.to_extended_dict(abbreviated_children=True)
-        if existing_item
-        else None
-    )
-    current = item.to_extended_dict(abbreviated_children=True) if item else None
-    updated = (
-        updated_item.to_extended_dict(abbreviated_children=True)
-        if updated_item
-        else None
-    )
-    frame_data = {
-        "current_state": current,
-        "diffs": {
-            "existing_to_current": (
-                DeepDiff(existing, current, ignore_order=True).to_dict()
-                if existing
-                else {}
-            ),
-            "current_to_updated": (
-                DeepDiff(current, updated, ignore_order=True).to_dict()
-                if updated
-                else {}
-            ),
-        },
-        "executed_lines": executed_lines,
-        "next_service": next_service.__name__ if next_service else None,
-        "items_to_submit": [i.log_string for i in items_to_submit],
-    }
-    # from pprint import pprint
-    # pprint(frame_data, indent=2)
-    frames_dir = data_dir_path / "frames"
-    os.makedirs(frames_dir, exist_ok=True)
-    # Write frame data to a JSONL file within the function
-    collection_filename = frames_dir / f"{item.collection}.jsonl"
-    with open(collection_filename, "a") as f:
-        json.dump(frame_data, f, default=custom_serializer)
-        f.write("\n")  # Newline to separate frames in the file
-
-    return updated_item, next_service, items_to_submit
+    def add_to_queue(self, item: MediaItem):
+        """Add item to the queue for processing."""
+        if item is not None:
+            if item not in self.media_items and item not in self.library_items:
+                self.queue.put(Event(emitted_by=self.__class__, item=item))
+                logger.info(f"Added {item.log_string} to the queue")
+            else:
+                logger.info(f"Item {item.log_string} already in container, skipping")

@@ -2,8 +2,7 @@ import os
 import shutil
 import tempfile
 import threading
-from copy import copy, deepcopy
-from typing import Generator
+from typing import Dict, Generator
 
 import dill
 from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
@@ -34,32 +33,36 @@ class MediaItemContainer:
         return len(self._items)
 
     def __getitem__(self, item_id: ItemId) -> MediaItem:
-        return deepcopy(self._items[item_id])
+        return self._items[item_id]
 
     def get(self, key, default=None) -> MediaItem:
-        return deepcopy(self._items.get(key, default))
+        return self._items.get(key, default)
 
     @property
     def seasons(self) -> dict[ItemId, Season]:
-        return deepcopy(self._seasons)
+        with self.lock:
+            return self._seasons
 
     @property
     def episodes(self) -> dict[ItemId, Episode]:
-        return deepcopy(self._episodes)
+        with self.lock:
+            return self._episodes
 
     @property
     def shows(self) -> dict[ItemId, Show]:
-        return deepcopy(self._shows)
+        with self.lock:
+            return self._shows
 
     @property
     def movies(self) -> dict[ItemId, Movie]:
-        return deepcopy(self._movies)
+        with self.lock:
+            return self._movies
 
     def upsert(self, item: MediaItem) -> None:  # noqa: C901
         """Iterate through the input item and upsert all parents and children."""
         # Use deepcopy so that further modifications made to the input item
         # will not affect the container state
-        item = deepcopy(item)
+        # item = deepcopy(item)
         self._items[item.item_id] = item
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
@@ -102,31 +105,47 @@ class MediaItemContainer:
         elif isinstance(item, Movie):
             self._movies[item.item_id] = item
 
-    def remove(self, item) -> None:
-        """Remove item from container"""
-        if item.item_id in self._items:
-            del self._items[item.item_id]
+    def remove(self, item: MediaItem) -> None:
+        """Remove an item from the container."""
+        with self.lock:
+            if item.id in self._items:
+                del self._items[item.id]
+                if isinstance(item, Show):
+                    del self._shows[item.id]
+                    for season in item.seasons:
+                        del self._seasons[season.id]
+                        for episode in season.episodes:
+                            del self._episodes[episode.id]
+                    logger.info("Removed %s and all its children", item.log_string)
+                elif isinstance(item, Season):
+                    del self._seasons[item.id]
+                    for episode in item.episodes:
+                        del self._episodes[episode.id]
+                    logger.info("Removed %s and all its children", item.log_string)
+                elif isinstance(item, Episode):
+                    del self._episodes[item.id]
+                    logger.info("Removed %s", item.log_string)
+                elif isinstance(item, Movie):
+                    del self._movies[item.id]
+                    logger.info("Removed %s", item.log_string)
 
-    def count(self, state) -> int:
-        """Count items with given state in container"""
+    def count(self, state: str) -> int:
+        """Count items with given state in the container."""
         return len(self.get_items_with_state(state))
 
-    def get_items_with_state(self, state) -> dict[ItemId, MediaItem]:
-        """Get items with the specified state"""
-        return {
-            item_id: self[item_id]
-            for item_id, item in self._items.items()
-            if item.state == state
-        }
+    def get_items_with_state(self, state: str) -> Dict[ItemId, MediaItem]:
+        """Get items with the specified state."""
+        return {item_id: item for item_id, item in self._items.items() if item.state == state}
+
 
     def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
         """Get items with the specified state."""
         return {
-            # direct self access deep copies the item before passing it
-            item_id: self[item_id]
-            # We need to copy first in case there are additions or deletions while we are iterating
-            for item_id, item in copy(self._items).items()
-            if item.state not in (States.Completed, States.PartiallyCompleted)
+                # direct self access deep copies the item before passing it
+                item_id: self[item_id]
+                # We need to copy first in case there are additions or deletions while we are iterating
+                for item_id, item in self._items.items()
+                if item.state not in (States.Completed, States.PartiallyCompleted)
         }
 
     def save(self, filename):
@@ -149,7 +168,9 @@ class MediaItemContainer:
             if os.path.exists(filename):
                 shutil.copyfile(filename, backup_filename)
             shutil.move(temp_file.name, filename)
-            logger.debug("Successfully saved %d items to %s", len(self._items), filename)
+
+            # This gets a bit spammy with it logging every minute.. use only for debugging if needed.
+            # logger.debug("Successfully saved %d items to %s", len(self._items), filename)
         except Exception as e:
             logger.error("Failed to replace old file with new file: %s", e)
             try:

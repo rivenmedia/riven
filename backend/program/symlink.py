@@ -197,7 +197,7 @@ class Symlinker:
                 except OSError as e:
                     logger.error("Failed to create symlink for %s: %s", item.log_string, e)
         else:
-            logger.debug("Symlink already exists for %s, skipping...", item.log_string)
+            logger.debug("Symlink already exists for %s, skipping.", item.log_string)
 
     def _create_item_folders(self, item, filename) -> str:
         if isinstance(item, Movie):

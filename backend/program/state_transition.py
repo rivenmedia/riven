@@ -13,9 +13,13 @@ from utils.logger import logger
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:  # type: ignore  # noqa: C901, PLR0915, PLR0912 - this function is complex.. needs refactoring
     """Take the input event, process it, and output items to submit to a Service, and an item
     to update the container with."""
+    no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+    if item.state == States.Completed:
+        return no_further_processing
+
     next_service: Service = None
     updated_item = item
-    no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+
     # we always want to get metadata for content items before we compare to the container.
     # we can't just check if the show exists we have to check if it's complete
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
@@ -78,6 +82,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = [item]
     elif item.state == States.Downloaded:
         next_service = Symlinker
+        proposed_submissions = []
         if isinstance(item, Season):
             proposed_submissions = [e for e in item.episodes]
         elif isinstance(item, (Movie, Episode)):
@@ -85,7 +90,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = []
         for item in proposed_submissions:
             if not Symlinker.should_submit(item):
-                logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+                logger.error("Item %s rejected by Symlinker, skipping.", item.log_string)
             else:
                 items_to_submit.append(item)
     elif item.state == States.Symlinked:
@@ -96,7 +101,5 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [e for e in item.episodes]
         else:
             items_to_submit = [item]
-    elif item.state == States.Completed:
-        return no_further_processing
 
     return updated_item, next_service, items_to_submit

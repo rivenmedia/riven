@@ -232,11 +232,15 @@ class Debrid:
     def select_files(self, request_id, item) -> bool:
         """Select files from real-debrid.com"""
         files = item.active_stream.get("files")
-        response = post(
-            f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
-            {"files": ",".join(files.keys())},
-            additional_headers=self.auth_headers,
-        )
+        try:
+            response = post(
+                f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
+                {"files": ",".join(files.keys())},
+                additional_headers=self.auth_headers,
+            )
+        except ConnectionError:
+            logger.error("Connection error while selecting files")
+            return False
         return response.is_ok
 
     def get_torrent_info(self, request_id):

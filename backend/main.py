@@ -20,11 +20,7 @@ parser.add_argument(
     action="store_true",
     help="Ignore the cached metadata, create new data from scratch.",
 )
-parser.add_argument(
-    "--profile_state_transitions",
-    action="store_true",
-    help="Use a profiling process to determine what paths the state machine took",
-)
+
 args = parser.parse_args()
 
 app = FastAPI()
@@ -60,18 +56,23 @@ class Server(uvicorn.Server):
             logger.critical("Error in server thread: %s", e)
             raise e
         finally:
-            logger.info("Beginning shut down of server.")
             app.program.stop()
             self.should_exit = True
-            logger.info("Server shut down.")
             sys.exit(0)
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080)
 server = Server(config=config)
+
 
 with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
     except KeyboardInterrupt:
-        pass
+        logger.info("Keyboard interrupt received.")
+    except Exception as e:
+        logger.error(traceback.format_exc())
+        logger.critical("Error in main thread: %s", e)
+    finally:
+        logger.info("Shutting down server.")
+        sys.exit(0)

@@ -1,4 +1,3 @@
-import contextlib
 from datetime import datetime
 
 from program.media.item import MediaItem
@@ -27,9 +26,11 @@ class Scraping:
         if not self._can_we_scrape(item):
             yield item
         for service in self.services.values():
-                if service.initialized:
-                    with contextlib.suppress(StopIteration):
-                        item = next(service.run(item))
+            if service.initialized:
+                try:
+                    item = next(service.run(item))
+                except StopIteration:
+                    break
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item

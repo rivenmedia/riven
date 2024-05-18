@@ -17,7 +17,7 @@ class Overseerr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.not_found_ids = []
+        self.not_found_ids = set()  # Use set for better performance on membership tests
         logger.info("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -103,7 +103,8 @@ class Overseerr:
                     )
                     return new_imdb_id
 
-        self.not_found_ids.append(f"{id_extension}{external_id}")
+        logger.debug(f"Failed to find imdbId for {title}")
+        self.not_found_ids.add(f"{id_extension}{external_id}")
         return None
 
     def delete_request(self, request_id: int) -> bool:
