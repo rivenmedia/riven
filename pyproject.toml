@@ -14,7 +14,6 @@ plexapi = "^4.15.10"
 requests = "^2.31.0"
 xmltodict = "^0.13.0"
 lxml = "^5.1.0"
-pathos = "^0.3.2"
 pydantic = "^2.6.3"
 fastapi = "^0.110.0"
 uvicorn = {extras = ["standard"], version = "^0.27.1"}
@@ -24,7 +23,6 @@ deepdiff = "^6.7.1"
 regex = "^2023.12.25"
 coverage = "^7.4.3"
 rank-torrent-name = "^0.2.13"
-pyflame = "^0.3.2"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
@@ -34,10 +32,7 @@ isort = "^5.10.1"
 codecov = "^2.1.13"
 pytest = "^8.1.1"
 pytest-cov = "^5.0.0"
-black = "^24.3.0"
-httpx = "^0.27.0"
 pyfakefs = "^5.4.1"
-pyflame = "^0.3.2"
 
 [build-system]
 requires = ["poetry-core"]

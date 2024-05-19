@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 import tempfile
@@ -5,148 +6,121 @@ import threading
 from typing import Dict, Generator
 
 import dill
-from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
-from program.media.state import States
 from utils.logger import logger
 
 
-class MediaItemContainer:
-    """MediaItemContainer class"""
+class ReadWriteLock:
+    def __init__(self):
+        self._read_ready = threading.Condition(threading.Lock())
+        self._readers = 0
 
+    def acquire_read(self):
+        with self._read_ready:
+            self._readers += 1
+
+    def release_read(self):
+        with self._read_ready:
+            self._readers -= 1
+            if self._readers == 0:
+                self._read_ready.notify_all()
+
+    def acquire_write(self):
+        self._read_ready.acquire()
+        while self._readers > 0:
+            self._read_ready.wait()
+
+    def release_write(self):
+        self._read_ready.release()
+
+    def __enter__(self):
+        self.acquire_write()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release_write()
+
+
+class MediaItemContainer:
     def __init__(self):
         self._items = {}
-        self._shows = {}
-        self._seasons = {}
-        self._episodes = {}
-        self._movies = {}
-        self.lock = threading.Lock()
+        self.lock = ReadWriteLock()
 
-    def __iter__(self) -> Generator[MediaItem, None, None]:
-        for item in self._items.values():
-            yield item
+    def __iter__(self) -> Generator:
+        self.lock.acquire_read()
+        try:
+            for item in self._items.values():
+                yield item
+        finally:
+            self.lock.release_read()
 
     def __contains__(self, item) -> bool:
-        return item in self._items
+        self.lock.acquire_read()
+        try:
+            return item in self._items
+        finally:
+            self.lock.release_read()
 
     def __len__(self) -> int:
-        """Get length of container"""
-        return len(self._items)
+        self.lock.acquire_read()
+        try:
+            return len(self._items)
+        finally:
+            self.lock.release_read()
 
-    def __getitem__(self, item_id: ItemId) -> MediaItem:
-        return self._items[item_id]
+    def __getitem__(self, item_id) -> object:
+        self.lock.acquire_read()
+        try:
+            return self._items[item_id]
+        finally:
+            self.lock.release_read()
 
-    def get(self, key, default=None) -> MediaItem:
-        return self._items.get(key, default)
+    def get(self, key, default=None) -> object:
+        self.lock.acquire_read()
+        try:
+            return self._items.get(key, default)
+        finally:
+            self.lock.release_read()
 
-    @property
-    def seasons(self) -> dict[ItemId, Season]:
-        with self.lock:
-            return self._seasons
+    def upsert(self, item) -> None:
+        self.lock.acquire_write()
+        try:
+            if item.item_id in self._items:
+                # logger.debug(f"Updating existing item: {item}")
+                existing_item = self._items[item.item_id]
+                self._merge_items(existing_item, item)
+            else:
+                # logger.debug(f"Inserting new item: {item}")
+                self._items[item.item_id] = item
+        finally:
+            self.lock.release_write()
 
-    @property
-    def episodes(self) -> dict[ItemId, Episode]:
-        with self.lock:
-            return self._episodes
+    def _merge_items(self, existing_item, new_item):
+        """Merge new item data into existing item without losing existing state."""
+        # Update the existing item with new attributes from new_item
+        for attr in vars(new_item):
+            if getattr(new_item, attr) is not None:
+                setattr(existing_item, attr, getattr(new_item, attr))
 
-    @property
-    def shows(self) -> dict[ItemId, Show]:
-        with self.lock:
-            return self._shows
+        # Merge streams specifically to avoid overwriting
+        existing_item.streams.update(new_item.streams)
+        existing_item.scraped_times = max(existing_item.scraped_times, new_item.scraped_times)
+        existing_item.symlinked_times = max(existing_item.symlinked_times, new_item.symlinked_times)
 
-    @property
-    def movies(self) -> dict[ItemId, Movie]:
-        with self.lock:
-            return self._movies
+    def remove(self, item) -> None:
+        self.lock.acquire_write()
+        try:
+            if item.item_id in self._items:
+                del self._items[item.item_id]
+        finally:
+            self.lock.release_write()
 
-    def upsert(self, item: MediaItem) -> None:  # noqa: C901
-        """Iterate through the input item and upsert all parents and children."""
-        # Use deepcopy so that further modifications made to the input item
-        # will not affect the container state
-        # item = deepcopy(item)
-        self._items[item.item_id] = item
-        detatched = item.item_id.parent_id is None or item.parent is None
-        if isinstance(item, (Season, Episode)) and detatched:
-            logger.error(
-                "%s item %s is detatched and not associated with a parent, and thus"
-                + " it cannot be upserted into the database",
-                item.__class__.name,
-                item.log_string,
-            )
-            raise ValueError("Item detached from parent")
-        if isinstance(item, Show):
-            self._shows[item.item_id] = item
-            for season in item.seasons:
-                season.parent = item
-                self._items[season.item_id] = season
-                self._seasons[season.item_id] = season
-                for episode in season.episodes:
-                    episode.parent = season
-                    self._items[episode.item_id] = episode
-                    self._episodes[episode.item_id] = episode
-        if isinstance(item, Season):
-            self._seasons[item.item_id] = item
-            # update children
-            for episode in item.episodes:
-                episode.parent = item
-                self._items[episode.item_id] = episode
-                self._episodes[episode.item_id] = episode
-            # Ensure the parent Show is updated in the container
-            container_show: Show = self._items[item.item_id.parent_id]
-            parent_index = container_show.get_season_index_by_id(item.item_id)
-            if parent_index is not None:
-                container_show.seasons[parent_index] = item
-        elif isinstance(item, Episode):
-            self._episodes[item.item_id] = item
-            # Ensure the parent Season is updated in the container
-            container_season: Season = self._items[item.item_id.parent_id]
-            parent_index = container_season.get_episode_index_by_id(item.item_id)
-            if parent_index is not None:
-                container_season.episodes[parent_index] = item
-        elif isinstance(item, Movie):
-            self._movies[item.item_id] = item
-
-    def remove(self, item: MediaItem) -> None:
-        """Remove an item from the container."""
-        with self.lock:
-            if item.id in self._items:
-                del self._items[item.id]
-                if isinstance(item, Show):
-                    del self._shows[item.id]
-                    for season in item.seasons:
-                        del self._seasons[season.id]
-                        for episode in season.episodes:
-                            del self._episodes[episode.id]
-                    logger.info("Removed %s and all its children", item.log_string)
-                elif isinstance(item, Season):
-                    del self._seasons[item.id]
-                    for episode in item.episodes:
-                        del self._episodes[episode.id]
-                    logger.info("Removed %s and all its children", item.log_string)
-                elif isinstance(item, Episode):
-                    del self._episodes[item.id]
-                    logger.info("Removed %s", item.log_string)
-                elif isinstance(item, Movie):
-                    del self._movies[item.id]
-                    logger.info("Removed %s", item.log_string)
-
-    def count(self, state: str) -> int:
-        """Count items with given state in the container."""
-        return len(self.get_items_with_state(state))
-
-    def get_items_with_state(self, state: str) -> Dict[ItemId, MediaItem]:
-        """Get items with the specified state."""
-        return {item_id: item for item_id, item in self._items.items() if item.state == state}
-
-
-    def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
-        """Get items with the specified state."""
-        return {
-                # direct self access deep copies the item before passing it
-                item_id: self[item_id]
-                # We need to copy first in case there are additions or deletions while we are iterating
-                for item_id, item in self._items.items()
-                if item.state not in (States.Completed, States.PartiallyCompleted)
-        }
+    def get_incomplete_items(self) -> Dict:
+        """Get items that are not in the COMPLETED state."""
+        self.lock.acquire_read()
+        try:
+            return {item_id: item for item_id, item in self._items.items() if item.state != "COMPLETED"}
+        finally:
+            self.lock.release_read()
 
     def save(self, filename):
         """Save media data to file with better error handling and using context managers."""
@@ -170,7 +144,7 @@ class MediaItemContainer:
             shutil.move(temp_file.name, filename)
 
             # This gets a bit spammy with it logging every minute.. use only for debugging if needed.
-            # logger.debug("Successfully saved %d items to %s", len(self._items), filename)
+            logger.debug("Successfully saved %d items.", len(self._items))
         except Exception as e:
             logger.error("Failed to replace old file with new file: %s", e)
             try:
@@ -182,7 +156,7 @@ class MediaItemContainer:
         """Load media data from a file with improved error handling and integrity checks."""
         try:
             with open(filename, "rb") as file:
-                from_disk: MediaItemContainer = dill.load(file) # noqa: S301
+                from_disk: MediaItemContainer = dill.load(file)  # noqa: S301
         except FileNotFoundError:
             logger.error("Cannot find cached media data at %s", filename)
             return
@@ -196,9 +170,56 @@ class MediaItemContainer:
         with self.lock:
             # Ensure thread safety while updating the container's internal state
             self._items = from_disk._items
-            self._movies = from_disk._movies
-            self._shows = from_disk._shows
-            self._seasons = from_disk._seasons
-            self._episodes = from_disk._episodes
 
         logger.info("Loaded %s items from %s", len(self._items), filename)
+
+
+class ShardedMediaItemContainer:
+    def __init__(self, num_shards=4):
+        self.shards = [MediaItemContainer() for _ in range(num_shards)]
+
+    def _get_shard(self, item_id) -> MediaItemContainer:
+        shard_index = int(hashlib.sha256(str(item_id).encode()).hexdigest(), 16) % len(self.shards)
+        return self.shards[shard_index]
+
+    def __iter__(self) -> Generator:
+        for shard in self.shards:
+            for item in shard:
+                yield item
+
+    def __contains__(self, item) -> bool:
+        return item in self._get_shard(item.item_id)
+
+    def __len__(self) -> int:
+        return sum(len(shard) for shard in self.shards)
+
+    def __getitem__(self, item_id) -> object:
+        return self._get_shard(item_id)[item_id]
+
+    def get(self, key, default=None) -> object:
+        return self._get_shard(key).get(key, default)
+
+    def upsert(self, item) -> None:
+        self._get_shard(item.item_id).upsert(item)
+
+    def remove(self, item) -> None:
+        self._get_shard(item.item_id).remove(item)
+
+    def get_incomplete_items(self) -> Dict:
+        """Get items that are not in the COMPLETED state from all shards."""
+        incomplete_items = {}
+        for shard in self.shards:
+            incomplete_items.update(shard.get_incomplete_items())
+        return incomplete_items
+
+    def save(self, filename):
+        """Save all shards to separate files."""
+        for i, shard in enumerate(self.shards):
+            shard_filename = f"{filename}.shard{i}"
+            shard.save(shard_filename)
+
+    def load(self, filename):
+        """Load all shards from separate files."""
+        for i, shard in enumerate(self.shards):
+            shard_filename = f"{filename}.shard{i}"
+            shard.load(shard_filename)

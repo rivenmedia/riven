@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.orionoid import Orionoid
@@ -22,27 +22,25 @@ class Scraping:
         }
         self.initialized = self.validate()
 
+    def validate(self):
+        if not (validated := any(service.initialized for service in self.services.values())):
+            logger.error("You have no scraping services enabled, please enable at least one!")
+        return validated
+
     def run(self, item: MediaItem):
-        if not self._can_we_scrape(item):
+        if isinstance(item, Show) or not self._can_we_scrape(item):
             yield item
         for service in self.services.values():
             if service.initialized:
                 try:
-                    item = next(service.run(item))
+                    updated_item = next(service.run(item))
+                    if updated_item:
+                        item = updated_item
                 except StopIteration:
                     break
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
-
-    def validate(self):
-        if not (
-            validated := any(service.initialized for service in self.services.values())
-        ):
-            logger.error(
-                "You have no scraping services enabled, please enable at least one!"
-            )
-        return validated
 
     def _can_we_scrape(self, item: MediaItem) -> bool:
         return self._is_released(item) and self.should_submit(item)

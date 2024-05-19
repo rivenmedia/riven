@@ -1,7 +1,7 @@
-"""Mdblist content module"""
+"""Overseerr content module"""
 
 from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.item import MediaItem
+from program.media.item import Movie, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping
@@ -55,11 +55,21 @@ class Overseerr:
         for item in response.data.results:
             if not hasattr(item.media, "plexUrl"):
                 if item.media.imdbId:
-                    yield MediaItem({"imdb_id": item.media.imdbId, "requested_by": self.__class__})
+                    yield self._create_media_item(item.media.imdbId, item.media.mediaType)
                 else:
                     imdb_id = self.get_imdb_id(item.media)
                     if imdb_id:
-                        yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
+                        yield self._create_media_item(imdb_id, item.media.mediaType)
+
+    def _create_media_item(self, imdb_id: str, media_type: str):
+        """Create an appropriate media item based on the media type"""
+        if media_type == "movie":
+            return Movie({"imdb_id": imdb_id, "requested_by": self.key})
+        elif media_type in ("show", "tv"):
+            return Show({"imdb_id": imdb_id, "requested_by": self.key})
+        else:
+            logger.error("Unknown media type: %s", media_type)
+            return None
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

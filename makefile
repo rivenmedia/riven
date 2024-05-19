@@ -46,34 +46,14 @@ clean:
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
+	@rm -rf data/media.pkl data/media.pkl.bak
 
 install:
 	@poetry install --with dev
 
-install-debug-tools:
-	@echo "Installing debugging and profiling tools..."
-	@sudo apt-get update
-	@sudo apt-get install -y valgrind gdb
-	@poetry run pip install memory_profiler matplotlib
-	@echo "Tools installed successfully."
-
 # Run the application
 run:
 	@poetry run python backend/main.py
-
-
-# Debugging and profiling commands
-run-profile:
-	@poetry run python -m cProfile -s cumtime backend/main.py
-
-run-valgrind:
-	@echo "Running application under Valgrind for memory leak detection..."
-	@valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes `poetry run which python` backend/main.py
-
-run-profile-memory:
-	@echo "Profiling memory usage..."
-	@poetry run mprof run backend/main.py
-	@mprof plot
 
 # Code quality commands
 format:

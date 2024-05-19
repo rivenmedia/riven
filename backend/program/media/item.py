@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
-from RTN.parser import extract_episodes
+from RTN.patterns import extract_episodes
 
 
 @dataclass

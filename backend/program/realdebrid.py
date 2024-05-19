@@ -3,7 +3,7 @@
 import time
 from pathlib import Path
 
-from program.media.item import Episode, Movie, Season
+from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.parser import episodes_from_season
@@ -45,8 +45,14 @@ class Debrid:
 
     def run(self, item):
         """Download movie from real-debrid.com"""
-        if not self.is_cached(item):
+        if isinstance(item, Show):
             return
+        if not item.streams:
+            logger.debug("No streams found for %s", item.log_string)
+            yield item
+        if not self.is_cached(item):
+            logger.debug("No cached streams found for %s with %s streams.", item.log_string, len(item.streams))
+            yield item
         if not self._is_downloaded(item):
             self._download_item(item)
         self._set_file_paths(item)

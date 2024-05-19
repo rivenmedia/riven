@@ -64,7 +64,7 @@ class Annatar:
     def run(self, item):
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
-        if item is None or isinstance(item, Show):
+        if not item or isinstance(item, Show):
             yield item
         try:
             yield self._scrape_item(item)

@@ -1,4 +1,3 @@
-"""Symlinking module"""
 import os
 from datetime import datetime
 from pathlib import Path
@@ -20,10 +19,6 @@ class DeleteHandler(FileSystemEventHandler):
     def on_deleted(self, event):
         """Called when a file or directory is deleted."""
         if event.src_path:
-            # TODO: Check if its a file or directory and handle accordingly.
-            # This is getting called for the file + directory as well..
-            # It will first get called on the file, then the parent folder.
-            # This is not what we want.. but atleast it's a start.
             self.symlinker.on_symlink_deleted(event.src_path)
 
 
@@ -132,16 +127,19 @@ class Symlinker:
 
     def run(self, item):
         """Check if the media item exists and create a symlink if it does"""
+        if not item.folder or not item.file:
+            logger.error("Item %s does not have folder or file attributes set", item.log_string)
+            return
+
+        rclone_path = Path(self.rclone_path)
         found = False
-        rclone_path = Path(self.settings.rclone_path)
-        if os.path.exists(rclone_path / item.folder / item.file):
-            found = True
-        elif os.path.exists(rclone_path / item.alternative_folder / item.file):
-            item.set("folder", item.alternative_folder)
-            found = True
-        elif os.path.exists(rclone_path / item.file / item.file):
-            item.set("folder", item.file)
-            found = True
+
+        for path in [item.folder, item.alternative_folder, item.file]:
+            if path and os.path.exists(rclone_path / path / item.file):
+                item.set("folder", path)
+                found = True
+                break
+
         if found:
             self._symlink(item)
         else:
@@ -182,7 +180,6 @@ class Symlinker:
 
     def _symlink(self, item):
         """Create a symlink for the given media item if it does not already exist."""
-        # Symlinks get created on host as: destination -> source
         extension = item.file.split(".")[-1]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)

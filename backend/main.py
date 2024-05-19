@@ -56,9 +56,7 @@ class Server(uvicorn.Server):
             logger.critical("Error in server thread: %s", e)
             raise e
         finally:
-            app.program.stop()
             self.should_exit = True
-            sys.exit(0)
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080)
 server = Server(config=config)
@@ -69,10 +67,11 @@ with server.run_in_thread():
         app.program.start()
         app.program.run()
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received.")
+        pass
     except Exception as e:
         logger.error(traceback.format_exc())
         logger.critical("Error in main thread: %s", e)
     finally:
         logger.info("Shutting down server.")
+        app.program.stop()
         sys.exit(0)

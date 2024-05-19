@@ -1,6 +1,5 @@
 import os
 import threading
-import time
 
 from program.media.container import MediaItemContainer
 
@@ -10,35 +9,31 @@ class Pickly(threading.Thread):
         super().__init__(name="Pickly")
         self.media_items = media_items
         self.data_path = data_path
+        self.media_file = os.path.join(self.data_path, "media.pkl")
         self.running = False
-        self.save_interval = 60  # save media items every minute
+        self._stop_event = threading.Event()
 
     def start(self) -> None:
+        self.load()
         self.running = True
-        if len(self.media_items) == 0:
-            self.load()
         super().start()
 
     def stop(self) -> None:
         self.running = False
-        self.save()  # Ensure final save on stop
-        if self.is_alive():
-            self.join()
+        self._stop_event.set()
+        self.save()
+
+    def join(self, timeout=None) -> None:
+        self.stop()
+        super().join(timeout)
 
     def load(self) -> None:
-        try:
-            self.media_items.load(os.path.join(self.data_path, "media.pkl"))
-        except Exception:
-            raise
+        self.media_items.load(self.media_file)
 
     def save(self) -> None:
-        try:
-            if len(self.media_items) > 0:
-                self.media_items.save(os.path.join(self.data_path, "media.pkl"))
-        except Exception:
-            raise
+        self.media_items.save(self.media_file)
 
     def run(self):
         while self.running:
-            time.sleep(self.save_interval)
             self.save()
+            self._stop_event.wait(60)
