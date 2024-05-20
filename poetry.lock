@@ -60,6 +60,25 @@ twisted = ["twisted"]
 zookeeper = ["kazoo"]
 
 [[package]]
+name = "arrow"
+version = "1.3.0"
+description = "Better dates & times for Python"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "arrow-1.3.0-py3-none-any.whl", hash = "sha256:c728b120ebc00eb84e01882a6f5e7927a53960aa990ce7dd2b10f39005a67f80"},
+    {file = "arrow-1.3.0.tar.gz", hash = "sha256:d4540617648cb5f895730f1ad8c82a65f2dad0166f57b75f3ca54759c4d67a85"},
+]
+
+[package.dependencies]
+python-dateutil = ">=2.7.0"
+types-python-dateutil = ">=2.8.10"
+
+[package.extras]
+doc = ["doc8", "sphinx (>=7.0.0)", "sphinx-autobuild", "sphinx-autodoc-typehints", "sphinx_rtd_theme (>=1.3.0)"]
+test = ["dateparser (==1.*)", "pre-commit", "pytest", "pytest-cov", "pytest-mock", "pytz (==2021.1)", "simplejson (==3.*)"]
+
+[[package]]
 name = "black"
 version = "24.3.0"
 description = "The uncompromising code formatter."
@@ -685,6 +704,7 @@ files = [
     {file = "lxml-5.2.1-cp36-cp36m-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:c38d7b9a690b090de999835f0443d8aa93ce5f2064035dfc48f27f02b4afc3d0"},
     {file = "lxml-5.2.1-cp36-cp36m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5670fb70a828663cc37552a2a85bf2ac38475572b0e9b91283dc09efb52c41d1"},
     {file = "lxml-5.2.1-cp36-cp36m-manylinux_2_28_x86_64.whl", hash = "sha256:958244ad566c3ffc385f47dddde4145088a0ab893504b54b52c041987a8c1863"},
+    {file = "lxml-5.2.1-cp36-cp36m-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:b6241d4eee5f89453307c2f2bfa03b50362052ca0af1efecf9fef9a41a22bb4f"},
     {file = "lxml-5.2.1-cp36-cp36m-musllinux_1_1_aarch64.whl", hash = "sha256:2a66bf12fbd4666dd023b6f51223aed3d9f3b40fef06ce404cb75bafd3d89536"},
     {file = "lxml-5.2.1-cp36-cp36m-musllinux_1_1_ppc64le.whl", hash = "sha256:9123716666e25b7b71c4e1789ec829ed18663152008b58544d95b008ed9e21e9"},
     {file = "lxml-5.2.1-cp36-cp36m-musllinux_1_1_s390x.whl", hash = "sha256:0c3f67e2aeda739d1cc0b1102c9a9129f7dc83901226cc24dd72ba275ced4218"},
@@ -709,7 +729,6 @@ files = [
     {file = "lxml-5.2.1-cp37-cp37m-musllinux_1_2_x86_64.whl", hash = "sha256:9e2addd2d1866fe112bc6f80117bcc6bc25191c5ed1bfbcf9f1386a884252ae8"},
     {file = "lxml-5.2.1-cp37-cp37m-win32.whl", hash = "sha256:f51969bac61441fd31f028d7b3b45962f3ecebf691a510495e5d2cd8c8092dbd"},
     {file = "lxml-5.2.1-cp37-cp37m-win_amd64.whl", hash = "sha256:b0b58fbfa1bf7367dde8a557994e3b1637294be6cf2169810375caf8571a085c"},
-    {file = "lxml-5.2.1-cp38-cp38-macosx_10_9_universal2.whl", hash = "sha256:3e183c6e3298a2ed5af9d7a356ea823bccaab4ec2349dc9ed83999fd289d14d5"},
     {file = "lxml-5.2.1-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:804f74efe22b6a227306dd890eecc4f8c59ff25ca35f1f14e7482bbce96ef10b"},
     {file = "lxml-5.2.1-cp38-cp38-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:08802f0c56ed150cc6885ae0788a321b73505d2263ee56dad84d200cab11c07a"},
     {file = "lxml-5.2.1-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0f8c09ed18ecb4ebf23e02b8e7a22a05d6411911e6fabef3a36e4f371f4f2585"},
@@ -866,6 +885,21 @@ files = [
     {file = "parse_torrent_title-2.8.1-py2-none-any.whl", hash = "sha256:0467809b5004065e29c60dfe120499f44832c0be49dc0e7583a1325dd81bbc88"},
     {file = "parse_torrent_title-2.8.1-py3-none-any.whl", hash = "sha256:b96ee593b25fbf07150066d9d8de488b17c15c92b8b05745f984ff47db7f9fcb"},
 ]
+
+[[package]]
+name = "parsett"
+version = "0.2.3"
+description = "PTT"
+optional = false
+python-versions = "<4.0,>=3.11"
+files = [
+    {file = "parsett-0.2.3-py3-none-any.whl", hash = "sha256:17e491f7b5f34c382aef607eef68b3a04f379611e76b3fdad2faec0537823a42"},
+    {file = "parsett-0.2.3.tar.gz", hash = "sha256:2d4d37922d4f83152a21aa91064559b3f31731064dac19b0479c932547a4189a"},
+]
+
+[package.dependencies]
+arrow = ">=1.3.0,<2.0.0"
+regex = ">=2023.12.25,<2024.0.0"
 
 [[package]]
 name = "pathos"
@@ -1179,6 +1213,20 @@ pytest = ">=4.6"
 testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+description = "Extensions to the standard Python datetime module"
+optional = false
+python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
+files = [
+    {file = "python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3"},
+    {file = "python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427"},
+]
+
+[package.dependencies]
+six = ">=1.5"
+
+[[package]]
 name = "python-dotenv"
 version = "1.0.1"
 description = "Read key-value pairs from a .env file and set them as environment variables"
@@ -1265,18 +1313,19 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "0.2.15"
+version = "0.2.19"
 description = "Parse Torrents using PTN and Rank them according to your preferences!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-0.2.15-py3-none-any.whl", hash = "sha256:fb230e8f2dd6363e3ef704b8d75621a94258a117cf61c3e8ef298d80f9ad493d"},
-    {file = "rank_torrent_name-0.2.15.tar.gz", hash = "sha256:de4b84acda9aeaeafdc5bddb1f8e04e34dd9fad48848c31cd891fc777ce8d626"},
+    {file = "rank_torrent_name-0.2.19-py3-none-any.whl", hash = "sha256:0a233a80ed6003a121d66db369d34e35e2559ca6b58792e7ad115098c00a4614"},
+    {file = "rank_torrent_name-0.2.19.tar.gz", hash = "sha256:d0e5fd6dcd535d48daff10a3ca2d2d7c2db03a2ec787e95e0712c1a66b48a496"},
 ]
 
 [package.dependencies]
 levenshtein = ">=0.25.0,<0.26.0"
 parse-torrent-title = ">=2.8.1,<3.0.0"
+parsett = ">=0.2.0,<0.3.0"
 pydantic = ">=2.6.3,<3.0.0"
 regex = ">=2023.12.25,<2024.0.0"
 
@@ -1585,6 +1634,17 @@ anyio = ">=3.4.0,<5"
 
 [package.extras]
 full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.7)", "pyyaml"]
+
+[[package]]
+name = "types-python-dateutil"
+version = "2.9.0.20240316"
+description = "Typing stubs for python-dateutil"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-python-dateutil-2.9.0.20240316.tar.gz", hash = "sha256:5d2f2e240b86905e40944dd787db6da9263f0deabef1076ddaed797351ec0202"},
+    {file = "types_python_dateutil-2.9.0.20240316-py3-none-any.whl", hash = "sha256:6b8cb66d960771ce5ff974e9dd45e38facb81718cc1e208b10b1baccbfdbee3b"},
+]
 
 [[package]]
 name = "typing-extensions"
@@ -1934,4 +1994,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "394561b244aaa19fb6e10498829b36aeb08151a74075b5cbecba807d7c9d8444"
+content-hash = "0af3a49039803193992a5c9b3d121f67331052921ce942248736cfd5ec073fb4"
