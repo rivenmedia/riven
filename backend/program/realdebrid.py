@@ -45,7 +45,7 @@ class Debrid:
 
     def run(self, item):
         """Download movie from real-debrid.com"""
-        if isinstance(item, Show):
+        if isinstance(item, Show) or not item:
             return
         if not item.streams:
             logger.debug("No streams found for %s", item.log_string)

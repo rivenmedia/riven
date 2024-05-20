@@ -21,6 +21,7 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
+        self.not_found_ids = []
         logger.info("Listrr initialized!")
 
     def validate(self) -> bool:

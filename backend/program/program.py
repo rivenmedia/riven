@@ -68,6 +68,11 @@ class Program(threading.Thread):
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
+        # lets check if settings.json exists, if it doesnt, lets create it
+        if not settings_manager.settings_file.exists():
+            logger.info("Settings file not found, creating default settings")
+            settings_manager.save()
+
         try:
             self.initialize_services()
         except Exception:

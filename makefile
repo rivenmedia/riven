@@ -1,4 +1,4 @@
-.PHONY: help install run start stop logs clean format lint test pr-ready run-profile-cpu run-profile-memory run-valgrind run-gdb install-debug-tools
+.PHONY: help install run start stop logs clean format lint test pr-ready
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -14,13 +14,15 @@ help:
 	@echo -------------------------------------------------------------------------
 	@echo install   : Install the required packages
 	@echo run       : Run the Iceberg backend
-	@echo start     : Build and run the Iceberg container
-	@echo stop      : Stop and remove the Iceberg container and image
-	@echo logs      : Show the logs of the Iceberg container
-	@echo clean     : Remove all the cache files
-	@echo format    : Format the code
-	@echo lint      : Run the linter and type checker
-	@echo test      : Run the tests
+	@echo start     : Build and run the Iceberg container \(requires Docker\)
+	@echo stop      : Stop and remove the Iceberg container \(requires Docker\)
+	@echo logs      : Show the logs of the Iceberg container \(requires Docker\)
+	@echo clean     : Remove all the temporary files
+	@echo format    : Format the code using isort
+	@echo check     : Check the code using pyright
+	@echo lint      : Lint the code using ruff and isort
+	@echo test      : Run the tests using pytest
+	@echo coverage  : Run the tests and generate coverage report
 	@echo pr-ready  : Run the linter and tests
 	@echo -------------------------------------------------------------------------
 
