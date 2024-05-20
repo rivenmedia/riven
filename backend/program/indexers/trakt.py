@@ -138,4 +138,5 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
-    return response.data[0].ids.imdb
+    if response.data[0].hasattr("ids"):
+        return response.data[0].ids.get("imdb", None)

@@ -26,7 +26,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     no_further_processing: ProcessedEvent = (None, None, []) # type: ignore
     
     # Early return if item is already completed
-    if item and item.state == States.Completed:
+    if item.state == States.Completed or item.update_folder == "updated":
         return no_further_processing
 
     try:

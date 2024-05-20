@@ -35,8 +35,6 @@ class Program(threading.Thread):
         self.startup_args = args
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=5)
-        self.scheduler = BackgroundScheduler()
         logger.configure_logger(
             debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
@@ -93,6 +91,8 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=5)
+        self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
 

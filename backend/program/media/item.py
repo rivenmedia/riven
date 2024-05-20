@@ -81,8 +81,7 @@ class MediaItem:
             return States.Indexed
         elif self.imdb_id and self.requested_by:
             return States.Requested
-        else:
-            return States.Unknown
+        return States.Unknown
 
     def copy_other_media_attr(self, other):
         self.title = getattr(other, "title", None)

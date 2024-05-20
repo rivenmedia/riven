@@ -149,6 +149,7 @@ class Symlinker:
                 item.log_string,
                 rclone_path,
             )
+        item.symlinked = True
         item.symlinked_at = datetime.now()
         item.symlinked_times += 1
         yield item

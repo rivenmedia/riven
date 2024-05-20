@@ -88,7 +88,7 @@ class Debrid:
         time.sleep(0.5)
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
-        logger.debug("Downloaded %s", item.log_string)
+        logger.info("Downloaded %s", item.log_string)
 
     def set_active_files(self, item):
         """Set active files for item from real-debrid.com"""
