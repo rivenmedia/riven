@@ -27,7 +27,7 @@ rank-torrent-name = "^0.2.13"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
-pyperf = "^2.2.0"
+pyperf = "^2.7.0"
 ruff = "^0.3.0"
 isort = "^5.10.1"
 codecov = "^2.1.13"
