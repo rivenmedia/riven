@@ -36,8 +36,8 @@ dependencies:
     specifier: ^0.2.0
     version: 0.2.0
   svelte-sonner:
-    specifier: ^0.3.11
-    version: 0.3.11(svelte@4.2.9)
+    specifier: ^0.3.24
+    version: 0.3.24(svelte@4.2.9)
   sveltekit-superforms:
     specifier: ^1.13.4
     version: 1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.4)
@@ -2860,8 +2860,8 @@ packages:
       typescript: 5.3.3
     dev: true
 
-  /svelte-sonner@0.3.11(svelte@4.2.9):
-    resolution: {integrity: sha512-TkjgDC7zr0waky81Z9CShXMD+4NQ7UASuRx0BhgQo8ZTDQQYk8X8MzJa3zVtZVa6RYJEiahHBXx8Zt/Ie9G5hg==}
+  /svelte-sonner@0.3.24(svelte@4.2.9):
+    resolution: {integrity: sha512-txuL0JBUs0v6qGrr0PGCsbXmKHuthdrAkfISYi8umuveF7+gINb6EXl6VmKY9aHhyxCqvVgqd6yophQNrnor4w==}
     peerDependencies:
       svelte: '>=3 <5'
     dependencies:
