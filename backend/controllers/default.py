@@ -2,11 +2,12 @@ from datetime import datetime
 
 import pydantic
 import requests
-from controllers.overseerr_models import OverseerrWebhook
 from fastapi import APIRouter, Request
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.settings.manager import settings_manager
 from utils.logger import logger
+
+from .overseerr_models import OverseerrWebhook
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
