@@ -54,7 +54,7 @@ async def get_services(request: Request):
     return {"success": True, "data": data}
 
 @router.post("/overseerr")
-async def get_overseerr_requests(request: Request):
+async def overseerr_webhook(request: Request):
     response = await request.json()
     logger.debug("Received request for: %s", response.get("subject", "Unknown"))
     try:

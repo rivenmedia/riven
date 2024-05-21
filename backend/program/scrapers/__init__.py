@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from program.media.item import MediaItem, Show
 from program.scrapers.annatar import Annatar
@@ -28,8 +28,9 @@ class Scraping:
         return validated
 
     def run(self, item: MediaItem):
-        if isinstance(item, Show) or not self._can_we_scrape(item):
-            yield item
+        if not self._can_we_scrape(item):
+            return
+
         for service in self.services.values():
             if service.initialized:
                 try:
@@ -43,10 +44,14 @@ class Scraping:
         yield item
 
     def _can_we_scrape(self, item: MediaItem) -> bool:
+        # return True if the item is released and atleast 4 hours have passed since it was released
+        # also check if we should submit the item for scraping based on the number of times it has been scraped
         return self._is_released(item) and self.should_submit(item)
 
     def _is_released(self, item: MediaItem) -> bool:
-        return item.aired_at is not None and item.aired_at < datetime.now()
+        if not item or not item.aired_at:
+            return False
+        return (item.aired_at + timedelta(hours=4)) < datetime.now()
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

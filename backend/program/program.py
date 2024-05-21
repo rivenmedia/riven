@@ -11,7 +11,7 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Movie
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -131,10 +131,10 @@ class Program(threading.Thread):
         scheduled_services = {**self.requesting_services, **self.library_services}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
-                logger.info("Not scheduling %s due to not being initialized", service_cls.__name__)
+                logger.debug("Not scheduling %s due to not being initialized", service_cls.__name__)
                 continue
             if not (update_interval := getattr(service_instance.settings, "update_interval", False)):
-                logger.info("Service %s update_interval set to False or missing, not scheduling regular updates", service_cls.__name__)
+                logger.debug("Service %s update_interval set to False or missing, not scheduling regular updates", service_cls.__name__)
                 continue
 
             self.scheduler.add_job(
@@ -161,6 +161,10 @@ class Program(threading.Thread):
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
+        if isinstance(item, Movie):
+            if item.state == States.Completed:
+                logger.debug(f"Skipping service {service.__name__} for {item.log_string} as it is already completed")
+            return
         if item:
             logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
@@ -183,15 +187,8 @@ class Program(threading.Thread):
                 existing_item, event.emitted_by, event.item
             )
 
-            # before submitting the item to be processed, commit it to the container
             if updated_item:
                 self.media_items.upsert(updated_item)
-                if updated_item.state == States.Completed:
-                    logger.debug(
-                        "%s %s has been completed",
-                        updated_item.__class__.__name__,
-                        updated_item.log_string,
-                    )
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
@@ -210,6 +207,7 @@ class Program(threading.Thread):
 
     def stop(self):
         self.running = False
+        self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         if hasattr(self, "executor") and not self.executor.shutdown:
@@ -221,7 +219,18 @@ class Program(threading.Thread):
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
         if item is not None and item not in self.media_items:
-            self.queue.put(Event(emitted_by=self.__class__, item=item))
+            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
             logger.info(f"Added {item.log_string} to the queue")
             return True
         return False
+
+    def clear_queue(self):
+        """Clear the event queue."""
+        logger.info("Clearing the event queue. Please wait.")
+        while not self.event_queue.empty():
+            try:
+                self.event_queue.get_nowait()
+                self.event_queue.task_done()
+            except Empty:
+                break
+        logger.info("Cleared the event queue. Ready for shutdown.")

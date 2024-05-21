@@ -45,14 +45,13 @@ class Debrid:
 
     def run(self, item):
         """Download movie from real-debrid.com"""
-        if isinstance(item, Show) or not item:
+        if isinstance(item, Show) or item is None:
+            if item is None:
+                logger.error("Item is None: %s", item)
             return
-        if not item.streams:
-            logger.debug("No streams found for %s", item.log_string)
-            yield item
         if not self.is_cached(item):
             logger.debug("No cached streams found for %s with %s streams.", item.log_string, len(item.streams))
-            yield item
+            return
         if not self._is_downloaded(item):
             self._download_item(item)
         self._set_file_paths(item)
@@ -172,6 +171,8 @@ class Debrid:
             self._handle_season_paths(item)
         elif isinstance(item, Episode):
             self._handle_episode_paths(item)
+        else:
+            logger.error("Item type not supported: %s", item.__class__.__name__)
 
     def _handle_movie_paths(self, item):
         """Set file paths for movie from real-debrid.com"""

@@ -10,7 +10,7 @@ from program.updaters.plex import PlexUpdater
 from utils.logger import logger
 
 
-def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore
+def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:  # type: ignore
     """
     Process the input event, determine the next service to process the item, and return 
     items to update the container with.
@@ -23,56 +23,52 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     Returns:
         ProcessedEvent: A tuple containing the updated item, the next service to handle the item, and items to submit.
     """
-    no_further_processing: ProcessedEvent = (None, None, []) # type: ignore
-    
-    # Early return if item is already completed
-    if item.state == States.Completed or item.update_folder == "updated":
+    no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+
+    # Early return if item is already completed and has a title
+    if item.state == States.Completed and item.get_top_title():
         return no_further_processing
 
     try:
-        # Handle initial states such as Unknown and source services
-        updated_item, next_service, items_to_submit = handle_initial_states(existing_item, emitted_by, item)
-        if updated_item is not None or next_service is not None:
-            return updated_item, next_service, items_to_submit
+        source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
+        if emitted_by in source_services or item.state == States.Unknown:
+            return handle_initial_states(existing_item, item)
 
         # Handle Indexed state where metadata needs to be merged
-        updated_item, next_service, items_to_submit = handle_indexed_state(existing_item, item)
-        if updated_item is not None or next_service is not None:
-            return updated_item, next_service, items_to_submit
+        if emitted_by == TraktIndexer or item.state == States.Indexed:
+            return handle_indexed_state(existing_item, item)
 
         # Handle remaining states such as Scraped, Downloaded, Symlinked
         return handle_scraping_states(item)
-    
+
     except Exception as e:
         logger.error(f"Error processing event for item {item}: {e}")
         return no_further_processing
 
-def handle_initial_states(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore
+
+def handle_initial_states(existing_item: MediaItem | None, item: MediaItem) -> ProcessedEvent:  # type: ignore
     """
     Handle initial states and return the next service to process the item if applicable.
     
     Args:
         existing_item (MediaItem | None): The existing item from the container.
-        emitted_by (Service): The service that emitted the event.
         item (MediaItem): The media item to be processed.
 
     Returns:
         ProcessedEvent: A tuple containing the updated item, the next service to handle the item, and items to submit.
     """
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
-    if emitted_by in source_services or item.state == States.Unknown:
-        next_service = TraktIndexer
-        # Seasons can't be indexed so we'll index and process the show instead
-        if isinstance(item, Season):
-            item = item.parent
-            existing_item = existing_item.parent if existing_item else None
-        # If we already have a copy of this item check if we even need to index it
-        if existing_item and not TraktIndexer.should_submit(existing_item):
-            return None, None, []
-        return None, next_service, [item]
-    return None, None, []
+    next_service = TraktIndexer
+    # Seasons can't be indexed so we'll index and process the show instead
+    if isinstance(item, Season):
+        item = item.parent
+        existing_item = existing_item.parent if existing_item else None
+    # If we already have a copy of this item check if we even need to index it
+    if existing_item and not TraktIndexer.should_submit(existing_item):
+        return None, None, []
+    return item, next_service, [item]
 
-def handle_indexed_state(existing_item: MediaItem | None, item: MediaItem) -> ProcessedEvent: # type: ignore
+
+def handle_indexed_state(existing_item: MediaItem | None, item: MediaItem) -> ProcessedEvent:  # type: ignore
     """
     Handle the Indexed state and return the next service to process the item if applicable.
     
@@ -83,11 +79,7 @@ def handle_indexed_state(existing_item: MediaItem | None, item: MediaItem) -> Pr
     Returns:
         ProcessedEvent: A tuple containing the updated item, the next service to handle the item, and items to submit.
     """
-    if item.state != States.Indexed:
-        return None, None, []
-
     next_service = Scraping
-    updated_item = item
 
     if existing_item:
         if not existing_item.indexed_at:
@@ -99,7 +91,7 @@ def handle_indexed_state(existing_item: MediaItem | None, item: MediaItem) -> Pr
             # Update the timestamp now that we have new metadata
             existing_item.indexed_at = item.indexed_at
             # Use the merged data for the rest of the state transition
-            updated_item = item = existing_item
+            item = existing_item
         # If after filling in missing episodes we are still complete then skip
         if existing_item.state == States.Completed:
             return existing_item, None, []
@@ -109,15 +101,21 @@ def handle_indexed_state(existing_item: MediaItem | None, item: MediaItem) -> Pr
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons if s.state != States.Completed]
         elif isinstance(item, Season):
-            items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+            if item.scraped_times == 0:
+                items_to_submit = [item]
+            else:
+                items_to_submit = [
+                    e for e in item.episodes if e.state != States.Completed
+                ]
     elif Scraping.should_submit(item):
         items_to_submit = [item]
     else:
         items_to_submit = []
 
-    return updated_item, next_service, items_to_submit
+    return item, next_service, items_to_submit
 
-def handle_scraping_states(item: MediaItem) -> ProcessedEvent: # type: ignore
+
+def handle_scraping_states(item: MediaItem) -> ProcessedEvent:  # type: ignore
     """
     Handle the states related to scraping, downloading, and symlinking.
     
@@ -127,6 +125,9 @@ def handle_scraping_states(item: MediaItem) -> ProcessedEvent: # type: ignore
     Returns:
         ProcessedEvent: A tuple containing the updated item, the next service to handle the item, and items to submit.
     """
+    if item.state == States.Completed:
+        return None, None, []
+
     next_service = None
     items_to_submit = []
 
@@ -152,6 +153,7 @@ def handle_scraping_states(item: MediaItem) -> ProcessedEvent: # type: ignore
             items_to_submit = [item]
 
     return item, next_service, items_to_submit
+
 
 def prepare_symlink_items(item: MediaItem) -> list[MediaItem]:
     """
