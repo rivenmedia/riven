@@ -11,7 +11,7 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem, Movie
+from program.media.item import MediaItem, Movie, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -107,7 +107,8 @@ class Program(threading.Thread):
         logger.info("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        for _, item in self.media_items.get_incomplete_items().items():
+        incomplete_items = self.media_items.get_incomplete_items()
+        for _, item in incomplete_items.items():
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
@@ -189,6 +190,8 @@ class Program(threading.Thread):
 
             if updated_item:
                 self.media_items.upsert(updated_item)
+                if updated_item.state == States.Completed and isinstance(updated_item, (Movie, Show)):
+                    logger.info(f"Item {updated_item.log_string} is now completed!")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:

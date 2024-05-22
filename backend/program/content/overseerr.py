@@ -1,7 +1,7 @@
 """Overseerr content module"""
 
 from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.item import Movie, Show
+from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping
@@ -69,7 +69,7 @@ class Overseerr:
             return Show({"imdb_id": imdb_id, "requested_by": self.key})
         else:
             logger.error("Unknown media type: %s", media_type)
-            return None
+            return MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

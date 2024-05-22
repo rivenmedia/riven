@@ -13,6 +13,7 @@ CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
 
 class TraktIndexer:
     """Trakt updater class"""
+    key = "TraktIndexer"
 
     def __init__(self):
         self.key = "traktindexer"

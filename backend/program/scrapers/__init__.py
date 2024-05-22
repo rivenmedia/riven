@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from program.media.item import MediaItem, Show
+from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.orionoid import Orionoid
@@ -29,10 +29,10 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self._can_we_scrape(item):
-            return
+            yield None
 
         for service in self.services.values():
-            if service.initialized:
+            if service.initialized and self.should_submit(item):
                 try:
                     updated_item = next(service.run(item))
                     if updated_item:
@@ -46,11 +46,13 @@ class Scraping:
     def _can_we_scrape(self, item: MediaItem) -> bool:
         # return True if the item is released and atleast 4 hours have passed since it was released
         # also check if we should submit the item for scraping based on the number of times it has been scraped
-        return self._is_released(item) and self.should_submit(item)
+        return self.is_released(item) and self.should_submit(item)
 
-    def _is_released(self, item: MediaItem) -> bool:
+    @staticmethod
+    def is_released(item: MediaItem) -> bool:
         if not item or not item.aired_at:
             return False
+        # return True if the item is released and atleast 4 hours have passed since it was released
         return (item.aired_at + timedelta(hours=4)) < datetime.now()
 
     @staticmethod

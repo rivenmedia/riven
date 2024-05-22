@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
+import time
 
 from program.media.item import Episode, Movie
 from program.settings.manager import settings_manager
@@ -134,6 +135,11 @@ class Symlinker:
         rclone_path = Path(self.rclone_path)
         found = False
 
+        # Wait for the file to be added to RD before creating the symlink
+        # Seems like we move through states too fast and the file is not yet available.
+        # TODO: Further testing to see if this is necessary.
+        time.sleep(2)
+
         for path in [item.folder, item.alternative_folder, item.file]:
             if path and os.path.exists(rclone_path / path / item.file):
                 item.set("folder", path)
@@ -142,6 +148,8 @@ class Symlinker:
 
         if found:
             self._symlink(item)
+            item.set("symlinked", True)
+            item.set("symlinked_at", datetime.now())
         else:
             logger.error(
                 "Could not find %s in subdirectories of %s to create symlink,"
@@ -149,14 +157,15 @@ class Symlinker:
                 item.log_string,
                 rclone_path,
             )
-        item.symlinked = True
-        item.symlinked_at = datetime.now()
-        item.symlinked_times += 1
+
+        item.set("symlinked_times", item.get("symlinked_times") + 1)
         yield item
 
     @staticmethod
     def should_submit(item):
-        return item.symlinked_times < 3
+        if not item.symlinked_at:
+            return True
+        return item.symlinked_times < 3 
 
     def _determine_file_name(self, item):
         """Determine the filename of the symlink."""
@@ -192,10 +201,14 @@ class Symlinker:
                     os.symlink(source, destination)
                     logger.debug("Created symlink for %s", item.log_string)
                     item.symlinked = True
+                    return True
                 except OSError as e:
                     logger.error("Failed to create symlink for %s: %s", item.log_string, e)
-        else:
-            logger.debug("Symlink already exists for %s, skipping.", item.log_string)
+                    return False
+
+        # this can get spammy.. it's probably unnecessary
+        # logger.debug("Symlink already exists for %s, skipping.", item.log_string)
+        return False
 
     def _create_item_folders(self, item, filename) -> str:
         if isinstance(item, Movie):
