@@ -55,8 +55,8 @@ class SymlinkLibrary:
                 logger.error("Can't extract movie imdb_id at path %s", path / filename)
                 continue
             movie_item = Movie({"imdb_id": imdb_id.group()})
-            movie_item.symlinked = True
-            movie_item.update_folder = "updated"
+            movie_item.set("symlinked", True)
+            movie_item.set("update_folder", "updated")
             yield movie_item
 
         shows_dir = self.settings.library_path / "shows"
@@ -78,16 +78,20 @@ class SymlinkLibrary:
                     )
                     continue
                 season_item = Season({"number": int(season_number.group())})
+                season_item.set("parent", show_item)
                 for episode in os.listdir(shows_dir / show / season):
                     if not (episode_number := regex.search(r"s\d+e(\d+)", episode)):
-                        logger.error(
-                            "Can't extract episode number at path %s",
-                            shows_dir / show / season / episode,
-                        )
+                        # logger.error(
+                        #     "Can't extract episode number at path %s",
+                        #     shows_dir / show / season / episode,
+                        # )
                         continue
-                    episode_item = Episode({"number": int(episode_number.group(1))})
-                    episode_item.symlinked = True
-                    episode_item.update_folder = "updated"
-                    season_item.add_episode(episode_item)
+                    number = int(episode_number.group(1))
+                    if number not in season_item.episodes:
+                        episode_item = Episode({"number": number})
+                        episode_item.set("parent", season_item)
+                        episode_item.set("symlinked", True)
+                        episode_item.set("update_folder", "updated")
+                        season_item.add_episode(episode_item)
                 show_item.add_season(season_item)
             yield show_item

@@ -29,14 +29,11 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self._can_we_scrape(item):
-            yield None
-
+            return
         for service in self.services.values():
-            if service.initialized and self.should_submit(item):
+            if service.initialized:
                 try:
-                    updated_item = next(service.run(item))
-                    if updated_item:
-                        item = updated_item
+                    item = next(service.run(item))
                 except StopIteration:
                     break
         item.set("scraped_at", datetime.now())
@@ -44,16 +41,14 @@ class Scraping:
         yield item
 
     def _can_we_scrape(self, item: MediaItem) -> bool:
-        # return True if the item is released and atleast 4 hours have passed since it was released
-        # also check if we should submit the item for scraping based on the number of times it has been scraped
         return self.is_released(item) and self.should_submit(item)
 
     @staticmethod
     def is_released(item: MediaItem) -> bool:
-        if not item or not item.aired_at:
-            return False
-        # return True if the item is released and atleast 4 hours have passed since it was released
-        return (item.aired_at + timedelta(hours=4)) < datetime.now()
+        released = bool(item.aired_at is not None and item.aired_at < datetime.now())
+        if not released:
+            logger.debug("Item %s has not been released yet.", item.log_string)
+        return released
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

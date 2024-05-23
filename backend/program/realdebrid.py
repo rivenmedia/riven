@@ -50,7 +50,6 @@ class Debrid:
                 logger.error("Item is None: %s", item)
             return
         if not self.is_cached(item):
-            logger.debug("No cached streams found for %s with %s streams.", item.log_string, len(item.streams))
             return
         if not self._is_downloaded(item):
             self._download_item(item)

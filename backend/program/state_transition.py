@@ -1,3 +1,4 @@
+import time
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
@@ -7,7 +8,6 @@ from program.scrapers import Scraping
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
-from utils.logger import logger
 
 
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:  # type: ignore
@@ -16,6 +16,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     next_service: Service = None
     updated_item = item
     no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+    
     # we always want to get metadata for content items before we compare to the container.
     # we can't just check if the show exists we have to check if it's complete or if there are new episodes.
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
@@ -60,7 +61,8 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             elif isinstance(item, Season):
                 items_to_submit = [e for e in item.episodes if e.state != States.Completed]
 
-        elif Scraping.should_submit(item):
+        # We should also make sure that the item is even released before we try to scrape it
+        elif Scraping.should_submit(item) and Scraping.is_released(item):
             items_to_submit = [item]
         else:
             items_to_submit = []
@@ -91,7 +93,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = []
         for item in proposed_submissions:
             if not Symlinker.should_submit(item):
-                logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+                pass
             else:
                 items_to_submit.append(item)
 

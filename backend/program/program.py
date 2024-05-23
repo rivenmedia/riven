@@ -11,7 +11,7 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem, Movie, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -96,7 +96,7 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=5)
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
@@ -113,7 +113,7 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_functions = {self._retry_library: {"interval": 60 * 10}}
+        scheduled_functions = {self._retry_library: {"interval": 60 * 5}}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
@@ -132,10 +132,8 @@ class Program(threading.Thread):
         scheduled_services = {**self.requesting_services, **self.library_services}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
-                logger.debug("Not scheduling %s due to not being initialized", service_cls.__name__)
                 continue
             if not (update_interval := getattr(service_instance.settings, "update_interval", False)):
-                logger.debug("Service %s update_interval set to False or missing, not scheduling regular updates", service_cls.__name__)
                 continue
 
             self.scheduler.add_job(
@@ -162,10 +160,10 @@ class Program(threading.Thread):
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        if isinstance(item, Movie):
-            if item.state == States.Completed:
-                logger.debug(f"Skipping service {service.__name__} for {item.log_string} as it is already completed")
+        if item and item.state == States.Completed:
+            logger.debug(f"Skipping service {service.__name__} for {item.log_string} as it is already completed")
             return
+
         if item:
             logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
@@ -190,8 +188,6 @@ class Program(threading.Thread):
 
             if updated_item:
                 self.media_items.upsert(updated_item)
-                if updated_item.state == States.Completed and isinstance(updated_item, (Movie, Show)):
-                    logger.info(f"Item {updated_item.log_string} is now completed!")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
@@ -237,3 +233,21 @@ class Program(threading.Thread):
             except Empty:
                 break
         logger.info("Cleared the event queue. Ready for shutdown.")
+
+    def _rebuild_library(self):
+        """Rebuild the media items container from the SymlinkLibrary service."""
+        new_items = list(self.services[SymlinkLibrary].run())
+        existing_item_ids = {item.item_id for item in self.media_items}
+
+        items_to_add = [item for item in new_items if item.item_id not in existing_item_ids]
+        items_to_update = [item for item in new_items if item.item_id in existing_item_ids and item != self.media_items.get(item.item_id)]
+
+        if items_to_add:
+            logger.info(f"Adding {len(items_to_add)} new items to the media items container")
+            for item in items_to_add:
+                self.media_items.upsert(item)
+
+        if items_to_update:
+            logger.info(f"Updating {len(items_to_update)} existing items in the media items container")
+            for item in items_to_update:
+                self.media_items.upsert(item)

@@ -1,10 +1,11 @@
 """Overseerr content module"""
 
+from datetime import datetime, timedelta
 from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.item import MediaItem, Movie, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import delete, get, ping
+from utils.request import delete, get, ping, post
 
 
 class Overseerr:
@@ -17,7 +18,6 @@ class Overseerr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.not_found_ids = set()  # Use set for better performance on membership tests
         logger.info("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -45,61 +45,56 @@ class Overseerr:
 
     def run(self):
         """Fetch new media from `Overseerr`"""
-        self.not_found_ids.clear()
         response = get(
             self.settings.url + f"/api/v1/request?take={10000}",
             additional_headers=self.headers,
         )
-        if not response.is_ok:
+        if not response.is_ok or response.data.pageInfo.results == 0:
             return
-        for item in response.data.results:
-            if not hasattr(item.media, "plexUrl"):
-                if item.media.imdbId:
-                    yield self._create_media_item(item.media.imdbId, item.media.mediaType)
-                else:
-                    imdb_id = self.get_imdb_id(item.media)
-                    if imdb_id:
-                        yield self._create_media_item(imdb_id, item.media.mediaType)
 
-    def _create_media_item(self, imdb_id: str, media_type: str):
-        """Create an appropriate media item based on the media type"""
-        if media_type == "movie":
-            return Movie({"imdb_id": imdb_id, "requested_by": self.key})
-        elif media_type in ("show", "tv"):
-            return Show({"imdb_id": imdb_id, "requested_by": self.key})
-        else:
-            logger.error("Unknown media type: %s", media_type)
-            return MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+        # Lets look at approved items only that are only in the pending state
+        pending_items = [
+            item
+            for item in response.data.results
+            if item.status == 2 and item.media.status == 3
+        ]
+        for item in pending_items:
+            mediaId: int = int(item.media.id)
+            if not item.media.imdbId:
+                imdb_id = self.get_imdb_id(item.media)
+            else:
+                imdb_id = item.media.imdbId
+
+            if not imdb_id:
+                logger.debug("Imdb id not found for tmdb-%s, deleting request on Overseerr", item.media.tmdbId or "N/A")
+                # Delete request if imdb_id is not found
+                self.delete_request(item.id)
+                continue
+
+            if imdb_id:
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
         if data.mediaType == "show":
             external_id = data.tvdbId
             data.mediaType = "tv"
-            id_extension = "tvdb-"
         else:
             external_id = data.tmdbId
-            id_extension = "tmdb-"
 
-        if f"{id_extension}{external_id}" in self.not_found_ids:
-            return None
         response = get(
             self.settings.url + f"/api/v1/{data.mediaType}/{external_id}?language=en",
             additional_headers=self.headers,
         )
         if not response.is_ok or not hasattr(response.data, "externalIds"):
-            logger.debug(
-                f"Failed to fetch or no externalIds for {id_extension}{external_id}"
-            )
             return None
-
-        imdb_id = getattr(response.data.externalIds, "imdbId", None)
-        if imdb_id:
-            return imdb_id
 
         title = getattr(response.data, "title", None) or getattr(
             response.data, "originalName", None
         )
+        imdb_id = getattr(response.data.externalIds, "imdbId", None)
+        if imdb_id:
+            return imdb_id
 
         # Try alternate IDs if IMDb ID is not available
         alternate_ids = [("tmdbId", get_imdbid_from_tmdb)]
@@ -112,17 +107,90 @@ class Overseerr:
                         f"Found imdbId for {title} from {id_attr}: {external_id_value}"
                     )
                     return new_imdb_id
-
-        logger.debug(f"Failed to find imdbId for {title}")
-        self.not_found_ids.add(f"{id_extension}{external_id}")
         return None
 
-    def delete_request(self, request_id: int) -> bool:
+    @staticmethod
+    def delete_request(mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
-        response = delete(
-            self.settings.url + f"/api/v1/request/{request_id}",
-            additional_headers=self.headers,
-        )
-        if response.is_ok:
-            logger.info("Deleted request %c from overseerr", request_id)
-            return {"success": True, "message": f"Deleted request {request_id}"}
+        settings = settings_manager.settings.content.overseerr
+        headers = {"X-Api-Key": settings.api_key}
+        try:
+            response = delete(
+                settings.url + f"/api/v1/request/{mediaId}",
+                additional_headers=headers,
+            )
+            logger.info("Deleted request %s from overseerr", mediaId)
+            return response.is_ok
+        except Exception as e:
+            logger.error("Failed to delete request from overseerr ")
+            logger.error(e)
+            return False
+
+    @staticmethod
+    def mark_processing(mediaId: int) -> bool:
+        """Mark item as processing in overseerr"""
+        settings = settings_manager.settings.content.overseerr
+        headers = {"X-Api-Key": settings.api_key}
+        try:
+            response = post(
+                settings.url + f"/api/v1/media/{mediaId}/pending",
+                additional_headers=headers,
+                data={"is4k": False},
+            )
+            logger.info("Marked media %s as processing in overseerr", mediaId)
+            return response.is_ok
+        except Exception as e:
+            logger.error("Failed to mark media as processing in overseerr with id %s", mediaId)
+            logger.error(e)
+            return False
+
+    @staticmethod
+    def mark_partially_available(mediaId: int) -> bool:
+        """Mark item as partially available in overseerr"""
+        settings = settings_manager.settings.content.overseerr
+        headers = {"X-Api-Key": settings.api_key}
+        try:
+            response = post(
+                settings.url + f"/api/v1/media/{mediaId}/partial",
+                additional_headers=headers,
+                data={"is4k": False},
+            )
+            logger.info("Marked media %s as partially available in overseerr", mediaId)
+            return response.is_ok
+        except Exception as e:
+            logger.error("Failed to mark media as partially available in overseerr with id %s", mediaId)
+            logger.error(e)
+            return False
+
+    @staticmethod
+    def mark_completed(mediaId: int) -> bool:
+        """Mark item as completed in overseerr"""
+        settings = settings_manager.settings.content.overseerr
+        headers = {"X-Api-Key": settings.api_key}
+        try:
+            response = post(
+                settings.url + f"/api/v1/media/{mediaId}/available",
+                additional_headers=headers,
+                data={"is4k": False},
+            )
+            logger.info("Marked media %s as completed in overseerr", mediaId)
+            return response.is_ok
+        except Exception as e:
+            logger.error("Failed to mark media as completed in overseerr with id %s", mediaId)
+            logger.error(e)
+            return False
+
+
+# Statuses for Media Requests endpoint /api/v1/request:
+# item.status:
+# 1 = PENDING APPROVAL, 
+# 2 = APPROVED, 
+# 3 = DECLINED
+
+# Statuses for Media Info endpoint /api/v1/media:
+# item.media.status:
+# 1 = UNKNOWN, 
+# 2 = PENDING, 
+# 3 = PROCESSING, 
+# 4 = PARTIALLY_AVAILABLE, 
+# 5 = AVAILABLE

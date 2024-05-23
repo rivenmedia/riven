@@ -44,10 +44,6 @@ class TraktIndexer:
             return True
         settings = settings_manager.settings.indexer
         try:
-            # Need to handle this situation better
-            # Failed to parse date: 1st Jan 2019 with format: DD MMM YYYY
-            # Failed to match 'DD MMM YYYY' when parsing '1st Jan 2019'.
-            # Should we try to parse this date too if it fails?
             interval = timedelta(seconds=settings.update_interval)
             return datetime.now() - item.indexed_at > interval
         except Exception:
@@ -70,8 +66,8 @@ class TraktIndexer:
 def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
-        logger.debug("Unknown item type %s for %s not found in list of acceptable objects", item_type, data.title)
-        return None
+        logger.debug("Unknown item type %s for %s not found in list of acceptable items", item_type, data.title)
+        return
     formatted_aired_at = _get_formatted_date(data, item_type)
     item = {
         "title": getattr(data, "title", None),
@@ -125,7 +121,9 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
+        logger.error("Failed to fetch item from imdb_id: %s", imdb_id)
         return None
+
     media_type = response.data[0].type
     data = response.data[0]
     return _map_item_from_data(data.movie, media_type) if media_type == "movie" else \
@@ -139,5 +137,7 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
-    if response.data[0].hasattr("ids"):
+    if hasattr(response.data[0], "ids"):
         return response.data[0].ids.get("imdb", None)
+    logger.error("Failed to fetch imdb_id for tmdb_id: %s", tmdb_id)
+    return None

@@ -120,7 +120,14 @@ class MediaItemContainer:
                 if episode.item_id in self._episodes:
                     self._merge_items(self._episodes[episode.item_id], episode)
                 else:
-                    self._index_item(episode)
+                    if not self._episode_exists(existing_item, episode):
+                        self._index_item(episode)
+
+    def _episode_exists(self, season, episode):
+        for existing_episode in season.episodes:
+            if existing_episode.item_id == episode.item_id:
+                return True
+        return False
 
     def _index_item(self, item: MediaItem):
         """Index the item and its children in the appropriate dictionaries."""
@@ -177,6 +184,7 @@ class MediaItemContainer:
             self.lock.release_write()
 
     def get_incomplete_items(self) -> Dict[ItemId, MediaItem]:
+        """Get all items that are not in a completed state."""
         self.lock.acquire_read()
         try:
             return {

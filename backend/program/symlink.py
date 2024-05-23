@@ -135,11 +135,6 @@ class Symlinker:
         rclone_path = Path(self.rclone_path)
         found = False
 
-        # Wait for the file to be added to RD before creating the symlink
-        # Seems like we move through states too fast and the file is not yet available.
-        # TODO: Further testing to see if this is necessary.
-        time.sleep(2)
-
         for path in [item.folder, item.alternative_folder, item.file]:
             if path and os.path.exists(rclone_path / path / item.file):
                 item.set("folder", path)
@@ -158,14 +153,23 @@ class Symlinker:
                 rclone_path,
             )
 
-        item.set("symlinked_times", item.get("symlinked_times") + 1)
+        item.set("symlinked_times", item.symlinked_times + 1)
         yield item
 
     @staticmethod
     def should_submit(item):
-        if not item.symlinked_at:
-            return True
-        return item.symlinked_times < 3 
+        time.sleep(3)
+        # we need to check if the file exists on disk
+        if item.file and item.folder:
+            # the item has a file and folder set, but is it on disk?
+            rclone_path = Path(settings_manager.settings.symlink.rclone_path)
+            for path in [item.folder, item.alternative_folder, item.file]:
+                if path and os.path.exists(rclone_path / path / item.file):
+                    # the file exists on disk, we should symlink it
+                    return True
+        # the file does not exist on disk, we should not attempt to symlink it
+        logger.error("Item DOES NOT exist in rclone path, skipping: %s", item.log_string)
+        return False
 
     def _determine_file_name(self, item):
         """Determine the filename of the symlink."""
@@ -198,6 +202,7 @@ class Symlinker:
         if not os.path.exists(destination):
             if destination:
                 try:
+                    time.sleep(3)
                     os.symlink(source, destination)
                     logger.debug("Created symlink for %s", item.log_string)
                     item.symlinked = True
