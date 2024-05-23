@@ -45,9 +45,7 @@ class Debrid:
 
     def run(self, item):
         """Download movie from real-debrid.com"""
-        if isinstance(item, Show) or item is None:
-            if item is None:
-                logger.error("Item is None: %s", item)
+        if not item or not item.streams or isinstance(item, Show):
             return
         if not self.is_cached(item):
             return
@@ -83,7 +81,6 @@ class Debrid:
         request_id = self.add_magnet(item)
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
-        time.sleep(0.5)
         self.select_files(request_id, item)
         item.set("active_stream.id", request_id)
         logger.info("Downloaded %s", item.log_string)

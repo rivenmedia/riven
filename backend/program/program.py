@@ -34,16 +34,22 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         self.initialized = False
+        self.event_queue = Queue()
         logger.configure_logger(
             debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
 
     def initialize_services(self):
+        # Content services need to see whats in the container,
+        # so items can be skipped if we already know about it.
+        # This will cause a loop for items to be continuously processed if not skipped.
+        self.media_items = MediaItemContainer()
+
         self.requesting_services = {
-            Overseerr: Overseerr(),
-            PlexWatchlist: PlexWatchlist(),
-            Listrr: Listrr(),
-            Mdblist: Mdblist(),
+            Overseerr: Overseerr(self.media_items),
+            PlexWatchlist: PlexWatchlist(self.media_items),
+            Listrr: Listrr(self.media_items),
+            Mdblist: Mdblist(self.media_items),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
@@ -85,8 +91,6 @@ class Program(threading.Thread):
             time.sleep(1)
 
         self.initialized = True
-        self.event_queue = Queue()
-        self.media_items = MediaItemContainer()
         logger.info("Iceberg started!")
 
         if not self.startup_args.ignore_cache:
@@ -115,7 +119,7 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_functions = {self._retry_library: {"interval": 60 * 3}}
+        scheduled_functions = {self._retry_library: {"interval": 60 * 10}}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
@@ -186,6 +190,9 @@ class Program(threading.Thread):
 
             if updated_item:
                 self.media_items.upsert(updated_item)
+                if updated_item.state == States.Completed and not items_to_submit:
+                    logger.info(f"Item {updated_item.log_string} is now completed")
+                    continue
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:

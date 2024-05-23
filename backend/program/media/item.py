@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Self
 
-from utils.logger import logger
 from program.media.state import States
 from RTN.patterns import extract_episodes
+from utils.logger import logger
 
 
 @dataclass

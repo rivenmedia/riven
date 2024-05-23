@@ -1,8 +1,9 @@
 """Overseerr content module"""
 
-from datetime import datetime, timedelta
 from program.indexers.trakt import get_imdbid_from_tmdb
+from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
+from program.media.state import States
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping, post
@@ -11,8 +12,9 @@ from utils.request import delete, get, ping, post
 class Overseerr:
     """Content class for overseerr"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
         self.key = "overseerr"
+        self.media_items = media_items
         self.settings = settings_manager.settings.content.overseerr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
@@ -71,8 +73,12 @@ class Overseerr:
                 self.delete_request(item.id)
                 continue
 
-            if imdb_id:
-                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+            # Check if the item is already completed in the media container
+            existing_item = self.media_items.get_imdbid(imdb_id)
+            if existing_item:
+                continue
+
+            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

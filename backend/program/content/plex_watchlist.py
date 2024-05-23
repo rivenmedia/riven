@@ -2,6 +2,7 @@
 
 from typing import Generator
 
+from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from requests import HTTPError
@@ -12,13 +13,14 @@ from utils.request import get, ping
 class PlexWatchlist:
     """Class for managing Plex Watchlists"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
         self.key = "plex_watchlist"
         self.rss_enabled = False
         self.settings = settings_manager.settings.content.plex_watchlist
         self.initialized = self.validate()
         if not self.initialized:
             return
+        self.media_items = media_items
         self.token = settings_manager.settings.plex.token
         self.not_found_ids = []
         logger.info("Plex Watchlist initialized!")
@@ -96,6 +98,10 @@ class PlexWatchlist:
             if hasattr(item, "ratingKey") and item.ratingKey:
                 imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
                 if imdb_id:
+                    # Check if the item is already completed in the media container
+                    existing_item = self.media_items.get_imdbid(imdb_id)
+                    if existing_item:
+                        continue
                     yield imdb_id
 
     def _ratingkey_to_imdbid(self, ratingKey: str) -> str:

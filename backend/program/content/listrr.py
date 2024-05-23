@@ -3,6 +3,7 @@
 from typing import Generator
 
 from program.indexers.trakt import get_imdbid_from_tmdb
+from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from requests.exceptions import HTTPError
@@ -13,7 +14,7 @@ from utils.request import get, ping
 class Listrr:
     """Content class for Listrr"""
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
         self.key = "listrr"
         self.url = "https://listrr.pro/api"
         self.settings = settings_manager.settings.content.listrr
@@ -21,6 +22,7 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
+        self.media_items = media_items
         self.not_found_ids = []
         logger.info("Listrr initialized!")
 
@@ -65,7 +67,12 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
-            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+            if imdb_id:
+                # Check if the item is already completed in the media container
+                existing_item = self.media_items.get_imdbid(imdb_id)
+                if existing_item:
+                    continue
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
         return
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912

@@ -1,9 +1,8 @@
-import hashlib
 import os
 import shutil
 import tempfile
 import threading
-from typing import Dict, Generator
+from typing import Dict, Generator, Optional
 
 import dill
 from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
@@ -49,6 +48,7 @@ class MediaItemContainer:
         self._seasons = {}
         self._episodes = {}
         self._movies = {}
+        self._imdb_index = {}
         self.lock = ReadWriteLock()
 
     def __iter__(self) -> Generator[MediaItem, None, None]:
@@ -87,21 +87,34 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
+    def get_imdbid(self, imdb_id: str) -> Optional[MediaItem]:
+        self.lock.acquire_read()
+        try:
+            return self._imdb_index.get(imdb_id)
+        finally:
+            self.lock.release_read()
+
     def upsert(self, item: MediaItem) -> None:
         self.lock.acquire_write()
         try:
             if item.item_id in self._items:
                 existing_item = self._items[item.item_id]
+                # logger.debug(f"Upserting item {item.log_string}, existing item state: {existing_item.state}, new item state: {item.state}")
+                if existing_item.state == States.Completed and existing_item.title:
+                    # logger.debug(f"Item {existing_item.log_string} is already completed, skipping upsert.")
+                    return
                 self._merge_items(existing_item, item)
             else:
                 self._items[item.item_id] = item
                 self._index_item(item)
+                # logger.debug(f"Inserted new item {item.log_string} with state {item.state}")
         finally:
             self.lock.release_write()
 
     def _merge_items(self, existing_item, new_item):
         """Merge new item data into existing item without losing existing state."""
-        if existing_item.state == States.Completed:
+        if existing_item.state == States.Completed and new_item.state != States.Completed:
+            logger.debug(f"Item {existing_item.log_string} is already completed, skipping merge")
             return
 
         for attr in vars(new_item):
@@ -123,6 +136,9 @@ class MediaItemContainer:
                     if not self._episode_exists(existing_item, episode):
                         self._index_item(episode)
 
+        # Update the state after merging
+        new_state = existing_item._determine_state()
+
     def _episode_exists(self, season, episode):
         for existing_episode in season.episodes:
             if existing_episode.item_id == episode.item_id:
@@ -131,6 +147,8 @@ class MediaItemContainer:
 
     def _index_item(self, item: MediaItem):
         """Index the item and its children in the appropriate dictionaries."""
+        if item.imdb_id:
+            self._imdb_index[item.imdb_id] = item
         if isinstance(item, Show):
             self._shows[item.item_id] = item
             for season in item.seasons:
@@ -163,6 +181,8 @@ class MediaItemContainer:
         try:
             if item.item_id in self._items:
                 del self._items[item.item_id]
+                if item.imdb_id in self._imdb_index:
+                    del self._imdb_index[item.imdb_id]
                 if isinstance(item, Show):
                     del self._shows[item.item_id]
                     for season in item.seasons:
@@ -221,6 +241,7 @@ class MediaItemContainer:
             except OSError as remove_error:
                 logger.error("Failed to remove temporary file: %s", remove_error)
 
+
     def load(self, filename):
         try:
             with open(filename, "rb") as file:
@@ -241,5 +262,6 @@ class MediaItemContainer:
             self._seasons = from_disk._seasons
             self._episodes = from_disk._episodes
             self._movies = from_disk._movies
+            self._imdb_index = from_disk._imdb_index
 
         logger.info("Loaded %s items from %s", len(self._items), filename)

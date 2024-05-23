@@ -2,8 +2,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 import time
+from typing import List
 
-from program.media.item import Episode, Movie
+from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -132,16 +133,7 @@ class Symlinker:
             logger.error("Item %s does not have folder or file attributes set", item.log_string)
             return
 
-        rclone_path = Path(self.rclone_path)
-        found = False
-
-        for path in [item.folder, item.alternative_folder, item.file]:
-            if path and os.path.exists(rclone_path / path / item.file):
-                item.set("folder", path)
-                found = True
-                break
-
-        if found:
+        if self.check_file_existence(item):
             self._symlink(item)
             item.set("symlinked", True)
             item.set("symlinked_at", datetime.now())
@@ -150,26 +142,40 @@ class Symlinker:
                 "Could not find %s in subdirectories of %s to create symlink,"
                 " maybe it failed to download?",
                 item.log_string,
-                rclone_path,
+                self.rclone_path,
             )
 
         item.set("symlinked_times", item.symlinked_times + 1)
         yield item
 
     @staticmethod
-    def should_submit(item):
-        time.sleep(10)
-        # we need to check if the file exists on disk
-        if item.file and item.folder:
-            # the item has a file and folder set, but is it on disk?
-            rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-            for path in [item.folder, item.alternative_folder, item.file]:
-                if path and os.path.exists(rclone_path / path / item.file):
-                    # the file exists on disk, we should symlink it
-                    return True
-            if item.symlinked_times == 3:
-                # we tried 3 times to symlink the file
-                return False
+    def should_submit(item) -> bool:
+        """Check if the item should be submitted for symlink creation."""
+        logger.debug("Sleeping 5 seconds before checking for symlink creation: %s", item.log_string)
+        time.sleep(5)
+
+        # Check if the file exists on disk
+        if Symlinker.check_file_existence(item):
+            # The file exists on disk, we should symlink it
+            return True
+
+        # If we've tried 3 times to symlink the file, give up
+        if item.symlinked_times >= 3:
+            logger.warning(f"Item {item.log_string} has been attempted {item.symlinked_times} times for symlink, skipping.")
+            return False
+
+        # Increment the symlink attempt counter
+        item.set("symlinked_times", item.symlinked_times + 1)
+        return True
+
+    @staticmethod
+    def check_file_existence(item) -> bool:
+        """Check if the file exists in the rclone path."""
+        rclone_path = Path(settings_manager.settings.symlink.rclone_path)
+        for path in [item.folder, item.alternative_folder, item.file]:
+            if path and os.path.exists(rclone_path / path / item.file):
+                item.set("folder", path)
+                return True
         return False
 
     def _determine_file_name(self, item):
@@ -203,7 +209,6 @@ class Symlinker:
         if not os.path.exists(destination):
             if destination:
                 try:
-                    time.sleep(3)
                     os.symlink(source, destination)
                     logger.info("Created symlink for %s", item.log_string)
                     item.symlinked = True

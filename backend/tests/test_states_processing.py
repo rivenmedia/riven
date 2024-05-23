@@ -1,11 +1,11 @@
 import pytest
-from program.program import Program
-from program.media.item import MediaItem, Movie, Show, Season, Episode
-from program.media.state import States
-from program.state_transition import process_event
-from program.scrapers import Scraping
 from program.indexers.trakt import TraktIndexer
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
+from program.program import Program
 from program.realdebrid import Debrid
+from program.scrapers import Scraping
+from program.state_transition import process_event
 from program.symlink import Symlinker
 from program.updaters.plex import PlexUpdater
 

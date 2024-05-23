@@ -89,20 +89,20 @@ class Annatar:
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug(
+            logger.info(
                 "Found %s streams out of %s for %s",
                 len(data),
                 stream_count,
                 item.log_string,
             )
         elif stream_count > 0:
-            logger.debug(
+            logger.warning(
                 "Could not find good streams for %s out of %s",
                 item.log_string,
                 stream_count,
             )
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.warning("No streams found for %s", item.log_string)
         return item
 
     def api_scrape(self, item) -> tuple[Dict, int]:
