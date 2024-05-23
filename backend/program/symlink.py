@@ -158,7 +158,7 @@ class Symlinker:
 
     @staticmethod
     def should_submit(item):
-        time.sleep(3)
+        time.sleep(10)
         # we need to check if the file exists on disk
         if item.file and item.folder:
             # the item has a file and folder set, but is it on disk?
@@ -167,8 +167,9 @@ class Symlinker:
                 if path and os.path.exists(rclone_path / path / item.file):
                     # the file exists on disk, we should symlink it
                     return True
-        # the file does not exist on disk, we should not attempt to symlink it
-        logger.error("Item DOES NOT exist in rclone path, skipping: %s", item.log_string)
+            if item.symlinked_times == 3:
+                # we tried 3 times to symlink the file
+                return False
         return False
 
     def _determine_file_name(self, item):
@@ -204,7 +205,7 @@ class Symlinker:
                 try:
                     time.sleep(3)
                     os.symlink(source, destination)
-                    logger.debug("Created symlink for %s", item.log_string)
+                    logger.info("Created symlink for %s", item.log_string)
                     item.symlinked = True
                     return True
                 except OSError as e:

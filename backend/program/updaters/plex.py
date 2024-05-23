@@ -67,7 +67,7 @@ class PlexUpdater:
                 continue
 
             if self._update_section(section, item):
-                logger.debug(
+                logger.info(
                     "Updated section %s for %s", section.title, item.log_string
                 )
         yield item

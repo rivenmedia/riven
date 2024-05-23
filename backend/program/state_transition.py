@@ -1,4 +1,4 @@
-import time
+from utils.logger import logger
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
@@ -93,7 +93,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = []
         for item in proposed_submissions:
             if not Symlinker.should_submit(item):
-                pass
+                logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
             else:
                 items_to_submit.append(item)
 

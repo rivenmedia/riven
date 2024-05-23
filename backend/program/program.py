@@ -33,8 +33,6 @@ class Program(threading.Thread):
         super().__init__(name="Iceberg")
         self.running = False
         self.startup_args = args
-        self.event_queue = Queue()
-        self.media_items = MediaItemContainer()
         logger.configure_logger(
             debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
@@ -85,6 +83,8 @@ class Program(threading.Thread):
         while not self.validate():
             time.sleep(1)
 
+        self.event_queue = Queue()
+        self.media_items = MediaItemContainer()
         logger.info("Iceberg started!")
 
         if not self.startup_args.ignore_cache:
@@ -107,13 +107,13 @@ class Program(threading.Thread):
         logger.info("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        incomplete_items = self.media_items.get_incomplete_items()
-        for _, item in incomplete_items.items():
+        """Retry any items that are in an incomplete state."""
+        for _, item in self.media_items.get_incomplete_items().items():
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_functions = {self._retry_library: {"interval": 60 * 5}}
+        scheduled_functions = {self._retry_library: {"interval": 60 * 3}}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
@@ -160,10 +160,6 @@ class Program(threading.Thread):
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        if item and item.state == States.Completed:
-            logger.debug(f"Skipping service {service.__name__} for {item.log_string} as it is already completed")
-            return
-
         if item:
             logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
