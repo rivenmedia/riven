@@ -50,7 +50,7 @@ class SymlinkLibrary:
             if files
         ]
         for path, filename in movies:
-            imdb_id = regex.search("(tt\d+)", filename)
+            imdb_id = regex.search(r"(tt\d+)", filename)
             if not imdb_id:
                 logger.error("Can't extract movie imdb_id at path %s", path / filename)
                 continue

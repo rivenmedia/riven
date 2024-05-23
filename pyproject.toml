@@ -23,6 +23,7 @@ deepdiff = "^6.7.1"
 regex = "^2023.12.25"
 coverage = "^7.4.3"
 rank-torrent-name = "^0.2.13"
+tzlocal = "^5.2"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

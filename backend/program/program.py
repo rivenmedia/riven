@@ -33,6 +33,7 @@ class Program(threading.Thread):
         super().__init__(name="Iceberg")
         self.running = False
         self.startup_args = args
+        self.initialized = False
         logger.configure_logger(
             debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
@@ -83,6 +84,7 @@ class Program(threading.Thread):
         while not self.validate():
             time.sleep(1)
 
+        self.initialized = True
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
         logger.info("Iceberg started!")
