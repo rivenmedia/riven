@@ -39,28 +39,25 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        
-        items_to_submit = []
-        if Scraping.should_submit(item) and Scraping.is_released(item):
+        if Scraping.can_we_scrape(item) and isinstance(item, (Show, Season)):
             if isinstance(item, Show):
                 items_to_submit = [s for s in item.seasons if s.state != States.Completed]
             elif isinstance(item, Season):
-                if item.scraped_times:
+                if item.scraped_times < 2:
                     items_to_submit = [item]
                 else:
                     items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-            else:
-                items_to_submit = [item]
+        elif Scraping.can_we_scrape(item):
+            items_to_submit = [item]
+        else:
+            items_to_submit = []
 
     elif item.state == States.PartiallyCompleted:
-        next_service = None
+        next_service = Scraping
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons if s.state != States.Completed]
         elif isinstance(item, Season):
             items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-        
-        if items_to_submit and Scraping.should_submit(item) and Scraping.is_released(item):
-            next_service = Scraping
 
     elif item.state == States.Scraped:
         next_service = Debrid

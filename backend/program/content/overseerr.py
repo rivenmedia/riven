@@ -47,10 +47,14 @@ class Overseerr:
 
     def run(self):
         """Fetch new media from `Overseerr`"""
-        response = get(
-            self.settings.url + f"/api/v1/request?take={10000}",
-            additional_headers=self.headers,
-        )
+        try:
+            response = get(
+                self.settings.url + f"/api/v1/request?take={10000}",
+                additional_headers=self.headers,
+            )
+        except ConnectionError as e:
+            logger.error("Failed to fetch requests from overseerr: %s", str(e))
+            return
         if not response.is_ok or response.data.pageInfo.results == 0:
             return
 

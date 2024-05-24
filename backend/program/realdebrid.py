@@ -55,12 +55,6 @@ class Debrid:
         self._set_file_paths(item)
         yield item
 
-
-#   File "/home/spoked/projects/iceberg/backend/program/realdebrid.py", line 62, in _is_downloaded
-#     if torrent and torrent.hash == item.active_stream.get("hash"):
-#                                    ^^^^^^^^^^^^^^^^^^^^^^
-# AttributeError: 'NoneType' object has no attribute 'get'
-
     def _is_downloaded(self, item: MediaItem) -> bool:
         """Check if item is already downloaded"""
         torrents = self.get_torrents()
@@ -85,8 +79,8 @@ class Debrid:
 
     def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
-        if not hasattr(item, "active_stream") or not isinstance(item.active_stream, dict) or not hasattr(item.active_stream, "id"):
-            return
+        # if not hasattr(item, "active_stream") or not isinstance(item.active_stream, dict) or not hasattr(item.active_stream, "id"):
+        #     return
         request_id = self.add_magnet(item)
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
@@ -166,7 +160,7 @@ class Debrid:
                             )
                             return True
         item.set("streams", {})
-        logger.info("No cached streams found for %s", item.log_string)
+        logger.debug("No cached streams found for %s", item.log_string)
         return False
 
     def _set_file_paths(self, item):

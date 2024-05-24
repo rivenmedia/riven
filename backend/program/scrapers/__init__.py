@@ -28,7 +28,7 @@ class Scraping:
         return validated
 
     def run(self, item: MediaItem):
-        if not self._can_we_scrape(item):
+        if not self.can_we_scrape(item):
             return
         for service in self.services.values():
             if service.initialized:
@@ -40,11 +40,14 @@ class Scraping:
         item.set("scraped_times", item.scraped_times + 1)
         yield item
 
-    def _can_we_scrape(self, item: MediaItem) -> bool:
+    @classmethod
+    def can_we_scrape(self, item: MediaItem) -> bool:
+        """Check if we can scrape an item."""
         return self.is_released(item) and self.should_submit(item)
 
     @staticmethod
     def is_released(item: MediaItem) -> bool:
+        """Check if an item has been released."""
         released = bool(item.aired_at is not None and item.aired_at < datetime.now())
         if not released:
             logger.debug("Item %s has not been released yet.", item.log_string)
@@ -52,6 +55,7 @@ class Scraping:
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
+        """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
         scrape_time = 5  # 5 seconds by default
 
