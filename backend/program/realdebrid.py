@@ -29,7 +29,6 @@ class Debrid:
             logger.error("Realdebrid settings incorrect or not premium!")
             return
         logger.info("Real Debrid initialized!")
-        self.processed_torrents = set()
         self.initialized = True
 
     def _validate(self):
@@ -49,8 +48,6 @@ class Debrid:
         if not item or not item.streams or isinstance(item, Show):
             return
         if not self.is_cached(item):
-            # Re-submit the item for scraping if no cached streams are found
-            logger.info("Re-submitting %s for scraping due to no cached streams", item.log_string)
             yield item
             return
         if not self._is_downloaded(item):
@@ -58,11 +55,17 @@ class Debrid:
         self._set_file_paths(item)
         yield item
 
+
+#   File "/home/spoked/projects/iceberg/backend/program/realdebrid.py", line 62, in _is_downloaded
+#     if torrent and torrent.hash == item.active_stream.get("hash"):
+#                                    ^^^^^^^^^^^^^^^^^^^^^^
+# AttributeError: 'NoneType' object has no attribute 'get'
+
     def _is_downloaded(self, item: MediaItem) -> bool:
         """Check if item is already downloaded"""
         torrents = self.get_torrents()
         for torrent in torrents:
-            if torrent.hash == item.active_stream.get("hash"):
+            if isinstance(item.active_stream, dict) and torrent.hash == item.active_stream.get("hash"):
                 info = self.get_torrent_info(torrent.id)
                 if isinstance(item, Episode):  # noqa: SIM102 - linter is wrong here
                     if not any(
@@ -82,6 +85,8 @@ class Debrid:
 
     def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
+        if not hasattr(item, "active_stream") or not isinstance(item.active_stream, dict) or not hasattr(item.active_stream, "id"):
+            return
         request_id = self.add_magnet(item)
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
@@ -161,6 +166,7 @@ class Debrid:
                             )
                             return True
         item.set("streams", {})
+        logger.info("No cached streams found for %s", item.log_string)
         return False
 
     def _set_file_paths(self, item):
@@ -210,7 +216,7 @@ class Debrid:
 
     def add_magnet(self, item) -> str:
         """Add magnet link to real-debrid.com"""
-        if not item.active_stream.get("hash"):
+        if not isinstance(item.active_stream, dict) or not item.active_stream.get("hash"):
             return None
         response = post(
             f"{RD_BASE_URL}/torrents/addMagnet",

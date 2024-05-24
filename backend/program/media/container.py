@@ -107,29 +107,23 @@ class MediaItemContainer:
         try:
             if item.item_id in self._items:
                 existing_item = self._items[item.item_id]
-                # logger.debug(f"Upserting item {item.log_string}, existing item state: {existing_item.state}, new item state: {item.state}")
                 if existing_item.state == States.Completed and existing_item.title:
-                    # logger.debug(f"Item {existing_item.log_string} is already completed, skipping upsert.")
                     return
                 self._merge_items(existing_item, item)
             else:
                 self._items[item.item_id] = item
                 self._index_item(item)
-                # logger.debug(f"Inserted new item {item.log_string} with state {item.state}")
         finally:
             self.lock.release_write()
 
     def _merge_items(self, existing_item, new_item):
         """Merge new item data into existing item without losing existing state."""
         if existing_item.state == States.Completed and new_item.state != States.Completed:
-            logger.debug(f"Item {existing_item.log_string} is already completed, skipping merge")
             return
-
         for attr in vars(new_item):
             new_value = getattr(new_item, attr)
             if new_value is not None:
                 setattr(existing_item, attr, new_value)
-
         if isinstance(existing_item, Show):
             for season in new_item.seasons:
                 if season.item_id in self._seasons:
