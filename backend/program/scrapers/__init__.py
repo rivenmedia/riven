@@ -45,6 +45,9 @@ class Scraping:
 
     @staticmethod
     def is_released(item: MediaItem) -> bool:
+        if item and not item.aired_at:
+            logger.debug("Item %s has no aired_at date.", item.log_string)
+            return False
         released = bool(item.aired_at is not None and item.aired_at < datetime.now())
         if not released:
             logger.debug("Item %s has not been released yet.", item.log_string)
