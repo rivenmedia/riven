@@ -71,6 +71,14 @@ class MediaItem:
         self.overseerr_id = item.get("overseerr_id", None)
 
     @property
+    def is_released(self) -> bool:
+        """Check if an item has been released."""
+        released = bool(self.aired_at is not None and self.aired_at < datetime.now())
+        if not released:
+            logger.debug("Item %s has not been released yet.", self.log_string)
+        return released
+
+    @property
     def state(self):
         return self._determine_state()
 

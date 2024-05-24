@@ -82,14 +82,8 @@ class Torrentio:
                 stream_count,
                 item.log_string,
             )
-        elif stream_count > 0:
-            logger.debug(
-                "No good streams out of %s for %s",
-                stream_count,
-                item.log_string,
-            )
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.debug("No good streams found for %s", item.log_string)
         return item
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:

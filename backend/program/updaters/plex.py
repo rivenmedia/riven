@@ -63,8 +63,9 @@ class PlexUpdater:
 
     def run(self, item):
         """Update Plex library section for a single item"""
-        if not item or not hasattr(item, "update_folder") or item.update_folder is None:
-            return
+        if not item or not item.update_folder:
+            logger.debug("Item %s is missing update folder: %s", item.log_string, item.update_folder)
+            yield item
         for section, path in self.sections.items():
             if path in item.update_folder:
                 if self._update_section(section, item):

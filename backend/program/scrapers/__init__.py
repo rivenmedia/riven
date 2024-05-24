@@ -43,14 +43,14 @@ class Scraping:
     @classmethod
     def can_we_scrape(self, item: MediaItem) -> bool:
         """Check if we can scrape an item."""
-        return self.is_released(item) and self.should_submit(item)
+        return item.is_released and self.should_submit(item)
 
     @staticmethod
     def is_released(item: MediaItem) -> bool:
         """Check if an item has been released."""
         released = bool(item.aired_at is not None and item.aired_at < datetime.now())
         if not released:
-            logger.debug("Item %s has not been released yet.", item.log_string)
+            logger.debug("Item %s has not been released yet, not scraping", item.log_string)
         return released
 
     @staticmethod

@@ -1,4 +1,5 @@
 """ Jackett scraper module """
+import traceback
 from typing import Dict
 
 from program.media.item import MediaItem, Show
@@ -65,7 +66,7 @@ class Jackett:
         except RequestException as e:
             logger.debug("Jackett request exception: %s", e)
         except Exception as e:
-            logger.error("Jackett failed to scrape item: %s", e)
+            logger.error("Jackett failed to scrape item with error: %s", e)
         return item
 
     def _scrape_item(self, item):
@@ -80,7 +81,7 @@ class Jackett:
                 item.log_string,
             )
         else:
-            logger.debug("Could not find streams for %s", item.log_string)
+            logger.debug("No streams found for %s", item.log_string)
         return item
 
     def api_scrape(self, item) -> tuple[Dict, int]:  # noqa: C901
@@ -122,8 +123,7 @@ class Jackett:
                     if not infohash_attr:
                         continue
                     infohash = infohash_attr.get("@value")
-                except (TypeError, ValueError) as e:
-                    logger.error("Failed to get infohash from stream: %s", e)
+                except (TypeError, ValueError, AttributeError):
                     continue
                 try:
                     torrent: Torrent = self.rtn.rank(
