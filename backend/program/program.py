@@ -166,7 +166,7 @@ class Program(threading.Thread):
             logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        if service:
+        if item and service:
             logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
