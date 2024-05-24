@@ -66,6 +66,7 @@ class PlexUpdater:
         if not item or not item.update_folder:
             logger.debug("Item %s is missing update folder: %s", item.log_string, item.update_folder)
             yield item
+        logger.debug("Updating Plex library for %s at %s", item.log_string, item.update_folder)
         for section, path in self.sections.items():
             if path in item.update_folder:
                 if self._update_section(section, item):
