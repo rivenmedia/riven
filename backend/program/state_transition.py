@@ -9,20 +9,13 @@ from program.types import ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
 from utils.logger import logger
 
-
-def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore
+def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:  # type: ignore
     """Process an event and return the updated item, next service and items to submit."""
 
     next_service: Service = None
     updated_item = item
     no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
-    
-    
-    # we always want to get metadata for content items before we compare to the container.
-    # we can't just check if the show exists we have to check if it's complete or if there are new episodes.
 
-    # we always want to get metadata for content items before we compare to the container.
-    # we can't just check if the show exists we have to check if it's complete or if there are new episodes.
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
     if emitted_by in source_services or item.state == States.Unknown:
         next_service = TraktIndexer
@@ -33,11 +26,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             should_submit = TraktIndexer.should_submit(existing_item)
             if not should_submit:
                 return no_further_processing
-        # logger.debug(f"Submitting item {item.log_string} to TraktIndexer")
         return None, next_service, [item]
 
     elif emitted_by == TraktIndexer or item.state == States.Indexed:
-        # logger.debug(f"Item {item.log_string} is now Indexed")
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:
@@ -48,17 +39,20 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
+        
         items_to_submit = []
-        if item.scraped_times and isinstance(item, (Show, Season)):
+        if Scraping.should_submit(item) and Scraping.is_released(item):
             if isinstance(item, Show):
                 items_to_submit = [s for s in item.seasons if s.state != States.Completed]
             elif isinstance(item, Season):
-                items_to_submit = [e for e in item.episodes if e.state != States.Completed]
-        elif Scraping.should_submit(item) and Scraping.is_released(item):
-            items_to_submit = [item]
+                if item.scraped_times:
+                    items_to_submit = [item]
+                else:
+                    items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+            else:
+                items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
-        # logger.debug(f"Item {item.log_string} is Partially Completed")
         next_service = Scraping
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons if s.state != States.Completed]
@@ -66,12 +60,10 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [e for e in item.episodes if e.state != States.Completed]
 
     elif item.state == States.Scraped:
-        # logger.debug(f"Item {item.log_string} is Scraped")
         next_service = Debrid
         items_to_submit = [item]
 
     elif item.state == States.Downloaded:
-        # logger.debug(f"Item {item.log_string} is Downloaded")
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Season):
@@ -79,16 +71,15 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         elif isinstance(item, (Movie, Episode)):
             proposed_submissions = [item]
         items_to_submit = []
-        for item in proposed_submissions:
-            if Symlinker.check_file_existence(item):
-                items_to_submit.append(item)
-            elif not Symlinker.should_submit(item):
-                logger.error("Item %s rejected by Symlinker, skipping", item.log_string)
+        for proposed_item in proposed_submissions:
+            if Symlinker.check_file_existence(proposed_item):
+                items_to_submit.append(proposed_item)
+            elif not Symlinker.should_submit(proposed_item):
+                logger.error("Item %s rejected by Symlinker, skipping", proposed_item.log_string)
             else:
-                items_to_submit.append(item)
+                items_to_submit.append(proposed_item)
 
     elif item.state == States.Symlinked:
-        # logger.debug(f"Item {item.log_string} is Symlinked")
         next_service = PlexUpdater
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons]
@@ -98,7 +89,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [item]
 
     elif item.state == States.Completed:
-        # logger.debug(f"Item {item.log_string} is Completed")
         return no_further_processing
 
     return updated_item, next_service, items_to_submit

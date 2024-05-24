@@ -188,11 +188,11 @@ class Program(threading.Thread):
                 existing_item, event.emitted_by, event.item
             )
 
+            if not next_service and isinstance(existing_item, (Movie, Show)) and existing_item.state == States.Completed:
+                logger.info(f"Item {existing_item.log_string} has been completed")
+
             if updated_item:
                 self.media_items.upsert(updated_item)
-                if updated_item.state == States.Completed and not items_to_submit:
-                    logger.info(f"Item {updated_item.log_string} is now completed")
-                    continue
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:

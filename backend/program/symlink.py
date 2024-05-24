@@ -129,8 +129,8 @@ class Symlinker:
 
     def run(self, item):
         """Check if the media item exists and create a symlink if it does"""
-        if not item.folder or not item.file:
-            logger.error("Item %s does not have folder or file attributes set", item.log_string)
+        if not item or not item.folder or not item.file:
+            logger.error("Item %s does not have folder or file attributes set, or no item found.", item.log_string)
             return
 
         if self.check_file_existence(item):
@@ -151,8 +151,8 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        logger.debug("Sleeping 5 seconds before checking for symlink creation: %s", item.log_string)
-        time.sleep(5)
+        logger.debug("Sleeping 10 seconds before checking for symlink creation: %s", item.log_string)
+        time.sleep(10)
 
         # Check if the file exists on disk
         if Symlinker.check_file_existence(item):

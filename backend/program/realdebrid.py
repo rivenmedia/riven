@@ -2,8 +2,9 @@
 
 import time
 from pathlib import Path
+from typing import Generator, List
 
-from program.media.item import Episode, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.parser import episodes_from_season
@@ -43,24 +44,27 @@ class Debrid:
         except ConnectTimeout:
             return False
 
-    def run(self, item):
-        """Download movie from real-debrid.com"""
+    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+        """Download media item from real-debrid.com"""
         if not item or not item.streams or isinstance(item, Show):
             return
         if not self.is_cached(item):
+            # Re-submit the item for scraping if no cached streams are found
+            logger.info("Re-submitting %s for scraping due to no cached streams", item.log_string)
+            yield item
             return
         if not self._is_downloaded(item):
             self._download_item(item)
         self._set_file_paths(item)
         yield item
 
-    def _is_downloaded(self, item):
+    def _is_downloaded(self, item: MediaItem) -> bool:
         """Check if item is already downloaded"""
         torrents = self.get_torrents()
         for torrent in torrents:
             if torrent.hash == item.active_stream.get("hash"):
                 info = self.get_torrent_info(torrent.id)
-                if item.type == "episode": # noqa: SIM102 - linter is wrong here
+                if isinstance(item, Episode):  # noqa: SIM102 - linter is wrong here
                     if not any(
                         file
                         for file in info.files
@@ -72,11 +76,11 @@ class Debrid:
 
                 item.set("active_stream.id", torrent.id)
                 self.set_active_files(item)
-                logger.debug("Torrent for %s already downloaded", item.log_string)
+                logger.debug("Torrent for %s already downloaded, using downloaded files", item.log_string)
                 return True
         return False
 
-    def _download_item(self, item):
+    def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
         request_id = self.add_magnet(item)
         item.set("active_stream.id", request_id)
@@ -85,13 +89,13 @@ class Debrid:
         item.set("active_stream.id", request_id)
         logger.info("Downloaded %s", item.log_string)
 
-    def set_active_files(self, item):
+    def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
         info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["alternative_name"] = info.original_filename
-        item.active_stream["name"] = info.filename
+        item.set("active_stream.alternative_name", info.original_filename)
+        item.set("active_stream.name", info.filename)
 
-    def is_cached(self, item):  # noqa: C901
+    def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
         if len(item.streams) == 0:
             return False
@@ -156,7 +160,9 @@ class Debrid:
                                 },
                             )
                             return True
-        logger.warning("No cached streams found for item: %s", item.log_string)
+
+        logger.debug("No cached streams found for item: %s", item.log_string)
+        item.set("streams", {})
         return False
 
     def _set_file_paths(self, item):
@@ -173,7 +179,7 @@ class Debrid:
     def _handle_movie_paths(self, item):
         """Set file paths for movie from real-debrid.com"""
         item.set("folder", item.active_stream.get("name"))
-        item.set("alternative_folder", item.active_stream.get("alternative_name"))
+        item.set("alternative_folder", item.active_stream.get("alternative_name", None))
         item.set(
             "file",
             next(file for file in item.active_stream.get("files").values())["filename"],
@@ -221,8 +227,8 @@ class Debrid:
             return response.data.id
         return None
 
-    def get_torrents(self) -> str:
-        """Add magnet link to real-debrid.com"""
+    def get_torrents(self) -> List:
+        """Get torrents from real-debrid.com"""
         response = get(
             f"{RD_BASE_URL}/torrents/",
             data={"offset": 0, "limit": 2500},
@@ -230,7 +236,7 @@ class Debrid:
         )
         if response.is_ok:
             return response.data
-        return None
+        return []
 
     def select_files(self, request_id, item) -> bool:
         """Select files from real-debrid.com"""

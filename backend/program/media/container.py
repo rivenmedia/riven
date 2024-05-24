@@ -136,9 +136,6 @@ class MediaItemContainer:
                     if not self._episode_exists(existing_item, episode):
                         self._index_item(episode)
 
-        # Update the state after merging
-        new_state = existing_item._determine_state()
-
     def _episode_exists(self, season, episode):
         for existing_episode in season.episodes:
             if existing_episode.item_id == episode.item_id:
