@@ -3,7 +3,7 @@ import os
 
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.server import PlexServer
-from program.media.item import Episode
+from program.media.item import Episode, Movie
 from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
@@ -66,27 +66,29 @@ class PlexUpdater:
         if not item or not item.update_folder:
             logger.debug("Item %s is missing update folder: %s", item.log_string, item.update_folder)
             yield item
-        logger.debug("Updating Plex library for %s at %s", item.log_string, item.update_folder)
-        for section, path in self.sections.items():
-            if path in item.update_folder:
-                if self._update_section(section, item):
-                    logger.info("Updated section %s for %s", section.title, item.log_string)
-                else:
-                    logger.debug("Failed to update section %s for %s", section.title, item.log_string)
+        item_type = "show" if isinstance(item, Episode) else "movie"
+        for section, paths in self.sections.items():
+            if section.type != item_type:
+                continue
+            for path in paths:
+                if path in item.update_folder:
+                    if self._update_section(section, item):
+                        logger.info("Updated section %s for %s", section.title, item.log_string)
         yield item
 
-    def _update_section(self, section, item):
+    def _update_section(self, section, item) :
         """Update the Plex section for the given item"""
         if item.symlinked and item.get("update_folder") != "updated":
             update_folder = item.update_folder
             section.update(str(update_folder))
             item.set("update_folder", "updated")
             return True
+        logger.error("Failed to update section %s for %s", section.title, item.log_string)
         return False
 
     def map_sections_with_paths(self):
         """Map Plex sections with their paths"""
-        sections = [section for section in self.plex.library.sections()]
-        paths_for_each_section = [section.locations[i] for section in sections for i in range(len(section.locations))]
-        mapped_sections = list(zip(sections, paths_for_each_section))
-        return {section: path for section, path in mapped_sections}
+        # Skip sections without locations and non-movie/show sections
+        sections = [section for section in self.plex.library.sections() if section.type in ["show", "movie"] and section.locations]
+        # Map sections with their locations with the section obj as key and the location strings as values
+        return {section: section.locations for section in sections}
