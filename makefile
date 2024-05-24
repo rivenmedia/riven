@@ -68,6 +68,9 @@ lint:
 	@poetry run ruff check backend
 	@poetry run isort --check-only backend
 
+sort:
+	@poetry run isort backend
+
 test:
 	@poetry run pytest backend
 

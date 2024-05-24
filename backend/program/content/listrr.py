@@ -14,7 +14,7 @@ from utils.request import get, ping
 class Listrr:
     """Content class for Listrr"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "listrr"
         self.url = "https://listrr.pro/api"
         self.settings = settings_manager.settings.content.listrr
@@ -22,8 +22,8 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
         self.not_found_ids = []
+        self.recurring_items = set()
         logger.info("Listrr initialized!")
 
     def validate(self) -> bool:
@@ -67,13 +67,9 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
-            if imdb_id:
-                # Check if the item is already completed in the media container
-                existing_item = self.media_items.get_imdbid(imdb_id)
-                if existing_item:
-                    continue
+            if imdb_id not in self.recurring_items:
+                self.recurring_items.add(imdb_id)
                 yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
-        return
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""

@@ -12,14 +12,14 @@ from utils.request import delete, get, ping, post
 class Overseerr:
     """Content class for overseerr"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "overseerr"
-        self.media_items = media_items
         self.settings = settings_manager.settings.content.overseerr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
         if not self.initialized:
             return
+        self.recurring_items = set()
         logger.info("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -67,17 +67,10 @@ class Overseerr:
             else:
                 imdb_id = item.media.imdbId
 
-            if not imdb_id:
-                logger.debug("Imdb id not found for tmdb-%s, deleting request on Overseerr", item.media.tmdbId or "N/A")
-                # Delete request if imdb_id is not found
-                self.delete_request(item.id)
+            if not imdb_id or imdb_id in self.recurring_items:
                 continue
 
-            # Check if the item is already completed in the media container
-            existing_item = self.media_items.get_imdbid(imdb_id)
-            if existing_item:
-                continue
-
+            self.recurring_items.add(imdb_id)
             yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
 
     def get_imdb_id(self, data) -> str:

@@ -72,16 +72,16 @@ class Annatar:
             self.minute_limiter.limit_hit()
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar connection timeout for item: %s", item.log_string)
+            logger.exception("Annatar connection timeout for item: %s", item.log_string)
         except ReadTimeout:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar read timeout for item: %s", item.log_string)
+            logger.exception("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar request exception: %s", e)
+            logger.exception("Annatar request exception: %s", e)
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar exception thrown: %s", e)
+            logger.exception("Annatar exception thrown: %s", e)
         return item
 
     def _scrape_item(self, item):
@@ -96,13 +96,13 @@ class Annatar:
                 item.log_string,
             )
         elif stream_count > 0:
-            logger.warning(
+            logger.debug(
                 "Could not find good streams for %s out of %s",
                 item.log_string,
                 stream_count,
             )
         else:
-            logger.warning("No streams found for %s", item.log_string)
+            logger.debug("No streams found for %s", item.log_string)
         return item
 
     def api_scrape(self, item) -> tuple[Dict, int]:

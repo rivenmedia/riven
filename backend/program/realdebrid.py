@@ -160,8 +160,6 @@ class Debrid:
                                 },
                             )
                             return True
-
-        logger.debug("No cached streams found for item: %s", item.log_string)
         item.set("streams", {})
         return False
 

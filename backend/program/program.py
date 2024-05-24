@@ -35,6 +35,7 @@ class Program(threading.Thread):
         self.startup_args = args
         self.initialized = False
         self.event_queue = Queue()
+        self.media_items = MediaItemContainer()
         logger.configure_logger(
             debug=settings_manager.settings.debug, log=settings_manager.settings.log
         )
@@ -43,13 +44,12 @@ class Program(threading.Thread):
         # Content services need to see whats in the container,
         # so items can be skipped if we already know about it.
         # This will cause a loop for items to be continuously processed if not skipped.
-        self.media_items = MediaItemContainer()
 
         self.requesting_services = {
-            Overseerr: Overseerr(self.media_items),
-            PlexWatchlist: PlexWatchlist(self.media_items),
-            Listrr: Listrr(self.media_items),
-            Mdblist: Mdblist(self.media_items),
+            Overseerr: Overseerr(),
+            PlexWatchlist: PlexWatchlist(),
+            Listrr: Listrr(),
+            Mdblist: Mdblist(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {

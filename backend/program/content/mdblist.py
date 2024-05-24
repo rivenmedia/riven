@@ -12,13 +12,13 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Mdblist:
     """Content class for mdblist"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
+        self.recurring_items = set()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         logger.info("mdblist initialized")
@@ -50,12 +50,9 @@ class Mdblist:
                         continue
                     for item in list_items(list_id, self.settings.api_key):
                         # Check if the item is already completed in the media container
-                        existing_item = self.media_items.get_imdbid(item.imdb_id)
-                        if existing_item:
-                            continue
-                        yield MediaItem(
-                            {"imdb_id": item.imdb_id, "requested_by": self.key}
-                        )
+                        if item.imdb_id and item.imdb_id not in self.recurring_items:
+                            self.recurring_items.add(item.imdb_id)
+                            yield MediaItem({"imdb_id": item.imdb_id, "requested_by": self.key})
         except RateLimitExceeded:
             pass
         return

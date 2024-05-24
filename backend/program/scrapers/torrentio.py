@@ -83,9 +83,9 @@ class Torrentio:
             )
         elif stream_count > 0:
             logger.debug(
-                "Could not find good streams for %s out of %s",
-                item.log_string,
+                "No good streams out of %s for %s",
                 stream_count,
+                item.log_string,
             )
         else:
             logger.debug("No streams found for %s", item.log_string)

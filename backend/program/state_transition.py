@@ -53,11 +53,14 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
-        next_service = Scraping
+        next_service = None
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons if s.state != States.Completed]
         elif isinstance(item, Season):
             items_to_submit = [e for e in item.episodes if e.state != States.Completed]
+        
+        if items_to_submit and Scraping.should_submit(item) and Scraping.is_released(item):
+            next_service = Scraping
 
     elif item.state == States.Scraped:
         next_service = Debrid
@@ -72,12 +75,10 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             proposed_submissions = [item]
         items_to_submit = []
         for proposed_item in proposed_submissions:
-            if Symlinker.check_file_existence(proposed_item):
+            if Symlinker.check_file_existence(proposed_item) or Symlinker.should_submit(proposed_item):
                 items_to_submit.append(proposed_item)
-            elif not Symlinker.should_submit(proposed_item):
-                logger.error("Item %s rejected by Symlinker, skipping", proposed_item.log_string)
             else:
-                items_to_submit.append(proposed_item)
+                logger.error("Item %s rejected by Symlinker, skipping", proposed_item.log_string)
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater

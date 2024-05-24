@@ -19,6 +19,7 @@ class PlexUpdater:
         )
         self.settings = settings_manager.settings.plex
         self.plex = None
+        self.sections = None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -41,6 +42,7 @@ class PlexUpdater:
 
         try:
             self.plex = PlexServer(self.settings.url, self.settings.token, timeout=60)
+            self.sections = self.map_sections_with_paths()
             self.initialized = True
             return True
         except Unauthorized:
@@ -60,22 +62,29 @@ class PlexUpdater:
         return False
 
     def run(self, item):
-        """Update plex library section for a single item"""
-        item_type = "show" if isinstance(item, Episode) else "movie"
-        for section in self.plex.library.sections():
-            if section.type != item_type:
-                continue
-
-            if self._update_section(section, item):
-                logger.info(
-                    "Updated section %s for %s", section.title, item.log_string
-                )
+        """Update Plex library section for a single item"""
+        if not item or not hasattr(item, "update_folder") or item.update_folder is None:
+            return
+        for section, path in self.sections.items():
+            if path in item.update_folder:
+                if self._update_section(section, item):
+                    logger.info("Updated section %s for %s", section.title, item.log_string)
+                else:
+                    logger.debug("Failed to update section %s for %s", section.title, item.log_string)
         yield item
 
     def _update_section(self, section, item):
+        """Update the Plex section for the given item"""
         if item.symlinked and item.get("update_folder") != "updated":
             update_folder = item.update_folder
             section.update(str(update_folder))
             item.set("update_folder", "updated")
             return True
         return False
+
+    def map_sections_with_paths(self):
+        """Map Plex sections with their paths"""
+        sections = [section for section in self.plex.library.sections()]
+        paths_for_each_section = [section.locations[i] for section in sections for i in range(len(section.locations))]
+        mapped_sections = list(zip(sections, paths_for_each_section))
+        return {section: path for section, path in mapped_sections}

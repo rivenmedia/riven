@@ -1,7 +1,7 @@
 import os
+import time
 from datetime import datetime
 from pathlib import Path
-import time
 from typing import List
 
 from program.media.item import Episode, Movie, Season, Show
@@ -151,20 +151,17 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        logger.debug("Sleeping 10 seconds before checking for symlink creation: %s", item.log_string)
+        # This is to prevent the symlinker from trying
+        # to symlink a file that isn't available yet
+        # mostly has to do with rclone and zurg refresh times
+        logger.debug("Sleeping for 10 seconds before checking if file exists for %s", item.log_string)
         time.sleep(10)
 
-        # Check if the file exists on disk
         if Symlinker.check_file_existence(item):
-            # The file exists on disk, we should symlink it
             return True
-
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
-            logger.warning(f"Item {item.log_string} has been attempted {item.symlinked_times} times for symlink, skipping.")
             return False
-
-        # Increment the symlink attempt counter
         item.set("symlinked_times", item.symlinked_times + 1)
         return True
 

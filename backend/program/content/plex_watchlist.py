@@ -13,16 +13,15 @@ from utils.request import get, ping
 class PlexWatchlist:
     """Class for managing Plex Watchlists"""
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self):
         self.key = "plex_watchlist"
         self.rss_enabled = False
         self.settings = settings_manager.settings.content.plex_watchlist
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.media_items = media_items
         self.token = settings_manager.settings.plex.token
-        self.not_found_ids = []
+        self.recurring_items = set()
         logger.info("Plex Watchlist initialized!")
 
     def validate(self):
@@ -53,16 +52,16 @@ class PlexWatchlist:
 
     def run(self):
         """Fetch new media from `Plex Watchlist`"""
-        self.not_found_ids.clear()
         if not self.rss_enabled:
             yield from self._get_items_from_watchlist()
         else:
             watchlist_items = set(self._get_items_from_watchlist())
             rss_items = set(self._get_items_from_rss())
             yield from (
-                MediaItem({"imdb_id": id, "requested_by": self.key})
-                for id in watchlist_items.union(rss_items)
+                MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+                for imdb_id in watchlist_items.union(rss_items)
             )
+
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feed."""
@@ -73,12 +72,13 @@ class PlexWatchlist:
                     "Failed to fetch Plex RSS feed: HTTP %s", response.status_code
                 )
                 return
-            yield from (
-                guid.split("//")[-1]
-                for item in response.data.items
-                for guid in item.guids
-                if guid.startswith("imdb://")
-            )
+            for item in response.data.items:
+                for guid in item.guids:
+                    if guid.startswith("imdb://"):
+                        imdb_id = guid.split("//")[-1]
+                        if imdb_id and imdb_id not in self.recurring_items:
+                            self.recurring_items.add(imdb_id)
+                            yield imdb_id
         except Exception as e:
             logger.error(
                 "An unexpected error occurred while fetching Plex RSS feed: %s", e
@@ -97,25 +97,23 @@ class PlexWatchlist:
         for item in response.data.MediaContainer.Metadata:
             if hasattr(item, "ratingKey") and item.ratingKey:
                 imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
-                if imdb_id:
-                    # Check if the item is already completed in the media container
-                    existing_item = self.media_items.get_imdbid(imdb_id)
-                    if existing_item:
-                        continue
+                if imdb_id and imdb_id not in self.recurring_items:
+                    self.recurring_items.add(imdb_id)
                     yield imdb_id
 
-    def _ratingkey_to_imdbid(self, ratingKey: str) -> str:
+    @staticmethod
+    def _ratingkey_to_imdbid(ratingKey: str) -> str:
         """Convert Plex rating key to IMDb ID"""
+        token = settings_manager.settings.plex.token
         filter_params = (
             "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         )
-        url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={self.token}&{filter_params}"
+        url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
         response = get(url)
         if response.is_ok and hasattr(response.data, "MediaContainer"):  # noqa: SIM102
             if hasattr(response.data.MediaContainer.Metadata[0], "Guid"):
                 for guid in response.data.MediaContainer.Metadata[0].Guid:
                     if "imdb://" in guid.id:
                         return guid.id.split("//")[-1]
-        self.not_found_ids.append(ratingKey)
         logger.debug("Failed to fetch IMDb ID for ratingKey: %s", ratingKey)
         return None
