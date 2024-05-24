@@ -1,7 +1,7 @@
 """ Annatar scraper module """
 from typing import Dict
 
-from program.media.item import Episode, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
@@ -61,7 +61,7 @@ class Annatar:
             logger.exception("Annatar failed to initialize: %s", e)
             return False
 
-    def run(self, item):
+    def run(self, item: MediaItem):
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
@@ -72,19 +72,19 @@ class Annatar:
             self.minute_limiter.limit_hit()
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
-            logger.exception("Annatar connection timeout for item: %s", item.log_string)
+            logger.debug("Annatar connection timeout for item: %s", item.log_string)
         except ReadTimeout:
             self.minute_limiter.limit_hit()
-            logger.exception("Annatar read timeout for item: %s", item.log_string)
+            logger.debug("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
             self.minute_limiter.limit_hit()
-            logger.exception("Annatar request exception: %s", e)
+            logger.debug("Annatar request exception: %s", e)
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.exception("Annatar exception thrown: %s", e)
-        return item
+            logger.debug("Annatar exception thrown: %s", e)
+        yield item
 
-    def _scrape_item(self, item):
+    def _scrape_item(self, item: MediaItem):
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
@@ -105,7 +105,7 @@ class Annatar:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[Dict, int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
         """Wrapper for `Annatar` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):

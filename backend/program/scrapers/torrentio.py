@@ -1,12 +1,12 @@
 """ Torrentio scraper module """
 from typing import Dict
 
-from program.media.item import Episode, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-from RTN import RTN, sort_torrents
+from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
@@ -48,7 +48,7 @@ class Torrentio:
             return False
         return True
 
-    def run(self, item):
+    def run(self, item: MediaItem):
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
@@ -69,8 +69,9 @@ class Torrentio:
         except Exception as e:
             self.minute_limiter.limit_hit()
             logger.warn("Torrentio exception thrown: %s", e)
+        yield item
 
-    def _scrape_item(self, item):
+    def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
@@ -91,7 +92,7 @@ class Torrentio:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[Dict, int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Torrentio` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):

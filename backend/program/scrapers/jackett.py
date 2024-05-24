@@ -1,7 +1,7 @@
 """ Jackett scraper module """
 from typing import Dict
 
-from program.media.item import Show
+from program.media.item import MediaItem, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from requests import ReadTimeout, RequestException
@@ -52,7 +52,7 @@ class Jackett:
         logger.info("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item):
+    def run(self, item: MediaItem):
         """Scrape the jackett site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):

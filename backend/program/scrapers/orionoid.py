@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Dict
 
-from program.media.item import Episode, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from requests import ConnectTimeout
@@ -92,7 +92,7 @@ class Orionoid:
                 logger.error("Orionoid Free Account Detected.")
         return False
 
-    def run(self, item):
+    def run(self, item: MediaItem):
         """Scrape the orionoid site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
@@ -113,9 +113,9 @@ class Orionoid:
             logger.exception(
                 "Orionoid exception for item: %s - Exception: %s", item.log_string, e
             )
-        return item
+        yield item
 
-    def _scrape_item(self, item):
+    def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
@@ -168,7 +168,7 @@ class Orionoid:
 
         return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
-    def api_scrape(self, item) -> tuple[Dict, int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
         """Wrapper for `Orionoid` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):
