@@ -1,5 +1,5 @@
 """ Annatar scraper module """
-from typing import Dict
+from typing import Dict, Generator
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
@@ -17,17 +17,18 @@ class Annatar:
 
     def __init__(self):
         self.key = "annatar"
+        self.url = None
         self.settings = settings_manager.settings.scraping.annatar
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
-        self.query_limits = None
+        self.query_limits = "limit=2000&timeout=10"
         self.initialized = self.validate()
         if not self.initialized:
             return
         self.minute_limiter = RateLimiter(
-            max_calls=100, period=3600, raise_on_limit=True
+            max_calls=3456, period=3600, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.info("Annatar initialized!")
 
@@ -46,13 +47,12 @@ class Annatar:
             logger.error("Annatar timeout is not set or invalid.")
             return False
         try:
+            if self.settings.url.endswith("/manifest.json"):
+                url = self.settings.url.strip("/manifest.json")
             url = self.settings.url + "/manifest.json"
             response = ping(url=url, timeout=60)
             if not response.ok:
                 return False
-            self.query_limits = (
-                f"limit={self.settings.limit}&timeout={self.settings.timeout}"
-            )
             return True
         except ReadTimeout:
             logger.debug("Annatar read timeout during initialization.")
@@ -61,51 +61,41 @@ class Annatar:
             logger.exception("Annatar failed to initialize: %s", e)
             return False
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
             yield item
+            return
+
         try:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.warn("Annatar rate limit hit for item: %s", item.log_string)
         except ConnectTimeout:
-            self.minute_limiter.limit_hit()
-            logger.debug("Annatar connection timeout for item: %s", item.log_string)
+            logger.warn("Annatar connection timeout for item: %s", item.log_string)
         except ReadTimeout:
-            self.minute_limiter.limit_hit()
-            logger.debug("Annatar read timeout for item: %s", item.log_string)
+            logger.warn("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
-            self.minute_limiter.limit_hit()
-            logger.debug("Annatar request exception: %s", e)
+            logger.warn("Annatar request exception: %s", e)
         except Exception as e:
-            self.minute_limiter.limit_hit()
-            logger.debug("Annatar exception thrown: %s", e)
+            logger.error("Annatar failed to scrape item with error: %s", e)
         yield item
 
-    def _scrape_item(self, item: MediaItem):
+    def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
-        if len(data) > 0:
+        if data:
             item.streams.update(data)
-            logger.info(
-                "Found %s streams out of %s for %s",
-                len(data),
-                stream_count,
-                item.log_string,
-            )
+            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         elif stream_count > 0:
-            logger.debug(
-                "Could not find good streams for %s out of %s",
-                item.log_string,
-                stream_count,
-            )
+            logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
         else:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Annatar` scrape method"""
         with self.minute_limiter:
             if isinstance(item, Season):
@@ -122,24 +112,19 @@ class Annatar:
                 imdb_id = item.imdb_id
 
             if identifier is not None:
-                url = (
-                    f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?"
-                    + f"{identifier}&{self.query_limits}"
-                )
+                url = f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?{identifier}&{self.query_limits}"
             else:
-                url = (
-                    f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?"
-                    + f"{self.query_limits}"
-                )
+                url = f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?{self.query_limits}"
 
             with self.second_limiter:
                 response = get(url, retry_if_failed=False, timeout=60)
+            
             if not response.is_ok or len(response.data.media) <= 0:
                 return {}, 0
+
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
-                logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in response.data.media:
                 if not stream.hash:
@@ -150,7 +135,9 @@ class Annatar:
                     )
                 except GarbageTorrent:
                     continue
+
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
+
             scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(response.data.media)

@@ -1,6 +1,6 @@
 """ Jackett scraper module """
 import traceback
-from typing import Dict
+from typing import Dict, Generator
 
 from program.media.item import MediaItem, Show
 from program.settings.manager import settings_manager
@@ -53,11 +53,13 @@ class Jackett:
         logger.info("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item: MediaItem):
-        """Scrape the jackett site for the given media items
+    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+        """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
             yield item
+            return
+        
         try:
             yield self._scrape_item(item)
         except RateLimitExceeded:
@@ -67,55 +69,51 @@ class Jackett:
             logger.debug("Jackett request exception: %s", e)
         except Exception as e:
             logger.error("Jackett failed to scrape item with error: %s", e)
-        return item
+            logger.debug(traceback.format_exc())
+        yield item
 
-    def _scrape_item(self, item):
+    def _scrape_item(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
-        if len(data) > 0:
+        if data:
             item.streams.update(data)
-            logger.debug(
-                "Found %s streams out of %s for %s",
-                len(data),
-                stream_count,
-                item.log_string,
-            )
+            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         else:
             logger.debug("No streams found for %s", item.log_string)
         return item
 
-    def api_scrape(self, item) -> tuple[Dict, int]:  # noqa: C901
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Jackett` scrape method"""
-        # https://github.com/Jackett/Jackett/wiki/Jackett-Categories
         with self.minute_limiter:
             query = ""
             if item.type == "movie":
                 if not hasattr(item.aired_at, "year") or not item.aired_at.year:
                     query = f"cat=2000&t=movie&q={item.title}"
                 else:
-                    query = f"cat=2000&t=movie&q={item.title}&year{item.aired_at.year}"
-            if item.type == "season":
-                query = (
-                    f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
-                )
-            if item.type == "episode":
+                    query = f"cat=2000&t=movie&q={item.title}&year={item.aired_at.year}"
+            elif item.type == "season":
+                query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
+            elif item.type == "episode":
                 query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
+            
             url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
+            
             with self.second_limiter:
                 response = get(url=url, retry_if_failed=False, timeout=60)
-            if (
-                not response.is_ok
-                or len(response.data["rss"]["channel"].get("item", [])) <= 0
-            ):
+            
+            if not response.is_ok or len(response.data.get("rss", {}).get("channel", {}).get("item", [])) <= 0:
                 return {}, 0
+            
             streams = response.data["rss"]["channel"].get("item", [])
             if not streams:
                 return {}, 0
+            
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
                 logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
+            
             for stream in streams:
                 try:
                     attr = stream.get("torznab:attr", [])
@@ -125,13 +123,17 @@ class Jackett:
                     infohash = infohash_attr.get("@value")
                 except (TypeError, ValueError, AttributeError):
                     continue
+                
                 try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True
                     )
                 except GarbageTorrent:
                     continue
+                
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
+            
             scraped_torrents = sort_torrents(torrents)
-            return scraped_torrents, len(streams) or 0
+            return scraped_torrents, len(streams)
+

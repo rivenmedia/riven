@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import traceback
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
@@ -29,21 +30,25 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
+            yield item
             return
-        for service in self.services.values():
+        for service_name, service in self.services.items():
             if service.initialized:
                 try:
                     item = next(service.run(item))
                 except StopIteration:
-                    break
+                    logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
+                except Exception as e:
+                    logger.error(f"{service_name} failed to scrape item with error: {e}")
+                    logger.debug(traceback.format_exc())
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
 
     @classmethod
-    def can_we_scrape(self, item: MediaItem) -> bool:
+    def can_we_scrape(cls, item: MediaItem) -> bool:
         """Check if we can scrape an item."""
-        return item.is_released and self.should_submit(item)
+        return item.is_released and cls.should_submit(item)
 
     @staticmethod
     def is_released(item: MediaItem) -> bool:

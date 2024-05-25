@@ -32,7 +32,7 @@ class MediaItem:
 
         self.scraped_at = None
         self.scraped_times = 0
-        self.active_stream = item.get("active_stream", None)
+        self.active_stream = item.get("active_stream", {})
         self.streams = {}
 
         self.symlinked = False
@@ -73,7 +73,11 @@ class MediaItem:
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        released = bool(self.aired_at is not None and self.aired_at < datetime.now())
+        try:
+            released = bool(self.aired_at is not None and self.aired_at < datetime.now())
+        except Exception as e:
+            logger.error("Failed to check if item is released: %s", e)
+            released = False
         if not released:
             logger.debug("Item %s has not been released yet.", self.log_string)
         return released

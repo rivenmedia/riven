@@ -154,8 +154,8 @@ class Symlinker:
         # This is to prevent the symlinker from trying
         # to symlink a file that isn't available yet
         # mostly has to do with rclone and zurg refresh times
-        logger.debug("Sleeping for 10 seconds before checking if file exists for %s", item.log_string)
-        time.sleep(10)
+        logger.debug("Sleeping for 5 seconds before checking if file exists for %s", item.log_string)
+        time.sleep(5)
 
         if Symlinker.check_file_existence(item):
             return True

@@ -70,10 +70,8 @@ class Overseerr:
                 imdb_id = self.get_imdb_id(item.media)
             else:
                 imdb_id = item.media.imdbId
-
             if not imdb_id or imdb_id in self.recurring_items:
                 continue
-
             self.recurring_items.add(imdb_id)
             yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
 
@@ -90,7 +88,7 @@ class Overseerr:
             additional_headers=self.headers,
         )
         if not response.is_ok or not hasattr(response.data, "externalIds"):
-            return None
+            return
 
         title = getattr(response.data, "title", None) or getattr(
             response.data, "originalName", None
@@ -110,7 +108,7 @@ class Overseerr:
                         f"Found imdbId for {title} from {id_attr}: {external_id_value}"
                     )
                     return new_imdb_id
-        return None
+        return
 
     @staticmethod
     def delete_request(mediaId: int) -> bool:

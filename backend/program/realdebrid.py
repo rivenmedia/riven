@@ -2,6 +2,7 @@
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Generator, List
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -19,7 +20,6 @@ class Debrid:
     """Real-Debrid API Wrapper"""
 
     def __init__(self):
-        # Realdebrid class library is a necessity
         self.initialized = False
         self.key = "real_debrid"
         self.settings = settings_manager.settings.real_debrid
@@ -31,20 +31,27 @@ class Debrid:
         logger.info("Real Debrid initialized!")
         self.initialized = True
 
-    def _validate(self):
+    def _validate(self) -> bool:
         try:
-            response = ping(
-                f"{RD_BASE_URL}/user",
-                additional_headers=self.auth_headers,
-            )
+            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers)
             if response.ok:
-                json = response.json()
-                return json["premium"] > 0
+                user_info = response.json()
+                return user_info.get("premium", 0) > 0
         except ConnectTimeout:
-            return False
+            logger.error("Connection to Real-Debrid timed out.")
+        except Exception as e:
+            logger.error("Failed to validate Real-Debrid settings: %s", e)
+        return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
+        if not item.streams:
+            yield item
+            return
+        if isinstance(item, Show):
+            logger.debug("Show items are not supported by Real-Debrid")
+            yield item
+            return
         if not self.is_cached(item):
             yield item
             return
@@ -55,204 +62,211 @@ class Debrid:
 
     def _is_downloaded(self, item: MediaItem) -> bool:
         """Check if item is already downloaded"""
-        torrents = self.get_torrents()
-        for torrent in torrents:
-            if isinstance(item.active_stream, dict) and torrent.hash == item.active_stream.get("hash"):
-                info = self.get_torrent_info(torrent.id)
-                if isinstance(item, Episode):  # noqa: SIM102 - linter is wrong here
-                    if not any(
-                        file
-                        for file in info.files
-                        if file.selected == 1
-                        and item.number
-                        in episodes_from_season(Path(file.path).name, item.parent.number)
-                    ):
-                        return False
+        try:
+            torrents = self.get_torrents(1000)
+            for torrent in torrents:
+                if torrent.hash == item.active_stream.get("hash"):
+                    info = self.get_torrent_info(torrent.id)
+                    if isinstance(item, Episode):
+                        if not any(file for file in info.files if file.selected == 1 and item.number in episodes_from_season(Path(file.path).name, item.parent.number)):
+                            return False
 
-                item.set("active_stream.id", torrent.id)
-                self.set_active_files(item)
-                logger.debug("Torrent for %s already downloaded, using downloaded files", item.log_string)
-                return True
+                    item.set("active_stream.id", torrent.id)
+                    self.set_active_files(item)
+                    logger.debug("Torrent for %s already downloaded", item.log_string)
+                    return True
+        except Exception as e:
+            logger.error("Error checking if item is downloaded: %s", e)
         return False
 
     def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
-        # if not hasattr(item, "active_stream") or not isinstance(item.active_stream, dict) or not hasattr(item.active_stream, "id"):
-        #     return
         request_id = self.add_magnet(item)
+        if not request_id:
+            logger.error("Failed to add magnet for %s", item.log_string)
+            return
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
-        self.select_files(request_id, item)
+        time.sleep(0.5)  # Ensure the torrent is processed before selecting files
+        if not self.select_files(request_id, item):
+            logger.error("Failed to select files for %s", item.log_string)
+            return
         item.set("active_stream.id", request_id)
         logger.info("Downloaded %s", item.log_string)
 
     def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
-        info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.set("active_stream.alternative_name", info.original_filename)
-        item.set("active_stream.name", info.filename)
+        try:
+            info = self.get_torrent_info(item.get("active_stream")["id"])
+            item.set("active_stream.alternative_name", info.original_filename)
+            item.set("active_stream.name", info.filename)
+        except Exception as e:
+            logger.error("Failed to set active files for %s: %s", item.log_string, e)
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
-        if len(item.streams) == 0:
-            return False
-
-        def chunks(lst, n):
-            for i in range(0, len(lst), n):
-                yield lst[i : i + n]
-
         processed_stream_hashes = set()
-        filtered_streams = [
-            hash
-            for hash in item.streams
-            if hash is not None and hash not in processed_stream_hashes
-        ]
+        filtered_streams = [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
 
-        for stream_chunk in chunks(filtered_streams, 5):
+        for stream_chunk in self._chunks(filtered_streams, 5):
             streams = "/".join(stream_chunk)
-            response = get(
-                f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/",
-                additional_headers=self.auth_headers,
-                response_type=dict,
-            )
-            for stream_hash, provider_list in response.data.items():
-                if stream_hash in processed_stream_hashes:
-                    continue
-                processed_stream_hashes.add(stream_hash)
-                if len(provider_list) == 0:
-                    continue
-                for containers in provider_list.values():
-                    for container in containers:
-                        wanted_files = {}
-                        if isinstance(item, Movie) and all(
-                            file["filesize"] > 200000 for file in container.values()
-                        ):
-                            wanted_files = container
-                        if isinstance(item, Season) and all(
-                            any(
-                                episode.number
-                                in episodes_from_season(file["filename"], item.number)
-                                for file in container.values()
-                            )
-                            for episode in item.episodes
-                        ):
-                            wanted_files = container
-                        if isinstance(item, Episode) and any(
-                            item.number
-                            in episodes_from_season(episode["filename"], item.parent.number)
-                            for episode in container.values()
-                        ):
-                            wanted_files = container
-                        if len(wanted_files) > 0 and all(
-                            item
-                            for item in wanted_files.values()
-                            if Path(item["filename"]).suffix in WANTED_FORMATS
-                        ):
-                            item.set(
-                                "active_stream",
-                                {
-                                    "hash": stream_hash,
-                                    "files": wanted_files,
-                                    "id": None,
-                                },
-                            )
+            try:
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
+                if response.is_ok:
+                    for stream_hash, provider_list in response.data.items():
+                        if stream_hash in processed_stream_hashes or len(provider_list) == 0:
+                            continue
+                        processed_stream_hashes.add(stream_hash)
+                        if self._process_providers(item, provider_list, stream_hash):
                             return True
+            except Exception as e:
+                logger.error(f"Error checking cache for streams: {e}")
+
         item.set("streams", {})
         logger.debug("No cached streams found for %s", item.log_string)
         return False
 
-    def _set_file_paths(self, item):
-        """Set file paths for item from real-debrid.com"""
+    def _chunks(self, lst: List, n: int) -> Generator[List, None, None]:
+        for i in range(0, len(lst), n):
+            yield lst[i : i + n]
+
+    def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:
+        for containers in provider_list.values():
+            if not containers:
+                # This hash is uncached (no files)
+                continue
+            for container in containers:
+                # This hash is cached on real-debrid
+                if self._is_wanted_files(container, item):
+                    item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    return True
+        return False
+
+    def _is_wanted_files(self, container: dict, item: MediaItem) -> bool:
+        filenames = [file["filename"] for file in container.values()]
+        wanted = any(file.endswith(format) for format in WANTED_FORMATS for file in filenames)
+        if not wanted:
+            # Filenames dont match wanted formats
+            return False
         if isinstance(item, Movie):
-            self._handle_movie_paths(item)
-        elif isinstance(item, Season):
-            self._handle_season_paths(item)
-        elif isinstance(item, Episode):
-            self._handle_episode_paths(item)
-        else:
-            logger.error("Item type not supported: %s", item.__class__.__name__)
+            # return wanted and all(file["filesize"] > 200000 for file in container.values())
+            # can we break this down easier so its easy to follow
+            for file in container.values():
+                if file["filesize"] > 200000:
+                    return True
+        if isinstance(item, Season):
+            # return wanted and all(any(episode.number in episodes_from_season(file, item.number) for file in filenames) for episode in item.episodes)
+            for file in filenames:
+                for episode in item.episodes:
+                    if episode.number in episodes_from_season(file, item.number):
+                        return True
+        if isinstance(item, Episode):
+            # return wanted and any(item.number in episodes_from_season(file, item.parent.number) for file in filenames)
+            for file in filenames:
+                for episode in item.parent.episodes:
+                    if episode.number in episodes_from_season(file, item.parent.number):
+                        return True
+        return False
 
-    def _handle_movie_paths(self, item):
+    def _set_file_paths(self, item: MediaItem):
+        """Set file paths for item from real-debrid.com"""
+        try:
+            if isinstance(item, Movie):
+                self._handle_movie_paths(item)
+            elif isinstance(item, Season):
+                self._handle_season_paths(item)
+            elif isinstance(item, Episode):
+                self._handle_episode_paths(item)
+            else:
+                logger.error("Item type not supported: %s", item.__class__.__name__)
+        except Exception as e:
+            logger.error("Failed to set file paths for %s: %s", item.log_string, e)
+
+    def _handle_movie_paths(self, item: Movie):
         """Set file paths for movie from real-debrid.com"""
-        item.set("folder", item.active_stream.get("name"))
-        item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-        item.set(
-            "file",
-            next(file for file in item.active_stream.get("files").values())["filename"],
-        )
+        try:
+            item.set("folder", item.active_stream.get("name"))
+            item.set("alternative_folder", item.active_stream.get("alternative_name", None))
+            item.set("file", next(file for file in item.active_stream.get("files").values())["filename"])
+        except Exception as e:
+            logger.error("Failed to handle movie paths for %s: %s", item.log_string, e)
 
-    def _handle_season_paths(self, season):
+    def _handle_season_paths(self, season: Season):
         """Set file paths for season from real-debrid.com"""
-        for file in season.active_stream["files"].values():
-            for episode in episodes_from_season(file["filename"], season.number):
-                if episode - 1 in range(len(season.episodes)):
-                    season.episodes[episode - 1].set(
-                        "folder", season.active_stream.get("name")
-                    )
-                    season.episodes[episode - 1].set(
-                        "alternative_folder",
-                        season.active_stream.get("alternative_name"),
-                    )
-                    season.episodes[episode - 1].set("file", file["filename"])
+        try:
+            for file in season.active_stream["files"].values():
+                for episode in episodes_from_season(file["filename"], season.number):
+                    if episode - 1 in range(len(season.episodes)):
+                        season.episodes[episode - 1].set("folder", season.active_stream.get("name"))
+                        season.episodes[episode - 1].set("alternative_folder", season.active_stream.get("alternative_name"))
+                        season.episodes[episode - 1].set("file", file["filename"])
+        except Exception as e:
+            logger.error("Failed to handle season paths for %s: %s", season.log_string, e)
 
-    def _handle_episode_paths(self, episode):
+    def _handle_episode_paths(self, episode: Episode):
         """Set file paths for episode from real-debrid.com"""
-        file = next(
-            file
-            for file in episode.active_stream.get("files").values()
-            if episode.number in episodes_from_season(file["filename"], episode.parent.number)
-        )
-        episode.set("folder", episode.active_stream.get("name"))
-        episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
-        episode.set("file", file["filename"])
+        try:
+            file = next(file for file in episode.active_stream.get("files").values() if episode.number in episodes_from_season(file["filename"], episode.parent.number))
+            episode.set("folder", episode.active_stream.get("name"))
+            episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
+            episode.set("file", file["filename"])
+        except Exception as e:
+            logger.error("Failed to handle episode paths for %s: %s", episode.log_string, e)
 
-    def add_magnet(self, item) -> str:
+    def add_magnet(self, item: MediaItem) -> str:
         """Add magnet link to real-debrid.com"""
         if not isinstance(item.active_stream, dict) or not item.active_stream.get("hash"):
+            logger.error("No active stream or hash found for %s", item.log_string)
             return None
-        response = post(
-            f"{RD_BASE_URL}/torrents/addMagnet",
-            {
-                "magnet": "magnet:?xt=urn:btih:"
-                + item.active_stream["hash"]
-                + "&dn=&tr="
-            },
-            additional_headers=self.auth_headers,
-        )
-        if response.is_ok:
-            return response.data.id
+
+        try:
+            hash = item.active_stream["hash"]
+            response = post(
+                f"{RD_BASE_URL}/torrents/addMagnet",
+                {"magnet": f"magnet:?xt=urn:btih:{hash}&dn=&tr="},
+                additional_headers=self.auth_headers,
+            )
+            if response.is_ok:
+                return response.data.id
+            logger.error("Failed to add magnet: %s", response.data)
+        except Exception as e:
+            logger.error("Error adding magnet for %s: %s", item.log_string, e)
         return None
 
-    def get_torrents(self) -> List:
+    def get_torrents(self, limit: int) -> List[SimpleNamespace]:
         """Get torrents from real-debrid.com"""
-        response = get(
-            f"{RD_BASE_URL}/torrents/",
-            data={"offset": 0, "limit": 2500},
-            additional_headers=self.auth_headers,
-        )
-        if response.is_ok:
-            return response.data
+        try:
+            response = get(f"{RD_BASE_URL}/torrents?limit={str(limit)}", additional_headers=self.auth_headers)
+            if response.is_ok and response.data:
+                return response.data
+        except Exception as e:
+            logger.error("Failed to get torrents from Real-Debrid, site is probably down: %s", e)
         return []
 
-    def select_files(self, request_id, item) -> bool:
+    def select_files(self, request_id: str, item: MediaItem) -> bool:
         """Select files from real-debrid.com"""
         files = item.active_stream.get("files")
+        if not files:
+            logger.error("No files to select for %s", item.log_string)
+            return False
+
         try:
             response = post(
                 f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
                 {"files": ",".join(files.keys())},
                 additional_headers=self.auth_headers,
             )
-        except ConnectionError:
-            logger.error("Connection error while selecting files")
+            return response.is_ok
+        except Exception as e:
+            logger.error("Error selecting files for %s: %s", item.log_string, e)
             return False
-        return response.is_ok
 
-    def get_torrent_info(self, request_id):
+    def get_torrent_info(self, request_id: str) -> dict:
         """Get torrent info from real-debrid.com"""
-        response = get(
-            f"{RD_BASE_URL}/torrents/info/{request_id}",
-            additional_headers=self.auth_headers,
-        )
-        if response.is_ok:
-            return response.data
+        try:
+            response = get(f"{RD_BASE_URL}/torrents/info/{request_id}", additional_headers=self.auth_headers)
+            if response.is_ok:
+                return response.data
+        except Exception as e:
+            logger.error("Failed to get torrent info for %s: %s", request_id, e)
+        return {}

@@ -1,4 +1,3 @@
-from copy import deepcopy
 import os
 import shutil
 import tempfile
@@ -233,7 +232,6 @@ class MediaItemContainer:
                 os.remove(temp_file.name)
             except OSError as remove_error:
                 logger.error("Failed to remove temporary file: %s", remove_error)
-
 
     def load(self, filename):
         try:

@@ -114,7 +114,8 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        for _, item in self.media_items.get_incomplete_items().items():
+        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
+        for item in items_to_submit:
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
