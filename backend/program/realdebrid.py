@@ -45,8 +45,6 @@ class Debrid:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
-        if not item or not item.streams or isinstance(item, Show):
-            return
         if not self.is_cached(item):
             yield item
             return

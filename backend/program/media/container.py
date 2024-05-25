@@ -88,13 +88,6 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def get_all_incomplete_items(self) -> list[MediaItem]:
-        self.lock.acquire_read()
-        try:
-            return [item for item in self._items.values() if item.state != States.Completed]
-        finally:
-            self.lock.release_read()
-
     def get_imdbid(self, imdb_id: str) -> Optional[MediaItem]:
         self.lock.acquire_read()
         try:
@@ -204,12 +197,16 @@ class MediaItemContainer:
 
     def get_incomplete_items(self) -> Dict[ItemId, MediaItem]:
         """Get all items that are not in a completed state."""
-        media_items = deepcopy(self._items)
-        return {
-            item_id: item
-            for item_id, item in media_items.items()
-            if item.state is not States.Completed
-        }
+        self.lock.acquire_read()
+        try:
+            media_items = self._items
+            return {
+                item_id: item
+                for item_id, item in media_items.items()
+                if item.state is not States.Completed
+            }
+        finally:
+            self.lock.release_read()
 
     def save(self, filename):
         if not self._items:
