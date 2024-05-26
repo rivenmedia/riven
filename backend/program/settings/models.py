@@ -151,8 +151,8 @@ class RTNSettingsModel(SettingsModel, Observable):
         "webdl": CustomRank(fetch=True, rank=90),
         "repack": CustomRank(fetch=True, rank=5),
         "proper": CustomRank(fetch=True, rank=4),
-        "dubbed": CustomRank(fetch=True, rank=4),
-        "subbed": CustomRank(fetch=True, rank=2),
+        "dubbed": CustomRank(fetch=True, rank=1),
+        "subbed": CustomRank(fetch=True, rank=4),
         "av1": CustomRank(fetch=False, rank=0),
     }
 

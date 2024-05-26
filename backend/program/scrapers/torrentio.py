@@ -60,6 +60,8 @@ class Torrentio:
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warn("Rate limit exceeded for item: %s", item.log_string)
+            yield item
+            return
         except ConnectTimeout:
             logger.warn("Torrentio connection timeout for item: %s", item.log_string)
         except ReadTimeout:

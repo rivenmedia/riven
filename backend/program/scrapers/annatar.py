@@ -72,14 +72,21 @@ class Annatar:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Annatar rate limit hit for item: %s", item.log_string)
+            logger.error("Annatar rate limit hit for item: %s", item.log_string)
         except ConnectTimeout:
-            logger.warn("Annatar connection timeout for item: %s", item.log_string)
+            self.second_limiter.limit_hit()
+            pass
         except ReadTimeout:
-            logger.warn("Annatar read timeout for item: %s", item.log_string)
+            self.second_limiter.limit_hit()
+            logger.error("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
-            logger.warn("Annatar request exception: %s", e)
+            if e.response.status_code == 525:
+                logger.error("Annatar SSL handshake failed for item: %s", item.log_string)
+            else:
+                self.second_limiter.limit_hit()
+                logger.error("Annatar request exception: %s", e)
         except Exception as e:
+            self.second_limiter.limit_hit()
             logger.error("Annatar failed to scrape item with error: %s", e)
         yield item
 

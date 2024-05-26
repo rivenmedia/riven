@@ -89,14 +89,14 @@ class Symlinker:
             self.event_handler, self.settings.library_path, recursive=True
         )
         self.observer.start()
-        logger.debug("Start monitor for symlink deletions.")
+        logger.debug("Symlink deletion monitoring started")
 
     def stop_monitor(self):
         """Stops the directory monitoring."""
         if hasattr(self, "observer"):
             self.observer.stop()
             self.observer.join()
-            logger.debug("Stopped monitoring for symlink deletions.")
+            logger.debug("Stopped monitoring for symlink deletions")
 
     def on_symlink_deleted(self, symlink_path):
         """Handle a symlink deletion event."""
@@ -119,6 +119,9 @@ class Symlinker:
             for folder in folders:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError as e:
+            logger.error("Path not found when creating directory: %s", e)
+            return False
         except PermissionError as e:
             logger.error("Permission denied when creating directory: %s", e)
             return False
@@ -129,21 +132,12 @@ class Symlinker:
 
     def run(self, item):
         """Check if the media item exists and create a symlink if it does"""
-        if not item or not item.folder or not item.file:
-            logger.error("Item %s does not have folder or file attributes set, or no item found.", item.log_string)
-            return
-
-        if self.check_file_existence(item):
-            self._symlink(item)
-            item.set("symlinked", True)
-            item.set("symlinked_at", datetime.now())
-        else:
-            logger.error(
-                "Could not find %s in subdirectories of %s to create symlink,"
-                " maybe it failed to download?",
-                item.log_string,
-                self.rclone_path,
-            )
+        try:
+            if self._symlink(item):
+                item.set("symlinked", True)
+                item.set("symlinked_at", datetime.now())
+        except Exception as e:
+            logger.exception("Exception thrown when creating symlink for %s: %s", item.log_string, e)
 
         item.set("symlinked_times", item.symlinked_times + 1)
         yield item
@@ -151,38 +145,50 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        # This is to prevent the symlinker from trying
-        # to symlink a file that isn't available yet
-        # mostly has to do with rclone and zurg refresh times
-        logger.debug("Sleeping for 5 seconds before checking if file exists for %s", item.log_string)
-        time.sleep(5)
-
-        if Symlinker.check_file_existence(item):
+        if isinstance(item, (Movie, Episode)) and Symlinker.check_file_existence(item):
             return True
+
+        if isinstance(item, Season):
+            return all(Symlinker.check_file_existence(ep) for ep in item.episodes)
+
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
             return False
-        item.set("symlinked_times", item.symlinked_times + 1)
+
+        # If the file doesn't exist, we should wait a bit and try again
+        logger.debug("Sleeping for 5 seconds before checking if file exists again for %s", item.log_string)
+        time.sleep(5)
         return True
 
     @staticmethod
     def check_file_existence(item) -> bool:
         """Check if the file exists in the rclone path."""
+        if not item.folder or not item.file:
+            return False
+
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-        for path in [item.folder, item.alternative_folder, item.file]:
-            if path and os.path.exists(rclone_path / path / item.file):
-                item.set("folder", path)
+        file_path = rclone_path / item.folder / item.file
+        if file_path.exists():
+            return True
+
+        if item.alternative_folder:
+            alt_file_path = rclone_path / item.alternative_folder / item.file
+            if alt_file_path.exists():
+                item.set("folder", item.alternative_folder)
                 return True
+
         return False
 
-    def _determine_file_name(self, item):
+    def _determine_file_name(self, item) -> str | None:
         """Determine the filename of the symlink."""
         filename = None
-        if item.type == "movie":
-            filename = (
-                f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
-            )
-        if item.type == "episode":
+        if isinstance(item, Movie):
+            filename = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+        elif isinstance(item, Season):
+            showname = item.parent.title
+            showyear = item.parent.aired_at.year
+            filename = f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
+        elif isinstance(item, Episode):
             episode_string = ""
             episode_number = item.get_file_episodes()
             if episode_number[0] == item.number:
@@ -193,32 +199,50 @@ class Symlinker:
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
-                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
+                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}" 
         return filename
 
-    def _symlink(self, item):
+    def _symlink(self, item) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
-        extension = item.file.split(".")[-1]
+        if isinstance(item, Season) and all(ep.file and ep.folder for ep in item.episodes):
+            success = True
+            for episode in item.episodes:
+                if not self._symlink_episode(episode):
+                    success = False
+            return success
+
+        return self._symlink_single(item)
+
+    def _symlink_single(self, item) -> bool:
+        """Create a symlink for a single media item."""
+        extension = os.path.splitext(item.file)[1][1:]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
 
-        if not os.path.exists(destination):
-            if destination:
-                try:
-                    os.symlink(source, destination)
-                    logger.info("Created symlink for %s", item.log_string)
-                    item.symlinked = True
-                    return True
-                except OSError as e:
-                    logger.error("Failed to create symlink for %s: %s", item.log_string, e)
-                    return False
+        if not destination:
+            return False
 
-        # this can get spammy.. it's probably unnecessary
-        # logger.debug("Symlink already exists for %s, skipping.", item.log_string)
-        return False
+        if os.path.exists(destination):
+            logger.debug("Skipping existing symlink for %s", item.log_string)
+            item.set("symlinked", True)
+            return True
+
+        try:
+            os.symlink(source, destination)
+            logger.info("Created symlink for %s", item.log_string)
+            item.set("symlinked", True)
+            return True
+        except OSError as e:
+            logger.error("Failed to create symlink for %s: %s", item.log_string, e)
+            return False
+
+    def _symlink_episode(self, episode) -> bool:
+        """Create a symlink for an individual episode."""
+        return self._symlink_single(episode)
 
     def _create_item_folders(self, item, filename) -> str:
+        """Create necessary folders and determine the destination path for symlinks."""
         if isinstance(item, Movie):
             movie_folder = (
                 f"{item.title.replace('/', '-')} ({item.aired_at.year}) "
@@ -232,9 +256,22 @@ class Symlinker:
             destination_path = os.path.join(
                 destination_folder, filename.replace("/", "-")
             )
-            item.set(
-                "update_folder", os.path.join(self.library_path_movies, movie_folder)
+            item.set("update_folder", os.path.join(self.library_path_movies, movie_folder))
+        elif isinstance(item, Season):
+            show = item.parent
+            folder_name_show = (
+                f"{show.title.replace('/', '-')} ({show.aired_at.year})"
+                + " {"
+                + show.imdb_id
+                + "}"
             )
+            show_path = os.path.join(self.library_path_shows, folder_name_show)
+            os.makedirs(show_path, exist_ok=True)
+            folder_season_name = f"Season {str(item.number).zfill(2)}"
+            season_path = os.path.join(show_path, folder_season_name)
+            os.makedirs(season_path, exist_ok=True)
+            destination_path = os.path.join(season_path, filename.replace("/", "-"))
+            item.set("update_folder", os.path.join(season_path))
         elif isinstance(item, Episode):
             show = item.parent.parent
             folder_name_show = (
