@@ -156,8 +156,8 @@ class Symlinker:
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug("Sleeping for 5 seconds before checking if file exists again for %s", item.log_string)
-        time.sleep(5)
+        logger.debug("Sleeping for 10 seconds before checking if file exists again for %s", item.log_string)
+        time.sleep(10)
         return True
 
     @staticmethod
@@ -168,15 +168,18 @@ class Symlinker:
 
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
         file_path = rclone_path / item.folder / item.file
+        logger.debug("Checking %s if file exists: %s", item.log_string, file_path)
         if file_path.exists():
             return True
 
         if item.alternative_folder:
             alt_file_path = rclone_path / item.alternative_folder / item.file
+            logger.debug("Checking %s if file exists in alternative folder: %s", item.log_string, alt_file_path)
             if alt_file_path.exists():
                 item.set("folder", item.alternative_folder)
                 return True
 
+        logger.error("File does not exist for %s", item.log_string)
         return False
 
     def _determine_file_name(self, item) -> str | None:
@@ -220,7 +223,7 @@ class Symlinker:
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
 
-        if not destination:
+        if not os.path.exists(source):
             return False
 
         if os.path.exists(destination):

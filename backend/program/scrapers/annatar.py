@@ -72,22 +72,26 @@ class Annatar:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.error("Annatar rate limit hit for item: %s", item.log_string)
+            logger.debug("Annatar rate limit hit for item: %s", item.log_string)
         except ConnectTimeout:
             self.second_limiter.limit_hit()
-            pass
         except ReadTimeout:
             self.second_limiter.limit_hit()
-            logger.error("Annatar read timeout for item: %s", item.log_string)
+            self.second_limiter.limit_hit()
+            logger.debug("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
             if e.response.status_code == 525:
-                logger.error("Annatar SSL handshake failed for item: %s", item.log_string)
+                logger.debug("Annatar SSL handshake failed for item: %s", item.log_string)
+            elif e.response.status_code == 429:
+                self.minute_limiter.limit_hit()
+                self.second_limiter.limit_hit()
+                logger.debug("Annatar rate limit hit for item: %s", item.log_string)
             else:
                 self.second_limiter.limit_hit()
-                logger.error("Annatar request exception: %s", e)
+                logger.debug("Annatar request exception: %s", e)
         except Exception as e:
             self.second_limiter.limit_hit()
-            logger.error("Annatar failed to scrape item with error: %s", e)
+            logger.exception("Annatar failed to scrape item with error: %s", e)
         yield item
 
     def _scrape_item(self, item: MediaItem) -> MediaItem:
@@ -148,3 +152,9 @@ class Annatar:
 
             scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(response.data.media)
+
+        # filenames = [
+        #     file["filename"] for file in container.values() 
+        #     if file and file["filesize"] > 40000 
+        #     and file["filename"].lower().endswith(WANTED_FORMATS)
+        # ]

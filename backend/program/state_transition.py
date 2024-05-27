@@ -40,25 +40,34 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
             if isinstance(item, Show):
-                items_to_submit.extend(s for s in item.seasons if s.state not in (States.Completed, States.Downloaded))
-            elif isinstance(item, Season):
-                if item.scraped_times >= 3:
-                    items_to_submit.append(item)
+                items_to_submit.extend(s for s in item.seasons if s.state not in (States.Completed, States.Downloaded) and s.scraped_times < 3)
+            if isinstance(item, Season):
+                if item.scraped_times < 3:
+                    items_to_submit = []
                 else:
-                    items_to_submit.extend(e for e in item.episodes if e.state not in (States.Completed, States.Downloaded))
-            elif isinstance(item, (Movie, Episode)) and item.state not in (States.Completed, States.Downloaded):
-                items_to_submit.append(item)
+                    items_to_submit = [e for e in item.episodes if e.state not in (States.Completed, States.Downloaded)]
+            elif isinstance(item, (Movie, Episode)):
+                items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
         if isinstance(item, Show):
-            items_to_submit.extend(s for s in item.seasons if s.state not in (States.Completed, States.Downloaded))
-        elif isinstance(item, Season):
-            items_to_submit.extend(e for e in item.episodes if e.state not in (States.Completed, States.Downloaded))
+            items_to_submit.extend(
+                s for s in item.seasons if s.state not in (States.Completed, States.Downloaded)
+                and s.scraped_times < 3 and not (s.file or s.folder)
+            )
+        if isinstance(item, Season):
+            if item.scraped_times < 3:
+                items_to_submit = []
+            else:
+                items_to_submit = [
+                    e for e in item.episodes if e.state not in (States.Completed, States.Downloaded)
+                    and e.parent.scraped_times >= 3 and not (e.file or e.folder)
+                ]
 
-    elif item.state == States.Scraped and not isinstance(item, Show) and item.streams:
+    elif item.state == States.Scraped and len(item.streams) > 0 and not isinstance(item, Show):
         next_service = Debrid
-        items_to_submit.append(item)
+        items_to_submit = [item]
 
     elif item.state == States.Downloaded and isinstance(item, (Movie, Season, Episode)):
         next_service = Symlinker
@@ -67,16 +76,16 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             proposed_submissions = item.episodes
         elif isinstance(item, (Movie, Episode)):
             proposed_submissions = [item]
-        items_to_submit.extend(i for i in proposed_submissions if Symlinker.should_submit(i))
+        items_to_submit = [i for i in proposed_submissions if Symlinker.should_submit(i)]
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
         if isinstance(item, Show):
-            items_to_submit.extend(item.seasons)
+            items_to_submit = item.seasons
         elif isinstance(item, Season):
-            items_to_submit.extend(item.episodes)
+            items_to_submit = item.episodes
         else:
-            items_to_submit.append(item)
+            items_to_submit = [item]
 
     elif item.state == States.Completed:
         return no_further_processing
