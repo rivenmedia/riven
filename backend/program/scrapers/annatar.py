@@ -72,11 +72,9 @@ class Annatar:
             yield self._scrape_item(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.debug("Annatar rate limit hit for item: %s", item.log_string)
         except ConnectTimeout:
             self.second_limiter.limit_hit()
         except ReadTimeout:
-            self.second_limiter.limit_hit()
             self.second_limiter.limit_hit()
             logger.debug("Annatar read timeout for item: %s", item.log_string)
         except RequestException as e:
@@ -85,7 +83,6 @@ class Annatar:
             elif e.response.status_code == 429:
                 self.minute_limiter.limit_hit()
                 self.second_limiter.limit_hit()
-                logger.debug("Annatar rate limit hit for item: %s", item.log_string)
             else:
                 self.second_limiter.limit_hit()
                 logger.debug("Annatar request exception: %s", e)

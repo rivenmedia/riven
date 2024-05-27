@@ -2,9 +2,8 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List
 
-from program.media.item import Episode, Movie, Season, Show
+from program.media.item import Episode, Movie, Season
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -148,9 +147,6 @@ class Symlinker:
         if isinstance(item, (Movie, Episode)) and Symlinker.check_file_existence(item):
             return True
 
-        if isinstance(item, Season):
-            return all(Symlinker.check_file_existence(ep) for ep in item.episodes)
-
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
             return False
@@ -168,13 +164,13 @@ class Symlinker:
 
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
         file_path = rclone_path / item.folder / item.file
-        logger.debug("Checking %s if file exists: %s", item.log_string, file_path)
+        logger.debug("Checking %s if file exists: '%s'", item.log_string, file_path)
         if file_path.exists():
             return True
 
         if item.alternative_folder:
             alt_file_path = rclone_path / item.alternative_folder / item.file
-            logger.debug("Checking %s if file exists in alternative folder: %s", item.log_string, alt_file_path)
+            logger.debug("Checking %s if file exists in alternative folder: '%s'", item.log_string, alt_file_path)
             if alt_file_path.exists():
                 item.set("folder", item.alternative_folder)
                 return True

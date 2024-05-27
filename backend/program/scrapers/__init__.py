@@ -30,8 +30,8 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
-            yield item
             return
+
         for service_name, service in self.services.items():
             if service.initialized:
                 try:
@@ -53,10 +53,7 @@ class Scraping:
     @staticmethod
     def is_released(item: MediaItem) -> bool:
         """Check if an item has been released."""
-        released = bool(item.aired_at is not None and item.aired_at < datetime.now())
-        if not released:
-            logger.debug("Item %s has not been released yet, not scraping", item.log_string)
-        return released
+        return bool(item.aired_at is not None and item.aired_at < datetime.now())
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

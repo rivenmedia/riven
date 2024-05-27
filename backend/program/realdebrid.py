@@ -207,20 +207,8 @@ class Debrid:
                 return True
         return False
 
-# for container in containers:
-#     wanted_files = {}
-#     if isinstance(item, Season) and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
-#         wanted_files = container
-#     if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
-#         item.set(
-#             "active_stream",
-#             {"hash": stream_hash, "files": wanted_files, "id": None},
-#         )
-#         return True
-
     def _is_wanted_season(self, container: dict, item: Season) -> bool:
         """Check if container has wanted files for a season"""
-#     if isinstance(item, Season) and all(any(episode.number in parser.episodes_in_season(item.number, file["filename"]) for file in container.values()) for episode in item.episodes):
         filenames = [
             file["filename"] for file in container.values() 
             if file and file["filesize"] > 40000 
@@ -230,54 +218,38 @@ class Debrid:
         if not filenames:
             return False
 
+        # First attempt to check if all episodes are in files
         check_all = all(
             any(episode.number in episodes_from_season(file, item.number) for episode in item.episodes)
             for file in filenames
         )
 
         if check_all:
-            logger.debug("[Old Method] All episodes found in files for %s", item.log_string)
+            logger.debug("All episodes found in files for %s", item.log_string)
             return True
 
-        episodes = [
+        episodes: list[Episode] = [
             episode.number for episode in item.episodes
             if episode.state not in [States.Completed, States.Downloaded, States.Symlinked]
         ]
 
-        # If previous method fails, try a new method
-        needed_files = []
+        # If previous method fails, try a new method. I've seen both options work in different cases.
+        needed_files: list[str] = []
         for file in filenames:
             try:
                 parsed_file = parse(file, remove_trash=True)
                 if item.number in parsed_file.season:
-                    needed_files.append(file)
-                if len(needed_files) == len(episodes):
-                    logger.debug("[New Method] All episodes found in files for %s", item.log_string)
-                    break
+                    if parsed_file.episode in episodes:
+                        needed_files.append(file)
+                        if len(needed_files) == len(episodes):
+                            break
             except GarbageTorrent:
                 continue
 
-        if needed_files:
-            for file in needed_files:
-                logger.debug("Season %s is in file %s, marking wanted", item.log_string, file)
-                return True
+        if needed_files == len(episodes):
+            logger.debug("[Retry] All episodes needed were found for %s", item.log_string)
+            return True
         return False
-
-            # eps_in_file = episodes_from_season(file, item.number)
-            # if all(episode in eps_in_file for episode in episodes):
-            # else:
-
-
-# for container in containers:
-#     wanted_files = {}
-#     if isinstance(item, Episode) and any(item.number in parser.episodes_in_season(item.parent.number, episode["filename"]) for episode in container.values()):
-#         wanted_files = container
-#     if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
-#         item.set(
-#             "active_stream",
-#             {"hash": stream_hash, "files": wanted_files, "id": None},
-#         )
-#         return True
 
     def _is_wanted_episode(self, container: dict, item: Episode) -> bool:
         """Check if container has wanted files for an episode"""
@@ -291,12 +263,7 @@ class Debrid:
             return False
 
         for file in filenames:
-            try:
-                parsed_file = parse(file, remove_trash=True)
-            except GarbageTorrent:
-                continue
-
-            with contextlib.suppress(TypeError):
+            with contextlib.suppress(TypeError): # looks like I need to fix the range func in RTN for episodes
                 eps_in_file = episodes_from_season(file, item.parent.number)
             if item.number in eps_in_file:
                 logger.debug("Episode %s is in file %s, marking wanted", item.log_string, file)
@@ -333,10 +300,11 @@ class Debrid:
             for file in season.active_stream["files"].values():
                 for episode in episodes_from_season(file["filename"], season.number):
                     if episode - 1 in range(len(season.episodes)):
-                        season.episodes[episode - 1].set("folder", season.active_stream.get("name"))
-                        season.episodes[episode - 1].set("alternative_folder", season.active_stream.get("alternative_name"))
-                        season.episodes[episode - 1].set("file", file["filename"])
-                        logger.debug("Set file path for %s with file %s", season.episodes[episode - 1].log_string, file["filename"])
+                        if Path(file["filename"]).suffix in WANTED_FORMATS:
+                            season.episodes[episode - 1].set("folder", season.active_stream.get("name"))
+                            season.episodes[episode - 1].set("alternative_folder", season.active_stream.get("alternative_name"))
+                            season.episodes[episode - 1].set("file", file["filename"])
+                            logger.debug("Set filename for %s with file %s", season.episodes[episode - 1].log_string, file["filename"])
             logger.debug("Set file paths for %s", season.log_string)
         except Exception as e:
             logger.error("Failed to handle season paths for %s: %s", season.log_string, e)
@@ -350,12 +318,10 @@ class Debrid:
         try:
             for file in episode.active_stream.get("files").values():
                 if episode.number in episodes_from_season(file["filename"], episode.parent.number):
-                    logger.debug("Setting file path for %s with file %s", episode.log_string, file["filename"])
                     episode.set("folder", episode.active_stream.get("name"))
                     episode.set("alternative_folder", episode.active_stream.get("alternative_name"))
                     episode.set("file", file["filename"])
-                    logger.debug("Set file path for %s with file %s", episode.log_string, file["filename"])
-            logger.debug("Set file paths for %s", episode.log_string)
+                    logger.debug("Set filename for %s with file %s", episode.log_string, file["filename"])
         except Exception as e:
             logger.error("Failed to handle episode paths for %s: %s", episode.log_string, e)
 
