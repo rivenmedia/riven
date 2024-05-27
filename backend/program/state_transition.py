@@ -1,4 +1,3 @@
-from utils.logger import logger
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
@@ -8,6 +7,7 @@ from program.scrapers import Scraping
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
+from utils.logger import logger
 
 
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore

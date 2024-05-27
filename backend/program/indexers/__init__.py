@@ -1,1 +1,1 @@
-from .trakt import TraktIndexer # noqa
+from .trakt import TraktIndexer  # noqa

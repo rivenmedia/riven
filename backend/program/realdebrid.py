@@ -2,20 +2,18 @@
 
 import contextlib
 import time
-from pathlib import Path
 import traceback
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
-from dateutil import parser as dateutil_parser
 
-from RTN import extract_episodes
-
-from program.media.state import States
 from program.media.item import Episode, MediaItem, Movie, Season
+from program.media.state import States
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
-from RTN.parser import episodes_from_season, parse, title_match
+from RTN import extract_episodes
 from RTN.exceptions import GarbageTorrent
+from RTN.parser import episodes_from_season, parse, title_match
 from utils.logger import logger
 from utils.request import get, ping, post
 
@@ -67,16 +65,15 @@ class Debrid:
             if torrent.hash == item.active_stream.get("hash", None):
                 info = self.get_torrent_info(torrent.id)
                 if isinstance(item, Episode):
-                    if not any(
-                        file
-                        for file in info.files
-                        if file.selected == 1
-                        and item.number
-                        in episodes_from_season(
-                            item.parent.number, Path(file.path).name
-                        )
-                    ):
-                        return False
+                    with contextlib.suppress(TypeError):
+                        if not any(
+                            file
+                            for file in info.files
+                            if file.selected == 1
+                            and item.number
+                            in extract_episodes(Path(file.path).name)
+                        ):
+                            return False
 
                 item.set("active_stream.id", torrent.id)
                 self.set_active_files(item)

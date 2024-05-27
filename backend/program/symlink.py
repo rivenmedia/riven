@@ -159,23 +159,27 @@ class Symlinker:
     @staticmethod
     def check_file_existence(item) -> bool:
         """Check if the file exists in the rclone path."""
-        if not item.folder or not item.file:
+        if not item.file or not item.folder:
             return False
 
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-        file_path = rclone_path / item.folder / item.file
-        logger.debug("Checking %s if file exists: '%s'", item.log_string, file_path)
-        if file_path.exists():
+        std_file_path = rclone_path / item.folder / item.file
+        alt_file_path = rclone_path / item.alternative_folder / item.file
+        thd_file_path = rclone_path / item.file / item.file
+        
+        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, std_file_path)
+        if std_file_path.exists():
+            return True
+        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, alt_file_path)
+        if alt_file_path.exists():
+            item.set("folder", item.alternative_folder)
+            return True
+        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, thd_file_path)
+        if thd_file_path.exists():
+            item.set("folder", item.file)
             return True
 
-        if item.alternative_folder:
-            alt_file_path = rclone_path / item.alternative_folder / item.file
-            logger.debug("Checking %s if file exists in alternative folder: '%s'", item.log_string, alt_file_path)
-            if alt_file_path.exists():
-                item.set("folder", item.alternative_folder)
-                return True
-
-        logger.error("File does not exist for %s", item.log_string)
+        logger.error("No file found for %s", item.log_string)
         return False
 
     def _determine_file_name(self, item) -> str | None:

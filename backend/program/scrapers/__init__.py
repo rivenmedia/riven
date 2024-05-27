@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
 import traceback
+from datetime import datetime, timedelta
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
