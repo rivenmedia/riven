@@ -3,6 +3,7 @@
 import contextlib
 import time
 import traceback
+from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
@@ -17,7 +18,7 @@ from RTN.parser import episodes_from_season, parse, title_match
 from utils.logger import logger
 from utils.request import get, ping, post
 
-WANTED_FORMATS = (".mkv", ".mp4", ".avi")
+WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 
@@ -172,24 +173,12 @@ class Debrid:
                 return True
         return False
 
-
-# for container in containers:
-#     wanted_files = {}
-#     if isinstance(item, Movie) and all(file["filesize"] > 200000 for file in container.values()):
-#         wanted_files = container
-#     if len(wanted_files) > 0 and all(item for item in wanted_files.values() if Path(item["filename"]).suffix in WANTED_FORMATS):
-#         item.set(
-#             "active_stream",
-#             {"hash": stream_hash, "files": wanted_files, "id": None},
-#         )
-#         return True
-
     def _is_wanted_movie(self, container: dict, item: Movie) -> bool:
         """Check if container has wanted files for a movie"""
         filenames = [
             file["filename"] for file in container.values() 
             if file and file["filesize"] > 200000 
-            and file["filename"].lower().endswith(WANTED_FORMATS)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
         if not filenames:
             return False
@@ -209,7 +198,7 @@ class Debrid:
         filenames = [
             file["filename"] for file in container.values() 
             if file and file["filesize"] > 40000 
-            and file["filename"].lower().endswith(WANTED_FORMATS)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:
@@ -253,7 +242,7 @@ class Debrid:
         filenames = [
             file["filename"] for file in container.values() 
             if file and file["filesize"] > 40000 
-            and file["filename"].lower().endswith(WANTED_FORMATS)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:
@@ -297,7 +286,7 @@ class Debrid:
             for file in season.active_stream["files"].values():
                 for episode in episodes_from_season(file["filename"], season.number):
                     if episode - 1 in range(len(season.episodes)):
-                        if Path(file["filename"]).suffix in WANTED_FORMATS:
+                        if splitext(file["filename"].lower())[1] in WANTED_FORMATS:
                             season.episodes[episode - 1].set("folder", season.active_stream.get("name"))
                             season.episodes[episode - 1].set("alternative_folder", season.active_stream.get("alternative_name"))
                             season.episodes[episode - 1].set("file", file["filename"])
