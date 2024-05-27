@@ -1,5 +1,6 @@
 """Realdebrid module"""
 
+import contextlib
 import time
 from pathlib import Path
 import traceback
@@ -295,13 +296,11 @@ class Debrid:
             except GarbageTorrent:
                 continue
 
-            eps_in_file = episodes_from_season(file, item.parent.number)
+            with contextlib.suppress(TypeError):
+                eps_in_file = episodes_from_season(file, item.parent.number)
             if item.number in eps_in_file:
                 logger.debug("Episode %s is in file %s, marking wanted", item.log_string, file)
                 return True
-            else:
-                logger.debug("Episode %s is in file %s, but not correct format", item.log_string, file)
-                return False
         return False
 
     def _set_file_paths(self, item: MediaItem):
