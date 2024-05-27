@@ -54,6 +54,6 @@
 		"tailwind-merge": "^2.2.0",
 		"tailwind-variants": "^0.2.0",
 		"uuid": "^9.0.1",
-		"zod": "^3.22.4"
+		"zod": "^3.22.5"
 	}
 }

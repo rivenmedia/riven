@@ -19,7 +19,7 @@ dependencies:
     version: 8.0.0-rc20(svelte@4.2.9)
   formsnap:
     specifier: ^0.4.2
-    version: 0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.4)
+    version: 0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.5)
   lucide-svelte:
     specifier: ^0.344.0
     version: 0.344.0(svelte@4.2.9)
@@ -40,7 +40,7 @@ dependencies:
     version: 0.3.11(svelte@4.2.9)
   sveltekit-superforms:
     specifier: ^1.13.4
-    version: 1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.4)
+    version: 1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.5)
   tailwind-merge:
     specifier: ^2.2.0
     version: 2.2.1
@@ -51,8 +51,8 @@ dependencies:
     specifier: ^9.0.1
     version: 9.0.1
   zod:
-    specifier: ^3.22.4
-    version: 3.22.4
+    specifier: ^3.22.5
+    version: 3.22.5
 
 devDependencies:
   '@sveltejs/adapter-node':
@@ -1684,7 +1684,7 @@ packages:
       cross-spawn: 7.0.3
       signal-exit: 4.1.0
 
-  /formsnap@0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.4):
+  /formsnap@0.4.2(svelte@4.2.9)(sveltekit-superforms@1.13.4)(zod@3.22.5):
     resolution: {integrity: sha512-iUhGDUcjUW9tCOYLZ1rbNR1wkjtEbrXDxhUnl7+zPKjP5K8ikDfhZWH1cquKdUcHJoSE7M/Rruvg0fNQMjSNtA==}
     peerDependencies:
       svelte: ^4.0.0
@@ -1692,8 +1692,8 @@ packages:
       zod: ^3.22.2
     dependencies:
       svelte: 4.2.9
-      sveltekit-superforms: 1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.4)
-      zod: 3.22.4
+      sveltekit-superforms: 1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.5)
+      zod: 3.22.5
     dev: false
 
   /fraction.js@4.3.7:
@@ -2887,7 +2887,7 @@ packages:
       magic-string: 0.30.5
       periscopic: 3.1.0
 
-  /sveltekit-superforms@1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.4):
+  /sveltekit-superforms@1.13.4(@sveltejs/kit@2.5.0)(svelte@4.2.9)(zod@3.22.5):
     resolution: {integrity: sha512-rM2+Ictaw7OAIorCLmvg82orci/mtO9ZouI4emtx8SyYngx9aED+eNZlHPLufgB6D7geL2a+hMSFtM3zmMQixQ==}
     peerDependencies:
       '@sveltejs/kit': 1.x || 2.x
@@ -2898,7 +2898,7 @@ packages:
       devalue: 4.3.2
       klona: 2.0.6
       svelte: 4.2.9
-      zod: 3.22.4
+      zod: 3.22.5
     dev: false
 
   /tabbable@6.2.0:
@@ -3242,6 +3242,6 @@ packages:
     engines: {node: '>=12.20'}
     dev: true
 
-  /zod@3.22.4:
-    resolution: {integrity: sha512-iC+8Io04lddc+mVqQ9AZ7OQ2MrUKGN+oIQyq1vemgt46jwCwLfhq7/pwnBnNXXXZb8VTVLKwp9EDkx+ryxIWmg==}
+  /zod@3.22.5:
+    resolution: {integrity: sha512-HqnGsCdVZ2xc0qWPLdO25WnseXThh0kEYKIdV5F/hTHO75hNZFp8thxSeHhiPrHZKrFTo1SOgkAj9po5bexZlw==}
     dev: false
