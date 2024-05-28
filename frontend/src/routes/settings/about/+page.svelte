@@ -41,6 +41,11 @@
 		const data = await fetch(
 			'https://raw.githubusercontent.com/dreulavelle/iceberg/main/backend/utils/default_settings.json'
 		);
+		if (data.status !== 200) {
+			toast.error('Failed to fetch latest version.');
+			updateLoading = false;
+			return;
+		}
 		const json = await data.json();
 		updateLoading = false;
 
@@ -64,15 +69,15 @@
 		>
 	</Alert.Root>
 
-	<h2 class="text-xl md:text-2xl font-semibold mt-2">About</h2>
-	<p class="text-sm md:text-base text-muted-foreground mb-2">Know what you're running.</p>
-	<div class="flex flex-col gap-4 w-full">
-		<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-			<h3 class="text-sm md:text-base font-semibold w-48 min-w-48 text-muted-foreground">
+	<h2 class="mt-2 text-xl font-semibold md:text-2xl">About</h2>
+	<p class="mb-2 text-sm md:text-base text-muted-foreground">Know what you're running.</p>
+	<div class="flex flex-col w-full gap-4">
+		<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
+			<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
 				{formatWords('Version')}
 			</h3>
-			<div class="flex flex-wrap gap-2 w-full">
-				<p class="text-xs md:text-sm break-words p-2 rounded-md bg-secondary">
+			<div class="flex flex-wrap w-full gap-2">
+				<p class="p-2 text-xs break-words rounded-md md:text-sm bg-secondary">
 					{version}
 				</p>
 				<Button
@@ -94,12 +99,12 @@
 		</div>
 		{#each Object.keys(aboutData) as key}
 			<Separator />
-			<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-				<h3 class="text-sm md:text-base font-semibold w-48 min-w-48 text-muted-foreground">
+			<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
+				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<p class="text-xs md:text-sm break-words p-2 rounded-md bg-secondary">
+					<p class="p-2 text-xs break-words rounded-md md:text-sm bg-secondary">
 						{aboutData[key]}
 					</p>
 				</div>
@@ -107,19 +112,19 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl md:text-2xl font-semibold mt-2">Support</h2>
-	<p class="text-sm md:text-base text-muted-foreground mb-2">
+	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Support</h2>
+	<p class="mb-2 text-sm md:text-base text-muted-foreground">
 		Need help? Join the Discord server or open an issue on GitHub.
 	</p>
-	<div class="flex flex-col gap-4 w-full">
+	<div class="flex flex-col w-full gap-4">
 		{#each Object.keys(supportData) as key}
 			<Separator />
-			<div class="flex flex-col md:flex-row items-start md:items-center mb-2">
-				<h3 class="text-sm md:text-base font-semibold w-48 min-w-48 text-muted-foreground">
+			<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
+				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<a href={supportData[key]} class="text-xs md:text-sm break-words underline">
+					<a href={supportData[key]} class="text-xs underline break-words md:text-sm">
 						{supportData[key]}
 					</a>
 				</div>
