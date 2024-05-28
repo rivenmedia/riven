@@ -29,12 +29,12 @@ class Torrentio:
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
-        logger.info("Torrentio initialized!")
+        logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:
         """Validate the Torrentio settings."""
         if not self.settings.enabled:
-            logger.debug("Torrentio is set to disabled.")
+            logger.warning("Torrentio is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Torrentio URL is not configured and will not be used.")
@@ -45,7 +45,7 @@ class Torrentio:
             if response.ok:
                 return True
         except Exception as e:
-            logger.exception("Torrentio failed to initialize: %s", e)
+            logger.exception(f"Torrentio failed to initialize: {e}", )
             return False
         return True
 
@@ -57,31 +57,36 @@ class Torrentio:
             return
 
         try:
-            yield self._scrape_item(item)
+            yield self.scrape(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Rate limit exceeded for item: %s", item.log_string)
+            logger.warning(f"Rate limit exceeded for item: {item.log_string}")
             yield item
             return
         except ConnectTimeout:
-            logger.warn("Torrentio connection timeout for item: %s", item.log_string)
+            self.minute_limiter.limit_hit()
+            logger.warning(f"Torrentio connection timeout for item: {item.log_string}")
         except ReadTimeout:
-            logger.warn("Torrentio read timeout for item: %s", item.log_string)
+            self.minute_limiter.limit_hit()
+            logger.warning(f"Torrentio read timeout for item: {item.log_string}")
         except RequestException as e:
-            logger.warn("Torrentio request exception: %s", e)
+            self.minute_limiter.limit_hit()
+            logger.error(f"Torrentio request exception: {e}")
         except Exception as e:
-            logger.warn("Torrentio exception thrown: %s", e)
-
+            self.minute_limiter.limit_hit()
+            logger.exception(f"Torrentio exception thrown: {e}")
         yield item
 
-    def _scrape_item(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
+        elif stream_count > 0:
+            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return item
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
@@ -104,7 +109,7 @@ class Torrentio:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
-                logger.error("Correct title not found for %s", item.log_string)
+                logger.scraper(f"Correct title not found for {item.log_string}")
                 return {}, 0
 
             for stream in response.data.streams:
@@ -112,8 +117,8 @@ class Torrentio:
                 if not stream.infoHash or not raw_title:
                     continue
                 if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
-                    logger.debug("Skipping blacklisted hash: %s", stream.infoHash)
-                    continue  # Skip this torrent as its hash is blacklisted
+                    logger.log("CACHE", f"Skipping blacklisted hash {stream.infoHash}")
+                    continue
                 try:
                     torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
                 except GarbageTorrent:

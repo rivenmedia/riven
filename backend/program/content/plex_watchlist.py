@@ -21,11 +21,11 @@ class PlexWatchlist:
             return
         self.token = settings_manager.settings.plex.token
         self.recurring_items = set()
-        logger.info("Plex Watchlist initialized!")
+        logger.success("Plex Watchlist initialized!")
 
     def validate(self):
         if not self.settings.enabled:
-            logger.debug("Plex Watchlists is set to disabled.")
+            logger.warning("Plex Watchlists is set to disabled.")
             return False
         if self.settings.rss:
             try:
@@ -35,17 +35,14 @@ class PlexWatchlist:
                 return True
             except HTTPError as e:
                 if e.response.status_code == 404:
-                    logger.warn(
-                        "Plex RSS URL is Not Found. Please check your RSS URL in settings."
-                    )
+                    logger.warning("Plex RSS URL is Not Found. Please check your RSS URL in settings.")
                 else:
-                    logger.warn(
-                        "Plex RSS URL is not reachable (HTTP status code: %s). Falling back to using user Watchlist.",
-                        e.response.status_codez,
+                    logger.warning(
+                        f"Plex RSS URL is not reachable (HTTP status code: {e.response.status_code}). Falling back to using user Watchlist."
                     )
                 return True
             except Exception as e:
-                logger.exception("Failed to validate Plex RSS URL: %s", e)
+                logger.exception(f"Failed to validate Plex RSS URL: {e}")
                 return True
         return True
 
@@ -67,9 +64,7 @@ class PlexWatchlist:
         try:
             response = get(self.settings.rss, timeout=60)
             if not response.is_ok:
-                logger.error(
-                    "Failed to fetch Plex RSS feed: HTTP %s", response.status_code
-                )
+                logger.error(f"Failed to fetch Plex RSS feed: HTTP {response.status_code}")
                 return
             for item in response.data.items:
                 for guid in item.guids:
@@ -79,10 +74,7 @@ class PlexWatchlist:
                             self.recurring_items.add(imdb_id)
                             yield imdb_id
         except Exception as e:
-            logger.error(
-                "An unexpected error occurred while fetching Plex RSS feed: %s", e
-            )
-
+            logger.error(f"An unexpected error occurred while fetching Plex RSS feed: {e}")
             return
 
     def _get_items_from_watchlist(self) -> Generator[MediaItem, None, None]:
@@ -104,9 +96,7 @@ class PlexWatchlist:
     def _ratingkey_to_imdbid(ratingKey: str) -> str:
         """Convert Plex rating key to IMDb ID"""
         token = settings_manager.settings.plex.token
-        filter_params = (
-            "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
-        )
+        filter_params = "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
         response = get(url)
         if response.is_ok and hasattr(response.data, "MediaContainer"):  # noqa: SIM102
@@ -114,5 +104,5 @@ class PlexWatchlist:
                 for guid in response.data.MediaContainer.Metadata[0].Guid:
                     if "imdb://" in guid.id:
                         return guid.id.split("//")[-1]
-        logger.debug("Failed to fetch IMDb ID for ratingKey: %s", ratingKey)
+        logger.debug(f"Failed to fetch IMDb ID for ratingKey: {ratingKey}")
         return None

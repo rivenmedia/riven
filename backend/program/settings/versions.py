@@ -105,9 +105,9 @@ class AnimeRanking(BaseRankingModel):
 
 
 class AllRanking(BaseRankingModel):
-    uhd: int = 1
+    uhd: int = 2
     fhd: int = 3
-    hd: int = 2
+    hd: int = 1
     sd: int = 1
     dolby_video: int = 1
     hdr: int = 1
@@ -157,9 +157,7 @@ class RankModels:
         """Get a ranking model by name."""
         model = getattr(cls, name, None)
         if model is None:
-            logger.warning(
-                f"Ranking model '{name}' not found. Setting to custom model."
-            )
+            logger.warning(f"Ranking model '{name}' not found. Setting to custom model.")
             return cls.custom
         return model
 

@@ -42,9 +42,9 @@ class Symlinker:
             return
         if self.initialized:
             self.start_monitor()
-        logger.info("Rclone path symlinks are pointed to: %s", self.rclone_path)
-        logger.info("Symlinks will be placed in: %s", self.settings.library_path)
-        logger.info("Symlink initialized!")
+        logger.info(f"Rclone path symlinks are pointed to: {self.rclone_path}")
+        logger.info(f"Symlinks will be placed in: {self.settings.library_path}")
+        logger.success("Symlink initialized!")
 
     def validate(self):
         """Validate paths and create the initial folders."""
@@ -60,10 +60,10 @@ class Symlinker:
             )
             return False
         if not self.rclone_path.is_absolute():
-            logger.error("rclone_path is not an absolute path: %s", self.rclone_path)
+            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
             return False
         if not library_path.is_absolute():
-            logger.error("library_path is not an absolute path: %s", library_path)
+            logger.error(f"library_path is not an absolute path: {library_path}")
             return False
         try:
             if not self.create_initial_folders():
@@ -73,11 +73,11 @@ class Symlinker:
                 return False
             return True
         except FileNotFoundError as e:
-            logger.error("Path not found: %s", e)
+            logger.error(f"Path not found: {e}")
         except PermissionError as e:
-            logger.error("Permission denied when accessing path: %s", e)
+            logger.error(f"Permission denied when accessing path: {e}")
         except OSError as e:
-            logger.error("OS error when validating paths: %s", e)
+            logger.error(f"OS error when validating paths: {e}")
         return False
 
     def start_monitor(self):
@@ -119,13 +119,13 @@ class Symlinker:
                 if not folder.exists():
                     folder.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError as e:
-            logger.error("Path not found when creating directory: %s", e)
+            logger.error(f"Path not found when creating directory: {e}")
             return False
         except PermissionError as e:
-            logger.error("Permission denied when creating directory: %s", e)
+            logger.error(f"Permission denied when creating directory: {e}")
             return False
         except OSError as e:
-            logger.error("OS error when creating directory: %c", e)
+            logger.error(f"OS error when creating directory: {e}")
             return False
         return True
 
@@ -136,7 +136,7 @@ class Symlinker:
                 item.set("symlinked", True)
                 item.set("symlinked_at", datetime.now())
         except Exception as e:
-            logger.exception("Exception thrown when creating symlink for %s: %s", item.log_string, e)
+            logger.exception(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
         item.set("symlinked_times", item.symlinked_times + 1)
         yield item
@@ -158,7 +158,7 @@ class Symlinker:
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug("Sleeping for 5 seconds before checking if file exists again for %s", item.log_string)
+        logger.debug(f"Sleeping for 5 seconds before checking if file exists again for {item.log_string}")
         time.sleep(5)
         return True
 
@@ -182,7 +182,7 @@ class Symlinker:
             item.set("folder", item.file)
             return True
 
-        logger.error("No file found in rclone path for %s with file: %s", item.log_string, item.file)
+        logger.error(f"No file found in rclone path for {item.log_string} with file: {item.file}")
         return False
 
     def _determine_file_name(self, item) -> str | None:
@@ -230,17 +230,21 @@ class Symlinker:
             return False
 
         if os.path.exists(destination):
-            logger.debug("Skipping existing symlink for %s", item.log_string)
+            logger.log("SYMLINKER", f"Skipping existing symlink for {item.log_string}")
             item.set("symlinked", True)
             return True
 
         try:
             os.symlink(source, destination)
-            logger.info("Created symlink for %s", item.log_string)
+            logger.log("SYMLINKER", f"Created symlink for {item.log_string}")
             item.set("symlinked", True)
+            item.set("symlinked_at", datetime.now())
+            item.set("symlinked_times", item.symlinked_times + 1)
+            return True
+        except FileExistsError:
             return True
         except OSError as e:
-            logger.error("Failed to create symlink for %s: %s", item.log_string, e)
+            logger.debug(f"Failed to create symlink for {item.log_string}: {e}")
             return False
 
     def _symlink_episode(self, episode) -> bool:

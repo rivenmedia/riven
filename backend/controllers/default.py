@@ -56,7 +56,7 @@ async def get_services(request: Request):
 @router.post("/overseerr")
 async def overseerr_webhook(request: Request):
     response = await request.json()
-    logger.debug("Received request for: %s", response.get("subject", "Unknown"))
+    logger.debug(f"Received request for: {response.get('subject', 'Unknown')}")
     try:
         req = OverseerrWebhook.model_validate(response)
     except pydantic.ValidationError:
@@ -65,7 +65,7 @@ async def overseerr_webhook(request: Request):
     if not imdb_id:
         imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
         if not imdb_id:
-            logger.error("Failed to get imdb_id from TMDB", tmdb_id=req.media.tmdbId)
+            logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
             return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
     item = {"imdb_id": imdb_id, "requested_by": "overseerr", "requested_at": datetime.now()}
     request.app.program.add_to_queue(item)

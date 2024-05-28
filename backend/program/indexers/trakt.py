@@ -27,11 +27,11 @@ class TraktIndexer:
             logger.error("Item is None")
             return
         if (imdb_id := item.imdb_id) is None:
-            logger.error("Item %s does not have an imdb_id, cannot index it", item.log_string)
+            logger.error(f"Item {item.log_string} does not have an imdb_id, cannot index it")
             return
         item = create_item_from_imdb_id(imdb_id)
         if not item:
-            logger.error("Failed to get item from imdb_id: %s", imdb_id)
+            logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
         if isinstance(item, Show):
             self._add_seasons_to_show(item, imdb_id)
@@ -66,7 +66,7 @@ class TraktIndexer:
 def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
-        logger.debug("Unknown item type %s for %s not found in list of acceptable items", item_type, data.title)
+        logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
         return None
     formatted_aired_at = _get_formatted_date(data, item_type)
     item = {
@@ -121,7 +121,7 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
-        logger.error("Failed to fetch item from imdb_id: %s", imdb_id)
+        logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
         return None
 
     media_type = response.data[0].type
@@ -139,5 +139,5 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
         return None
     if hasattr(response.data[0], "ids"):
         return response.data[0].ids.get("imdb", None)
-    logger.error("Failed to fetch imdb_id for tmdb_id: %s", tmdb_id)
+    logger.error(f"Failed to fetch imdb_id for tmdb_id: {tmdb_id}")
     return None

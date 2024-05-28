@@ -21,7 +21,7 @@ class Trakt:
             return
         self.updater = Trakt()
         self.next_run_time = 0
-        logger.info("Trakt initialized!")
+        logger.success("Trakt initialized!")
 
     def validate(self) -> bool:
         """Validate Trakt settings."""

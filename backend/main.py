@@ -52,13 +52,13 @@ class Server(uvicorn.Server):
                 time.sleep(1e-3)
             yield
         except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.critical("Error in server thread: %s", e)
+            logger.exception(traceback.format_exc())
+            logger.exception(f"Error in server thread: {e}")
             raise e
         finally:
             self.should_exit = True
 
-config = uvicorn.Config(app, host="0.0.0.0", port=8080)
+config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
 server = Server(config=config)
 
 
@@ -69,8 +69,7 @@ with server.run_in_thread():
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        logger.error(traceback.format_exc())
-        logger.critical("Error in main thread: %s", e)
+        logger.exception(f"Error in main thread: {e}")
     finally:
         logger.info("Shutting down server.")
         app.program.stop()

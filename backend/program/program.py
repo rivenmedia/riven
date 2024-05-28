@@ -17,7 +17,7 @@ from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
-from utils.logger import logger
+from utils.logger import logger, clean_old_logs
 
 from .cache import HashCache
 from .pickly import Pickly
@@ -37,14 +37,8 @@ class Program(threading.Thread):
         self.initialized = False
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
-        logger.configure_logger(
-            debug=settings_manager.settings.debug, log=settings_manager.settings.log
-        )
 
     def initialize_services(self):
-        # Content services need to see whats in the container,
-        # so items can be skipped if we already know about it.
-        # This will cause a loop for items to be continuously processed if not skipped.
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -70,29 +64,29 @@ class Program(threading.Thread):
         }
 
     def start(self):
-        logger.info("Iceberg v%s starting!", settings_manager.settings.version)
+        logger.log("PROGRAM", f"Iceberg v{settings_manager.settings.version} starting!")
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
-        # lets check if settings.json exists, if it doesnt, lets create it
         if not settings_manager.settings_file.exists():
-            logger.info("Settings file not found, creating default settings")
+            logger.log("PROGRAM", "Settings file not found, creating default settings")
             settings_manager.save()
 
         try:
             self.initialize_services()
+            clean_old_logs()
         except Exception:
-            logger.error(traceback.format_exc())
+            logger.error("Failed to initialize services")
 
-        logger.info("----------------------------------------------")
-        logger.info("Iceberg is waiting for configuration to start!")
-        logger.info("----------------------------------------------")
+        logger.log("PROGRAM", "----------------------------------------------")
+        logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
+        logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
 
         self.initialized = True
-        logger.info("Iceberg started!")
+        logger.log("PROGRAM", "Iceberg started!")
 
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
@@ -111,7 +105,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         self.running = True
-        logger.info("Iceberg is running!")
+        logger.success("Iceberg is running!")
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
@@ -135,7 +129,7 @@ class Program(threading.Thread):
                 replace_existing=True,
                 next_run_time=datetime.now(),
             )
-            logger.info("Scheduled %s to run every %s seconds.", func.__name__, config["interval"])
+            logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
@@ -156,22 +150,25 @@ class Program(threading.Thread):
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
             )
-            logger.info("Scheduled %s to run every %s seconds.", service_cls.__name__, update_interval)
+            logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _process_future_item(self, future: Future, service: Service, item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
                 if not isinstance(item, MediaItem):
-                    logger.error("Service %s emitted item %s of type %s, skipping", service.__name__, item, item.__class__.__name__)
+                    logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
                 self.event_queue.put(Event(emitted_by=service, item=item))
         except Exception:
-            logger.error("Service %s failed with exception %s", service.__name__, traceback.format_exc())
+            logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
-            logger.debug(f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+            if service.__name__ == "TraktIndexer":
+                logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+            else:
+                logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
@@ -193,7 +190,7 @@ class Program(threading.Thread):
             )
 
             if not next_service and isinstance(existing_item, (Movie, Show)) and existing_item.state == States.Completed:
-                logger.info(f"Item {existing_item.log_string} has been completed")
+                logger.success(f"Item {existing_item.log_string} has been completed")
 
             if updated_item:
                 self.media_items.upsert(updated_item)
@@ -225,26 +222,26 @@ class Program(threading.Thread):
             self.executor.shutdown(wait=False)
         if hasattr(self, "pickly") and self.pickly.running:
             self.pickly.stop()
-        logger.info("Iceberg has been stopped.")
+        logger.log("PROGRAM", "Iceberg has been stopped.")
 
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
         if item is not None and item not in self.media_items:
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
-            logger.info(f"Added {item.log_string} to the queue")
+            logger.log("PROGRAM", f"Added {item.log_string} to the queue")
             return True
         return False
 
     def clear_queue(self):
         """Clear the event queue."""
-        logger.info("Clearing the event queue. Please wait.")
+        logger.log("PROGRAM", "Clearing the event queue. Please wait.")
         while not self.event_queue.empty():
             try:
                 self.event_queue.get_nowait()
                 self.event_queue.task_done()
             except Empty:
                 break
-        logger.info("Cleared the event queue. Ready for shutdown.")
+        logger.log("PROGRAM", "Cleared the event queue. Ready for shutdown.")
 
     def _rebuild_library(self):
         """Rebuild the media items container from the SymlinkLibrary service."""
@@ -255,11 +252,11 @@ class Program(threading.Thread):
         items_to_update = [item for item in new_items if item.item_id in existing_item_ids and item != self.media_items.get(item.item_id)]
 
         if items_to_add:
-            logger.info(f"Adding {len(items_to_add)} new items to the media items container")
+            logger.log("PROGRAM", f"Adding {len(items_to_add)} new items to the media items container")
             for item in items_to_add:
                 self.media_items.upsert(item)
 
         if items_to_update:
-            logger.info(f"Updating {len(items_to_update)} existing items in the media items container")
+            logger.log("PROGRAM", f"Updating {len(items_to_update)} existing items in the media items container")
             for item in items_to_update:
                 self.media_items.upsert(item)

@@ -48,7 +48,7 @@ class SymlinkLibrary:
         for path, filename in movies:
             imdb_id = self.extract_imdb_id(filename)
             if not imdb_id:
-                logger.error("Can't extract movie imdb_id at path %s", path / filename)
+                logger.error(f"Can't extract movie imdb_id at path {path / filename}")
                 continue
             movie_item = Movie({"imdb_id": imdb_id})
             movie_item.set("symlinked", True)
@@ -62,10 +62,7 @@ class SymlinkLibrary:
             imdb_id = self.extract_imdb_id(show)
             title = self.extract_title(show)
             if not imdb_id or not title:
-                logger.error(
-                    "Can't extract episode imdb_id or title at path %s",
-                    shows_dir / show,
-                )
+                logger.error(f"Can't extract episode imdb_id or title at path {shows_dir / show}")
                 continue
             show_item = Show({"imdb_id": imdb_id, "title": title})
             for season_item in self.process_seasons(shows_dir / show, show_item):
@@ -77,10 +74,7 @@ class SymlinkLibrary:
         for season in os.listdir(show_path):
             season_number = self.extract_season_number(season)
             if not season_number:
-                logger.error(
-                    "Can't extract season number at path %s",
-                    show_path / season,
-                )
+                logger.error(f"Can't extract season number at path {show_path / season}")
                 continue
             season_item = Season({"number": season_number})
             season_item.set("parent", show_item)
@@ -93,10 +87,7 @@ class SymlinkLibrary:
         for episode in os.listdir(season_path):
             episode_number = self.extract_episode_number(episode)
             if not episode_number:
-                logger.debug(
-                    "Deleting episode %s because we can't extract episode number",
-                    season_path / episode,
-                )
+                logger.debug(f"Deleting episode {season_path / episode} because we can't extract episode number")
                 os.remove(season_path / episode)
                 continue
             episode_item = Episode({"number": episode_number})

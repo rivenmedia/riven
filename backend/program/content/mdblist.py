@@ -20,11 +20,11 @@ class Mdblist:
         self.recurring_items = set()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
-        logger.info("mdblist initialized")
+        logger.success("mdblist initialized")
 
     def validate(self):
         if not self.settings.enabled:
-            logger.debug("Mdblist is set to disabled.")
+            logger.warning("Mdblist is set to disabled.")
             return False
         if self.settings.lists == [""]:
             logger.error("Mdblist is enabled, but list is empty.")

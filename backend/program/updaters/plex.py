@@ -23,7 +23,7 @@ class PlexUpdater:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        logger.info("Plex Updater initialized!")
+        logger.success("Plex Updater initialized!")
 
     def validate(self):  # noqa: C901
         """Validate Plex library"""
@@ -46,32 +46,32 @@ class PlexUpdater:
             self.initialized = True
             return True
         except Unauthorized:
-            logger.error("Plex is not authorized!")
+            logger.critical("Plex is not authorized!")
         except BadRequest as e:
-            logger.error("Plex is not configured correctly: %s", str(e))
+            logger.critical(f"Plex is not configured correctly: {e}")
         except MaxRetryError as e:
-            logger.error("Plex max retries exceeded: %s", str(e))
+            logger.critical(f"Plex max retries exceeded: {e}")
         except NewConnectionError as e:
-            logger.error("Plex new connection error: %s", str(e))
+            logger.critical(f"Plex new connection error: {e}")
         except RequestsConnectionError as e:
-            logger.error("Plex requests connection error: %s", str(e))
+            logger.critical(f"Plex requests connection error: {e}")
         except RequestError as e:
-            logger.error("Plex request error: %s", str(e))
+            logger.critical(f"Plex request error: {e}")
         except Exception as e:
-            logger.error("Plex exception thrown: %s", str(e))
+            logger.critical(f"Plex exception thrown: {e}")
         return False
 
     def run(self, item):
         """Update Plex library section for a single item"""
         if not item or not item.update_folder:
-            logger.debug("Item %s is missing update folder: %s", item.log_string, item.update_folder)
+            logger.debug(f"Item {item.log_string} is missing update folder: {item.update_folder}")
             yield item
         item_type = "show" if isinstance(item, Episode) else "movie"
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
                     if path in item.update_folder and self._update_section(section, item):
-                        logger.info("Updated section %s for %s", section.title, item.log_string)
+                        logger.info(f"Updated section {section.title} for {item.log_string}")
         yield item
 
     def _update_section(self, section, item) :
@@ -81,7 +81,7 @@ class PlexUpdater:
             section.update(str(update_folder))
             item.set("update_folder", "updated")
             return True
-        logger.error("Failed to update section %s for %s", section.title, item.log_string)
+        logger.error(f"Failed to update section {section.title} for {item.log_string}")
         return False
 
     def map_sections_with_paths(self):

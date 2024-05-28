@@ -31,12 +31,12 @@ class Annatar:
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
-        logger.info("Annatar initialized!")
+        logger.success("Annatar initialized!")
 
     def validate(self) -> bool:
         """Validate the Annatar settings."""
         if not self.settings.enabled:
-            logger.debug("Annatar is set to disabled.")
+            logger.warning("Annatar is set to disabled.")
             return False
         if not isinstance(self.settings.url, str) or not self.settings.url:
             logger.error("Annatar URL is not configured and will not be used.")
@@ -57,7 +57,7 @@ class Annatar:
             logger.debug("Annatar read timeout during initialization.")
             return False
         except Exception as e:
-            logger.exception("Annatar failed to initialize: %s", e)
+            logger.exception(f"Annatar failed to initialize: {e}")
             return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
@@ -68,38 +68,39 @@ class Annatar:
             return
 
         try:
-            yield self._scrape_item(item)
+            yield self.scrape(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
+            logger.warning("Annatar rate limit hit for item: {item.log_string}")
         except ConnectTimeout:
             self.second_limiter.limit_hit()
         except ReadTimeout:
             self.second_limiter.limit_hit()
-            logger.debug("Annatar read timeout for item: %s", item.log_string)
+            logger.warning(f"Annatar read timeout for item: {item.log_string}")
         except RequestException as e:
             if e.response.status_code == 525:
-                logger.debug("Annatar SSL handshake failed for item: %s", item.log_string)
+                logger.error(f"Annatar SSL handshake failed for item: {item.log_string}")
             elif e.response.status_code == 429:
                 self.minute_limiter.limit_hit()
                 self.second_limiter.limit_hit()
             else:
                 self.second_limiter.limit_hit()
-                logger.debug("Annatar request exception: %s", e)
+                logger.exception(f"Annatar request exception: {e}")
         except Exception as e:
             self.second_limiter.limit_hit()
-            logger.exception("Annatar failed to scrape item with error: %s", e)
+            logger.exception(f"Annatar failed to scrape item with error: {e}")
         yield item
 
-    def _scrape_item(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
         elif stream_count > 0:
-            logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
+            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return item
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
@@ -138,6 +139,7 @@ class Annatar:
                     continue
 
                 if self.hash_cache.is_blacklisted(stream.hash):
+                    logger.log("CACHE", f"Skipping blacklisted hash {stream.hash}")
                     continue
 
                 try:

@@ -53,19 +53,19 @@ class PlexLibrary:
             self.initialized = True
             return True
         except Unauthorized:
-            logger.error("Plex is not authorized!")
+            logger.exception("Plex is not authorized!")
         except BadRequest as e:
-            logger.error("Plex is not configured correctly: %s", str(e))
+            logger.exception(f"Plex is not configured correctly: {str(e)}")
         except MaxRetryError as e:
-            logger.error("Plex max retries exceeded: %s", str(e))
+            logger.exception(f"Plex max retries exceeded: {str(e)}")
         except NewConnectionError as e:
-            logger.error("Plex new connection error: %s", str(e))
+            logger.exception(f"Plex new connection error: {str(e)}")
         except RequestsConnectionError as e:
-            logger.error("Plex requests connection error: %s", str(e))
+            logger.exception(f"Plex requests connection error: {str(e)}")
         except RequestError as e:
-            logger.error("Plex request error: %s", str(e))
+            logger.exception(f"Plex request error: {str(e)}")
         except Exception as e:
-            logger.error("Plex exception thrown: %s", str(e))
+            logger.exception(f"Plex exception thrown: {str(e)}")
         return False
 
     def run(self):
@@ -102,9 +102,11 @@ class PlexLibrary:
 
         if not processed_sections:
             logger.error(
-                "Failed to process any sections.  Ensure that your library_path"
-                " of {self.library_path} folders are included in the relevant sections"
-                " (found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
+                (
+                    "Failed to process any sections. Ensure that your library_path of "
+                    f"{self.library_path} folders are included in the relevant sections "
+                    "(found in Plex Web UI Setting > Manage > Libraries > Edit Library)."
+                )
             )
             return
         yield from items
@@ -186,5 +188,5 @@ def _map_item_from_data(item):
         return Episode(media_item_data)
     else:
         # Specials may end up here..
-        logger.error("Unknown Item: %s with type %s", item.title, item.type)
+        logger.error(f"Unknown Item: {item.title} with type {item.type}")
         return None

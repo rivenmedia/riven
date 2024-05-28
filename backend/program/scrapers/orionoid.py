@@ -42,17 +42,15 @@ class Orionoid:
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
-        logger.info("Orionoid initialized!")
+        logger.success("Orionoid initialized!")
 
     def validate(self) -> bool:
         """Validate the Orionoid class_settings."""
         if not self.settings.enabled:
-            logger.debug("Orionoid is set to disabled.")
+            logger.warning("Orionoid is set to disabled.")
             return False
         if len(self.settings.api_key) != 32 or self.settings.api_key == "":
-            logger.error(
-                "Orionoid API Key is not valid or not set. Please check your settings."
-            )
+            logger.error("Orionoid API Key is not valid or not set. Please check your settings.")
             return False
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
@@ -60,22 +58,19 @@ class Orionoid:
             if response.is_ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
                     logger.error(
-                        "Orionoid API Key is invalid. Status: %s",
-                        response.data.result.status,
+                        f"Orionoid API Key is invalid. Status: {response.data.result.status}",
                     )
                     return False
                 if not response.is_ok:
                     logger.error(
-                        "Orionoid Status Code: %s, Reason: %s",
-                        response.status_code,
-                        response.data.reason,
+                        f"Orionoid Status Code: {response.status_code}, Reason: {response.data.reason}",
                     )
                     return False
                 if response.data.data.subscription.package.type == "unlimited":
                     self.is_unlimited = True
             return True
         except Exception as e:
-            logger.exception("Orionoid failed to initialize: %s", e)
+            logger.exception(f"Orionoid failed to initialize: {e}")
             return False
 
     def check_premium(self) -> bool:
@@ -90,7 +85,7 @@ class Orionoid:
                 logger.info("Orionoid Premium Account Detected.")
                 return True
             else:
-                logger.error("Orionoid Free Account Detected.")
+                logger.warning("Orionoid Free Account Detected.")
         return False
 
     def run(self, item: MediaItem):
@@ -99,42 +94,31 @@ class Orionoid:
         if not item or isinstance(item, Show):
             yield item
         try:
-            yield self._scrape_item(item)
+            yield self.scrape(item)
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
-            logger.warn("Orionoid connection timeout for item: %s", item.log_string)
-        except RequestException as e:
-            self.minute_limiter.limit_hit()
-            logger.exception("Orionoid request exception: %s", e)
+            logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Orionoid rate limit hit for item: %s", item.log_string)
+            logger.warning(f"Orionoid rate limit hit for item: {item.log_string}")
+        except RequestException as e:
+            self.minute_limiter.limit_hit()
+            logger.exception(f"Orionoid request exception: {e}")
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.exception(
-                "Orionoid exception for item: %s - Exception: %s", item.log_string, e
-            )
+            logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         yield item
 
-    def _scrape_item(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             item.streams.update(data)
-            logger.debug(
-                "Found %s streams out of %s for %s",
-                len(data),
-                stream_count,
-                item.log_string,
-            )
+            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
         elif stream_count > 0:
-            logger.debug(
-                "Could not find good streams for %s out of %s",
-                item.log_string,
-                stream_count,
-            )
+            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return item
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
@@ -188,14 +172,14 @@ class Orionoid:
                 try:
                     response = get(url, retry_if_failed=False, timeout=60)
                 except RequestException as e:
-                    logger.debug("Orionoid request exception: %s", str(e))
+                    logger.exception(f"Orionoid request exception: {e}")
                     return {}, 0
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
-                logger.error("Correct title not found for %s", item.log_string)
+                logger.log("SCRAPER", f"Correct title not found for {item.log_string}")
                 return {}, 0
             for stream in response.data.data.streams:
                 if (

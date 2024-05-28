@@ -26,7 +26,7 @@ class Scraping:
 
     def validate(self):
         if not (validated := any(service.initialized for service in self.services.values())):
-            logger.error("You have no scraping services enabled, please enable at least one!")
+            logger.critical("You have no scraping services enabled, please enable at least one!")
         return validated
 
     def run(self, item: MediaItem):
@@ -40,8 +40,7 @@ class Scraping:
                 except StopIteration:
                     logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
                 except Exception as e:
-                    logger.error(f"{service_name} failed to scrape item with error: {e}")
-                    logger.debug(traceback.format_exc())
+                    logger.exception(f"{service_name} failed to scrape item with error: {e}")
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item

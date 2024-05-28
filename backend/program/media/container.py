@@ -217,7 +217,7 @@ class MediaItemContainer:
                 temp_file.flush()
                 os.fsync(temp_file.fileno())
             except Exception as e:
-                logger.error("Failed to serialize data: %s", e)
+                logger.error(f"Failed to serialize data: {e}")
                 return
 
         try:
@@ -225,23 +225,23 @@ class MediaItemContainer:
             if os.path.exists(filename):
                 shutil.copyfile(filename, backup_filename)
             shutil.move(temp_file.name, filename)
-            # logger.debug("Successfully saved %d items.", len(self._items))
+            # logger.success("Successfully saved %d items.", len(self._items))
         except Exception as e:
-            logger.error("Failed to replace old file with new file: %s", e)
+            logger.error(f"Failed to replace old file with new file: {e}")
             try:
                 os.remove(temp_file.name)
             except OSError as remove_error:
-                logger.error("Failed to remove temporary file: %s", remove_error)
+                logger.error(f"Failed to remove temporary file: {remove_error}")
 
     def load(self, filename):
         try:
             with open(filename, "rb") as file:
                 from_disk: MediaItemContainer = dill.load(file)  # noqa: S301
         except FileNotFoundError:
-            logger.error("Cannot find cached media data at %s", filename)
+            logger.error(f"Cannot find cached media data at {filename}")
             return
         except (EOFError, dill.UnpicklingError) as e:
-            logger.error("Failed to unpickle media data: %s. Starting fresh.", e)
+            logger.error(f"Failed to unpickle media data: {e}. Starting fresh.")
             return
         if not isinstance(from_disk, MediaItemContainer):
             logger.error("Loaded data is malformed. Resetting to blank slate.")
@@ -255,4 +255,4 @@ class MediaItemContainer:
             self._movies = from_disk._movies
             self._imdb_index = from_disk._imdb_index
 
-        logger.info("Loaded %s items from %s", len(self._items), filename)
+        logger.success(f"Loaded {len(self._items)} items from {filename}")

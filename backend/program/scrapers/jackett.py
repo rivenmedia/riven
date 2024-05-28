@@ -1,5 +1,5 @@
 """ Jackett scraper module """
-import traceback
+
 from typing import Dict, Generator
 
 from program.media.item import MediaItem, Show
@@ -31,12 +31,12 @@ class Jackett:
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
-        logger.info("Jackett initialized!")
+        logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
         """Validate Jackett settings."""
         if not self.settings.enabled:
-            logger.debug("Jackett is set to disabled.")
+            logger.warning("Jackett is set to disabled.")
             return False
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
@@ -46,10 +46,10 @@ class Jackett:
                 if response.ok:
                     return True
             except ReadTimeout:
-                logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+                logger.exception("Jackett request timed out. Check your indexers, they may be too slow to respond.")
                 return False
             except Exception as e:
-                logger.error("Jackett failed to initialize with API Key: %s", e)
+                logger.exception(f"Jackett failed to initialize with API Key: {e}")
                 return False
         logger.info("Jackett is not configured and will not be used.")
         return False
@@ -62,25 +62,26 @@ class Jackett:
             return
         
         try:
-            yield self._scrape_item(item)
+            yield self.scrape(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warn("Jackett rate limit hit for item: %s", item.log_string)
+            logger.warning(f"Jackett rate limit hit for item: {item.log_string}")
         except RequestException as e:
-            logger.debug("Jackett request exception: %s", e)
+            logger.error(f"Jackett request exception: {e}")
         except Exception as e:
-            logger.error("Jackett failed to scrape item with error: %s", e)
-            logger.debug(traceback.format_exc())
+            logger.exception(f"Jackett failed to scrape item with error: {e}")
         yield item
 
-    def _scrape_item(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
             item.streams.update(data)
-            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
+        elif stream_count > 0:
+            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
-            logger.debug("No streams found for %s", item.log_string)
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return item
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
@@ -112,7 +113,7 @@ class Jackett:
             torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
-                logger.error("Correct title not found for %s", item.log_string)
+                logger.debug(f"Correct title not found for {item.log_string}")
                 return {}, 0
             
             for stream in streams:
@@ -126,6 +127,7 @@ class Jackett:
                     continue
 
                 if self.hash_cache.is_blacklisted(infohash):
+                    logger.log("CACHE", f"Skipping blacklisted hash {infohash}")
                     continue
 
                 try:

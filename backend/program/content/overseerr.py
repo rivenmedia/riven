@@ -18,11 +18,11 @@ class Overseerr:
         if not self.initialized:
             return
         self.recurring_items = set()
-        logger.info("Overseerr initialized!")
+        logger.success("Overseerr initialized!")
 
     def validate(self) -> bool:
         if not self.settings.enabled:
-            logger.debug("Overseerr is set to disabled.")
+            logger.warning("Overseerr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 68:
             logger.error("Overseerr api key is not set.")
@@ -118,7 +118,7 @@ class Overseerr:
                 settings.url + f"/api/v1/request/{mediaId}",
                 additional_headers=headers,
             )
-            logger.info("Deleted request %s from overseerr", mediaId)
+            logger.info(f"Deleted request {mediaId} from overseerr")
             return response.is_ok
         except Exception as e:
             logger.error("Failed to delete request from overseerr ")
@@ -136,7 +136,7 @@ class Overseerr:
                 additional_headers=headers,
                 data={"is4k": False},
             )
-            logger.info("Marked media %s as processing in overseerr", mediaId)
+            logger.info(f"Marked media {mediaId} as processing in overseerr")
             return response.is_ok
         except Exception as e:
             logger.error("Failed to mark media as processing in overseerr with id %s", mediaId)
@@ -154,7 +154,7 @@ class Overseerr:
                 additional_headers=headers,
                 data={"is4k": False},
             )
-            logger.info("Marked media %s as partially available in overseerr", mediaId)
+            logger.info(f"Marked media {mediaId} as partially available in overseerr")
             return response.is_ok
         except Exception as e:
             logger.error("Failed to mark media as partially available in overseerr with id %s", mediaId)
@@ -172,7 +172,7 @@ class Overseerr:
                 additional_headers=headers,
                 data={"is4k": False},
             )
-            logger.info("Marked media %s as completed in overseerr", mediaId)
+            logger.info(f"Marked media {mediaId} as completed in overseerr")
             return response.is_ok
         except Exception as e:
             logger.error("Failed to mark media as completed in overseerr with id %s", mediaId)

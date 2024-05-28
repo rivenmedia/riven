@@ -25,6 +25,8 @@ coverage = "^7.4.3"
 rank-torrent-name = "^0.2.13"
 tzlocal = "^5.2"
 cachetools = "^5.3.3"
+loguru = "^0.7.2"
+rich = "^13.7.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

@@ -23,12 +23,12 @@ class Listrr:
             return
         self.not_found_ids = []
         self.recurring_items = set()
-        logger.info("Listrr initialized!")
+        logger.success("Listrr initialized!")
 
     def validate(self) -> bool:
         """Validate Listrr settings."""
         if not self.settings.enabled:
-            logger.debug("Listrr is set to disabled.")
+            logger.warning("Listrr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
             logger.error("Listrr api key is not set or invalid.")
@@ -51,13 +51,11 @@ class Listrr:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
                 logger.error(
-                    "Listrr ping failed - Status Code: %s, Reason: %s",
-                    response.status_code,
-                    response.reason,
+                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}",
                 )
             return response.ok
         except Exception as e:
-            logger.error("Listrr ping exception: %s", e)
+            logger.error(f"Listrr ping exception: {e}")
             return False
 
     def run(self) -> Generator[MediaItem, None, None]:
@@ -101,7 +99,7 @@ class Listrr:
                     if e.response.status_code in [400, 404, 429, 500]:
                         break
                 except Exception as e:
-                    logger.error("An error occurred: %s", e)
+                    logger.error(f"An error occurred: {e}")
                     break
                 page += 1
         return list(unique_ids)
