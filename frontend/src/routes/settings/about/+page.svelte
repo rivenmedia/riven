@@ -30,8 +30,8 @@
 		library_path
 	};
 	const supportData: SupportData = {
-		github: 'https://github.com/dreulavelle/iceberg',
-		discord: 'https://discord.gg/wDgVdH8vNM'
+		discord: 'https://discord.gg/wDgVdH8vNM',
+		github: 'https://github.com/dreulavelle/iceberg'
 	};
 
 	let updateLoading = false;
