@@ -1,10 +1,10 @@
 from queue import Queue
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from program import Program
 from program.media.container import MediaItemContainer
-from program.media.item import Episode, ItemId, Movie, Season, Show, States
+from program.media.item import Episode, Movie, Season, Show, States
 
 
 @pytest.fixture

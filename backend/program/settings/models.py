@@ -71,7 +71,7 @@ class OverseerrModel(Updatable):
     enabled: bool = False
     url: str = "http://localhost:5055"
     api_key: str = ""
-    update_interval: int = 60
+    update_interval: int = 30
 
 
 class PlexWatchlistModel(Updatable):
@@ -111,8 +111,8 @@ class TorrentioConfig(Observable):
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "https://annatar.elfhosted.com"
-    limit: int = 20
-    timeout: int = 10
+    limit: int = 2000
+    timeout: int = 10 # cant be higher than 10 # TODO: remove
 
 
 class ScraperModel(Observable):

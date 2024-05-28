@@ -2,7 +2,6 @@
 
 from typing import Generator
 
-from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger

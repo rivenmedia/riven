@@ -2,7 +2,6 @@
 
 import contextlib
 import time
-import traceback
 from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,9 +52,6 @@ class Debrid:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""    
         # lets check if we already downloaded this item
-        if isinstance(item, Show):
-            return
-
         if not self.is_cached(item):
             return
         if not self._is_downloaded(item):
@@ -69,12 +65,12 @@ class Debrid:
         
         # Check cache first to see if we already know the download status
         if self.hash_cache.is_blacklisted(hash_key):
-            logger.debug(f"Skipping download check for blacklisted hash: {hash_key}")
+            logger.debug("Skipping download check for blacklisted hash: %s", hash_key)
             return False
 
         # Check if the hash is already marked as downloaded in the cache
         if self.hash_cache.is_downloaded(hash_key):
-            logger.debug(f"Item already downloaded for hash: {hash_key}")
+            logger.debug("Item already downloaded for hash: %s", hash_key)
             return True
 
         # If not in cache, check Real-Debrid torrents
@@ -84,10 +80,11 @@ class Debrid:
                 info = self.get_torrent_info(torrent.id)
                 if self._matches_item(info, item):
                     # Cache this as downloaded
-                    self.hash_cache.mark_as_downloaded(hash_key)
                     item.set("active_stream.id", torrent.id)
                     self.set_active_files(item)
-                    logger.debug(f"Torrent for {item.log_string} already downloaded with id {torrent.id}")
+                    logger.debug("Torrent for %s already downloaded with id %s", item.log_string, torrent.id)
+                    if not self.hash_cache.is_downloaded(hash_key):
+                        self.hash_cache.mark_as_downloaded(hash_key)
                     return True
 
         # If no matching torrent found, blacklist this hash to avoid rechecking
@@ -125,7 +122,6 @@ class Debrid:
             return episodes_in_season == matched_episodes
         return False
 
-
     def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
         request_id = self.add_magnet(item)
@@ -142,7 +138,8 @@ class Debrid:
             return
         
         item.set("active_stream.id", request_id)
-        self.hash_cache.mark_as_downloaded(item.active_stream["hash"])
+        if not self.hash_cache.is_downloaded(item.active_stream["hash"]):
+            self.hash_cache.mark_as_downloaded(item.active_stream["hash"])
         logger.info("Downloaded %s", item.log_string)
 
     def set_active_files(self, item):
@@ -175,8 +172,8 @@ class Debrid:
             response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
             if response.is_ok:
                 return self._evaluate_stream_response(response.data, processed_stream_hashes, item)
-        except Exception as e:
-            logger.exception("Error checking cache for streams", e)
+        except Exception:
+            logger.debug("Error checking cache for streams")
         return False
 
     def _evaluate_stream_response(self, data, processed_stream_hashes, item):
@@ -210,9 +207,13 @@ class Debrid:
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:
         """Process providers for an item"""
-        if not provider_list:
+        if not provider_list or not stream_hash:
             return False
 
+        # Sort containers by descending order of file count. 
+        # This is to prioritize containers with more files.
+        # Very important for handling shows/seasons/episodes
+        # as we want to work with the most files possible.
         sorted_containers = sorted(
             (container for containers in provider_list.values() for container in containers),
             key=lambda container: -len(container)
@@ -221,6 +222,10 @@ class Debrid:
         for container in sorted_containers:
             if isinstance(item, Movie):
                 if self._is_wanted_movie(container, item):
+                    item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    return True
+            elif isinstance(item, Show):
+                if self._is_wanted_show(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
                     return True
             elif isinstance(item, Season):
@@ -241,15 +246,21 @@ class Debrid:
 
         if isinstance(item, Movie):
             self._is_wanted_movie(item.active_stream["files"], item)
+        elif isinstance(item, Show):
+            self._is_wanted_show(item.active_stream["files"], item)
         elif isinstance(item, Season):
             self._is_wanted_season(item.active_stream["files"], item)
         elif isinstance(item, Episode):
             self._is_wanted_episode(item.active_stream["files"], item)
         else:
-            raise ValueError(f"Item type not supported to be downloaded {item.log_string}")
+            logger.error("Item type not supported to be downloaded %s", item.log_string)
 
     def _is_wanted_movie(self, container: dict, item: Movie) -> bool:
         """Check if container has wanted files for a movie"""
+        if not isinstance(item, Movie):
+            logger.error("Item is not a Movie instance: %s", item.log_string)
+            return False
+
         # also sort by highest filesize too
         # so we are selecting the movie instead of movie extras
         filenames = sorted(
@@ -264,25 +275,23 @@ class Debrid:
             return False
 
         for file in filenames:
-            try:
+            with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file, remove_trash=True)
-            except (GarbageTorrent, TypeError):
-                continue
-
-            if not parsed_file or not parsed_file.title:
-                continue
-            if title_match(parsed_file.parsed_title, item.title):
-                item.set("folder", item.active_stream.get("name"))
-                item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                item.set("file", file)
-                logger.debug("Found wanted %s file '%s' for %s", parsed_file.type, file, item.log_string)
-                return True
+                if not parsed_file or not parsed_file.title:
+                    continue
+                if title_match(parsed_file.parsed_title, item.title):
+                    item.set("folder", item.active_stream.get("name"))
+                    item.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                    item.set("file", file)
+                    logger.debug("Found wanted %s file '%s' for %s", parsed_file.type, file, item.log_string)
+                    return True
         return False
 
     def _is_wanted_episode(self, container: dict, item: Episode) -> bool:
         """Check if container has wanted files for an episode"""
         if not isinstance(item, Episode):
-            raise ValueError(f"Item is not an Episode instance: {item.log_string}")
+            logger.error("Item is not an Episode instance: %s", item.log_string)
+            return False
 
         filenames = [
             file["filename"] for file in container.values() 
@@ -297,18 +306,88 @@ class Debrid:
         for file in filenames:
             with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file, remove_trash=True)
-            if not parsed_file or not parsed_file.episode:
-                continue
-            if (item.number in parsed_file.episode and item.parent.number in parsed_file.season) or (one_season and item.number in parsed_file.episode):
-                item.set("folder", item.active_stream.get("name"))
-                item.set("alternative_folder", item.active_stream.get("alternative_name"))
-                item.set("file", file)
-                logger.debug("Episode %s is in file %s, marking wanted", item.log_string, file)
-                return True
+                if not parsed_file or not parsed_file.episode:
+                    continue
+                if (item.number in parsed_file.episode and item.parent.number in parsed_file.season) or (one_season and item.number in parsed_file.episode):
+                    item.set("folder", item.active_stream.get("name"))
+                    item.set("alternative_folder", item.active_stream.get("alternative_name"))
+                    item.set("file", file)
+                    logger.debug("Episode %s is in file %s, marking wanted", item.log_string, file)
+                    return True
+        return False
+
+    def _is_wanted_show(self, container: dict, item: Show) -> bool:
+        """Check if container has wanted files for a show"""
+        if not isinstance(item, Show):
+            logger.error("Item is not a Show instance: %s", item.log_string)
+            return False
+
+        filenames = [
+            file["filename"] for file in container.values()
+            if file and file["filesize"] > 40000
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+        ]
+
+        if not filenames:
+            return False
+
+        # Create a dictionary to map seasons and episodes needed
+        needed_episodes = {}
+        acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed]
+
+        for season in item.seasons:
+            if season.state in acceptable_states and season.is_released:
+                needed_episode_numbers = set()
+                for episode in season.episodes:
+                    if episode.state in acceptable_states and episode.is_released:
+                        needed_episode_numbers.add(episode.number)
+                if needed_episode_numbers:
+                    needed_episodes[season.number] = needed_episode_numbers
+        if not needed_episodes:
+            return False
+
+        # Dictionary to hold the matched files for each episode
+        matched_files = {}
+
+        # Iterate over each file to check if it matches any season and episode within the show
+        for file in filenames:
+            with contextlib.suppress(GarbageTorrent, TypeError):
+                parsed_file = parse(file, remove_trash=True)
+                if not parsed_file or not parsed_file.show:
+                    continue
+                if parsed_file.show == item.title:
+                    # Check each season and episode to find a match
+                    for season_number, episodes in needed_episodes.items():
+                        if parsed_file.season == season_number:
+                            for episode_number in list(episodes):
+                                if parsed_file.episode == episode_number:
+                                    # Store the matched file for this episode
+                                    matched_files[(season_number, episode_number)] = file
+                                    episodes.remove(episode_number)
+        if not matched_files:
+            return False
+
+        # Check if all episodes were found
+        all_found = all(len(episodes) == 0 for episodes in needed_episodes.values())
+
+        if all_found:
+            # Set details for each episode that has a matched file
+            for (season_number, episode_number), file in matched_files.items():
+                season = next(season for season in item.seasons if season.number == season_number)
+                episode = next(episode for episode in season.episodes if episode.number == episode_number)
+                episode.set("folder", item.active_stream.get("name"))
+                episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                episode.set("file", file)
+                logger.debug("Mapped file '%s' to Show: %s, Season: %d, Episode: %d", file, item.title, season_number, episode_number)
+            return True
         return False
 
     def _is_wanted_season(self, container: dict, item: Season) -> bool:
         """Check if container has wanted files for a season"""
+        if not isinstance(item, Season):
+            logger.error("Item is not a Season instance: %s", item.log_string)
+            return False
+
         filenames = [
             file["filename"] for file in container.values()
             if file and file["filesize"] > 40000
@@ -327,6 +406,10 @@ class Debrid:
 
     def _check_all_episodes_in_files(self, filenames, item):
         """Check if all episodes are present in the provided filenames"""
+        if not isinstance(item, Season):
+            logger.error("Item is not a Season instance: %s", item.log_string)
+            return False
+
         check_all = all(
             any(episode.number in episodes_from_season(file, item.number) for episode in item.episodes)
             for file in filenames
@@ -340,6 +423,10 @@ class Debrid:
 
     def _retry_check_episodes_in_files(self, filenames, item):
         """Retry checking episodes in files with a different approach"""
+        if not isinstance(item, Season):
+            logger.error("Item is not a Season instance: %s", item.log_string)
+            return False
+
         episodes = [
             episode.number for episode in item.episodes
             if episode.state in [States.Indexed, States.Scraped, States.Unknown]
@@ -348,7 +435,7 @@ class Debrid:
 
         needed_files = []
         for file in filenames:
-            try:
+            with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file, remove_trash=True)
                 if not parsed_file.episode:
                     continue
@@ -357,10 +444,6 @@ class Debrid:
                         needed_files.append(file)
                     if len(needed_files) == len(episodes):
                         break
-            except GarbageTorrent:
-                continue
-            except Exception:
-                pass
 
         if len(needed_files) == len(episodes):
             self._assign_files_to_episodes(needed_files, item)

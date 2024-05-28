@@ -1,9 +1,7 @@
 """Overseerr content module"""
 
 from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
-from program.media.state import States
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping, post
@@ -91,7 +89,7 @@ class Overseerr:
             return
 
         title = getattr(response.data, "title", None) or getattr(
-            response.data, "originalName", None
+            response.data, "originalName"
         )
         imdb_id = getattr(response.data.externalIds, "imdbId", None)
         if imdb_id:
@@ -125,7 +123,7 @@ class Overseerr:
         except Exception as e:
             logger.error("Failed to delete request from overseerr ")
             logger.error(e)
-            return False
+        return False
 
     @staticmethod
     def mark_processing(mediaId: int) -> bool:

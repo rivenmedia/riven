@@ -11,7 +11,7 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
 from program.libaries import SymlinkLibrary
 from program.media.container import MediaItemContainer
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager

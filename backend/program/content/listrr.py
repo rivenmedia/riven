@@ -3,7 +3,6 @@
 from typing import Generator
 
 from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.container import MediaItemContainer
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from requests.exceptions import HTTPError

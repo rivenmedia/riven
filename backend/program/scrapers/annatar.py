@@ -48,9 +48,7 @@ class Annatar:
             logger.error("Annatar timeout is not set or invalid.")
             return False
         try:
-            if self.settings.url.endswith("/manifest.json"):
-                url = self.settings.url.strip("/manifest.json")
-            url = self.settings.url + "/manifest.json"
+            url = self.settings.url if self.settings.url.endswith("/manifest.json") else self.settings.url + "/manifest.json"
             response = ping(url=url, timeout=60)
             if not response.ok:
                 return False
@@ -97,7 +95,7 @@ class Annatar:
         data, stream_count = self.api_scrape(item)
         if data:
             item.streams.update(data)
-            logger.info("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
+            logger.debug("Found %s streams out of %s for %s", len(data), stream_count, item.log_string)
         elif stream_count > 0:
             logger.debug("Could not find good streams for %s out of %s", item.log_string, stream_count)
         else:

@@ -67,7 +67,7 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug("Unknown item type %s for %s not found in list of acceptable items", item_type, data.title)
-        return
+        return None
     formatted_aired_at = _get_formatted_date(data, item_type)
     item = {
         "title": getattr(data, "title", None),

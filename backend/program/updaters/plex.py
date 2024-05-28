@@ -3,7 +3,7 @@ import os
 
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.server import PlexServer
-from program.media.item import Episode, Movie
+from program.media.item import Episode
 from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
@@ -68,11 +68,9 @@ class PlexUpdater:
             yield item
         item_type = "show" if isinstance(item, Episode) else "movie"
         for section, paths in self.sections.items():
-            if section.type != item_type:
-                continue
-            for path in paths:
-                if path in item.update_folder:
-                    if self._update_section(section, item):
+            if section.type == item_type:
+                for path in paths:
+                    if path in item.update_folder and self._update_section(section, item):
                         logger.info("Updated section %s for %s", section.title, item.log_string)
         yield item
 
