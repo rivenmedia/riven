@@ -15,7 +15,7 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Torrentio:
     """Scraper for `Torrentio`"""
 
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "torrentio"
         self.settings = settings_manager.settings.scraping.torrentio
         self.settings_model = settings_manager.settings.ranking
@@ -28,6 +28,7 @@ class Torrentio:
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
+        self.hash_cache = hash_cache
         logger.info("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -110,6 +111,9 @@ class Torrentio:
                 raw_title = stream.title.split("\n👤")[0].split("\n")[0]
                 if not stream.infoHash or not raw_title:
                     continue
+                if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
+                    logger.debug("Skipping blacklisted hash: %s", stream.infoHash)
+                    continue  # Skip this torrent as its hash is blacklisted
                 try:
                     torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
                 except GarbageTorrent:

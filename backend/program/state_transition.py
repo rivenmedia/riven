@@ -38,32 +38,35 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if isinstance(item, Show):
-            if Scraping.should_submit(item) and Scraping.is_released(item):
-                items_to_submit.extend(s for s in item.seasons if s.state not in (States.Completed, States.Downloaded)
-                                       and s.scraped_times < 3)
-        if isinstance(item, Season):
+        if isinstance(item, Movie):
+            if Scraping.should_submit(item) and item.is_released:
+                items_to_submit = [item]
+        elif isinstance(item, Show):
+            if Scraping.should_submit(item) and item.is_released:
+                items_to_submit = [s for s in item.seasons if s.state not in (States.Completed, States.Downloaded, States.Scraped)
+                                   and s.scraped_times < 3]
+        elif isinstance(item, Season):
             if item.scraped_times < 3:
                 items_to_submit = []
             else:
-                items_to_submit = [e for e in item.episodes if e.state not in (States.Completed, States.Downloaded)]
-        elif isinstance(item, (Movie, Episode)):
-            if Scraping.should_submit(item) and Scraping.is_released(item):
+                items_to_submit = [e for e in item.episodes if e.state not in (States.Completed, States.Downloaded, States.Scraped)]
+        elif isinstance(item, Episode):
+            if item.state != States.Unknown:
                 items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
         if isinstance(item, Show):
-            if Scraping.should_submit(item) and Scraping.is_released(item):
-                items_to_submit.extend(s for s in item.seasons if s.state not in (States.Completed, States.Downloaded)
-                                       and s.scraped_times < 3 and not (s.file or s.folder))
+            if Scraping.should_submit(item) and item.is_released:
+                items_to_submit = [s for s in item.seasons if s.state == States.PartiallyCompleted
+                                       and s.scraped_times < 3 and not (s.file or s.folder)]
         elif isinstance(item, Season):
             if item.scraped_times < 3:
                 items_to_submit = []
             else:
-                if Scraping.should_submit(item):
+                if Scraping.should_submit(item) and item.is_released:
                     items_to_submit = [
-                        e for e in item.episodes if e.state not in (States.Completed, States.Downloaded)
+                        e for e in item.episodes if e.state not in (States.Completed, States.Downloaded, States.Scraped)
                         and e.parent.scraped_times >= 3 and not (e.file or e.folder)
                     ]
 

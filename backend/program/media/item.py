@@ -73,14 +73,7 @@ class MediaItem:
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        try:
-            released = bool(self.aired_at is not None and self.aired_at < datetime.now())
-        except Exception as e:
-            logger.error("Failed to check if item is released: %s", e)
-            released = False
-        if not released:
-            logger.debug("Item %s has not been released yet.", self.log_string)
-        return released
+        return self.aired_at is not None and self.aired_at < datetime.now()
 
     @property
     def state(self):

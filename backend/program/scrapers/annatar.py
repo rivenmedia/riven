@@ -15,7 +15,7 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Annatar:
     """Scraper for `Annatar`"""
 
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "annatar"
         self.url = None
         self.settings = settings_manager.settings.scraping.annatar
@@ -30,6 +30,7 @@ class Annatar:
         )
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
+        self.hash_cache = hash_cache
         logger.info("Annatar initialized!")
 
     def validate(self) -> bool:
@@ -137,6 +138,10 @@ class Annatar:
             for stream in response.data.media:
                 if not stream.hash:
                     continue
+
+                if self.hash_cache.is_blacklisted(stream.hash):
+                    continue
+
                 try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.title, infohash=stream.hash, correct_title=correct_title, remove_trash=True
@@ -149,9 +154,3 @@ class Annatar:
 
             scraped_torrents = sort_torrents(torrents)
             return scraped_torrents, len(response.data.media)
-
-        # filenames = [
-        #     file["filename"] for file in container.values() 
-        #     if file and file["filesize"] > 40000 
-        #     and file["filename"].lower().endswith(WANTED_FORMATS)
-        # ]

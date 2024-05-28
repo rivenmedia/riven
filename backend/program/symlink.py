@@ -144,16 +144,22 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        if isinstance(item, (Movie, Episode)) and Symlinker.check_file_existence(item):
+        if Symlinker.check_file_existence(item):
             return True
 
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
+            if isinstance(item, (Movie, Episode)):
+                # reset file and folder
+                item.set("file", None)
+                item.set("folder", None)
+                # reset symlinked times
+                item.set("symlinked_times", 0)
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug("Sleeping for 10 seconds before checking if file exists again for %s", item.log_string)
-        time.sleep(10)
+        logger.debug("Sleeping for 5 seconds before checking if file exists again for %s", item.log_string)
+        time.sleep(5)
         return True
 
     @staticmethod
@@ -167,19 +173,16 @@ class Symlinker:
         alt_file_path = rclone_path / item.alternative_folder / item.file
         thd_file_path = rclone_path / item.file / item.file
         
-        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, std_file_path)
         if std_file_path.exists():
             return True
-        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, alt_file_path)
         if alt_file_path.exists():
             item.set("folder", item.alternative_folder)
             return True
-        logger.debug("Checking if file exists for %s in: '%s'", item.log_string, thd_file_path)
         if thd_file_path.exists():
             item.set("folder", item.file)
             return True
 
-        logger.error("No file found for %s", item.log_string)
+        logger.error("No file found in rclone path for %s with file: %s", item.log_string, item.file)
         return False
 
     def _determine_file_name(self, item) -> str | None:

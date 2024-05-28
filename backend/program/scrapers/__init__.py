@@ -1,5 +1,5 @@
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
@@ -11,15 +11,16 @@ from utils.logger import logger
 
 
 class Scraping:
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
+        self.hash_cache = hash_cache
         self.services = {
-            Annatar: Annatar(),
-            Torrentio: Torrentio(),
-            Orionoid: Orionoid(),
-            Jackett: Jackett(),
+            Annatar: Annatar(self.hash_cache),
+            Torrentio: Torrentio(self.hash_cache),
+            Orionoid: Orionoid(self.hash_cache),
+            Jackett: Jackett(self.hash_cache),
         }
         self.initialized = self.validate()
 
@@ -49,11 +50,6 @@ class Scraping:
     def can_we_scrape(cls, item: MediaItem) -> bool:
         """Check if we can scrape an item."""
         return item.is_released and cls.should_submit(item)
-
-    @staticmethod
-    def is_released(item: MediaItem) -> bool:
-        """Check if an item has been released."""
-        return bool(item.aired_at is not None and item.aired_at < datetime.now())
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

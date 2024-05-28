@@ -15,7 +15,7 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Jackett:
     """Scraper for `Jackett`"""
 
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "jackett"
         self.api_key = None
         self.settings = settings_manager.settings.scraping.jackett
@@ -30,6 +30,7 @@ class Jackett:
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
+        self.hash_cache = hash_cache
         logger.info("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -123,7 +124,10 @@ class Jackett:
                     infohash = infohash_attr.get("@value")
                 except (TypeError, ValueError, AttributeError):
                     continue
-                
+
+                if self.hash_cache.is_blacklisted(infohash):
+                    continue
+
                 try:
                     torrent: Torrent = self.rtn.rank(
                         raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True

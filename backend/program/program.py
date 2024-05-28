@@ -19,6 +19,7 @@ from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
 from utils.logger import logger
 
+from .cache import HashCache
 from .pickly import Pickly
 from .realdebrid import Debrid
 from .state_transition import process_event
@@ -44,7 +45,6 @@ class Program(threading.Thread):
         # Content services need to see whats in the container,
         # so items can be skipped if we already know about it.
         # This will cause a loop for items to be continuously processed if not skipped.
-
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -52,9 +52,10 @@ class Program(threading.Thread):
             Mdblist: Mdblist(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
+        self.hash_cache = HashCache(ttl=180)
         self.processing_services = {
-            Scraping: Scraping(),
-            Debrid: Debrid(),
+            Scraping: Scraping(hash_cache=self.hash_cache),
+            Debrid: Debrid(self.hash_cache),
             Symlinker: Symlinker(),
             PlexUpdater: PlexUpdater(),
         }
@@ -120,7 +121,9 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_functions = {self._retry_library: {"interval": 60 * 10}}
+        scheduled_functions = {
+            self._retry_library: {"interval": 60 * 10},
+        }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,

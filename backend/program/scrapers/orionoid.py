@@ -18,7 +18,7 @@ KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 class Orionoid:
     """Scraper for `Orionoid`"""
 
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
         self.settings_model = settings_manager.settings.ranking
@@ -41,6 +41,7 @@ class Orionoid:
         )
         self.second_limiter = RateLimiter(max_calls=1, period=1)
         self.rtn = RTN(self.settings_model, self.ranking_model)
+        self.hash_cache = hash_cache
         logger.info("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -197,7 +198,11 @@ class Orionoid:
                 logger.error("Correct title not found for %s", item.log_string)
                 return {}, 0
             for stream in response.data.data.streams:
-                if not stream.file.hash or not stream.file.name:
+                if (
+                    not stream.file.hash or 
+                    not stream.file.name or 
+                    self.hash_cache.is_blacklisted(stream.file.hash)
+                ):
                     continue
                 try:
                     torrent: Torrent = self.rtn.rank(
