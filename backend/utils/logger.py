@@ -23,9 +23,9 @@ class FileLogger:
 
     def create_new_table(self):
         """Create a new table with the initial configuration."""
-        self.table = Table(title=self.title, show_header=False, header_style=self.header_style or "bold magenta")
+        self.table = Table(title=self.title, header_style=self.header_style or "bold white", row_styles=["bold orange", "bold white", "bold orange"])
 
-    def add_column(self, column_name, style=None):
+    def add_column(self, column_name, style="bold orange"):
         """Add a column to the table."""
         self.table.add_column(column_name, style=style)
     

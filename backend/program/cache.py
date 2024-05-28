@@ -32,6 +32,10 @@ class HashCache:
                 yield infohash
 
     def blacklist(self, infohash: str) -> None:
+        """Blacklist a hash."""
+        if not infohash:
+            raise ValueError("Infohash is required")
+
         with self.lock:
             if infohash in self.cache:
                 if "blacklisted" not in self.cache[infohash]:
@@ -44,6 +48,9 @@ class HashCache:
 
     def remove(self, infohash: str) -> None:
         """Remove a hash from the blacklist."""
+        if not infohash:
+            raise ValueError("Infohash is required")
+
         with self.lock:
             if infohash in self.cache:
                 del self.cache[infohash]
