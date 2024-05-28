@@ -84,7 +84,6 @@ def setup_logger(level):
             "backtrace": False,
             "diagnose": False,
             "enqueue": True,
-            "buffer_size": 1024 * 1024
         },
         {
             "sink": log_filename, 
@@ -96,7 +95,6 @@ def setup_logger(level):
             "backtrace": False, 
             "diagnose": True,
             "enqueue": True,
-            "buffer_size": 1024 * 1024
         },
     ])
 
