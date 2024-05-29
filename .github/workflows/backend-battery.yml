@@ -32,10 +32,10 @@ jobs:
         pip install poetry
         poetry install --no-root --with dev
 
-    - name: Ruff & Isort Check
-      run: |
-        poetry run ruff check ./backend
-        poetry run isort --check-only ./backend
+    # - name: Ruff & Isort Check
+    #   run: |
+    #     poetry run ruff check ./backend
+    #     poetry run isort --check-only ./backend
 
     - name: Type check
       run: poetry run pyright

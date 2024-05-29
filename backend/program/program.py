@@ -9,7 +9,7 @@ from queue import Empty, Queue
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
-from program.libaries import SymlinkLibrary, PlexLibrary
+from program.libaries import PlexLibrary, SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -17,7 +17,7 @@ from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
-from utils.logger import logger, clean_old_logs
+from utils.logger import clean_old_logs, logger
 
 from .cache import HashCache
 from .pickly import Pickly

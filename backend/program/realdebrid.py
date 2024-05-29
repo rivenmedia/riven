@@ -14,7 +14,7 @@ from requests import ConnectTimeout
 from RTN import extract_episodes
 from RTN.exceptions import GarbageTorrent
 from RTN.parser import episodes_from_season, parse, title_match
-from utils.logger import logger, FileLogger
+from utils.logger import FileLogger, logger
 from utils.request import get, ping, post
 
 WANTED_FORMATS = {".mkv", ".mp4", ".avi"}

@@ -6,10 +6,9 @@ from datetime import datetime
 
 from loguru import logger
 from program.settings.manager import settings_manager
-from utils import data_dir_path
-
 from rich.console import Console
 from rich.table import Table
+from utils import data_dir_path
 
 
 class FileLogger:

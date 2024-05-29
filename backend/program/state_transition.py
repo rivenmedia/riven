@@ -1,6 +1,6 @@
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
-from program.libaries import SymlinkLibrary, PlexLibrary
+from program.libaries import PlexLibrary, SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.realdebrid import Debrid
 from program.scrapers import Scraping
