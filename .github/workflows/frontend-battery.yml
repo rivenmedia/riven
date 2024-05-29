@@ -38,7 +38,9 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          cd frontend
+          pnpm install
 
       - name: Run svelte-check
         run: pnpm check
@@ -77,6 +79,8 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          cd frontend
+          pnpm install
 
       - run: pnpm lint
