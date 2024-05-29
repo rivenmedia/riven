@@ -88,7 +88,8 @@ class Debrid:
                     item.set("active_stream.id", torrent.id)
                     self.set_active_files(item)
                     logger.log("DEBRID", f"Torrent for {item.log_string} already downloaded with id {torrent.id}")
-                    self.hash_cache.mark_as_downloaded(torrent.hash)
+                    if not self.hash_cache.is_downloaded(hash_key):
+                        self.hash_cache.mark_as_downloaded(torrent.hash)
                     return True
 
         # If no matching torrent found, blacklist this hash to avoid rechecking
@@ -144,10 +145,10 @@ class Debrid:
         item.set("active_stream.id", request_id)
         if not self.hash_cache.is_downloaded(item.active_stream["hash"]):
             self.hash_cache.mark_as_downloaded(item.active_stream["hash"])
-        # logger.log("DEBRID", f"Downloaded {item.log_string}")
-        if item.active_stream.get("name"):
             self.file_logger.add_row(item.log_string, item.active_stream["name"], "Downloaded")
-        self.file_logger.log_table()
+            self.file_logger.log_table()
+        # logger.log("DEBRID", f"Downloaded {item.log_string}")
+
 
     def set_active_files(self, item):
         """Set active files for item from real-debrid.com"""

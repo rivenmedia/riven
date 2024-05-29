@@ -29,6 +29,7 @@ EXPOSE 3000 8080
 
 # Set environment variable to force color output
 ENV FORCE_COLOR=1
+ENV TERM=xterm-256color
 
 # Copy frontend build from the previous stage
 COPY --from=frontend --chown=node:node /app/build /iceberg/frontend/build
@@ -49,4 +50,4 @@ COPY VERSION entrypoint.sh /iceberg/
 # Ensure entrypoint script is executable
 RUN chmod +x ./entrypoint.sh
 
-ENTRYPOINT ["/iceberg/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "-c", "/iceberg/entrypoint.sh"]
