@@ -27,6 +27,9 @@ WORKDIR /iceberg
 # Expose ports
 EXPOSE 3000 8080
 
+# Set environment variable to force color output
+ENV FORCE_COLOR=1
+
 # Copy frontend build from the previous stage
 COPY --from=frontend --chown=node:node /app/build /iceberg/frontend/build
 COPY --from=frontend --chown=node:node /app/node_modules /iceberg/frontend/node_modules

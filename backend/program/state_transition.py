@@ -1,6 +1,6 @@
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
-from program.libaries import SymlinkLibrary
+from program.libaries import SymlinkLibrary, PlexLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.realdebrid import Debrid
 from program.scrapers import Scraping
@@ -16,7 +16,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
     items_to_submit = []
 
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)
+    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, PlexLibrary)
     if emitted_by in source_services or item.state == States.Unknown:
         next_service = TraktIndexer
         if isinstance(item, Season):
