@@ -13,6 +13,7 @@
 	const rclone_path = data.settings.data.symlink.rclone_path;
 	const library_path = data.settings.data.symlink.library_path;
 	const contributors = data.contributors;
+	const sponsors = data.sponsors;
 
 	interface AboutData {
 		[key: string]: any;
@@ -56,7 +57,6 @@
 			toast.success('You are running the latest version.');
 		}
 	}
-	console.log(contributors);
 </script>
 
 <svelte:head>
@@ -147,5 +147,26 @@
 				</h3>
 			</a>
 		{/each}
+	</div>
+
+	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Sponsors</h2>
+	<p class="mb-2 text-sm md:text-base text-muted-foreground">
+		Thanks to the following people for sponsoring Iceberg:
+	</p>
+	<div class="flex flex-wrap w-full gap-4">
+		{#each sponsors as sponsor}
+			<a href={sponsor.profile} target="_blank" class="flex flex-col items-start gap-2 mb-2 md:flex-row md:items-center">
+				<img src={sponsor.avatar} alt={sponsor.name} class="w-12 h-12 rounded-full" />
+				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
+					{formatWords(sponsor.name)}
+				</h3>
+			</a>
+		{/each}
+		{#if sponsors.length === 0}
+			<p class="font-semibold text-muted-foreground">No sponsors yet.</p>
+			<p class="">Interested in sponsoring Iceberg? <a href="https://github.com/sponsors/dreulavelle" target="_blank" class="underline break-words"> Do it here!</a></p>
+		{:else}
+			<p class="text-muted-foreground">Interested in sponsoring Iceberg? <a href="https://github.com/sponsors/dreulavelle" target="_blank" class="underline break-words"> Do it here!</a></p>
+		{/if}
 	</div>
 </div>

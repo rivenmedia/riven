@@ -29,6 +29,46 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(503, 'Unable to fetch contributors data. API is down.');
 		}
 	}
+	async function getSponsors() {
+		try {
+			// graphql query to get sponsors
+			const query = `
+			query {
+				user(login: "dreulavelle") {
+				  ... on Sponsorable {
+					sponsors(first: 100) {
+					  totalCount
+					  nodes {
+						... on User { login, avatarUrl, url }
+						... on Organization { login, avatarUrl, url }
+					  }
+					}
+				  }
+				}
+			}
+			`
+			const results = await fetch('https://api.github.com/graphql', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ query })
+			});
+			if (results.status !== 200) {
+				console.error(results);
+				return []
+			}
+			const data = await results.json();
+			return data.data.user.sponsors.nodes.map((sponsor: any) => ({
+				avatar: sponsor.avatarUrl,
+				name: sponsor.login,
+				profile: sponsor.url
+			}));
+		} catch (e) {
+			console.error(e);
+			error(503, 'Unable to fetch sponsors data. API is down.');
+		}
+	}
 
-	return { settings: await getAboutInfo(), contributors: await getContributors() };
+	return { settings: await getAboutInfo(), contributors: await getContributors(), sponsors: await getSponsors()};
 };
