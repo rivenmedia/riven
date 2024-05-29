@@ -39,6 +39,7 @@ class Debrid:
         self.file_logger.add_column("Filename", style="green")
         self.file_logger.add_column("Status", style="yellow")
         self.initialized = True
+        self.key = "realdebrid"
 
     def _validate(self) -> bool:
         """Validate Real-Debrid settings and API key"""

@@ -9,7 +9,7 @@ from queue import Empty, Queue
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.indexers.trakt import TraktIndexer
-from program.libaries import SymlinkLibrary
+from program.libaries import SymlinkLibrary, PlexLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -55,7 +55,10 @@ class Program(threading.Thread):
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it
-        self.library_services = {SymlinkLibrary: SymlinkLibrary()}
+        self.library_services = {
+            SymlinkLibrary: SymlinkLibrary(),
+            PlexLibrary: PlexLibrary(),
+        }
         self.services = {
             **self.library_services,
             **self.indexing_services,
