@@ -12,6 +12,23 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(503, 'Unable to fetch settings data. API is down.');
 		}
 	}
+	async function getContributors() {
+		try {
+			const results = await fetch('https://api.github.com/repos/dreulavelle/iceburg/contributors');
+			const data = await results.json();
+			return data
+			.filter((contributor: any) => contributor.type !== 'Bot' && contributor.type !== 'Organization')
+			.map((contributor: any) => ({
+				avatar: contributor.avatar_url,
+				name: contributor.login,
+				profile: contributor.html_url
+			}));
+		
+		} catch (e) {
+			console.error(e);
+			error(503, 'Unable to fetch contributors data. API is down.');
+		}
+	}
 
-	return { settings: await getAboutInfo() };
+	return { settings: await getAboutInfo(), contributors: await getContributors() };
 };

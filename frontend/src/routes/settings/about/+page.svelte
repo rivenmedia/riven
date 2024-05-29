@@ -12,6 +12,7 @@
 	const version = data.settings.data.version;
 	const rclone_path = data.settings.data.symlink.rclone_path;
 	const library_path = data.settings.data.symlink.library_path;
+	const contributors = data.contributors;
 
 	interface AboutData {
 		[key: string]: any;
@@ -55,6 +56,7 @@
 			toast.success('You are running the latest version.');
 		}
 	}
+	console.log(contributors);
 </script>
 
 <svelte:head>
@@ -129,6 +131,21 @@
 					</a>
 				</div>
 			</div>
+		{/each}
+	</div>
+
+	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Contributors</h2>
+	<p class="mb-2 text-sm md:text-base text-muted-foreground">
+		Thanks to the following people for their contributions to Iceberg:
+	</p>
+	<div class="flex flex-wrap w-full gap-4">
+		{#each contributors as contributor}
+			<a href={contributor.profile} target="_blank" class="flex flex-col items-start gap-2 mb-2 md:flex-row md:items-center">
+				<img src={contributor.avatar} alt={contributor.name} class="w-12 h-12 rounded-full" />
+				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
+					{formatWords(contributor.name)}
+				</h3>
+			</a>
 		{/each}
 	</div>
 </div>
