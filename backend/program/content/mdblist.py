@@ -17,13 +17,14 @@ class Mdblist:
         self.initialized = self.validate()
         if not self.initialized:
             return
+        self.recurring_items = set()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
-        logger.info("mdblist initialized")
+        logger.success("mdblist initialized")
 
     def validate(self):
         if not self.settings.enabled:
-            logger.debug("Mdblist is set to disabled.")
+            logger.warning("Mdblist is set to disabled.")
             return False
         if self.settings.lists == [""]:
             logger.error("Mdblist is enabled, but list is empty.")
@@ -47,9 +48,10 @@ class Mdblist:
                     if not list_id:
                         continue
                     for item in list_items(list_id, self.settings.api_key):
-                        yield MediaItem(
-                            {"imdb_id": item.imdb_id, "requested_by": self.__class__}
-                        )
+                        # Check if the item is already completed in the media container
+                        if item.imdb_id and item.imdb_id not in self.recurring_items:
+                            self.recurring_items.add(item.imdb_id)
+                            yield MediaItem({"imdb_id": item.imdb_id, "requested_by": self.key})
         except RateLimitExceeded:
             pass
         return
@@ -57,8 +59,7 @@ class Mdblist:
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits
         daily_requests = limits.api_requests
-        requests_per_2_minutes = daily_requests / 24 / 60 * 2
-        return requests_per_2_minutes
+        return daily_requests / 24 / 60 * 2
 
 
 # API METHODS

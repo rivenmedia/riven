@@ -47,7 +47,7 @@ export const actions: Actions = {
 
 		try {
 			const data = await setSettings(event.fetch, toSet, generalSettingsServices);
-			if (!data.allServicesTrue) {
+			if (!data.data.success) {
 				return message(
 					form,
 					`${generalSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,

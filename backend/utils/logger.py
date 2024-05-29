@@ -1,106 +1,118 @@
 """Logging utils"""
 
-import datetime
-import logging
 import os
-import re
+import sys
+from datetime import datetime
 
+from loguru import logger
+from program.settings.manager import settings_manager
+from rich.console import Console
+from rich.table import Table
 from utils import data_dir_path
 
 
-class RedactSensitiveInfo(logging.Filter):
-    """logging filter to redact sensitive info"""
+class FileLogger:
+    """A logger for rich tables."""
 
-    def __init__(self):
-        super().__init__("redact_sensitive_info")
-        self.patterns = {
-            "api_key": re.compile(r"(\'api_key\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
-            "token": re.compile(r"(\'token\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
-            "user": re.compile(r"(\'user\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
-            "watchlist": re.compile(r"(\'watchlist\'\s*:\s*\')[^\']*\'", re.IGNORECASE),
-        }
+    def __init__(self, title, show_header=False, header_style=None):
+        self.title = title
+        self.show_header = show_header
+        self.header_style = header_style
+        self.create_new_table()
 
-    def _redact_string(self, data):
-        if isinstance(data, str):
-            for key, pattern in self.patterns.items():
-                data = pattern.sub(f"'{key}' : 'REDACTED'", data)
-        return data
+    def create_new_table(self):
+        """Create a new table with the initial configuration."""
+        self.table = Table(title=self.title, header_style=self.header_style or "bold white", row_styles=["bold green", "bold white", "bold green"])
 
-    def _redact_nested(self, data):
-        if isinstance(data, dict):
-            redacted_dict = {}
-            for key, value in data.items():
-                for key2, _ in self.patterns.items():
-                    if key in key2:
-                        redacted_dict[key] = "REDACTED"
-                        break
-                    redacted_dict[key] = value
-            return redacted_dict
-        if isinstance(data, list):
-            return [self._redact_nested(item) for item in data]
-        if isinstance(data, tuple):
-            if len(data) > 0 and isinstance(data[0], str):
-                return (self._redact_string(data[0]),) + tuple(
-                    self._redact_nested(item) for item in data[1:]
-                )
-            return tuple(self._redact_nested(item) for item in data)
-        if isinstance(data, str):
-            return self._redact_string(data)
-        return data
+    def add_column(self, column_name, style="bold green"):
+        """Add a column to the table."""
+        self.table.add_column(column_name, style=style)
+    
+    def add_row(self, *args):
+        """Add a row to the table."""
+        self.table.add_row(*args)
+    
+    def log_table(self):
+        """Log the table to the console."""
+        console.print(self.table)
+        self.clear_table()
 
-    def filter(self, record):
-        if record.args and isinstance(record.args, tuple):
-            record.args = self._redact_nested(record.args)
-        return True
+    def clear_table(self):
+        """Clear the table by reinitializing it."""
+        self.create_new_table()
+
+    def progress_bar(self, *args):
+        """Add a progress bar to the table."""
+        self.table.add_row(*args)
 
 
-class Logger(logging.Logger):
-    """Logging class"""
+def setup_logger(level):
+    """Setup the logger"""
+    logs_dir_path = data_dir_path / "logs"
+    os.makedirs(logs_dir_path, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    log_filename = logs_dir_path / f"iceberg-{timestamp}.log"
 
-    def __init__(self):
-        self.timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        self.filename = f"iceberg-{self.timestamp}.log"
-        super().__init__(self.filename)
-        self.formatter = logging.Formatter(
-            "[%(asctime)s | %(levelname)s] <%(module)s.%(funcName)s> - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        self.logs_dir_path = data_dir_path / "logs"
-        os.makedirs(self.logs_dir_path, exist_ok=True)
+    logger.level("PROGRAM", no=36, color="<blue>", icon="🤖")
+    logger.level("DEBRID", no=38, color="<yellow>", icon="🔗")
+    logger.level("SYMLINKER", no=39, color="<fg 249,231,159>", icon="🔗")
+    logger.level("SCRAPER", no=40, color="<magenta>", icon="👻")
+    logger.level("COMPLETED", no=41, color="<green>", icon="🟢")
+    logger.level("CACHE", no=42, color="<green>", icon="📜")
+    logger.level("NOT_FOUND", no=43, color="<fg 129,133,137>", icon="🤷‍")
+    logger.level("NEW", no=44, color="<fg #e63946>", icon="✨")
+    logger.level("FILES", no=45, color="<yellow>", icon="🗃️")
 
-        self.addFilter(RedactSensitiveInfo())
+    # set the default info and debug level icons
+    logger.level("INFO", icon="📰")
+    logger.level("DEBUG", icon="🤖")
+    logger.level("WARNING", icon="⚠️ ")
 
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(self.formatter)
-        self.addHandler(console_handler)
-        self.console_handler = console_handler
-        self.file_handler = None
+    # Log format to match the old log format, but with color
+    log_format = (
+        "<red>{time:YYYY-MM-DD}</red> <red>{time:HH:mm:ss}</red> | "
+        "<level>{level.icon}</level> <level>{level: <9}</level> | "
+        "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
+    )
 
-    def configure_logger(self, debug=False, log=False):
-        log_level = logging.DEBUG if debug else logging.INFO
-        self.setLevel(log_level)
-
-        # Update console handler level
-        for handler in self.handlers:
-            handler.setLevel(log_level)
-
-        # Configure file handler
-        if log and not self.file_handler:
-            # Only add a new file handler if it hasn't been added before
-            file_handler = logging.FileHandler(
-                self.logs_dir_path / self.filename, encoding="utf-8"
-            )
-            file_handler.setLevel(log_level)
-            file_handler.setFormatter(self.formatter)
-            self.addHandler(file_handler)
-            self.file_handler = (
-                file_handler  # Keep a reference to avoid adding it again
-            )
-        elif not log and self.file_handler:
-            # If logging to file is disabled but the handler exists, remove it
-            self.removeHandler(self.file_handler)
-            self.file_handler = None
+    logger.configure(handlers=[
+        {
+            "sink": sys.stderr,
+            "level": "DEBUG",
+            "format": log_format,
+            "backtrace": False,
+            "diagnose": False,
+            "enqueue": True,
+        },
+        {
+            "sink": log_filename, 
+            "level": level, 
+            "format": log_format, 
+            "rotation": "2 hours", 
+            "retention": "1 days", 
+            "compression": "zip", 
+            "backtrace": False, 
+            "diagnose": True,
+            "enqueue": True,
+        },
+    ])
 
 
-logger = Logger()
+def clean_old_logs():
+    """Remove old log files based on retention settings."""
+    try:
+        logs_dir_path = data_dir_path / "logs"
+        for log_file in logs_dir_path.glob("iceberg-*.log"):
+            # remove files older than 2 hours
+            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 2:
+                log_file.unlink()
+                logger.log("COMPLETED", f"Old log file {log_file.name} removed.")
+    except Exception as e:
+        logger.log("ERROR", f"Failed to clean old logs: {e}")
+
+
+console = Console()
+table = FileLogger("Downloaded Files")
+
+log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
+setup_logger(log_level)

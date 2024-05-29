@@ -9,7 +9,7 @@ const onboarding: Handle = async ({ event, resolve }) => {
 		if (!data.success || !data.data) {
 			error(500, 'API Error');
 		}
-		const toCheck = ['content', 'scraping', 'plex', 'real_debrid', 'symlink'];
+		const toCheck = ['scraping', 'realdebrid', 'symlinklibrary', 'plexlibrary'];
 		const allServicesTrue: boolean = toCheck.every((service) => data.data[service] === true);
 		if (!allServicesTrue) {
 			redirect(302, '/onboarding');

@@ -1,3 +1,4 @@
+import traceback
 from datetime import datetime
 
 from program.media.item import MediaItem
@@ -10,45 +11,48 @@ from utils.logger import logger
 
 
 class Scraping:
-    def __init__(self):
+    def __init__(self, hash_cache):
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
+        self.hash_cache = hash_cache
         self.services = {
-            Annatar: Annatar(),
-            Torrentio: Torrentio(),
-            Orionoid: Orionoid(),
-            Jackett: Jackett(),
+            Annatar: Annatar(self.hash_cache),
+            Torrentio: Torrentio(self.hash_cache),
+            Orionoid: Orionoid(self.hash_cache),
+            Jackett: Jackett(self.hash_cache),
         }
         self.initialized = self.validate()
 
+    def validate(self):
+        if not (validated := any(service.initialized for service in self.services.values())):
+            logger.critical("You have no scraping services enabled, please enable at least one!")
+        return validated
+
     def run(self, item: MediaItem):
-        if not self._can_we_scrape(item):
-            yield None
-        for service in self.services.values():
+        if not self.can_we_scrape(item):
+            return
+
+        for service_name, service in self.services.items():
             if service.initialized:
-                item = next(service.run(item))
+                try:
+                    item = next(service.run(item))
+                except StopIteration:
+                    logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
+                except Exception as e:
+                    logger.exception(f"{service_name} failed to scrape item with error: {e}")
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
 
-    def validate(self):
-        if not (
-            validated := any(service.initialized for service in self.services.values())
-        ):
-            logger.error(
-                "You have no scraping services enabled," " please enable at least one!"
-            )
-        return validated
-
-    def _can_we_scrape(self, item: MediaItem) -> bool:
-        return self._is_released(item) and self.should_submit(item)
-
-    def _is_released(self, item: MediaItem) -> bool:
-        return item.aired_at is not None and item.aired_at < datetime.now()
+    @classmethod
+    def can_we_scrape(cls, item: MediaItem) -> bool:
+        """Check if we can scrape an item."""
+        return item.is_released and cls.should_submit(item)
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
+        """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
         scrape_time = 5  # 5 seconds by default
 

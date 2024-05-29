@@ -1,71 +1,143 @@
+from queue import Queue
+from unittest.mock import MagicMock
+
 import pytest
+from program import Program
 from program.media.container import MediaItemContainer
-from program.media.item import Episode, Season, Show
-
-
-@pytest.fixture
-def container():
-    return MediaItemContainer()
+from program.media.item import Episode, Movie, Season, Show, States
 
 
 @pytest.fixture
 def test_show():
     # Setup Show with a Season and an Episode
-    show = Show({"imdb_id": "tt1405406"})
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
     season = Season({"number": 1})
-    episode = Episode({"number": 1})
-    season.add_episode(episode)
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
     show.add_season(season)
     return show
 
+@pytest.fixture
+def test_movie():
+    return Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
 
-def test_upsert_episode_modification_reflects_in_parent_season(container, test_show):
-    # Upsert the show with its season and episode
-    container.upsert(test_show)
+@pytest.fixture
+def program():
+    args = MagicMock()
+    program = Program(args)
+    program.event_queue = Queue()  # Reset the event queue
+    program.media_items = MediaItemContainer()
+    return program
 
-    modified_episode = test_show.seasons[0].episodes[0]
+def test_incomplete_items_retrieval(program, test_show):
+    program.media_items.upsert(test_show)
+    incomplete_items = program.media_items.get_incomplete_items()
+    assert len(incomplete_items) == len(program.media_items)
+    assert incomplete_items[next(iter(incomplete_items))].state == States.Unknown
 
-    # Modify an attribute of the copied episode
-    modified_attribute_value = "Modified Value"
-    modified_episode.some_attribute = modified_attribute_value
+def test_upsert_show_with_season_and_episodes():
+    container = MediaItemContainer()
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    season = Season({"number": 1})
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
+    show.add_season(season)
 
-    # Upsert the modified episode
-    container.upsert(modified_episode)
+    container.upsert(show)
 
-    # Fetch the season from the container to check if it contains the updated episode data
-    container_season = container._items[modified_episode.item_id.parent_id]
-    container_episode = container._items[modified_episode.item_id]
+    assert len(container._shows) == 1
+    assert len(container._seasons) == 1
+    assert len(container._episodes) == 2
+    assert len(container._items) == 4
 
-    # Verify that the modified episode's attribute is updated in the container
-    assert container_episode.some_attribute == modified_attribute_value
-    # Verify that the season in the container now points to the updated episode
-    assert (
-        container_season.episodes[container_episode.number - 1].some_attribute
-        == modified_attribute_value
-    )
+def test_remove_show_with_season_and_episodes():
+    container = MediaItemContainer()
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    season = Season({"number": 1})
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
+    show.add_season(season)
 
+    container.upsert(show)
+    container.remove(show)
 
-def test_upsert_season_modification_reflects_in_parent_show(container, test_show):
-    container.upsert(test_show)
-    # Select a season to modify
-    modified_season = test_show.seasons[0]
+    assert len(container._shows) == 0
+    assert len(container._seasons) == 0
+    assert len(container._episodes) == 0
+    assert len(container._items) == 0
 
-    # Modify an attribute of the season
-    modified_attribute_value = "Modified Season Attribute"
-    modified_season.some_attribute = modified_attribute_value
+def test_merge_items():
+    container = MediaItemContainer()
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    season = Season({"number": 1})
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
+    show.add_season(season)
+    container.upsert(show)
 
-    # Upsert the modified season
-    container.upsert(modified_season)
+    new_show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    new_season = Season({"number": 1})
+    new_episode = Episode({"number": 3})
+    new_season.add_episode(new_episode)
+    new_show.add_season(new_season)
+    container.upsert(new_show)
 
-    # Fetch the show from the container to check if it contains the updated season data
-    container_show = container._items[test_show.item_id]
-    # Since the season was replaced with an ID reference, fetch the season directly from the container
-    container_season = container._items[modified_season.item_id]
+    assert len(container._items) == 4, "Items should be merged"
+    assert len(container._shows) == 1, "Shows should be merged"
+    assert len(container._seasons) == 1, "Seasons should be merged"
 
-    # Verify that the modified season's attribute is updated in the container
-    assert container_season.some_attribute == modified_attribute_value
-    # Verify that the show in the container now references the updated season
-    assert (
-        container_show.seasons[container_season.number - 1].some_attribute
-        == modified_attribute_value
-    )
+def test_upsert_movie():
+    container = MediaItemContainer()
+    movie = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
+    container.upsert(movie)
+
+    assert len(container._movies) == 1
+    assert len(container._items) == 1
+
+def test_save_and_load_container(tmpdir):
+    container = MediaItemContainer()
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    season = Season({"number": 1})
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
+    show.add_season(season)
+    container.upsert(show)
+
+    filepath = tmpdir.join("container.pkl")
+    container.save(str(filepath))
+
+    new_container = MediaItemContainer()
+    new_container.load(str(filepath))
+
+    assert len(new_container._shows) == 1
+    assert len(new_container._seasons) == 1
+    assert len(new_container._episodes) == 2
+    assert len(new_container._items) == 4
+
+def test_get_missing_items():
+    container = MediaItemContainer()
+    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "Test Show"})
+    season = Season({"number": 1})
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    season.add_episode(episode1)
+    season.add_episode(episode2)
+    show.add_season(season)
+    container.upsert(show)
+
+    missing_items = container.get_incomplete_items()
+    
+    assert len(missing_items) == 4
+    assert missing_items[next(iter(missing_items))].state == States.Unknown
+    assert missing_items[next(iter(missing_items))].imdb_id == "tt1405406"
+    assert missing_items[next(iter(missing_items))].title == "Test Show"

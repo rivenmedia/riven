@@ -1,5 +1,4 @@
 """Requests wrapper"""
-
 import json
 import logging
 import time
@@ -7,15 +6,17 @@ from multiprocessing import Lock
 from types import SimpleNamespace
 
 import requests
-import xmltodict
 from lxml import etree
 from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectTimeout, RequestException
 from urllib3.util.retry import Retry
+from xmltodict import parse as parse_xml
 
 logger = logging.getLogger(__name__)
 
 _retry_strategy = Retry(
-    total=5,
+    total=3,
+    backoff_factor=0.1,
     status_forcelist=[500, 502, 503, 504],
 )
 _adapter = HTTPAdapter(max_retries=_retry_strategy)
@@ -31,43 +32,30 @@ class ResponseObject:
         self.response_type = response_type
         self.data = self.handle_response(response)
 
-    def handle_response(self, response: requests.Response):
+    def handle_response(self, response: requests.Response) -> dict:
         """Handle different types of responses."""
-        # Check for response success
-        if response.status_code not in [200, 201, 204]:
-            if response.status_code in [404, 429, 502, 509]:
-                raise requests.exceptions.RequestException(response.content)
-            if response.status_code in [520, 522]:
-                raise requests.exceptions.ConnectTimeout(response.content)
-            if response.status_code not in [404, 429, 502, 509, 520, 522]:
-                logger.error("Error: %s %s", response.status_code, response.content)
+        if self.status_code in [408, 460, 504, 520, 524, 522, 598, 599]:
+            raise ConnectTimeout(f"Connection timed out with status {self.status_code}", response=response)
+        if not self.is_ok:
+            raise RequestException(f"Request failed with status {self.status_code}", response=response)
+
+        content_type = response.headers.get("Content-Type", "")
+        if not content_type or response.content == b"":
             return {}
-
-        if response.content and "handler error" not in response.text:
-            content_type = response.headers.get("Content-Type", "")
-
-            if "application/rss+xml" in content_type or "text/xml" in content_type:
-                return xmltodict.parse(response.content)
-
-            elif "application/json" in content_type:
+        
+        try:
+            if "application/json" in content_type:
                 if self.response_type == dict:
                     return json.loads(response.content)
-                else:
-                    return json.loads(
-                        response.content,
-                        object_hook=lambda item: SimpleNamespace(**item),
-                    )
-        return {}
-
-    def raise_for_status(self):
-        """Raises HTTPError, if one occurred."""
-        http_error_msg = ""
-        if 400 <= self.status_code < 500:
-            http_error_msg = f"{self.status_code} Client Error"
-        elif 500 <= self.status_code < 600:
-            http_error_msg = f"{self.status_code} Server Error"
-        if http_error_msg:
-            raise requests.HTTPError(http_error_msg, response=self.response)
+                return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
+            elif "application/xml" in content_type or "text/xml" in content_type:
+                return xml_to_simplenamespace(response.content)
+            elif "application/rss+xml" in content_type or "application/atom+xml" in content_type:
+                return parse_xml(response.content)
+            else:
+                return {}
+        except Exception:
+            return {}
 
 
 def _handle_request_exception() -> SimpleNamespace:
@@ -97,7 +85,7 @@ def _make_request(
         response = session.request(
             method, url, headers=headers, data=data, timeout=timeout
         )
-    except requests.RequestException:
+    except Exception:
         response = _handle_request_exception()
 
     session.close()
@@ -178,7 +166,7 @@ def delete(
     )
 
 
-def _xml_to_simplenamespace(xml_string):
+def xml_to_simplenamespace(xml_string):
     root = etree.fromstring(xml_string)  # noqa: S320
 
     def element_to_simplenamespace(element):
@@ -243,21 +231,21 @@ class RateLimiter:
         """
         with self.lock:
             current_time = time.time()
-            time_since_last_call = current_time - self.last_call
+            time_elapsed = current_time - self.last_call
 
-            if time_since_last_call >= self.period:
+            if time_elapsed >= self.period:
                 self.tokens = self.max_calls
 
-            if self.tokens < 1:
+            if self.tokens <= 0:
                 if self.raise_on_limit:
-                    raise RateLimitExceeded("Rate limit exceeded!")
-                time_to_sleep = self.period - time_since_last_call
-                time.sleep(time_to_sleep)
-                self.last_call = current_time + time_to_sleep
+                    raise RateLimitExceeded("Rate limit exceeded")
+                time.sleep(self.period - time_elapsed)
+                self.last_call = time.time()
+                self.tokens = self.max_calls
             else:
                 self.tokens -= 1
-                self.last_call = current_time
 
+            self.last_call = current_time
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

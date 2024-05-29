@@ -20,7 +20,8 @@ class Observable(BaseModel):
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
         if self.__class__._notify_observers:
-            self.__class__._notify_observers()
+            with self._notify_observers_context():
+                self.__class__._notify_observers()
 
 
 class DebridModel(Observable):
@@ -70,7 +71,7 @@ class OverseerrModel(Updatable):
     enabled: bool = False
     url: str = "http://localhost:5055"
     api_key: str = ""
-    update_interval: int = 60
+    update_interval: int = 30
 
 
 class PlexWatchlistModel(Updatable):
@@ -110,8 +111,8 @@ class TorrentioConfig(Observable):
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "https://annatar.elfhosted.com"
-    limit: int = 20
-    timeout: int = 10
+    limit: int = 2000
+    timeout: int = 10 # cant be higher than 10 # TODO: remove
 
 
 class ScraperModel(Observable):
@@ -150,8 +151,8 @@ class RTNSettingsModel(SettingsModel, Observable):
         "webdl": CustomRank(fetch=True, rank=90),
         "repack": CustomRank(fetch=True, rank=5),
         "proper": CustomRank(fetch=True, rank=4),
-        "dubbed": CustomRank(fetch=True, rank=4),
-        "subbed": CustomRank(fetch=True, rank=2),
+        "dubbed": CustomRank(fetch=True, rank=1),
+        "subbed": CustomRank(fetch=True, rank=4),
         "av1": CustomRank(fetch=False, rank=0),
     }
 

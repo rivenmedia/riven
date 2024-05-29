@@ -20,34 +20,8 @@ parser.add_argument(
     action="store_true",
     help="Ignore the cached metadata, create new data from scratch.",
 )
-parser.add_argument(
-    "--profile_state_transitions",
-    action="store_true",
-    help="Use a profiling process to determine what paths the state machine took",
-)
+
 args = parser.parse_args()
-
-
-class Server(uvicorn.Server):
-    def install_signal_handlers(self):
-        pass
-
-    @contextlib.contextmanager
-    def run_in_thread(self):
-        thread = threading.Thread(target=self.run, name="Iceberg")
-        thread.start()
-        try:
-            while not self.started:
-                time.sleep(1e-3)
-            yield
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            raise e
-        finally:
-            app.program.stop()
-            self.should_exit = True
-            sys.exit(0)
-
 
 app = FastAPI()
 app.program = Program(args)
@@ -64,8 +38,29 @@ app.include_router(default_router)
 app.include_router(settings_router)
 app.include_router(items_router)
 
-config = uvicorn.Config(app, host="0.0.0.0", port=8080)
+
+class Server(uvicorn.Server):
+    def install_signal_handlers(self):
+        pass
+
+    @contextlib.contextmanager
+    def run_in_thread(self):
+        thread = threading.Thread(target=self.run, name="Iceberg")
+        thread.start()
+        try:
+            while not self.started:
+                time.sleep(1e-3)
+            yield
+        except Exception as e:
+            logger.exception(traceback.format_exc())
+            logger.exception(f"Error in server thread: {e}")
+            raise e
+        finally:
+            self.should_exit = True
+
+config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
 server = Server(config=config)
+
 
 with server.run_in_thread():
     try:
@@ -73,3 +68,9 @@ with server.run_in_thread():
         app.program.run()
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        logger.exception(f"Error in main thread: {e}")
+    finally:
+        logger.info("Shutting down server.")
+        app.program.stop()
+        sys.exit(0)

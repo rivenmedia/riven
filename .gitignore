@@ -6,6 +6,7 @@ settings.json
 docker-compose.yml
 makefile
 .ruff_cache/
+*.dat
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

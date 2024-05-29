@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
-from RTN.parser import extract_episodes
+from RTN.patterns import extract_episodes
 
 
 @dataclass
@@ -31,7 +31,7 @@ class MediaItem:
 
         self.scraped_at = None
         self.scraped_times = 0
-        self.active_stream = item.get("active_stream", None)
+        self.active_stream = item.get("active_stream", {})
         self.streams = {}
 
         self.symlinked = False
@@ -60,9 +60,19 @@ class MediaItem:
         self.genres = item.get("genres", [])
 
         # Plex related
+        # TODO: This might be bugged? I wonder if movies that are in collections, 
+        # TODO: have a key from the collection.. needs testing.
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
         self.update_folder = item.get("update_folder", None)
+
+        # Overseerr related
+        self.overseerr_id = item.get("overseerr_id", None)
+
+    @property
+    def is_released(self) -> bool:
+        """Check if an item has been released."""
+        return self.aired_at is not None and self.aired_at < datetime.now()
 
     @property
     def state(self):
@@ -81,10 +91,10 @@ class MediaItem:
             return States.Indexed
         elif self.imdb_id and self.requested_by:
             return States.Requested
-        else:
-            return States.Unknown
+        return States.Unknown
 
     def copy_other_media_attr(self, other):
+        """Copy attributes from another media item."""
         self.title = getattr(other, "title", None)
         self.tvdb_id = getattr(other, "tvdb_id", None)
         self.tmdb_id = getattr(other, "tmdb_id", None)
@@ -93,6 +103,8 @@ class MediaItem:
         self.language = getattr(other, "language", None)
         self.aired_at = getattr(other, "aired_at", None)
         self.genres = getattr(other, "genres", [])
+        self.is_anime = getattr(other, "is_anime", False)
+        self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self):
         return len(self.streams) > 0
@@ -174,6 +186,7 @@ class MediaItem:
             return self.imdb_id == other.imdb_id
         return False
 
+
     def get(self, key, default=None):
         """Get item attribute"""
         return getattr(self, key, default)
@@ -191,6 +204,9 @@ class MediaItem:
                 return self.parent.parent.title
             case _:
                 return self.title
+
+    def __hash__(self):
+        return hash(self.item_id)
 
     @property
     def log_string(self):
@@ -213,6 +229,8 @@ class Movie(MediaItem):
     def __repr__(self):
         return f"Movie:{self.log_string}:{self.state.name}"
 
+    def __hash__(self):
+        return super().__hash__()
 
 class Show(MediaItem):
     """Show class"""
@@ -254,6 +272,9 @@ class Show(MediaItem):
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
+    def __hash__(self):
+        return super().__hash__()
+
     def fill_in_missing_children(self, other: Self):
         existing_seasons = [s.number for s in self.seasons]
         for s in other.seasons:
@@ -271,9 +292,6 @@ class Show(MediaItem):
         season.parent = self
         season.item_id.parent_id = self.item_id
         self.seasons = sorted(self.seasons, key=lambda s: s.number)
-
-    def represent_children(self):
-        return [s.represent_children() for s in self.seasons]
 
 
 class Season(MediaItem):
@@ -321,6 +339,9 @@ class Season(MediaItem):
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
 
+    def __hash__(self):
+        return super().__hash__()
+
     def fill_in_missing_children(self, other: Self):
         existing_episodes = [s.number for s in self.episodes]
         for e in other.episodes:
@@ -332,6 +353,9 @@ class Season(MediaItem):
 
     def add_episode(self, episode):
         """Add episode to season"""
+        if episode.number in [e.number for e in self.episodes]:
+            return
+
         self.episodes.append(episode)
         episode.parent = self
         episode.item_id.parent_id = self.item_id
@@ -341,6 +365,8 @@ class Season(MediaItem):
     def log_string(self):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
+    def get_top_title(self) -> str:
+        return self.parent.title
 
 class Episode(MediaItem):
     """Episode class"""
@@ -361,6 +387,9 @@ class Episode(MediaItem):
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.name}"
+
+    def __hash__(self):
+        return super().__hash__()
 
     def get_file_episodes(self) -> List[int]:
         return extract_episodes(self.file)

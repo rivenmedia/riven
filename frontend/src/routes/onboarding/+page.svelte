@@ -42,26 +42,26 @@
 
 <div
 	bind:this={rootElement}
-	class="flex flex-col p-8 md:px-24 lg:px-32 overflow-x-hidden h-svh w-full"
+	class="flex flex-col w-full p-8 overflow-x-hidden md:px-24 lg:px-32 h-svh"
 >
-	<div class:opacity-0={!inView} class="flex w-full items-center justify-center flex-col h-full">
+	<div class:opacity-0={!inView} class="flex flex-col items-center justify-center w-full h-full">
 		<div class="flex items-center justify-center slide-up">
 			<Mountain class="w-16 h-16" />
 		</div>
 		
 		{#if data.health.message !== true}
-			<div class="flex flex-col gap-2 items-center justify-center slide-up">
+			<div class="flex flex-col items-center justify-center gap-2 slide-up">
 				<h1 class="text-3xl font-semibold text-center">Iceberg is initializing...</h1>
-				<Button class="font-semibold w-full" href="/">Go back to home</Button>
+				<Button class="w-full font-semibold" href="/">Go back to home</Button>
 			</div>
 		{:else}
 			<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
 			<p
-				class="text-base md:text-lg text-center text-muted-foreground slide-up max-w-lg md:max-w-2xl"
+				class="max-w-lg text-base text-center md:text-lg text-muted-foreground slide-up md:max-w-2xl"
 			>
 				Before you can start using Iceberg, you need to configure some services first.
 			</p>
-			<Button class="mt-4 slide-up font-semibold w-full md:max-w-max" href="/onboarding/1">
+			<Button class="w-full mt-4 font-semibold slide-up md:max-w-max" href="/onboarding/1">
 				<Rocket class="w-4 h-4 mr-2" />
 				<span>Let's go</span>
 			</Button>

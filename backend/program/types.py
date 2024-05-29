@@ -5,11 +5,11 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.libaries import SymlinkLibrary
 from program.media.item import MediaItem
 from program.realdebrid import Debrid
-from program.scrapers import Jackett, Orionoid, Scraping, Torrentio
+from program.scrapers import Annatar, Jackett, Orionoid, Scraping, Torrentio
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Orionoid, Jackett]
+Scraper = Union[Scraping, Torrentio, Orionoid, Jackett, Annatar]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
 Service = Union[Content, SymlinkLibrary, Scraper, Debrid, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]

@@ -21,18 +21,20 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        logger.info("Listrr initialized!")
+        self.not_found_ids = []
+        self.recurring_items = set()
+        logger.success("Listrr initialized!")
 
     def validate(self) -> bool:
         """Validate Listrr settings."""
         if not self.settings.enabled:
-            logger.debug("Listrr is set to disabled.")
+            logger.warning("Listrr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
             logger.error("Listrr api key is not set or invalid.")
             return False
         valid_list_found = False
-        for list_name, content_list in [
+        for _, content_list in [
             ("movie_lists", self.settings.movie_lists),
             ("show_lists", self.settings.show_lists),
         ]:
@@ -49,13 +51,11 @@ class Listrr:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
             if not response.ok:
                 logger.error(
-                    "Listrr ping failed - Status Code: %s, Reason: %s",
-                    response.status_code,
-                    response.reason,
+                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}",
                 )
             return response.ok
         except Exception as e:
-            logger.error("Listrr ping exception: %s", e)
+            logger.error(f"Listrr ping exception: {e}")
             return False
 
     def run(self) -> Generator[MediaItem, None, None]:
@@ -64,10 +64,11 @@ class Listrr:
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
-            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.__class__})
-        return
+            if imdb_id not in self.recurring_items:
+                self.recurring_items.add(imdb_id)
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
 
-    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:
+    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
         unique_ids: set[str] = set()
         if not content_lists:
@@ -98,7 +99,7 @@ class Listrr:
                     if e.response.status_code in [400, 404, 429, 500]:
                         break
                 except Exception as e:
-                    logger.error("An error occurred: %s", e)
+                    logger.error(f"An error occurred: {e}")
                     break
                 page += 1
         return list(unique_ids)

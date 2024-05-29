@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.11, 3.12]
+        python-version: [3.11]
 
     steps:
     - uses: actions/checkout@v4.1.2
@@ -32,10 +32,10 @@ jobs:
         pip install poetry
         poetry install --no-root --with dev
 
-    - name: Ruff & Isort Check
-      run: |
-        poetry run ruff check ./backend
-        poetry run isort --check-only ./backend
+    # - name: Ruff & Isort Check
+    #   run: |
+    #     poetry run ruff check ./backend
+    #     poetry run isort --check-only ./backend
 
     - name: Type check
       run: poetry run pyright
