@@ -165,7 +165,7 @@
 											/>
 											<div class="absolute top-2 left-2">
 												<Badge class="rounded-md bg-opacity-40 backdrop-blur-lg drop-shadow-lg">
-													{item.type === 'movie' ? 'Movie' : 'TV Show'}
+													{item.type === 'Movie' ? 'Movie' : 'TV Show'}
 												</Badge>
 											</div>
 										</div>
