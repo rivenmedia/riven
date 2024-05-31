@@ -1,3 +1,4 @@
+import asyncio
 import os
 import threading
 import time
@@ -7,9 +8,15 @@ from datetime import datetime
 from queue import Empty, Queue
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
+from program.content.listrr import Listrr
+from program.content.mdblist import Mdblist
+from program.content.overseerr import Overseerr
+from program.content.plex_watchlist import PlexWatchlist
+from program.content.trakt import Trakt
+from program.downloaders.realdebrid import Debrid
+from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
-from program.libaries import PlexLibrary, SymlinkLibrary
+from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -17,11 +24,10 @@ from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
-from utils.logger import clean_old_logs, logger
+from utils.logger import logger, scrub_logs
 
 from .cache import HashCache
 from .pickly import Pickly
-from .realdebrid import Debrid
 from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
@@ -35,6 +41,10 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         self.initialized = False
+        self.loop = asyncio.get_event_loop()
+        self.tasks = []
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
+        self.scheduler = BackgroundScheduler()
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
 
@@ -44,12 +54,16 @@ class Program(threading.Thread):
             PlexWatchlist: PlexWatchlist(),
             Listrr: Listrr(),
             Mdblist: Mdblist(),
+            Trakt: Trakt(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
-        self.hash_cache = HashCache(ttl=180)
-        self.processing_services = {
-            Scraping: Scraping(hash_cache=self.hash_cache),
+        self.hash_cache = HashCache(420, 10000)
+        self.downloader_services = {
             Debrid: Debrid(self.hash_cache),
+            TorBoxDownloader: TorBoxDownloader(self.hash_cache),
+        }
+        self.processing_services = {
+            Scraping: Scraping(self.hash_cache),
             Symlinker: Symlinker(),
             PlexUpdater: PlexUpdater(),
         }
@@ -59,12 +73,31 @@ class Program(threading.Thread):
             SymlinkLibrary: SymlinkLibrary(),
             PlexLibrary: PlexLibrary(),
         }
+        if not any(s.initialized for s in self.requesting_services.values()):
+            logger.error("No Requesting service initialized, you must select at least one.")
+        if not any(s.initialized for s in self.downloader_services.values()):
+            logger.error("No Downloader service initialized, you must select at least one.")
+        if not self.processing_services.get(Scraping).initialized:
+            logger.error("No Scraping service initialized, you must select at least one.")
+
         self.services = {
             **self.library_services,
             **self.indexing_services,
             **self.requesting_services,
             **self.processing_services,
+            **self.downloader_services,
         }
+
+    def validate(self) -> bool:
+        """Validate that all required services are initialized."""
+        return all(
+            (
+                any(s.initialized for s in self.requesting_services.values()),
+                any(s.initialized for s in self.library_services.values()),
+                any(s.initialized for s in self.indexing_services.values()),
+                all(s.initialized for s in self.processing_services.values()),
+            )
+        )
 
     def start(self):
         logger.log("PROGRAM", f"Iceberg v{settings_manager.settings.version} starting!")
@@ -77,9 +110,9 @@ class Program(threading.Thread):
 
         try:
             self.initialize_services()
-            clean_old_logs()
+            scrub_logs()
         except Exception:
-            logger.error("Failed to initialize services")
+            logger.exception("Failed to initialize services")
 
         logger.log("PROGRAM", "----------------------------------------------")
         logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
@@ -100,8 +133,6 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
-        self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
 
@@ -173,8 +204,15 @@ class Program(threading.Thread):
             else:
                 logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
-        future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
+        if asyncio.iscoroutinefunction(func):
+            if item is None:
+                future = asyncio.run_coroutine_threadsafe(func(), self.loop)
+            else:
+                future = asyncio.run_coroutine_threadsafe(func(item), self.loop)
+        else:
+            future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        self.tasks.append(future)
 
     def run(self):
         while self.running:
@@ -183,7 +221,7 @@ class Program(threading.Thread):
                 continue
 
             try:
-                event: Event = self.event_queue.get(timeout=1)
+                event: Event = self.event_queue.get()
             except Empty:
                 continue
 
@@ -192,8 +230,8 @@ class Program(threading.Thread):
                 existing_item, event.emitted_by, event.item
             )
 
-            if not next_service and isinstance(existing_item, (Movie, Show)) and existing_item.state == States.Completed:
-                logger.success(f"Item {existing_item.log_string} has been completed")
+            if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
+                logger.success(f"Item has been completed: {updated_item.log_string}")
 
             if updated_item:
                 self.media_items.upsert(updated_item)
@@ -205,27 +243,28 @@ class Program(threading.Thread):
                             continue
                     self._submit_job(next_service, item_to_submit)
 
-    def validate(self) -> bool:
-        """Validate that all required services are initialized."""
-        return all(
-            (
-                any(s.initialized for s in self.requesting_services.values()),
-                any(s.initialized for s in self.library_services.values()),
-                any(s.initialized for s in self.indexing_services.values()),
-                all(s.initialized for s in self.processing_services.values()),
-            )
-        )
+    async def stop(self):
+        """Stop the program and ensure all tasks are completed."""
+        logger.log("PROGRAM", "Stopping the program...")
+        
+        # Use asyncio.gather to wait on all asyncio tasks simultaneously
+        await asyncio.gather(*(asyncio.wrap_future(task) for task in self.tasks if isinstance(task, asyncio.Future)))
+        
+        # Immediately get results of non-async tasks
+        for task in self.tasks:
+            if not isinstance(task, asyncio.Future):
+                task.result()
 
-    def stop(self):
-        self.running = False
-        self.clear_queue()  # Clear the queue when stopping
+        self.executor.shutdown(wait=True)
+        
+        # Shutdown scheduler and pickly if they are running
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
-        if hasattr(self, "executor") and not self.executor.shutdown:
-            self.executor.shutdown(wait=False)
         if hasattr(self, "pickly") and self.pickly.running:
             self.pickly.stop()
-        logger.log("PROGRAM", "Iceberg has been stopped.")
+
+        self.loop.stop()
+        logger.log("PROGRAM", "Program has been stopped.")
 
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""

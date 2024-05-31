@@ -85,10 +85,13 @@ def _make_request(
         response = session.request(
             method, url, headers=headers, data=data, timeout=timeout
         )
+    except requests.ReadTimeout:
+        response = _handle_request_exception()
     except Exception:
         response = _handle_request_exception()
+    finally:
+        session.close()
 
-    session.close()
     return ResponseObject(response, response_type)
 
 

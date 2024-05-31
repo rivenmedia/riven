@@ -26,9 +26,10 @@ class Torrentio:
         self.minute_limiter = RateLimiter(
             max_calls=300, period=3600, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
+        self.running = True
         logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -45,7 +46,7 @@ class Torrentio:
             if response.ok:
                 return True
         except Exception as e:
-            logger.exception(f"Torrentio failed to initialize: {e}", )
+            logger.error(f"Torrentio failed to initialize: {e}", )
             return False
         return True
 
@@ -61,8 +62,6 @@ class Torrentio:
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
             logger.warning(f"Rate limit exceeded for item: {item.log_string}")
-            yield item
-            return
         except ConnectTimeout:
             self.minute_limiter.limit_hit()
             logger.warning(f"Torrentio connection timeout for item: {item.log_string}")
@@ -102,7 +101,7 @@ class Torrentio:
             if identifier:
                 url += identifier
             with self.second_limiter:
-                response = get(f"{url}.json", retry_if_failed=False, timeout=60)
+                response = get(f"{url}.json", retry_if_failed=True, timeout=30)
             if not response.is_ok or len(response.data.streams) <= 0:
                 return {}, 0
 
@@ -117,7 +116,6 @@ class Torrentio:
                 if not stream.infoHash or not raw_title:
                     continue
                 if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
-                    logger.log("CACHE", f"Skipping blacklisted hash {stream.infoHash}")
                     continue
                 try:
                     torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)

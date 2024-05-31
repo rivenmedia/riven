@@ -9,7 +9,7 @@ from utils.logger import logger
 class HashCache:
     """A class for caching hashes with additional metadata and a time-to-live (TTL) mechanism."""
 
-    def __init__(self, ttl: int = 420, maxsize: int = 2000) -> None:
+    def __init__(self, ttl: int = 420, maxsize: int = 2000):
         """
         Initializes the HashCache with a specified TTL and maximum size.
 
@@ -31,20 +31,33 @@ class HashCache:
             for infohash in self.cache:
                 yield infohash
 
+    def is_blacklisted(self, infohash: str) -> bool:
+        """Check if a hash is blacklisted."""
+        with self.lock:
+            return self._get_cache_entry(infohash).get("blacklisted", False)
+
+    def is_downloaded(self, infohash: str) -> bool:
+        """Check if a hash is marked as downloaded."""
+        with self.lock:
+            return self._get_cache_entry(infohash).get("downloaded", False)
+
     def blacklist(self, infohash: str) -> None:
         """Blacklist a hash."""
         if not infohash:
             raise ValueError("Infohash is required")
 
         with self.lock:
-            if infohash in self.cache:
-                if "blacklisted" not in self.cache[infohash]:
-                    self.cache[infohash]["blacklisted"] = True
-            else:
-                self.cache[infohash] = {
-                    "blacklisted": True,
-                    "added_at": datetime.now()
-                }
+            entry = self._get_cache_entry(infohash)
+            entry["blacklisted"] = True
+            self.cache[infohash] = entry
+
+    def mark_downloaded(self, infohash: str) -> None:
+        """Mark a hash as downloaded."""
+        with self.lock:
+            entry = self._get_cache_entry(infohash)
+            entry["downloaded"] = True
+            self.cache[infohash] = entry
+        logger.log("CACHE", f"Marked hash {infohash} as downloaded")
 
     def remove(self, infohash: str) -> None:
         """Remove a hash from the blacklist."""
@@ -56,32 +69,11 @@ class HashCache:
                 del self.cache[infohash]
         logger.log("CACHE", f"Removed hash {infohash}")
 
-    def is_blacklisted(self, infohash: str) -> bool:
-        """Check if a hash is blacklisted."""
-        with self.lock:
-            return infohash in self.cache and self.cache[infohash].get("status")
-
-    def is_downloaded(self, infohash: str) -> bool:
-        """Check if a hash is marked as downloaded."""
-        with self.lock:
-            is_downloaded = infohash in self.cache and self.cache[infohash].get("status")
-        if is_downloaded:
-            logger.log("CACHE", f"Infohash {infohash} is downloaded on Real-Debrid")
-        return is_downloaded
-
-    def mark_as_downloaded(self, infohash: str) -> None:
-        with self.lock:
-            if infohash in self.cache:
-                self.cache[infohash]["downloaded"] = True
-            else:
-                self.cache[infohash] = {
-                    "downloaded": True,
-                    "added_at": datetime.now()
-                }
-        logger.log("CACHE", f"Marked hash {infohash} as downloaded")
-
     def clear_cache(self) -> None:
         """Clear the cache."""
         with self.lock:
             self.cache.clear()
 
+    def _get_cache_entry(self, infohash: str) -> dict:
+        """Helper function to get a cache entry or create a new one if it doesn't exist."""
+        return self.cache.get(infohash, {"blacklisted": False, "downloaded": False, "added_at": datetime.now()})

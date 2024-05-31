@@ -24,13 +24,23 @@ class Observable(BaseModel):
                 self.__class__._notify_observers()
 
 
+# Download Services
+
 class DebridModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
+
+class TorboxModel(Observable):
+    enabled: bool = False
     api_key: str = ""
 
 
+# Symlink Service
+
+
 class SymlinkModel(Observable):
-    rclone_path: Path = Path()
-    library_path: Path = Path()
+    rclone_path: Path = Path("/mnt/zurg/__all__")
+    library_path: Path = Path("/mnt/library")
 
 
 # Content Services
@@ -80,20 +90,31 @@ class PlexWatchlistModel(Updatable):
     update_interval: int = 60
 
 
+class TraktModel(Updatable):
+    enabled: bool = False
+    api_key: str = ""
+    collections: list[str] = []
+    fetch_trending: bool = False
+    fetch_popular: bool = False
+
+    update_interval: int = 300
+
+
 class ContentModel(Observable):
-    listrr: ListrrModel = ListrrModel()
-    mdblist: MdblistModel = MdblistModel()
     overseerr: OverseerrModel = OverseerrModel()
     plex_watchlist: PlexWatchlistModel = PlexWatchlistModel()
+    mdblist: MdblistModel = MdblistModel()
+    listrr: ListrrModel = ListrrModel()
+    trakt: TraktModel = TraktModel()
 
 
 # Scraper Services
 
 
-class JackettConfig(Observable):
+class TorrentioConfig(Observable):
     enabled: bool = False
-    url: str = "http://localhost:9117"
-    api_key: str = ""
+    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
+    url: str = "http://torrentio.strem.fun"
 
 
 class OrionoidConfig(Observable):
@@ -102,27 +123,39 @@ class OrionoidConfig(Observable):
     limitcount: int = 5
 
 
-class TorrentioConfig(Observable):
+class JackettConfig(Observable):
     enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://torrentio.strem.fun"
+    url: str = "http://localhost:9117"
+    api_key: str = ""
+
+
+class ProwlarrConfig(Observable):
+    enabled: bool = False
+    url: str = "http://localhost:9696"
+    api_key: str = ""
 
 
 class AnnatarConfig(Observable):
     enabled: bool = False
-    url: str = "https://annatar.elfhosted.com"
+    url: str = "http://annatar.elfhosted.com"
     limit: int = 2000
     timeout: int = 10 # cant be higher than 10 # TODO: remove
+
+
+class TorBoxScraperConfig(Observable):
+    enabled: bool = False
 
 
 class ScraperModel(Observable):
     after_2: float = 2
     after_5: int = 6
     after_10: int = 24
-    jackett: JackettConfig = JackettConfig()
-    orionoid: OrionoidConfig = OrionoidConfig()
     torrentio: TorrentioConfig = TorrentioConfig()
+    jackett: JackettConfig = JackettConfig()
+    prowlarr: ProwlarrConfig = ProwlarrConfig()
+    orionoid: OrionoidConfig = OrionoidConfig()
     annatar: AnnatarConfig = AnnatarConfig()
+    torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
 
 
 # Version Ranking Model (set application defaults here!)
@@ -132,7 +165,7 @@ class RTNSettingsModel(SettingsModel, Observable):
     profile: str = "default"
     custom_ranks: Dict[str, CustomRank] = {
         "uhd": CustomRank(fetch=False, rank=120),
-        "fhd": CustomRank(fetch=True, rank=90),
+        "fhd": CustomRank(fetch=True, rank=100),
         "hd": CustomRank(fetch=True, rank=80),
         "sd": CustomRank(fetch=False, rank=-120),
         "bluray": CustomRank(fetch=True, rank=80),
@@ -175,6 +208,7 @@ class AppModel(Observable):
     log: bool = True
     plex: PlexLibraryModel = PlexLibraryModel()
     real_debrid: DebridModel = DebridModel()
+    torbox_downloader: TorboxModel = TorboxModel()
     symlink: SymlinkModel = SymlinkModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()

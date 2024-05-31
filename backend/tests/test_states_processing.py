@@ -1,9 +1,9 @@
 import pytest
+from program.downloaders.realdebrid import Debrid
 from program.indexers.trakt import TraktIndexer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.program import Program
-from program.realdebrid import Debrid
 from program.scrapers import Scraping
 from program.state_transition import process_event
 from program.symlink import Symlinker

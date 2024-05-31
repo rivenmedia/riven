@@ -1,4 +1,5 @@
 # Extras That Shouldn't Be Here
+.git/
 .gitignore
 .dockerignore
 docker-compose.yml
@@ -7,16 +8,19 @@ makefile
 htmlcov/
 coverage.xml
 .coverage*
-.coverage.*
+*.svg
+
+.vscode/
+.ruff_cache/
+*.dat
+profile.svg
 
 # Frontend
 .DS_Store
 /build
 /.svelte-kit
 /package
-.env
-.env.*
-!.env.example
+.example*
 
 # Backend
 logs/
@@ -25,24 +29,15 @@ __pycache__
 *.log
 data
 test*
-.git
 
 # Jupyter Notebooks
 .ipynb_checkpoints
 
 # Environments
-.env
+.env*
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
-
-### VisualStudioCode ###
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/*.code-snippets

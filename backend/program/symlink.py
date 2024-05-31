@@ -35,6 +35,8 @@ class Symlinker:
     def __init__(self):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
+        # we can't delete from rclone if this is enabled
+        self.torbox_enabled = settings_manager.settings.torbox_downloader.enabled
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
@@ -88,18 +90,20 @@ class Symlinker:
             self.event_handler, self.settings.library_path, recursive=True
         )
         self.observer.start()
-        logger.debug("Symlink deletion monitoring started")
+        logger.log("FILES", "Symlink deletion monitoring started")
 
     def stop_monitor(self):
         """Stops the directory monitoring."""
         if hasattr(self, "observer"):
             self.observer.stop()
             self.observer.join()
-            logger.debug("Stopped monitoring for symlink deletions")
+            logger.log("FILES", "Stopped monitoring for symlink deletions")
 
     def on_symlink_deleted(self, symlink_path):
         """Handle a symlink deletion event."""
-        # logger.debug(f"Detected deletion of symlink: {symlink_path}")
+        src = Path(symlink_path)
+        dst = Path(symlink_path).resolve()
+        logger.log("FILES", f"Symlink deleted: {src} -> {dst}") 
         # TODO: Implement logic to handle deletion..
 
     def create_initial_folders(self):
@@ -150,16 +154,15 @@ class Symlinker:
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
             if isinstance(item, (Movie, Episode)):
-                # reset file and folder
                 item.set("file", None)
                 item.set("folder", None)
-                # reset symlinked times
+                item.set("streams", {}) # making sure we rescrape
                 item.set("symlinked_times", 0)
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug(f"Sleeping for 5 seconds before checking if file exists again for {item.log_string}")
-        time.sleep(5)
+        logger.debug(f"Sleeping for 10 seconds before checking if file exists again for {item.log_string}")
+        time.sleep(10)
         return True
 
     @staticmethod
@@ -182,7 +185,7 @@ class Symlinker:
             item.set("folder", item.file)
             return True
 
-        logger.error(f"No file found in rclone path for {item.log_string} with file: {item.file}")
+        logger.log("NOT_FOUND", f"File not found for {item.log_string} with file: {item.file}")
         return False
 
     def _determine_file_name(self, item) -> str | None:
@@ -244,7 +247,7 @@ class Symlinker:
         except FileExistsError:
             return True
         except OSError as e:
-            logger.debug(f"Failed to create symlink for {item.log_string}: {e}")
+            logger.error(f"Failed to create symlink for {item.log_string}: {e}")
             return False
 
     def _symlink_episode(self, episode) -> bool:

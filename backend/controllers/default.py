@@ -40,6 +40,14 @@ async def get_rd_user():
     )
     return response.json()
 
+@router.get("/torbox")
+async def get_torbox_user():
+    api_key = settings_manager.settings.torbox.api_key
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get(
+        "https://api.torbox.app/v1/api/user/me", headers=headers, timeout=10
+    )
+    return response.json()
 
 @router.get("/services")
 async def get_services(request: Request):

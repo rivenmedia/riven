@@ -127,7 +127,6 @@ class Jackett:
                     continue
 
                 if self.hash_cache.is_blacklisted(infohash):
-                    logger.log("CACHE", f"Skipping blacklisted hash {infohash}")
                     continue
 
                 try:

@@ -2,16 +2,17 @@ from dataclasses import dataclass
 from typing import Generator, Union
 
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
-from program.libaries import SymlinkLibrary
+from program.downloaders import Debrid, TorBoxDownloader
+from program.libraries import SymlinkLibrary
 from program.media.item import MediaItem
-from program.realdebrid import Debrid
 from program.scrapers import Annatar, Jackett, Orionoid, Scraping, Torrentio
+from program.scrapers.torbox import TorBoxScraper
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Orionoid, Jackett, Annatar]
+Scraper = Union[Scraping, Torrentio, Orionoid, Jackett, Annatar, TorBoxScraper]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
-Service = Union[Content, SymlinkLibrary, Scraper, Debrid, Symlinker]
+Service = Union[Content, SymlinkLibrary, Scraper, Debrid, TorBoxDownloader, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 ProcessedEvent = (MediaItem, Service, list[MediaItem])
 

@@ -1,11 +1,8 @@
-"""Mdblist content module"""
-
-from time import time
+"""Trakt content module"""
+import time
 
 from program.settings.manager import settings_manager
 from utils.logger import logger
-
-# from program.indexers.trakt import TraktIndexer
 
 
 class Trakt:
@@ -19,13 +16,13 @@ class Trakt:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.updater = Trakt()
         self.next_run_time = 0
         logger.success("Trakt initialized!")
 
     def validate(self) -> bool:
         """Validate Trakt settings."""
-        return NotImplementedError
+        logger.info("Trakt is not implemented yet. Stay tuned!")
+        return False
 
     def run(self):
         """Fetch media from Trakt and add them to media_items attribute."""

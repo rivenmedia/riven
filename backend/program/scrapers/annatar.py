@@ -139,7 +139,6 @@ class Annatar:
                     continue
 
                 if self.hash_cache.is_blacklisted(stream.hash):
-                    logger.log("CACHE", f"Skipping blacklisted hash {stream.hash}")
                     continue
 
                 try:
