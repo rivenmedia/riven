@@ -9,7 +9,7 @@
 
 	const MandatoryServices = ['plexlibrary', 'scraping', 'realdebrid', 'symlinklibrary'];
 	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist'];
-	const ScrapingServices = ['torrentio', 'jackett', 'orionoid'];
+	const ScrapingServices = ['torrentio', 'annatar', 'jackett', 'orionoid'];
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
 		let sortedData = {} as Record<string, boolean>;
