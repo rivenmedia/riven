@@ -71,8 +71,7 @@ class Debrid:
         self.log_item(item)
         yield item
 
-    @staticmethod
-    def log_item(item: MediaItem) -> None:
+    def log_item(self, item: MediaItem) -> None:
         """Log the downloaded files for the item based on its type."""
         if isinstance(item, Movie):
             if hasattr(item, 'file'):
@@ -88,9 +87,11 @@ class Debrid:
             if hasattr(item, 'episodes') and item.episodes:
                 for episode in item.episodes:
                     if hasattr(episode, 'file'):
-                        logger.log("DEBRID", f"{episode.state.name}: {episode.log_string} with file: {episode.file}")
+                        # logger.log("DEBRID", f"{episode.state.name}: {episode.log_string} with file: {episode.file}")
+                        self.file_logger.add_row(episode.log_string, episode.active_stream["name"], "Downloaded")
                     else:
                         logger.log("DEBRID", f"No file to log for Episode: {item.title} Season {item.season_number} Episode {episode.episode_number}")
+                    self.file_logger.log_table()
             else:
                 logger.log("DEBRID", f"No episodes to log for Season: {item.title} Season {item.season_number}")
         elif isinstance(item, Show):
@@ -201,9 +202,8 @@ class Debrid:
         item.set("active_stream.id", request_id)
         if not self.hash_cache.is_downloaded(item.active_stream["hash"]):
             self.hash_cache.mark_downloaded(item.active_stream["hash"])
-            # self.file_logger.add_row(item.log_string, item.active_stream["name"], "Downloaded")
-            # self.file_logger.log_table()
-        logger.log("DEBRID", f"Downloaded {item.log_string}")
+            self.file_logger.add_row(item.log_string, item.active_stream["name"], "Downloaded")
+            self.file_logger.log_table()
 
     def set_active_files(self, item: Union[Movie, Episode]) -> None:
         """Set active files for item from real-debrid.com"""

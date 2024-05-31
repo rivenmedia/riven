@@ -185,7 +185,7 @@ class Symlinker:
             item.set("folder", item.file)
             return True
 
-        logger.log("NOT_FOUND", f"File not found for {item.log_string} with file: {item.file}")
+        logger.log("FILES", f"File not found for {item.log_string} with file: {item.file}")
         return False
 
     def _determine_file_name(self, item) -> str | None:

@@ -47,19 +47,19 @@ class PlexUpdater:
             self.initialized = True
             return True
         except Unauthorized:
-            logger.critical("Plex is not authorized!")
+            logger.error("Plex is not authorized!")
         except BadRequest as e:
-            logger.critical(f"Plex is not configured correctly: {e}")
+            logger.error(f"Plex is not configured correctly: {e}")
         except MaxRetryError as e:
-            logger.critical(f"Plex max retries exceeded: {e}")
+            logger.error(f"Plex max retries exceeded: {e}")
         except NewConnectionError as e:
-            logger.critical(f"Plex new connection error: {e}")
+            logger.error(f"Plex new connection error: {e}")
         except RequestsConnectionError as e:
-            logger.critical(f"Plex requests connection error: {e}")
+            logger.error(f"Plex requests connection error: {e}")
         except RequestError as e:
-            logger.critical(f"Plex request error: {e}")
+            logger.error(f"Plex request error: {e}")
         except Exception as e:
-            logger.critical(f"Plex exception thrown: {e}")
+            logger.exception(f"Plex exception thrown: {e}")
         return False
 
     def run(self, item: Union[Movie, Episode]) -> Generator[Union[Movie, Episode], None, None]:
@@ -72,7 +72,7 @@ class PlexUpdater:
             if section.type == item_type:
                 for path in paths:
                     if path in item.update_folder and self._update_section(section, item):
-                        logger.log("SUCCESS", f"Updated section {section.title} for {item.log_string}")
+                        logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
         yield item
 
     def _update_section(self, section, item) :

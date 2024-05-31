@@ -1,12 +1,10 @@
 import argparse
 import asyncio
 import contextlib
-import os
 import signal
 import sys
 import threading
 import time
-import traceback
 import uvicorn
 
 from fastapi import FastAPI
@@ -97,14 +95,12 @@ class Application:
         except Exception as e:
             logger.exception("Error during shutdown: %s", e)
         finally:
-            logger.info("Flushing and closing logger.")
-            logger.complete()
             for thread in threading.enumerate():
                 if thread is not threading.main_thread():
                     thread.join()
             sys.exit(0)
 
-# Entry point
+
 if __name__ == "__main__":
     args = load_config()
     app = create_app(args)
@@ -112,3 +108,4 @@ if __name__ == "__main__":
     server = Server(config=config)
     application = Application(app, server)
     application.run()
+    sys.exit(0)

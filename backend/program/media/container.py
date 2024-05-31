@@ -94,6 +94,14 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
+    def get_item_by_id(self, item_id: ItemId) -> Optional[MediaItem]:
+        """Retrieve an item by its ID from the container."""
+        self.lock.acquire_read()
+        try:
+            return self._items.get(item_id)
+        finally:
+            self.lock.release_read()
+
     def upsert(self, item: MediaItem) -> None:
         self.lock.acquire_write()
         try:
