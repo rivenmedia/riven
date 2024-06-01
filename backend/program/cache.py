@@ -53,11 +53,12 @@ class HashCache:
 
     def mark_downloaded(self, infohash: str) -> None:
         """Mark a hash as downloaded."""
-        with self.lock:
-            entry = self._get_cache_entry(infohash)
+        if not self.is_downloaded(infohash):
+            with self.lock:
+                entry = self._get_cache_entry(infohash)
             entry["downloaded"] = True
             self.cache[infohash] = entry
-        logger.log("CACHE", f"Marked hash {infohash} as downloaded")
+            logger.log("CACHE", f"Marked hash {infohash} as downloaded")
 
     def remove(self, infohash: str) -> None:
         """Remove a hash from the blacklist."""

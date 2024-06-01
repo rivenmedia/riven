@@ -236,11 +236,11 @@ class Program(threading.Thread):
     def stop(self):
         self.running = False
         self.clear_queue()  # Clear the queue when stopping
-        if hasattr(self, "executor") and not self.executor.shutdown:
+        if hasattr(self, "executor") and not getattr(self.executor, '_shutdown', False):
             self.executor.shutdown(wait=False)
-        if hasattr(self, "scheduler") and self.scheduler.running:
+        if hasattr(self, "scheduler") and getattr(self.scheduler, 'running', False):
             self.scheduler.shutdown(wait=False)
-        if hasattr(self, "pickly") and self.pickly.running:
+        if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
             self.pickly.stop()
         logger.log("PROGRAM", "Iceberg has been stopped.")
 

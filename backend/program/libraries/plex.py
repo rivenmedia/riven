@@ -170,7 +170,7 @@ def _map_item_from_data(item):
     genres = [genre.tag for genre in getattr(item, "genres", [])]
     is_anime = "anime" in genres
     title = getattr(item, "title", None)
-    key = getattr(item, "key", None)
+    key = getattr(item, "key", None) # super important!
     season_number = getattr(item, "seasonNumber", None)
     episode_number = getattr(item, "episodeNumber", None)
     art_url = getattr(item, "artUrl", None)

@@ -13,7 +13,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
-from RTN import extract_episodes
+from RTN import extract_episodes, parsett
 from RTN.exceptions import GarbageTorrent
 from RTN.parser import parse, title_match
 from utils.logger import logger
@@ -58,7 +58,7 @@ class Debrid:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
-        if not item.streams or isinstance(item, Show):
+        if isinstance(item, Show) or (item.file and item.folder):
             return
         if not self.is_cached(item):
             return
@@ -74,24 +74,16 @@ class Debrid:
     def log_item(item: MediaItem) -> None:
         """Log the downloaded files for the item based on its type."""
         if isinstance(item, Movie):
-            if hasattr(item, 'file'):
-                logger.log("DEBRID", f"{item.state.name}: {item.log_string} with file: {item.file}")
-            else:
-                logger.log("DEBRID", f"No file to log for Movie: {item.title}")
+            if item.file:
+                logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
         elif isinstance(item, Episode):
-            if hasattr(item, 'file'):
-                logger.log("DEBRID", f"{item.state.name}: {item.log_string} with file: {item.file}")
-            else:
-                logger.log("DEBRID", f"No file to log for Episode: {item.title} S{item.season_number}E{item.episode_number}")
+            if item.file:
+                logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
         elif isinstance(item, Season):
             if hasattr(item, 'episodes') and item.episodes:
                 for episode in item.episodes:
-                    if hasattr(episode, 'file'):
-                        logger.log("DEBRID", f"{episode.state.name}: {episode.log_string} with file: {episode.file}")
-                    else:
-                        logger.log("DEBRID", f"No file to log for Episode: {item.title} Season {item.season_number} Episode {episode.episode_number}")
-            else:
-                logger.log("DEBRID", f"No episodes to log for Season: {item.title} Season {item.season_number}")
+                    if item.file:
+                        logger.log("DEBRID", f"Downloaded: {episode.log_string} with file: {episode.file}")
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
@@ -104,21 +96,12 @@ class Debrid:
             for i in range(0, len(lst), n):
                 yield lst[i:i + n]
 
-        def _get_filtered_streams(item: MediaItem, processed_stream_hashes: set) -> List[str]:
-            """Get filtered streams for an item"""
-            if isinstance(item, (Movie, Episode)):
-                return [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
-            elif isinstance(item, Season):
-                return [hash for episode in item.episodes for hash in episode.streams if hash and hash not in processed_stream_hashes]
-            logger.error(f"Item type not supported to be downloaded {item.log_string}")
-            return []
-
         logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
 
         processed_stream_hashes = set()
-        filtered_streams = _get_filtered_streams(item, processed_stream_hashes)
+        filtered_streams = [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
         if not filtered_streams:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+            logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
             return False
 
         for stream_chunk in _chunked(filtered_streams, 5):
@@ -191,21 +174,23 @@ class Debrid:
         )
 
         # lets create a regex pattern to remove deleted scenes and samples and trailers from the filenames list
-        unwanted_regex = regex.compile(r"\b(?:deleted scene|sample|trailer)\b", regex.IGNORECASE)
+        unwanted_regex = regex.compile(r"\b(?:deleted.scene|sample|trailer|featurette)\b", regex.IGNORECASE)
         filenames = [file for file in filenames if not unwanted_regex.search(file["filename"])]
         
         if not filenames:
             return False
 
         for file in filenames:
+            if not file or not file.get("filename"):
+                continue
             with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.parsed_title:
                     continue
-                if title_match(parsed_file.parsed_title, item.title):
-                    item.set("folder", item.active_stream.get("name"))
+                if parsed_file.type == "movie":
+                    item.set("folder", item.active_stream.get("name")) # TODO: to get this and alt_name we need info from the torrent
                     item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                    item.set("file", file["filename"])
+                    item.set("file", file["filename"]) # TODO: Does this need to be a dict instead of str to be downloaded?
                     return True        
         return False
 
@@ -227,8 +212,10 @@ class Debrid:
         one_season = len(item.parent.parent.seasons) == 1
 
         for file in filenames:
+            if not file or not file.get("filename"):
+                continue
             with contextlib.suppress(GarbageTorrent, TypeError):
-                parsed_file = parse(file, remove_trash=True)
+                parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
                     continue
                 if item.number in parsed_file.episode and item.parent.number in parsed_file.season:
@@ -267,6 +254,8 @@ class Debrid:
 
         # Parse files once and assign to episodes
         for file in filenames:
+            if not file or not file.get("filename"):
+                continue
             with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
@@ -283,8 +272,8 @@ class Debrid:
         if not matched_files:
             return False
 
-        # Check if all needed episodes are captured
-        if needed_episodes.keys() == matched_files.keys():
+        # Check if all needed episodes are captured (or atleast half)
+        if (needed_episodes.keys() == matched_files.keys()) or (len(matched_files) >= len(needed_episodes) // 2):
             # Set the necessary attributes for each episode
             for ep_num, filename in matched_files.items():
                 ep = needed_episodes[ep_num]
@@ -323,17 +312,17 @@ class Debrid:
             else:
                 torrent = sorted_torrents[mid][1]
                 if torrent.hash == hash_key:
-                    if self.hash_cache.is_downloaded(hash_key):
+                    self.hash_cache.mark_downloaded(torrent.hash)
+                    if item.active_stream.get("id", None):
                         return True
                     info = self.get_torrent_info(torrent.id)
                     if _matches_item(info, item):
                         # Cache this as downloaded
                         item.set("active_stream.id", torrent.id)
                         self.set_active_files(item)
-                        self.hash_cache.mark_downloaded(torrent.hash)
                         return True
                     else:
-                        logger.log("NOT_FOUND", f"Torrent found but does not match item: {torrent.hash} != {hash_key}")
+                        logger.log("NOT_FOUND", f"Torrent found but the files do not match the required criteria")
                         return False
         return False
 
@@ -346,11 +335,14 @@ class Debrid:
         self.select_files(request_id, item)
         self.hash_cache.mark_downloaded(item.active_stream["hash"])
 
-    def set_active_files(self, item: Union[Movie, Episode]) -> None:
+    def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
         info = self.get_torrent_info(item.get("active_stream")["id"])
         item.active_stream["alternative_name"] = info.original_filename
         item.active_stream["name"] = info.filename
+        if not item.folder or not item.alternative_folder:
+            item.set("folder", item.active_stream.get("name"))
+            item.set("alternative_folder", item.active_stream.get("alternative_name"))
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
@@ -447,16 +439,11 @@ class Debrid:
 def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
     """Check if the downloaded torrent matches the item specifics."""
     if isinstance(item, Movie):
-        result = False
         for file in torrent_info.files:
+            # TODO: This can be improved further..
             if file.selected == 1 and file.bytes > 200_000_000:  # 200,000,000 bytes is approximately 0.186 GB
-                result = True
-                break
-        if result:
-            file_size_gb = file.bytes / 1_000_000_000  # Convert bytes to gigabytes
-            logger.log("DEBRID", f"Matching found with {Path(file.path).name}, filesize: {file_size_gb:.2f} GB")
-        return result
-    if isinstance(item, Episode):
+                return True
+    elif isinstance(item, Episode):
         one_season = len(item.parent.parent.seasons) == 1
         return any(
             file.selected == 1 and (
@@ -470,13 +457,13 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
         season_number = item.number
         episodes_in_season = {episode.number for episode in item.episodes}
         matched_episodes = set()
-
+        one_season = len(item.parent.seasons) == 1
         for file in torrent_info.files:
             if file.selected == 1:
                 file_episodes = extract_episodes(Path(file.path).name)
                 if season_number in file_episodes:
                     matched_episodes.update(file_episodes)
-
-        # Check if all episodes in the season are matched
-        return episodes_in_season == matched_episodes
+                elif one_season and file_episodes:
+                    matched_episodes.update(file_episodes)
+        return len(matched_episodes) >= len(episodes_in_season) // 2
     return False

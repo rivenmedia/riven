@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from program.media.item import Episode, Movie, Season
+from program.media.item import Episode, MediaItem, Movie, Season
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -166,19 +166,25 @@ class Symlinker:
         return True
 
     @staticmethod
-    def check_file_existence(item) -> bool:
+    def check_file_existence(item: MediaItem) -> bool:
         """Check if the file exists in the rclone path."""
-        if not item.file or not item.folder:
+        if not item.file:
+            logger.error(f"Item file is not set for {item.log_string}")
             return False
 
+        if item.folder and item.alternative_folder and item.folder == item.alternative_folder:
+            # Lets try all 3 to be safe
+            item.set("alternative_folder", os.path.splitext(item.file)[0])
+
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-        std_file_path = rclone_path / item.folder / item.file
-        alt_file_path = rclone_path / item.alternative_folder / item.file
-        thd_file_path = rclone_path / item.file / item.file
         
-        if std_file_path.exists():
+        std_file_path = rclone_path / item.folder / item.file if item.folder else None
+        alt_file_path = rclone_path / item.alternative_folder / item.file if item.alternative_folder else None
+        thd_file_path = rclone_path / item.file / item.file
+
+        if std_file_path and std_file_path.exists():
             return True
-        elif alt_file_path.exists():
+        elif alt_file_path and alt_file_path.exists():
             item.set("folder", item.alternative_folder)
             return True
         elif thd_file_path.exists():
