@@ -1,4 +1,3 @@
-import asyncio
 import os
 import threading
 import time
@@ -41,10 +40,6 @@ class Program(threading.Thread):
         self.running = False
         self.startup_args = args
         self.initialized = False
-        self.loop = asyncio.get_event_loop()
-        self.tasks = []
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
-        self.scheduler = BackgroundScheduler()
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
 
@@ -112,7 +107,7 @@ class Program(threading.Thread):
             self.initialize_services()
             scrub_logs()
         except Exception:
-            logger.exception("Failed to initialize services")
+            logger.error("Failed to initialize services")
 
         logger.log("PROGRAM", "----------------------------------------------")
         logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
@@ -133,6 +128,8 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
+        self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
 
@@ -204,15 +201,8 @@ class Program(threading.Thread):
             else:
                 logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
         func = self.services[service].run
-        if asyncio.iscoroutinefunction(func):
-            if item is None:
-                future = asyncio.run_coroutine_threadsafe(func(), self.loop)
-            else:
-                future = asyncio.run_coroutine_threadsafe(func(item), self.loop)
-        else:
-            future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
+        future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
-        self.tasks.append(future)
 
     def run(self):
         while self.running:
@@ -243,28 +233,16 @@ class Program(threading.Thread):
                             continue
                     self._submit_job(next_service, item_to_submit)
 
-    async def stop(self):
-        """Stop the program and ensure all tasks are completed."""
-        logger.log("PROGRAM", "Stopping the program...")
-        
-        # Use asyncio.gather to wait on all asyncio tasks simultaneously
-        await asyncio.gather(*(asyncio.wrap_future(task) for task in self.tasks if isinstance(task, asyncio.Future)))
-        
-        # Immediately get results of non-async tasks
-        for task in self.tasks:
-            if not isinstance(task, asyncio.Future):
-                task.result()
-
-        self.executor.shutdown(wait=True)
-        
-        # Shutdown scheduler and pickly if they are running
+    def stop(self):
+        self.running = False
+        self.clear_queue()  # Clear the queue when stopping
+        if hasattr(self, "executor") and not self.executor.shutdown:
+            self.executor.shutdown(wait=False)
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         if hasattr(self, "pickly") and self.pickly.running:
             self.pickly.stop()
-
-        self.loop.stop()
-        logger.log("PROGRAM", "Program has been stopped.")
+        logger.log("PROGRAM", "Iceberg has been stopped.")
 
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
@@ -283,7 +261,7 @@ class Program(threading.Thread):
                 self.event_queue.task_done()
             except Empty:
                 break
-        logger.log("PROGRAM", "Cleared the event queue. Ready for shutdown.")
+        logger.log("PROGRAM", "Cleared the event queue")
 
     def _rebuild_library(self):
         """Rebuild the media items container from the SymlinkLibrary service."""

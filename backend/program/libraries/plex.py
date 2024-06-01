@@ -1,6 +1,6 @@
-import asyncio
 import concurrent.futures
 import os
+import time
 from datetime import datetime
 from threading import Lock
 
@@ -69,46 +69,62 @@ class PlexLibrary:
             logger.exception(f"Plex exception thrown: {str(e)}")
         return False
 
-    async def run(self):
-        """Run Plex library with asynchronous processing and controlled chunking."""
+    def run(self):
+        """Run Plex library with synchronous processing and controlled chunking."""
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
         max_workers = os.cpu_count() // 2  # Use integer division for workers
         rate_limit = 5  # Process 5 chunks per minute
 
-        # Create an asynchronous executor
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Plex") as executor:
-            tasks = []
-            for section in sections:
-                is_wanted = self._is_wanted_section(section)
-                if section.key in processed_sections or not is_wanted or section.refreshing:
-                    continue
+        # Create a synchronous executor
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Plex") as executor:
+                futures = []
+                for section in sections:
+                    is_wanted = self._is_wanted_section(section)
+                    if section.key in processed_sections or not is_wanted or section.refreshing:
+                        continue
 
-                last_fetch_time = self._get_last_fetch_time(section)
-                filters = {"addedAt>>": last_fetch_time} if self.last_fetch_times else {}
-                items_to_process = section.search(libtype=section.type, filters=filters)
+                    last_fetch_time = self._get_last_fetch_time(section)
+                    filters = {"addedAt>>": last_fetch_time} if self.last_fetch_times else {}
+                    items_to_process = section.search(libtype=section.type, filters=filters)
 
-                # Process in chunks to manage memory and rate limit
-                for chunk in self._chunked(items_to_process, 50):
-                    task = loop.run_in_executor(executor, self._process_chunk, chunk)
-                    tasks.append(task)
-                    if len(tasks) % rate_limit == 0:
-                        # Rate limit: process 5 chunks per minute
-                        await asyncio.sleep(60)
+                    # Process in chunks to manage memory and rate limit
+                    for chunk in self._chunked(items_to_process, 50):
+                        try:
+                            future = executor.submit(self._process_chunk, chunk)
+                            futures.append(future)
+                        except RuntimeError as e:
+                            if 'cannot schedule new futures after shutdown' in str(e):
+                                logger.warning("Executor has been shut down, stopping chunk processing.")
+                                break
+                            else:
+                                logger.exception(f"Failed to process chunk: {e}")
+                        except Exception as e:
+                            logger.exception(f"Failed to process chunk: {e}")
+                            continue
+                        
+                        if len(futures) % rate_limit == 0:
+                            # Rate limit: process 5 chunks per minute
+                            time.sleep(60)
 
-            # Asynchronously gather all tasks
-            for completed_task in asyncio.as_completed(tasks):
-                chunk_results = await completed_task
-                items.extend(chunk_results)
-                with self.lock:
-                    self.last_fetch_times[section.key] = datetime.now()
-                processed_sections.add(section.key)
+                # Gather all results
+                for future in concurrent.futures.as_completed(futures):
+                    chunk_results = future.result()
+                    items.extend(chunk_results)
+                    with self.lock:
+                        self.last_fetch_times[section.key] = datetime.now()
+                    processed_sections.add(section.key)
 
-        if not processed_sections:
-            logger.error("Failed to process any sections. Check your library_path settings.")
-        return items
+            if not processed_sections:
+                logger.error("Failed to process any sections. Check your library_path settings.")
+            
+            logger.log("PLEX", f"Processed {len(items)} items.")
+            return items
+        except Exception as e:
+            logger.exception(f"Unexpected error occurred: {e}")
+            return []
 
     def _process_chunk(self, chunk):
         """Process a chunk of items and create MediaItems."""

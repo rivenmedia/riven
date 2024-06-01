@@ -178,10 +178,10 @@ class Symlinker:
         
         if std_file_path.exists():
             return True
-        if alt_file_path.exists():
+        elif alt_file_path.exists():
             item.set("folder", item.alternative_folder)
             return True
-        if thd_file_path.exists():
+        elif thd_file_path.exists():
             item.set("folder", item.file)
             return True
 
