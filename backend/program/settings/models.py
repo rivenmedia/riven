@@ -36,7 +36,7 @@ class TorboxModel(Observable):
 
 class DownloadersModel(Observable):
     real_debrid: DebridModel = DebridModel()
-    torbox_downloader: TorboxModel = TorboxModel()
+    torbox: TorboxModel = TorboxModel()
 
 # Symlink Service
 
@@ -67,8 +67,8 @@ class PlexLibraryModel(Updatable):
 
 class ListrrModel(Updatable):
     enabled: bool = False
-    movie_lists: list[str] = [""]
-    show_lists: list[str] = [""]
+    movie_lists: list[str] = []
+    show_lists: list[str] = []
     api_key: str = ""
     update_interval: int = 300
 
@@ -76,7 +76,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    lists: list[str] = [""]
+    lists: list[str] = []
     update_interval: int = 300
 
 
@@ -96,10 +96,13 @@ class PlexWatchlistModel(Updatable):
 class TraktModel(Updatable):
     enabled: bool = False
     api_key: str = ""
+    watchlist: list[str] = []
     collections: list[str] = []
+    user_lists: list[str] = []
     fetch_trending: bool = False
+    trending_count: int = 10
     fetch_popular: bool = False
-
+    popular_count: int = 10
     update_interval: int = 300
 
 
@@ -202,7 +205,7 @@ class IndexerModel(Observable):
 
 def get_version() -> str:
     with open(version_file_path.resolve()) as file:
-        return file.read()
+        return file.read() or "x.x.x"
 
 
 class AppModel(Observable):
@@ -210,8 +213,6 @@ class AppModel(Observable):
     debug: bool = True
     log: bool = True
     plex: PlexLibraryModel = PlexLibraryModel()
-    real_debrid: DebridModel = DebridModel()
-    torbox_downloader: TorboxModel = TorboxModel()
     symlink: SymlinkModel = SymlinkModel()
     downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()

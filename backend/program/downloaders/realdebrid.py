@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Generator, List, Union
 
 import regex
-
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager

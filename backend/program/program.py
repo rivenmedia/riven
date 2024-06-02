@@ -7,11 +7,7 @@ from datetime import datetime
 from queue import Empty, Queue
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from program.content.listrr import Listrr
-from program.content.mdblist import Mdblist
-from program.content.overseerr import Overseerr
-from program.content.plex_watchlist import PlexWatchlist
-from program.content.trakt import Trakt
+from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
@@ -27,7 +23,7 @@ from utils.logger import logger, scrub_logs
 
 from .cache import HashCache
 from .pickly import Pickly
-from .state_transition import process_event, process_items
+from .state_transition import process_items
 from .symlink import Symlinker
 from .types import Event, Service
 
@@ -42,6 +38,7 @@ class Program(threading.Thread):
         self.initialized = False
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
+        self.services = {}
 
     def initialize_services(self):
         self.requesting_services = {
@@ -49,18 +46,18 @@ class Program(threading.Thread):
             PlexWatchlist: PlexWatchlist(),
             Listrr: Listrr(),
             Mdblist: Mdblist(),
-            Trakt: Trakt(),
+            TraktContent: TraktContent(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.hash_cache = HashCache(420, 10000)
-        self.downloader_services = {
-            Debrid: Debrid(self.hash_cache),
-            TorBoxDownloader: TorBoxDownloader(self.hash_cache),
-        }
         self.processing_services = {
             Scraping: Scraping(self.hash_cache),
             Symlinker: Symlinker(),
             PlexUpdater: PlexUpdater(),
+        }
+        self.downloader_services = {
+            Debrid: Debrid(self.hash_cache),
+            TorBoxDownloader: TorBoxDownloader(self.hash_cache),
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it
@@ -91,6 +88,7 @@ class Program(threading.Thread):
                 any(s.initialized for s in self.library_services.values()),
                 any(s.initialized for s in self.indexing_services.values()),
                 all(s.initialized for s in self.processing_services.values()),
+                any(s.initialized for s in self.downloader_services.values()),
             )
         )
 
@@ -106,8 +104,8 @@ class Program(threading.Thread):
         try:
             self.initialize_services()
             scrub_logs()
-        except Exception:
-            logger.error("Failed to initialize services")
+        except Exception as e:
+            logger.exception(f"Failed to initialize services: {e}")
 
         logger.log("PROGRAM", "----------------------------------------------")
         logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")

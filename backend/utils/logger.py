@@ -67,6 +67,7 @@ def setup_logger(level):
     
     # Extras
     logger.level("PLEX", no=47, color="<fg #DAD3BE>", icon="📽️ ")
+    logger.level("TRAKT", no=48, color="<fg #1DB954>", icon="🎵")
 
     # Default
     logger.level("INFO", icon="📰")

@@ -8,9 +8,11 @@ from utils.request import get
 
 
 class TorBoxDownloader:
+    """TorBox Downloader"""
+
     def __init__(self, hash_cache):
-        self.key = "torbox"
-        self.settings = settings_manager.settings.torbox_downloader
+        self.key = "torbox_downloader"
+        self.settings = settings_manager.settings.downloaders.torbox
         self.api_key = self.settings.api_key
         self.base_url = "https://api.torbox.app/v1/api"
         self.headers = {"Authorization": f"{self.api_key}"}

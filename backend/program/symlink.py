@@ -36,7 +36,7 @@ class Symlinker:
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
         # we can't delete from rclone if this is enabled
-        self.torbox_enabled = settings_manager.settings.torbox_downloader.enabled
+        self.torbox_enabled = settings_manager.settings.downloaders.torbox.enabled
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
