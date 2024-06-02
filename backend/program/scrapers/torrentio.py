@@ -60,20 +60,17 @@ class Torrentio:
         try:
             yield self.scrape(item)
         except RateLimitExceeded:
-            self.minute_limiter.limit_hit()
             logger.warning(f"Rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
-            self.minute_limiter.limit_hit()
             logger.warning(f"Torrentio connection timeout for item: {item.log_string}")
         except ReadTimeout:
-            self.minute_limiter.limit_hit()
             logger.warning(f"Torrentio read timeout for item: {item.log_string}")
         except RequestException as e:
-            self.minute_limiter.limit_hit()
             logger.error(f"Torrentio request exception: {e}")
         except Exception as e:
-            self.minute_limiter.limit_hit()
             logger.exception(f"Torrentio exception thrown: {e}")
+        self.minute_limiter.limit_hit()
+        self.second_limiter.limit_hit()
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:

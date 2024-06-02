@@ -169,12 +169,15 @@ class Symlinker:
     def check_file_existence(item: MediaItem) -> bool:
         """Check if the file exists in the rclone path."""
         if not item.file:
-            logger.error(f"Item file is not set for {item.log_string}")
             return False
 
-        if item.folder and item.alternative_folder and item.folder == item.alternative_folder:
-            # Lets try all 3 to be safe
-            item.set("alternative_folder", os.path.splitext(item.file)[0])
+        try:
+            if item.folder and item.alternative_folder and item.folder == item.alternative_folder:
+                alternative_folder = os.path.splitext(item.file)[0]
+                item.set("alternative_folder", alternative_folder)
+        except Exception as e:
+            logger.error(f"Exception occurred while processing file for {item.log_string}: {e}")
+            raise
 
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
         

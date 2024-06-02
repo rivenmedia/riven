@@ -12,7 +12,8 @@ from program.symlink import Symlinker
 # Typehint classes
 Scraper = Union[Scraping, Torrentio, Orionoid, Jackett, Annatar, TorBoxScraper]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist]
-Service = Union[Content, SymlinkLibrary, Scraper, Debrid, TorBoxDownloader, Symlinker]
+Downloader = Union[Debrid, TorBoxDownloader]
+Service = Union[Content, SymlinkLibrary, Scraper, Downloader, Symlinker]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 ProcessedEvent = (MediaItem, Service, list[MediaItem])
 

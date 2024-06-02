@@ -33,7 +33,7 @@ async def health(request: Request):
 
 @router.get("/user")
 async def get_rd_user():
-    api_key = settings_manager.settings.real_debrid.api_key
+    api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         "https://api.real-debrid.com/rest/1.0/user", headers=headers, timeout=10
@@ -42,7 +42,7 @@ async def get_rd_user():
 
 @router.get("/torbox")
 async def get_torbox_user():
-    api_key = settings_manager.settings.torbox_downloader.api_key
+    api_key = settings_manager.settings.downloaders.torbox_downloader.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         "https://api.torbox.app/v1/api/user/me", headers=headers, timeout=10

@@ -69,7 +69,7 @@ class TorBoxScraper:
             if e.response.status_code == 418:
                 logger.log("NOT_FOUND", f"TorBox has no metadata for item: {item.log_string}, unable to scrape")
             else:
-                logger.error(f"TorBox request exception: {e}")
+                pass  # Hide other TorBox connection errors
         except Exception as e:
             self.minute_limiter.limit_hit()
             logger.exception(f"TorBox exception thrown: {e}")
@@ -105,7 +105,7 @@ class TorBoxScraper:
 
         with self.minute_limiter:
             with self.second_limiter:
-                response = get(url, timeout=120, retry_if_failed=False)
+                response = get(url, timeout=60, retry_if_failed=False)
             if not response.is_ok or not response.data.data.torrents:
                 return {}, 0
 

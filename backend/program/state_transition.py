@@ -11,14 +11,14 @@ from program.updaters.plex import PlexUpdater
 from utils.logger import logger
 
 
-def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent: # type: ignore
+def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:
     """Process an event and return the updated item, next service and items to submit."""
     next_service: Service = None
     updated_item = item
-    no_further_processing: ProcessedEvent = (None, None, [])  # type: ignore
+    no_further_processing: ProcessedEvent = (None, None, [])
     items_to_submit = []
 
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, PlexLibrary)
+    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)  # PlexLibrary is a special case
     if emitted_by in source_services or item.state == States.Unknown:
         next_service = TraktIndexer
         if isinstance(item, Season):
@@ -28,7 +28,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             return no_further_processing
         return None, next_service, [item]
 
-    elif emitted_by == TraktIndexer or item.state == States.Indexed and Scraping.should_submit(item):
+    elif emitted_by == TraktIndexer or item.state == States.Indexed:
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:
@@ -39,42 +39,42 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if isinstance(item, Movie):
-            if Scraping.should_submit(item) and item.is_released:
+        if Scraping.should_submit(item):
+            if isinstance(item, Movie) and item.is_released:
                 items_to_submit = [item]
-        elif isinstance(item, Show):
-            if Scraping.should_submit(item) and item.is_released:
-                items_to_submit = [s for s in item.seasons if s.state not in (States.Completed, States.Downloaded, States.Scraped)
-                                   and s.scraped_times < 3]
-        elif isinstance(item, Season):
-            if item.scraped_times < 3:
-                items_to_submit = []
+            elif isinstance(item, Show) and item.is_released:
+                items_to_submit = [
+                    s for s in item.seasons 
+                    if s.state not in (States.Completed, States.Downloaded, States.Scraped) and s.scraped_times < 3
+                ]
+            elif isinstance(item, Season):
+                if item.scraped_times >= 4:
+                    if item.is_released:
+                        items_to_submit = [
+                            e for e in item.episodes 
+                            if e.state not in (States.Completed, States.Downloaded, States.Scraped)
+                        ]
+                else:
+                    items_to_submit = [item]
             else:
-                if Scraping.should_submit(item) and item.is_released:
-                    items_to_submit = [e for e in item.episodes if e.state not in (States.Completed, States.Downloaded, States.Scraped)]
-        elif isinstance(item, Episode):
-            if item.state != States.Unknown:
                 items_to_submit = [item]
+        else:
+            items_to_submit = []
 
-    elif item.state == States.PartiallyCompleted and Scraping.should_submit(item):
+    elif item.state == States.PartiallyCompleted:
         next_service = Scraping
         if isinstance(item, Show):
-            if Scraping.should_submit(item) and item.is_released:
-                items_to_submit = [s for s in item.seasons if s.state == States.PartiallyCompleted
-                                       and s.scraped_times < 3 and not (s.file or s.folder)
-                                       if Scraping.should_submit(s) and s.is_released]
+            items_to_submit = [
+                s for s in item.seasons 
+                if s.state not in (States.Completed, States.PartiallyCompleted)
+            ]
         elif isinstance(item, Season):
-            if item.scraped_times < 3:
-                items_to_submit = []
-            else:
-                if Scraping.should_submit(item) and item.is_released:
-                    items_to_submit = [
-                        e for e in item.episodes if e.state not in (States.Completed, States.Downloaded, States.Scraped)
-                        and e.parent.scraped_times >= 3 and not (e.file or e.folder)
-                        if Scraping.should_submit(e) and e.is_released
-                    ]
+            items_to_submit = [
+                e for e in item.episodes 
+                if e.state not in (States.Completed, States.PartiallyCompleted)
+            ]
 
-    elif item.state == States.Scraped and len(item.streams) > 0:
+    elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader
         items_to_submit = [item]
 
@@ -103,3 +103,17 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         return no_further_processing
 
     return updated_item, next_service, items_to_submit
+
+def prioritize_items(items):
+    """Prioritize items: Movies > Seasons > Episodes"""
+    prioritized_items = sorted(items, key=lambda item: (isinstance(item, Episode), isinstance(item, Season), isinstance(item, Movie)))
+    return prioritized_items
+
+def process_items(existing_item: MediaItem | None, emitted_by: Service, items: list[MediaItem]) -> list[ProcessedEvent]:
+    """Process a list of items and return the processed events."""
+    processed_events = []
+    prioritized_items = prioritize_items(items)
+    for item in prioritized_items:
+        updated_item, next_service, items_to_submit = process_event(existing_item, emitted_by, item)
+        processed_events.append((updated_item, next_service, items_to_submit))
+    return processed_events

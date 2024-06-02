@@ -28,7 +28,7 @@ class Debrid:
 
     def __init__(self, hash_cache):
         self.key = "realdebrid"
-        self.settings = settings_manager.settings.real_debrid
+        self.settings = settings_manager.settings.downloaders.real_debrid
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.initialized = self.validate()
         if not self.initialized:
@@ -221,12 +221,12 @@ class Debrid:
                 if item.number in parsed_file.episode and item.parent.number in parsed_file.season:
                     item.set("folder", item.active_stream.get("name"))
                     item.set("alternative_folder", item.active_stream.get("alternative_name"))
-                    item.set("file", file)
+                    item.set("file", file["filename"])
                     return True
                 elif one_season and item.number in parsed_file.episode:
                     item.set("folder", item.active_stream.get("name"))
                     item.set("alternative_folder", item.active_stream.get("alternative_name"))
-                    item.set("file", file)
+                    item.set("file", file["filename"])
                     return True
         return False
 

@@ -73,4 +73,6 @@ with server.run_in_thread():
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
     finally:
-        logger.critical("Server has been stopped.")
+        logger.critical("Server has been stopped")
+        # need to terminate to give back control of terminal to user
+        sys.exit(0)

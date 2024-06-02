@@ -34,6 +34,9 @@ class TorboxModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+class DownloadersModel(Observable):
+    real_debrid: DebridModel = DebridModel()
+    torbox_downloader: TorboxModel = TorboxModel()
 
 # Symlink Service
 
@@ -210,6 +213,7 @@ class AppModel(Observable):
     real_debrid: DebridModel = DebridModel()
     torbox_downloader: TorboxModel = TorboxModel()
     symlink: SymlinkModel = SymlinkModel()
+    downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()
     ranking: RTNSettingsModel = RTNSettingsModel()
