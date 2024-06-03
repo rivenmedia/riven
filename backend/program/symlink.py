@@ -148,7 +148,7 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        if Symlinker.check_file_existence(item):
+        if Symlinker.file_check(item):
             return True
 
         # If we've tried 3 times to symlink the file, give up
@@ -166,7 +166,7 @@ class Symlinker:
         return True
 
     @staticmethod
-    def check_file_existence(item: MediaItem) -> bool:
+    def file_check(item: MediaItem) -> bool:
         """Check if the file exists in the rclone path."""
         if not item.file:
             return False
@@ -240,11 +240,6 @@ class Symlinker:
 
         if not os.path.exists(source):
             return False
-
-        if os.path.exists(destination):
-            logger.log("SYMLINKER", f"Skipping existing symlink for {item.log_string}")
-            item.set("symlinked", True)
-            return True
 
         try:
             os.symlink(source, destination)

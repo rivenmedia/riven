@@ -1,3 +1,4 @@
+from program.content.trakt import TraktContent
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
@@ -18,7 +19,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     no_further_processing: ProcessedEvent = (None, None, [])
     items_to_submit = []
 
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary)  # PlexLibrary is a special case
+    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)  # PlexLibrary is a special case
     if emitted_by in source_services or item.state == States.Unknown:
         next_service = TraktIndexer
         if isinstance(item, Season):
@@ -103,17 +104,3 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         return no_further_processing
 
     return updated_item, next_service, items_to_submit
-
-def prioritize_items(items):
-    """Prioritize items: Movies > Seasons > Episodes"""
-    prioritized_items = sorted(items, key=lambda item: (isinstance(item, Episode), isinstance(item, Season), isinstance(item, Movie)))
-    return prioritized_items
-
-def process_items(existing_item: MediaItem | None, emitted_by: Service, items: list[MediaItem]) -> list[ProcessedEvent]:
-    """Process a list of items and return the processed events."""
-    processed_events = []
-    prioritized_items = prioritize_items(items)
-    for item in prioritized_items:
-        updated_item, next_service, items_to_submit = process_event(existing_item, emitted_by, item)
-        processed_events.append((updated_item, next_service, items_to_submit))
-    return processed_events

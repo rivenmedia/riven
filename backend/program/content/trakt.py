@@ -1,11 +1,14 @@
 """Trakt content module"""
 import time
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
-from program.media.item import MediaItem
+import regex
+
+from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import get, post
+from utils.request import get
 
 
 class TraktContent:
@@ -25,6 +28,7 @@ class TraktContent:
             return
         self.next_run_time = 0
         self.items_already_seen = set()  # Use a set for faster lookups
+        self.items_to_yield = {}
         logger.success("Trakt initialized!")
 
     def validate(self) -> bool:
@@ -48,67 +52,126 @@ class TraktContent:
         return True
 
     def run(self):
-        """Fetch media from Trakt and yield MediaItem instances."""
+        """Fetch media from Trakt and yield Movie or Show instances."""
         current_time = time.time()
         if current_time < self.next_run_time:
             return
-        
+
         self.next_run_time = current_time + self.settings.update_interval
-        # watchlist_items = self._get_trakt_watchlist(self.settings.watchlist if self.settings.watchlist else [])
-        collection_items = self._get_trakt_collections(self.settings.collections if self.settings.collections else [])
-        user_list_items = self._get_trakt_list(self.settings.user_lists if self.settings.user_lists else [])
-        trending_items = self._get_trending_items() if self.settings.fetch_trending else []
-        popular_items = self._get_popular_items() if self.settings.fetch_popular else []
-        items = list(set(collection_items + user_list_items + trending_items + popular_items))
-        
-        for item in items:
-            imdb_id = item.get("imdb_id")
-            if imdb_id in self.items_already_seen:
+        watchlist_ids = self._get_watchlist(self.settings.watchlist)
+        collection_ids = self._get_collections(self.settings.collections)
+        user_list_ids = self._get_list(self.settings.user_lists)
+        trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
+        popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
+
+        # Combine all IMDb IDs and types
+        all_items = watchlist_ids + collection_ids + user_list_ids + trending_ids + popular_ids
+        all_ids = set(all_items)
+        logger.log("TRAKT", f"Fetched {len(all_ids)} unique IMDb IDs from Trakt.")
+
+        for imdb_id, item_type in all_ids:
+            if imdb_id in self.items_already_seen or not imdb_id:
                 continue
             self.items_already_seen.add(imdb_id)
-            media_item = MediaItem({
-                "imdb_id": imdb_id,
-                "requested_by": self.key
-            })
+            
+            if item_type == "movie":
+                media_item = Movie({
+                    "imdb_id": imdb_id,
+                    "requested_by": self.key
+                })
+            else:
+                media_item = Show({
+                    "imdb_id": imdb_id,
+                    "requested_by": self.key
+                })
+            
             yield media_item
+        self.items_to_yield.clear()
 
-    def _get_trakt_watchlist(self, watchlist_items: list) -> list:
-        """Get items from Trakt watchlist"""
-        items = []
+    def _get_watchlist(self, watchlist_items: list) -> list:
+        """Get IMDb IDs from Trakt watchlist"""
+        if not watchlist_items:
+            logger.warning("No watchlist items configured.")
+            return []
+        imdb_ids = []
         for url in watchlist_items:
-            items.extend(get_watchlist_items(self.api_url, self.headers, url))
-        return items
+            match = regex.match(r'https://trakt.tv/users/([^/]+)/watchlist', url)
+            if not match:
+                logger.error(f"Invalid watchlist URL: {url}")
+                continue
+            user = match.group(1)
+            items = get_watchlist_items(self.api_url, self.headers, user)
+            imdb_ids.extend(self._extract_imdb_ids(items))
+        return imdb_ids
 
-    def _get_trakt_collections(self, collection_items: list) -> list:
-        """Get items from Trakt collections"""
-        items = []
+    def _get_collections(self, collection_items: list) -> list:
+        """Get IMDb IDs from Trakt collections"""
+        if not collection_items:
+            logger.warning("No collection items configured.")
+            return []
+        imdb_ids = []
         for url in collection_items:
-            items.extend(get_user_list(self.api_url, self.headers, url, "collection"))
-        return items
+            match = regex.match(r'https://trakt.tv/users/([^/]+)/collection', url)
+            if not match:
+                logger.error(f"Invalid collection URL: {url}")
+                continue
+            user = match.group(1)
+            items = get_user_list(self.api_url, self.headers, user, "collection")
+            imdb_ids.extend(self._extract_imdb_ids(items))
+        return imdb_ids
 
-    def _get_trakt_list(self, list_items: list) -> list:
-        """Get items from Trakt user list"""
-        items = []
+    def _get_list(self, list_items: list) -> list:
+        """Get IMDb IDs from Trakt user list"""
+        if not list_items:
+            logger.warning("No user list items configured.")
+            return []
+        imdb_ids = []
         for url in list_items:
-            items.extend(get_user_list(self.api_url, self.headers, url, "list"))
-        return items
+            match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
+            if not match:
+                logger.error(f"Invalid list URL: {url}")
+                continue
+            user, list_name = match.groups()
+            list_name = urlparse(url).path.split('/')[-1]
+            items = get_user_list(self.api_url, self.headers, user, list_name)
+            imdb_ids.extend(self._extract_imdb_ids(items))
+        return imdb_ids
 
     def _get_trending_items(self) -> list:
-        """Get trending items from Trakt"""
+        """Get IMDb IDs from Trakt trending items"""
         trending_movies = get_trending_items(self.api_url, self.headers, "movies", self.settings.trending_count)
         trending_shows = get_trending_items(self.api_url, self.headers, "shows", self.settings.trending_count)
-        return trending_movies + trending_shows
+        return self._extract_imdb_ids(trending_movies + trending_shows)
 
     def _get_popular_items(self) -> list:
-        """Get popular items from Trakt"""
+        """Get IMDb IDs from Trakt popular items"""
         popular_movies = get_popular_items(self.api_url, self.headers, "movies", self.settings.popular_count)
         popular_shows = get_popular_items(self.api_url, self.headers, "shows", self.settings.popular_count)
-        return popular_movies + popular_shows
+        return self._extract_imdb_ids(popular_movies + popular_shows)
+
+    def _extract_imdb_ids(self, items: list) -> list:
+        """Extract IMDb IDs and types from a list of items"""
+        imdb_ids = []
+        for item in items:
+            show = getattr(item, "show", None)
+            if show:
+                ids = getattr(show, "ids", None)
+                if ids:
+                    imdb_id = getattr(ids, "imdb", None)
+                    if imdb_id:
+                        imdb_ids.append((imdb_id, "show"))
+            else:
+                ids = getattr(item, "ids", None)
+                if ids:
+                    imdb_id = getattr(ids, "imdb", None)
+                    if imdb_id:
+                        imdb_ids.append((imdb_id, "movie"))
+        return imdb_ids
 
 
 ## API functions for Trakt
 
-def fetch_paginated_data(url, headers, params):
+def _fetch_data(url, headers, params):
     """Fetch paginated data from Trakt API."""
     all_data = []
     page = 1
@@ -120,7 +183,7 @@ def fetch_paginated_data(url, headers, params):
                 if not data:
                     break
                 all_data.extend(data)
-                if len(data) < params["limit"]:
+                if len(data) <= params["limit"]:
                     break
                 page += 1
             else:
@@ -134,34 +197,34 @@ def fetch_paginated_data(url, headers, params):
 def get_watchlist_items(api_url, headers, user, limit=10):
     """Get watchlist items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/watchlist"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_user_list(api_url, headers, user, list_name, limit=10):
     """Get user list items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/lists/{list_name}/items"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_liked_lists(api_url, headers, limit=10):
     """Get liked lists from Trakt with pagination support."""
     url = f"{api_url}/users/likes/lists"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_recommendations(api_url, headers, media_type, limit=10):
     """Get recommendations from Trakt with pagination support."""
     url = f"{api_url}/recommendations/{media_type}"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_trending_items(api_url, headers, media_type, limit=10):
     """Get trending items from Trakt with pagination support."""
-    url = f"{api_url}/trending/{media_type}"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    url = f"{api_url}/{media_type}/trending"
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_popular_items(api_url, headers, media_type, limit=10):
     """Get popular items from Trakt with pagination support."""
-    url = f"{api_url}/popular/{media_type}"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    url = f"{api_url}/{media_type}/popular"
+    return _fetch_data(url, headers, {"limit": limit})
 
 def get_favorited_items(api_url, headers, user, limit=10):
     """Get favorited items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/favorites"
-    return fetch_paginated_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {"limit": limit})

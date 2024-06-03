@@ -71,23 +71,26 @@ class Debrid:
 
     @staticmethod
     def log_item(item: MediaItem) -> None:
-        """Log the downloaded files for the item based on its type."""
+        """Log only the files downloaded for the item based on its type."""
         if isinstance(item, Movie):
-            if item.file:
+            if item.file and item.folder:
                 logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
         elif isinstance(item, Episode):
-            if item.file:
+            if item.file and item.folder:
                 logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
         elif isinstance(item, Season):
-            if hasattr(item, 'episodes') and item.episodes:
-                for episode in item.episodes:
-                    if item.file:
+            for episode in item.episodes:
+                if episode.file and episode.folder:
+                    logger.log("DEBRID", f"Downloaded: {episode.log_string} with file: {episode.file}")
+        elif isinstance(item, Show):
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.file and episode.folder:
                         logger.log("DEBRID", f"Downloaded: {episode.log_string} with file: {episode.file}")
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
         if not item.get("streams", {}):
-            logger.log("DEBRID", f"No streams found for {item.log_string}")
             return False
 
         def _chunked(lst: List, n: int) -> Generator[List, None, None]:
@@ -311,18 +314,17 @@ class Debrid:
             else:
                 torrent = sorted_torrents[mid][1]
                 if torrent.hash == hash_key:
-                    self.hash_cache.mark_downloaded(torrent.hash)
                     if item.active_stream.get("id", None):
                         return True
                     info = self.get_torrent_info(torrent.id)
                     if _matches_item(info, item):
+                        self.hash_cache.mark_downloaded(torrent.hash)
                         # Cache this as downloaded
                         item.set("active_stream.id", torrent.id)
                         self.set_active_files(item)
                         return True
                     else:
-                        logger.log("NOT_FOUND", f"Torrent found but the files do not match the required criteria")
-                        return False
+                        self.hash_cache.blacklist(torrent.hash)
         return False
 
     def _download_item(self, item: MediaItem):

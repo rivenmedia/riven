@@ -23,7 +23,7 @@ from utils.logger import logger, scrub_logs
 
 from .cache import HashCache
 from .pickly import Pickly
-from .state_transition import process_items
+from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
@@ -209,30 +209,27 @@ class Program(threading.Thread):
                 continue
 
             try:
-                event: Event = self.event_queue.get()
+                event: Event = self.event_queue.get(timeout=10)
             except Empty:
                 continue
 
             existing_item = self.media_items.get(event.item.item_id, None)
-            # updated_item, next_service, items_to_submit = process_event(
-            #     existing_item, event.emitted_by, event.item
-            # )
+            updated_item, next_service, items_to_submit = process_event(
+                existing_item, event.emitted_by, event.item
+            )
 
-            processed_events = process_items(existing_item, event.emitted_by, [event.item])
+            if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
+                logger.success(f"Item has been completed: {updated_item.log_string}")
 
-            for updated_item, next_service, items_to_submit in processed_events:
-                if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
-                    logger.success(f"Item has been completed: {updated_item.log_string}")
+            if updated_item:
+                self.media_items.upsert(updated_item)
 
-                if updated_item:
-                    self.media_items.upsert(updated_item)
-
-                if items_to_submit:
-                    for item_to_submit in items_to_submit:
-                        if isinstance(item_to_submit, Season) and next_service == Scraping:
-                            if item_to_submit.scraped_times >= 3:
-                                continue
-                        self._submit_job(next_service, item_to_submit)
+            if items_to_submit:
+                for item_to_submit in items_to_submit:
+                    if isinstance(item_to_submit, Season) and next_service == Scraping:
+                        if item_to_submit.scraped_times >= 3:
+                            continue
+                    self._submit_job(next_service, item_to_submit)
 
     def stop(self):
         self.running = False

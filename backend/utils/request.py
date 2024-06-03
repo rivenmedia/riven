@@ -68,6 +68,7 @@ def _make_request(
     method: str,
     url: str,
     data: dict = None,
+    params: dict = None,
     timeout=5,
     additional_headers=None,
     retry_if_failed=True,
@@ -83,7 +84,7 @@ def _make_request(
 
     try:
         response = session.request(
-            method, url, headers=headers, data=data, timeout=timeout
+            method, url, headers=headers, data=data, params=params, timeout=timeout
         )
     except requests.ReadTimeout:
         response = _handle_request_exception()
@@ -103,6 +104,7 @@ def get(
     url: str,
     timeout=10,
     data=None,
+    params=None,
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
@@ -112,6 +114,7 @@ def get(
         "GET",
         url,
         data=data,
+        params=params,
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
@@ -120,13 +123,14 @@ def get(
 
 
 def post(
-    url: str, data: dict, timeout=10, additional_headers=None, retry_if_failed=False
+    url: str, data: dict, params: dict = None, timeout=10, additional_headers=None, retry_if_failed=False
 ) -> ResponseObject:
     """Requests post wrapper"""
     return _make_request(
         "POST",
         url,
         data=data,
+        params=params,
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
