@@ -16,7 +16,7 @@ xmltodict = "^0.13.0"
 lxml = "^5.1.0"
 pydantic = "^2.6.3"
 fastapi = "^0.110.0"
-uvicorn = {extras = ["standard"], version = "^0.27.1"}
+uvicorn = {extras = ["standard"], version = "^0.30.1"}
 apscheduler = "^3.10.4"
 watchdog = "^4.0.0"
 deepdiff = "^6.7.1"
