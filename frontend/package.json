@@ -48,7 +48,7 @@
     "lucide-svelte": "^0.344.0",
     "luxon": "^3.4.4",
     "mode-watcher": "^0.2.0",
-    "motion": "^10.17.0",
+    "motion": "^10.17.1",
     "nprogress": "^0.2.0",
     "svelte-sonner": "^0.3.11",
     "sveltekit-superforms": "^1.13.4",
