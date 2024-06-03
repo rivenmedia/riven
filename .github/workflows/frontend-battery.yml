@@ -38,12 +38,12 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: |
-          cd frontend
-          pnpm install
+        run: pnpm install
+        working-directory: ./frontend
 
       - name: Run svelte-check
         run: pnpm check
+        working-directory: ./frontend
 
   lint:
     runs-on: ubuntu-latest
@@ -79,8 +79,8 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: |
-          cd frontend
-          pnpm install
+        run: pnpm install
+        working-directory: ./frontend
 
       - run: pnpm lint
+        working-directory: ./frontend

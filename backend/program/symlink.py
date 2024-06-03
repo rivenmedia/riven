@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from program.media.item import Episode, Movie, Season
+from program.media.item import Episode, MediaItem, Movie, Season
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -35,6 +35,8 @@ class Symlinker:
     def __init__(self):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
+        # we can't delete from rclone if this is enabled
+        self.torbox_enabled = settings_manager.settings.downloaders.torbox.enabled
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
@@ -88,18 +90,20 @@ class Symlinker:
             self.event_handler, self.settings.library_path, recursive=True
         )
         self.observer.start()
-        logger.debug("Symlink deletion monitoring started")
+        logger.log("FILES", "Symlink deletion monitoring started")
 
     def stop_monitor(self):
         """Stops the directory monitoring."""
         if hasattr(self, "observer"):
             self.observer.stop()
             self.observer.join()
-            logger.debug("Stopped monitoring for symlink deletions")
+            logger.log("FILES", "Stopped monitoring for symlink deletions")
 
     def on_symlink_deleted(self, symlink_path):
         """Handle a symlink deletion event."""
-        # logger.debug(f"Detected deletion of symlink: {symlink_path}")
+        src = Path(symlink_path)
+        dst = Path(symlink_path).resolve()
+        logger.log("FILES", f"Symlink deleted: {src} -> {dst}") 
         # TODO: Implement logic to handle deletion..
 
     def create_initial_folders(self):
@@ -144,45 +148,53 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        if Symlinker.check_file_existence(item):
+        if Symlinker.file_check(item):
             return True
 
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
             if isinstance(item, (Movie, Episode)):
-                # reset file and folder
                 item.set("file", None)
                 item.set("folder", None)
-                # reset symlinked times
+                item.set("streams", {}) # making sure we rescrape
                 item.set("symlinked_times", 0)
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug(f"Sleeping for 5 seconds before checking if file exists again for {item.log_string}")
-        time.sleep(5)
+        logger.debug(f"Sleeping for 10 seconds before checking if file exists again for {item.log_string}")
+        time.sleep(10)
         return True
 
     @staticmethod
-    def check_file_existence(item) -> bool:
+    def file_check(item: MediaItem) -> bool:
         """Check if the file exists in the rclone path."""
-        if not item.file or not item.folder:
+        if not item.file:
             return False
 
+        try:
+            if item.folder and item.alternative_folder and item.folder == item.alternative_folder:
+                alternative_folder = os.path.splitext(item.file)[0]
+                item.set("alternative_folder", alternative_folder)
+        except Exception as e:
+            logger.error(f"Exception occurred while processing file for {item.log_string}: {e}")
+            raise
+
         rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-        std_file_path = rclone_path / item.folder / item.file
-        alt_file_path = rclone_path / item.alternative_folder / item.file
-        thd_file_path = rclone_path / item.file / item.file
         
-        if std_file_path.exists():
+        std_file_path = rclone_path / item.folder / item.file if item.folder else None
+        alt_file_path = rclone_path / item.alternative_folder / item.file if item.alternative_folder else None
+        thd_file_path = rclone_path / item.file / item.file
+
+        if std_file_path and std_file_path.exists():
             return True
-        if alt_file_path.exists():
+        elif alt_file_path and alt_file_path.exists():
             item.set("folder", item.alternative_folder)
             return True
-        if thd_file_path.exists():
+        elif thd_file_path.exists():
             item.set("folder", item.file)
             return True
 
-        logger.error(f"No file found in rclone path for {item.log_string} with file: {item.file}")
+        logger.log("FILES", f"File not found for {item.log_string} with file: {item.file}")
         return False
 
     def _determine_file_name(self, item) -> str | None:
@@ -229,11 +241,6 @@ class Symlinker:
         if not os.path.exists(source):
             return False
 
-        if os.path.exists(destination):
-            logger.log("SYMLINKER", f"Skipping existing symlink for {item.log_string}")
-            item.set("symlinked", True)
-            return True
-
         try:
             os.symlink(source, destination)
             logger.log("SYMLINKER", f"Created symlink for {item.log_string}")
@@ -244,7 +251,7 @@ class Symlinker:
         except FileExistsError:
             return True
         except OSError as e:
-            logger.debug(f"Failed to create symlink for {item.log_string}: {e}")
+            logger.error(f"Failed to create symlink for {item.log_string}: {e}")
             return False
 
     def _symlink_episode(self, episode) -> bool:

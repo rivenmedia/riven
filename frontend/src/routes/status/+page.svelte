@@ -139,11 +139,13 @@
 							<div class="flex flex-col">
 								<a href="/status/type/{key}" class="flex gap-1 items-center hover:underline">
 									<h3 class="text-xl md:text-2xl font-semibold">
-										{statusInfo[key].text ?? formatWords(key)}
+										{statusInfo[key]?.text ?? formatWords(key)}
 									</h3>
 									<MoveUpRight class="size-4 md:size-6" />
 								</a>
-								<p class="text-muted-foreground text-sm">{statusInfo[key].description}</p>
+								{#if statusInfo[key]}
+									<p class="text-muted-foreground text-sm">{statusInfo[key].description}</p>
+								{/if}
 							</div>
 							<div class="flex items-center justify-center gap-2 mt-6">
 								<Carousel.Previous class="rounded-md static h-8 w-8" />
@@ -163,7 +165,7 @@
 											/>
 											<div class="absolute top-2 left-2">
 												<Badge class="rounded-md bg-opacity-40 backdrop-blur-lg drop-shadow-lg">
-													{item.type === 'movie' ? 'Movie' : 'TV Show'}
+													{item.type === 'Movie' ? 'Movie' : 'TV Show'}
 												</Badge>
 											</div>
 										</div>

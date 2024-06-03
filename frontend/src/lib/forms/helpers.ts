@@ -227,6 +227,7 @@ export const scrapersSettingsSchema = z.object({
 	after_5: z.number().nonnegative().default(2),
 	after_10: z.number().nonnegative().default(24),
 	torrentio_enabled: z.boolean().default(false),
+	annatar_enabled: z.boolean().default(false),
 	orionoid_enabled: z.boolean().default(false),
 	jackett_enabled: z.boolean().default(false),
 	torrentio_url: z.string().optional().default('https://torrentio.strem.fun'),
@@ -234,6 +235,7 @@ export const scrapersSettingsSchema = z.object({
 		.string()
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
+	annatar_url: z.string().optional().default('https://annatar.elfhosted.com'),
 	orionoid_api_key: z.string().optional().default(''),
 	jackett_url: z.string().optional().default('http://localhost:9117'),
 	jackett_api_key: z.string().optional().default('')
@@ -247,6 +249,8 @@ export function scrapersSettingsToPass(data: any) {
 		after_10: data.data.scraping.after_10,
 		torrentio_url: data.data.scraping.torrentio?.url || 'https://torrentio.strem.fun',
 		torrentio_enabled: data.data.scraping.torrentio.enabled,
+		annatar_url: data.data.scraping.annatar?.url || 'https://annatar.elfhosted.com',
+		annatar_enabled: data.data.scraping.annatar.enabled,
 		orionoid_enabled: data.data.scraping.orionoid.enabled,
 		jackett_enabled: data.data.scraping.jackett.enabled,
 		torrentio_filter: data.data.scraping.torrentio?.filter || '',
@@ -269,6 +273,10 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 					url: form.data.torrentio_url,
 					filter: form.data.torrentio_filter
 				},
+				annatar: {
+					enabled: form.data.annatar_enabled,
+					url: form.data.annatar_url,
+				},
 				orionoid: {
 					enabled: form.data.orionoid_enabled,
 					api_key: form.data.orionoid_api_key
@@ -276,7 +284,6 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				jackett: {
 					enabled: form.data.jackett_enabled,
 					url: form.data.jackett_url,
-					api_key: form.data.jackett_api_key
 				}
 			}
 		}

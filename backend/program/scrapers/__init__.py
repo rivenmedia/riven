@@ -1,10 +1,10 @@
-import traceback
 from datetime import datetime
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.orionoid import Orionoid
+from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.settings.manager import settings_manager
 from utils.logger import logger
@@ -21,13 +21,12 @@ class Scraping:
             Torrentio: Torrentio(self.hash_cache),
             Orionoid: Orionoid(self.hash_cache),
             Jackett: Jackett(self.hash_cache),
+            TorBoxScraper: TorBoxScraper(self.hash_cache),
         }
         self.initialized = self.validate()
 
     def validate(self):
-        if not (validated := any(service.initialized for service in self.services.values())):
-            logger.critical("You have no scraping services enabled, please enable at least one!")
-        return validated
+        return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):

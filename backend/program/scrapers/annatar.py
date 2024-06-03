@@ -71,8 +71,10 @@ class Annatar:
             yield self.scrape(item)
         except RateLimitExceeded:
             self.minute_limiter.limit_hit()
-            logger.warning("Annatar rate limit hit for item: {item.log_string}")
+            self.second_limiter.limit_hit()
+            logger.warning(f"Annatar rate limit hit for item: {item.log_string}")
         except ConnectTimeout:
+            self.minute_limiter.limit_hit()
             self.second_limiter.limit_hit()
         except ReadTimeout:
             self.second_limiter.limit_hit()
@@ -139,7 +141,6 @@ class Annatar:
                     continue
 
                 if self.hash_cache.is_blacklisted(stream.hash):
-                    logger.log("CACHE", f"Skipping blacklisted hash {stream.hash}")
                     continue
 
                 try:

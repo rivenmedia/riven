@@ -4,6 +4,7 @@ from typing import List, Optional, Self
 
 from program.media.state import States
 from RTN.patterns import extract_episodes
+from utils.logger import logger
 
 
 @dataclass
@@ -61,7 +62,7 @@ class MediaItem:
 
         # Plex related
         # TODO: This might be bugged? I wonder if movies that are in collections, 
-        # TODO: have a key from the collection.. needs testing.
+        # have a key from the collection.. needs testing.
         self.key = item.get("key", None)
         self.guid = item.get("guid", None)
         self.update_folder = item.get("update_folder", None)
@@ -72,7 +73,27 @@ class MediaItem:
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        return self.aired_at is not None and self.aired_at < datetime.now()
+        if not self.aired_at:
+            return False
+        elif self.aired_at > datetime.now():
+            time_until_release = self.aired_at - datetime.now()
+            months_until_release = time_until_release.days // 30
+            days_until_release = time_until_release.days % 30
+            hours_until_release = time_until_release.seconds // 3600
+            minutes_until_release = (time_until_release.seconds % 3600) // 60
+
+            time_message = f"{self.log_string} will be released in"
+            if months_until_release > 0:
+                time_message += f" {months_until_release} months"
+            if days_until_release > 0:
+                time_message += f" {days_until_release} days"
+            if hours_until_release > 0:
+                time_message += f" {hours_until_release} hours"
+            if minutes_until_release > 0:
+                time_message += f" {minutes_until_release} minutes"
+            logger.log("ITEM", time_message)
+            return False
+        return True
 
     @property
     def state(self):
@@ -313,6 +334,7 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
+            # TODO: Cleanup how many times state is accessed
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
             if any(episode.state == States.Completed for episode in self.episodes):

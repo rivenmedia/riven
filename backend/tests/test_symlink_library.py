@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from program.libaries.symlink import SymlinkLibrary
+from program.libraries.symlink import SymlinkLibrary
 from program.media.item import Episode, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager

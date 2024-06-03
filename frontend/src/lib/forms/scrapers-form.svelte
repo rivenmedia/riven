@@ -35,6 +35,10 @@
 			label_name: 'Torrentio'
 		},
 		{
+			field_name: 'annatar_enabled',
+			label_name: 'Annatar'
+		},
+		{
 			field_name: 'orionoid_enabled',
 			label_name: 'Orionoid'
 		},
@@ -101,6 +105,17 @@
 					fieldName="torrentio_filter"
 					labelName="Torrentio Filter"
 					errors={$errors.torrentio_filter}
+				/>
+			</div>
+		{/if}
+
+		{#if $form.annatar_enabled}
+			<div transition:slide>
+				<FormTextField
+					{config}
+					fieldName="annatar_url"
+					labelName="Annatar URL"
+					errors={$errors.annatar_url}
 				/>
 			</div>
 		{/if}

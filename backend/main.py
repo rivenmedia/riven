@@ -66,11 +66,13 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
+        app.program.stop()
     except KeyboardInterrupt:
-        pass
+        app.program.stop()
+        sys.exit(0)
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
     finally:
-        logger.info("Shutting down server.")
-        app.program.stop()
+        logger.critical("Server has been stopped")
+        # need to terminate to give back control of terminal to user
         sys.exit(0)

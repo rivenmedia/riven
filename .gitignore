@@ -7,6 +7,7 @@ docker-compose.yml
 makefile
 .ruff_cache/
 *.dat
+profile.svg
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

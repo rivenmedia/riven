@@ -1,9 +1,10 @@
 """Plex Updater module"""
 import os
+from typing import Generator, Union
 
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.server import PlexServer
-from program.media.item import Episode
+from program.media.item import Episode, Movie
 from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
@@ -28,7 +29,7 @@ class PlexUpdater:
     def validate(self):  # noqa: C901
         """Validate Plex library"""
         if not self.settings.token:
-            logger.error("Plex token is not set!")
+            logger.error("Plex Updater token is not set, this is required!")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set!")
@@ -46,32 +47,32 @@ class PlexUpdater:
             self.initialized = True
             return True
         except Unauthorized:
-            logger.critical("Plex is not authorized!")
+            logger.error("Plex is not authorized!")
         except BadRequest as e:
-            logger.critical(f"Plex is not configured correctly: {e}")
+            logger.error(f"Plex is not configured correctly: {e}")
         except MaxRetryError as e:
-            logger.critical(f"Plex max retries exceeded: {e}")
+            logger.error(f"Plex max retries exceeded: {e}")
         except NewConnectionError as e:
-            logger.critical(f"Plex new connection error: {e}")
+            logger.error(f"Plex new connection error: {e}")
         except RequestsConnectionError as e:
-            logger.critical(f"Plex requests connection error: {e}")
+            logger.error(f"Plex requests connection error: {e}")
         except RequestError as e:
-            logger.critical(f"Plex request error: {e}")
+            logger.error(f"Plex request error: {e}")
         except Exception as e:
-            logger.critical(f"Plex exception thrown: {e}")
+            logger.exception(f"Plex exception thrown: {e}")
         return False
 
-    def run(self, item):
+    def run(self, item: Union[Movie, Episode]) -> Generator[Union[Movie, Episode], None, None]:
         """Update Plex library section for a single item"""
         if not item or not item.update_folder:
-            logger.debug(f"Item {item.log_string} is missing update folder: {item.update_folder}")
+            logger.error(f"Item {item.log_string} is missing update folder: {item.update_folder}")
             yield item
         item_type = "show" if isinstance(item, Episode) else "movie"
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
                     if path in item.update_folder and self._update_section(section, item):
-                        logger.info(f"Updated section {section.title} for {item.log_string}")
+                        logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
         yield item
 
     def _update_section(self, section, item) :

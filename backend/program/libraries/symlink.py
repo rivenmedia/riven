@@ -87,7 +87,7 @@ class SymlinkLibrary:
         for episode in os.listdir(season_path):
             episode_number = self.extract_episode_number(episode)
             if not episode_number:
-                logger.debug(f"Deleting episode {season_path / episode} because we can't extract episode number")
+                logger.error(f"Deleting symlink, unable to extract episode number: {season_path / episode}")
                 os.remove(season_path / episode)
                 continue
             episode_item = Episode({"number": episode_number})

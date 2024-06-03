@@ -53,20 +53,27 @@ def setup_logger(level):
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     log_filename = logs_dir_path / f"iceberg-{timestamp}.log"
 
+    # Core
     logger.level("PROGRAM", no=36, color="<blue>", icon="🤖")
     logger.level("DEBRID", no=38, color="<yellow>", icon="🔗")
     logger.level("SYMLINKER", no=39, color="<fg 249,231,159>", icon="🔗")
     logger.level("SCRAPER", no=40, color="<magenta>", icon="👻")
-    logger.level("COMPLETED", no=41, color="<green>", icon="🟢")
+    logger.level("COMPLETED", no=41, color="<white>", icon="🟢")
     logger.level("CACHE", no=42, color="<green>", icon="📜")
     logger.level("NOT_FOUND", no=43, color="<fg 129,133,137>", icon="🤷‍")
     logger.level("NEW", no=44, color="<fg #e63946>", icon="✨")
-    logger.level("FILES", no=45, color="<yellow>", icon="🗃️")
+    logger.level("FILES", no=45, color="<light-yellow>", icon="🗃️ ")
+    logger.level("ITEM", no=46, color="<fg #92a1cf>", icon="🗃️ ")
+    
+    # Extras
+    logger.level("PLEX", no=47, color="<fg #DAD3BE>", icon="📽️ ")
+    logger.level("TRAKT", no=48, color="<fg #1DB954>", icon="🎵")
 
-    # set the default info and debug level icons
+    # Default
     logger.level("INFO", icon="📰")
     logger.level("DEBUG", icon="🤖")
     logger.level("WARNING", icon="⚠️ ")
+    logger.level("CRITICAL", icon="")
 
     # Log format to match the old log format, but with color
     log_format = (
@@ -97,22 +104,22 @@ def setup_logger(level):
         },
     ])
 
-
-def clean_old_logs():
-    """Remove old log files based on retention settings."""
-    try:
-        logs_dir_path = data_dir_path / "logs"
-        for log_file in logs_dir_path.glob("iceberg-*.log"):
-            # remove files older than 2 hours
-            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 2:
-                log_file.unlink()
-                logger.log("COMPLETED", f"Old log file {log_file.name} removed.")
-    except Exception as e:
-        logger.log("ERROR", f"Failed to clean old logs: {e}")
-
-
 console = Console()
 table = FileLogger("Downloaded Files")
 
 log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
 setup_logger(log_level)
+
+
+def scrub_logs():
+    """Remove old log files based on retention settings."""
+    try:
+        logs_dir_path = data_dir_path / "logs"
+        for log_file in logs_dir_path.glob("iceberg-*.log"):
+            # remove files older than 4 hours
+            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 4:
+                log_file.unlink()
+                logger.log("COMPLETED", f"Old log file {log_file.name} removed.")
+    except Exception as e:
+        logger.log("ERROR", f"Failed to clean old logs: {e}")
+

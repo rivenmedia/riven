@@ -47,7 +47,7 @@ class Overseerr:
         """Fetch new media from `Overseerr`"""
         try:
             response = get(
-                self.settings.url + f"/api/v1/request?take={10000}",
+                self.settings.url + f"/api/v1/request?take={10000}&filter=approved",
                 additional_headers=self.headers,
             )
         except ConnectionError as e:
