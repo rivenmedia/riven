@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 
 import pydantic
-import requests
 from fastapi import APIRouter, HTTPException, Request
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.settings.manager import settings_manager

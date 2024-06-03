@@ -176,9 +176,9 @@ class Debrid:
         )
 
         # lets create a regex pattern to remove deleted scenes and samples and trailers from the filenames list
-        unwanted_regex = regex.compile(r"\b(?:deleted.scene|sample|trailer|featurette)\b", regex.IGNORECASE)
-        filenames = [file for file in filenames if not unwanted_regex.search(file["filename"])]
-        
+        # unwanted_regex = regex.compile(r"\b(?:deleted.scene|sample|trailer|featurette)\b", regex.IGNORECASE)
+        # filenames = [file for file in filenames if not unwanted_regex.search(file["filename"])]
+
         if not filenames:
             return False
 

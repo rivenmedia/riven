@@ -309,10 +309,11 @@ class Show(MediaItem):
 
     def add_season(self, season):
         """Add season to show"""
-        self.seasons.append(season)
-        season.parent = self
-        season.item_id.parent_id = self.item_id
-        self.seasons = sorted(self.seasons, key=lambda s: s.number)
+        if season.number not in [s.number for s in self.seasons]:
+            self.seasons.append(season)
+            season.parent = self
+            season.item_id.parent_id = self.item_id
+            self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
 
 class Season(MediaItem):
