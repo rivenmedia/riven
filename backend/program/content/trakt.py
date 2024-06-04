@@ -2,13 +2,12 @@
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
-from utils.request import RateLimiter, post
-import regex
 
+import regex
 from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import get
+from utils.request import RateLimiter, get, post
 
 
 class TraktContent:

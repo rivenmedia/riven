@@ -1,0 +1,18 @@
+services:
+  iceberg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iceberg
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - ORIGIN=http://localhost:3000
+    volumes:
+      - ./data:/iceberg/data
+      - /mnt:/mnt
+    ports:
+      - "3000:3000"
+      - "8080:8080"
+      - "5572:5572"

@@ -29,17 +29,24 @@ help:
 # Docker related commands
 
 start: stop
-	@docker build -t iceberg:latest -f Dockerfile .
-	@docker run -d --name iceberg --hostname iceberg --net host -e PUID=1000 -e PGID=1000 -v $(DATA_PATH):/iceberg/data -v /mnt:/mnt iceberg:latest
-	@docker logs iceberg -f
+	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
+	@docker compose -f docker-compose-dev.yml logs -f
 
 stop:
-	@-docker stop iceberg --time 0
-	@-docker rm iceberg --force
-	@-docker rmi iceberg:latest --force
+	@docker compose -f docker-compose-dev.yml down
 
 logs:
-	@docker logs iceberg -f
+	@docker compose -f docker-compose-dev.yml logs -f
+
+build:
+	@docker compose -f docker-compose-dev.yml build
+
+push: build
+	@echo $(DOCKER_PASSWORD) | docker login -u spoked --password-stdin
+	@docker tag iceberg:latest spoked/iceberg:latest
+	@docker push spoked/iceberg:latest
+	@docker logout
+
 
 # Poetry related commands
 

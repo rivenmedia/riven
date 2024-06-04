@@ -8,6 +8,8 @@ makefile
 .ruff_cache/
 *.dat
 profile.svg
+*.gz
+*.zip
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/
