@@ -48,16 +48,16 @@ class PlexUpdater:
             return True
         except Unauthorized:
             logger.error("Plex is not authorized!")
-        except BadRequest as e:
-            logger.error(f"Plex is not configured correctly: {e}")
-        except MaxRetryError as e:
-            logger.error(f"Plex max retries exceeded: {e}")
-        except NewConnectionError as e:
-            logger.error(f"Plex new connection error: {e}")
-        except RequestsConnectionError as e:
-            logger.error(f"Plex requests connection error: {e}")
-        except RequestError as e:
-            logger.error(f"Plex request error: {e}")
+        except BadRequest:
+            logger.error("Plex is not configured correctly!")
+        except MaxRetryError:
+            logger.error("Plex max retries exceeded!")
+        except NewConnectionError:
+            logger.error("Plex new connection error!")
+        except RequestsConnectionError:
+            logger.error("Plex requests connection error!")
+        except RequestError:
+            logger.error("Plex request error!")
         except Exception as e:
             logger.exception(f"Plex exception thrown: {e}")
         return False

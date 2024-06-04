@@ -37,13 +37,13 @@ class PlexLibrary:
     def validate(self):
         """Validate Plex library"""
         if not self.settings.token:
-            logger.error("Plex Library token is not set, this is required!")
+            logger.error("Plex Library token is not set. This is required!")
             return False
         if not self.settings.url:
-            logger.error("Plex URL is not set, this is required!")
+            logger.error("Plex URL is not set. This is required!")
             return False
         if not self.library_path:
-            logger.error("Library path is not set, this is required!")
+            logger.error("Library path is not set. This is required!")
             return False
         if not os.path.exists(self.library_path):
             logger.error("Library path does not exist!")
@@ -55,18 +55,18 @@ class PlexLibrary:
             return True
         except Unauthorized:
             logger.error("Plex is not authorized!")
-        except BadRequest as e:
-            logger.error(f"Plex bad request received: {str(e)}")
-        except MaxRetryError as e:
-            logger.error(f"Plex max retries exceeded: {str(e)}")
-        except NewConnectionError as e:
-            logger.error(f"Plex new connection error: {str(e)}")
-        except RequestsConnectionError as e:
-            logger.error(f"Plex requests connection error: {str(e)}")
-        except RequestError as e:
-            logger.error(f"Plex request error: {str(e)}")
+        except BadRequest:
+            logger.error("Plex is not configured correctly!")
+        except MaxRetryError:
+            logger.error("Plex max retries exceeded!")
+        except NewConnectionError:
+            logger.error("Plex new connection error!")
+        except RequestsConnectionError:
+            logger.error("Plex requests connection error!")
+        except RequestError:
+            logger.error("Plex request error!")
         except Exception as e:
-            logger.exception(f"Plex exception thrown: {str(e)}")
+            logger.exception(f"Plex exception thrown: {e}")
         return False
 
     def run(self):
@@ -218,3 +218,4 @@ def _map_item_from_data(item):
         # Specials may end up here..
         logger.error(f"Unknown Item: {item.title} with type {item.type}")
         return None
+

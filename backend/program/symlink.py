@@ -8,6 +8,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
 from .cache import hash_cache
 
 

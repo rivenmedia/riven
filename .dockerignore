@@ -9,6 +9,7 @@ htmlcov/
 coverage.xml
 .coverage*
 *.svg
+frontend/node_modules/
 
 .vscode/
 .ruff_cache/

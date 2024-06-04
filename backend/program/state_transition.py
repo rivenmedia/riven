@@ -1,5 +1,5 @@
-from program.content.trakt import TraktContent
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
+from program.content.trakt import TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer

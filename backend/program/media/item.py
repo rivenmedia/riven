@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
+from RTN import Torrent
 from RTN.patterns import extract_episodes
 from utils.logger import logger
 
@@ -24,51 +25,48 @@ class ItemId:
 class MediaItem:
     """MediaItem class"""
 
-    def __init__(self, item):
-        self.requested_at = item.get("requested_at", None) or datetime.now()
-        self.requested_by = item.get("requested_by", None)
+    def __init__(self, item: dict) -> None:
+        self.requested_at: Optional[datetime] = item.get("requested_at", datetime.now())
+        self.requested_by: Optional[str] = item.get("requested_by", None)
 
-        self.indexed_at = None
+        self.indexed_at: Optional[datetime] = None
 
-        self.scraped_at = None
-        self.scraped_times = 0
-        self.active_stream = item.get("active_stream", {})
-        self.streams = {}
+        self.scraped_at: Optional[datetime] = None
+        self.scraped_times: Optional[int] = 0
+        self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
+        self.streams: Optional[dict[str, Torrent]] = {}
 
-        self.symlinked = False
-        self.symlinked_at = None
-        self.symlinked_times = 0
+        self.symlinked: Optional[bool] = False
+        self.symlinked_at: Optional[datetime] = None
+        self.symlinked_times: Optional[int] = 0
 
-        self.file = None
-        self.folder = None
-        self.is_anime = item.get("is_anime", False)
-        self.parsed_data = item.get("parsed_data", [])
-        self.parent = None
+        self.file: Optional[str] = None
+        self.folder: Optional[str] = None
+        self.is_anime: Optional[bool] = item.get("is_anime", False)
+        self.parent: Optional[Self] = None
 
         # Media related
-        self.title = item.get("title", None)
-        self.imdb_id = item.get("imdb_id", None)
+        self.title: Optional[str] = item.get("title", None)
+        self.imdb_id: Optional[str] = item.get("imdb_id", None)
         if self.imdb_id:
-            self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
+            self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, "item_id"):
-                self.item_id = ItemId(self.imdb_id)
-        self.tvdb_id = item.get("tvdb_id", None)
-        self.tmdb_id = item.get("tmdb_id", None)
-        self.network = item.get("network", None)
-        self.country = item.get("country", None)
-        self.language = item.get("language", None)
-        self.aired_at = item.get("aired_at", None)
-        self.genres = item.get("genres", [])
+                self.item_id: ItemId = ItemId(self.imdb_id)
+        self.tvdb_id: Optional[str] = item.get("tvdb_id", None)
+        self.tmdb_id: Optional[str] = item.get("tmdb_id", None)
+        self.network: Optional[str] = item.get("network", None)
+        self.country: Optional[str] = item.get("country", None)
+        self.language: Optional[str] = item.get("language", None)
+        self.aired_at: Optional[datetime] = item.get("aired_at", None)
+        self.genres: Optional[List[str]] = item.get("genres", [])
 
         # Plex related
-        # TODO: This might be bugged? I wonder if movies that are in collections, 
-        # have a key from the collection.. needs testing.
-        self.key = item.get("key", None)
-        self.guid = item.get("guid", None)
-        self.update_folder = item.get("update_folder", None)
+        self.key: Optional[str] = item.get("key", None)
+        self.guid: Optional[str] = item.get("guid", None)
+        self.update_folder: Optional[str] = item.get("update_folder", None)
 
         # Overseerr related
-        self.overseerr_id = item.get("overseerr_id", None)
+        self.overseerr_id: Optional[int] = item.get("overseerr_id", None)
 
     @property
     def is_released(self) -> bool:
@@ -188,8 +186,6 @@ class MediaItem:
         dict["symlinked_times"] = (
             self.symlinked_times if hasattr(self, "symlinked_times") else None
         )
-
-        dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
         dict["update_folder"] = (
             self.update_folder if hasattr(self, "update_folder") else None

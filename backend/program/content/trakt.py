@@ -2,13 +2,13 @@
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
-from utils.request import RateLimiter, post
-import regex
 
+import regex
+from requests import RequestException
 from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import get
+from utils.request import RateLimiter, get, post
 
 
 class TraktContent:
@@ -33,23 +33,30 @@ class TraktContent:
 
     def validate(self) -> bool:
         """Validate Trakt settings."""
-        if not self.settings.enabled:
-            logger.warning("Trakt is set to disabled.")
+        try:
+            if not self.settings.enabled:
+                logger.warning("Trakt is set to disabled.")
+                return False
+            if not self.settings.api_key:
+                logger.error("Trakt API key is not set.")
+                return False
+            response = get(f"{self.api_url}/lists/2", additional_headers=self.headers)
+            if not getattr(response.data, 'name', None):
+                logger.error("Invalid user settings received from Trakt.")
+                return False
+            return True
+        except ConnectionError:
+            logger.error("Connection error during Trakt validation.")
             return False
-        if not self.settings.api_key:
-            logger.error("Trakt API key is not set.")
+        except TimeoutError:
+            logger.error("Timeout error during Trakt validation.")
             return False
-
-        # Simple GET request to test Trakt API key
-        response = get(f"{self.api_url}/lists/2", additional_headers=self.headers)
-        if not response.is_ok:
-            logger.error(f"Error connecting to Trakt: {response.status_code}")
+        except RequestException as e:
+            logger.error(f"Request exception during Trakt validation: {str(e)}")
             return False
-
-        if not getattr(response.data, 'name', None):
-            logger.error("Invalid user settings received from Trakt.")
+        except Exception as e:
+            logger.error(f"Exception during Trakt validation: {str(e)}")
             return False
-        return True
 
     def missing(self):
         """Log missing items from Trakt"""
