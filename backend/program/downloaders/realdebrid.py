@@ -338,9 +338,19 @@ class Debrid:
 
     def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
-        info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["alternative_name"] = info.original_filename
-        item.active_stream["name"] = info.filename
+        active_stream = item.get("active_stream")
+        if not active_stream or "id" not in active_stream:
+            logger.error(f"Invalid active stream data for item: {item.log_string}")
+            return
+
+        info = self.get_torrent_info(active_stream["id"])
+        if not info:
+            logger.error(f"Failed to get torrent info for item: {item.log_string}")
+            return
+
+        item.active_stream["alternative_name"] = info.get("original_filename") or None
+        item.active_stream["name"] = info.get("filename") or None
+
         if not item.folder or not item.alternative_folder:
             item.set("folder", item.active_stream.get("name"))
             item.set("alternative_folder", item.active_stream.get("alternative_name"))
