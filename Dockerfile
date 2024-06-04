@@ -1,6 +1,10 @@
 # Builder Image for Python Dependencies
 FROM python:3.11-alpine AS builder
-RUN apk add --no-cache build-base curl
+
+# Install necessary build dependencies
+RUN apk add --no-cache build-base curl libffi-dev python3-dev
+
+# Upgrade pip and install poetry
 RUN pip install --upgrade pip && pip install poetry==1.4.2
 
 ENV POETRY_NO_INTERACTION=1 \
