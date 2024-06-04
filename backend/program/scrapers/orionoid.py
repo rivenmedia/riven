@@ -112,7 +112,11 @@ class Orionoid:
 
     def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
+        try:
+            data, stream_count = self.api_scrape(item)
+        except Exception as e:
+            raise e  # Raise the exception to be handled by the run method
+
         if len(data) > 0:
             item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
@@ -172,12 +176,8 @@ class Orionoid:
             with self.second_limiter:
                 try:
                     response = get(url, retry_if_failed=False, timeout=60)
-                except ReadTimeout:
-                    logger.error(f"Orionoid read timeout for URL: {url}")
-                    return {}, 0
-                except RequestException as e:
-                    logger.exception(f"Orionoid request exception: {e}")
-                    return {}, 0
+                except Exception:
+                    raise
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
             torrents = set()
