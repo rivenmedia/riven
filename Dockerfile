@@ -48,7 +48,11 @@ RUN apk add --no-cache \
     npm \
     rclone \
     fontconfig \
-    unzip && \
+    unzip \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    python3-dev && \
     npm install -g pnpm
 
 # Install Nerd Fonts
