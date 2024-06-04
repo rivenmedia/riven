@@ -40,12 +40,14 @@ class SettingsManager:
             logger.warning(
                 f"Error loading settings: {e}, initializing with default settings"
             )
-            raise
+            self.settings = AppModel()
+            self.notify_observers()
         except json.JSONDecodeError as e:
             logger.warning(
                 f"Error parsing settings file: {e}, initializing with default settings"
             )
-            raise
+            self.settings = AppModel()
+            self.notify_observers()
         except FileNotFoundError:
             logger.warning(f"Error loading settings: {self.settings_file} does not exist")
             raise
