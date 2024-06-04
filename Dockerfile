@@ -2,7 +2,13 @@
 FROM python:3.11-alpine AS builder
 
 # Install necessary build dependencies
-RUN apk add --no-cache build-base curl libffi-dev python3-dev
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    python3-dev \
+    build-base \
+    curl
 
 # Upgrade pip and install poetry
 RUN pip install --upgrade pip && pip install poetry==1.4.2
