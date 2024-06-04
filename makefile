@@ -57,10 +57,8 @@ build:
 	@docker build -t iceberg .
 
 push: build
-	@echo $(DOCKER_PASSWORD) | docker login -u spoked --password-stdin
 	@docker tag iceberg:latest spoked/iceberg:latest
 	@docker push spoked/iceberg:latest
-	@docker logout || true
 
 tidy:
 	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "iceberg" {print $3}') -f
