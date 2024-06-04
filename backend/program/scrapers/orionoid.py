@@ -5,7 +5,7 @@ from typing import Dict
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from requests import ConnectTimeout
+from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
@@ -39,7 +39,7 @@ class Orionoid:
         self.minute_limiter = RateLimiter(
             max_calls=self.max_calls, period=self.period, raise_on_limit=True
         )
-        self.second_limiter = RateLimiter(max_calls=1, period=1)
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
         logger.success("Orionoid initialized!")
@@ -95,23 +95,28 @@ class Orionoid:
             yield item
         try:
             yield self.scrape(item)
-        except ConnectTimeout:
+        except (ConnectTimeout, RateLimitExceeded, ReadTimeout, RequestException, Exception) as e:
             self.minute_limiter.limit_hit()
-            logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
-        except RateLimitExceeded:
-            self.minute_limiter.limit_hit()
-            logger.warning(f"Orionoid rate limit hit for item: {item.log_string}")
-        except RequestException as e:
-            self.minute_limiter.limit_hit()
-            logger.exception(f"Orionoid request exception: {e}")
-        except Exception as e:
-            self.minute_limiter.limit_hit()
-            logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+            self.second_limiter.limit_hit()
+            if isinstance(e, ConnectTimeout):
+                logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
+            elif isinstance(e, RateLimitExceeded):
+                logger.warning(f"Orionoid rate limit hit for item: {item.log_string}")
+            elif isinstance(e, ReadTimeout):
+                logger.error(f"Orionoid read timeout for item: {item.log_string}")
+            elif isinstance(e, RequestException):
+                logger.error(f"Orionoid request exception: {e}")
+            else:
+                logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
+        try:
+            data, stream_count = self.api_scrape(item)
+        except Exception as e:
+            raise e  # Raise the exception to be handled by the run method
+
         if len(data) > 0:
             item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
@@ -171,9 +176,8 @@ class Orionoid:
             with self.second_limiter:
                 try:
                     response = get(url, retry_if_failed=False, timeout=60)
-                except RequestException as e:
-                    logger.exception(f"Orionoid request exception: {e}")
-                    return {}, 0
+                except Exception:
+                    raise
             if not response.is_ok or not hasattr(response.data, "data"):
                 return {}, 0
             torrents = set()
