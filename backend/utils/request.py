@@ -86,8 +86,6 @@ def _make_request(
         response = session.request(
             method, url, headers=headers, data=data, params=params, timeout=timeout
         )
-    except requests.ReadTimeout:
-        response = _handle_request_exception()
     except Exception:
         response = _handle_request_exception()
     finally:

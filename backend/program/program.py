@@ -21,7 +21,7 @@ from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
-from .cache import HashCache
+from .cache import hash_cache
 from .pickly import Pickly
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -49,15 +49,14 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
-        self.hash_cache = HashCache(420, 10000)
         self.processing_services = {
-            Scraping: Scraping(self.hash_cache),
+            Scraping: Scraping(hash_cache),
             Symlinker: Symlinker(),
             PlexUpdater: PlexUpdater(),
         }
         self.downloader_services = {
-            Debrid: Debrid(self.hash_cache),
-            TorBoxDownloader: TorBoxDownloader(self.hash_cache),
+            Debrid: Debrid(hash_cache),
+            TorBoxDownloader: TorBoxDownloader(hash_cache),
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it

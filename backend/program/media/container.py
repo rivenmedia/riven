@@ -116,7 +116,7 @@ class MediaItemContainer:
         finally:
             self.lock.release_write()
 
-    def _merge_items(self, existing_item, new_item):
+    def _merge_items(self, existing_item: MediaItem, new_item: MediaItem) -> None:
         """Merge new item data into existing item without losing existing state."""
         if existing_item.state == States.Completed and new_item.state != States.Completed:
             return
@@ -215,7 +215,7 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def save(self, filename):
+    def save(self, filename: str) -> None:
         if not self._items:
             return
 
@@ -241,12 +241,12 @@ class MediaItemContainer:
             except OSError as remove_error:
                 logger.error(f"Failed to remove temporary file: {remove_error}")
 
-    def load(self, filename):
+    def load(self, filename: str) -> None:
         try:
             with open(filename, "rb") as file:
                 from_disk: MediaItemContainer = dill.load(file)  # noqa: S301
         except FileNotFoundError:
-            logger.error(f"Cannot find cached media data at {filename}")
+            logger.error(f"Unable to find the media library file. Starting fresh.")
             return
         except (EOFError, dill.UnpicklingError) as e:
             logger.error(f"Failed to unpickle media data: {e}. Starting fresh.")

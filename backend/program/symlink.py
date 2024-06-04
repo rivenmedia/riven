@@ -8,6 +8,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from .cache import hash_cache
 
 
 class DeleteHandler(FileSystemEventHandler):
@@ -51,15 +52,11 @@ class Symlinker:
     def validate(self):
         """Validate paths and create the initial folders."""
         library_path = self.settings.library_path
-        if (
-            not self.rclone_path
-            or not library_path
-            or self.rclone_path == Path(".")
-            or library_path == Path(".")
-        ):
-            logger.error(
-                "rclone_path or library_path not provided, is empty, or is set to the current directory."
-            )
+        if not self.rclone_path or not library_path:
+            logger.error("rclone_path or library_path not provided.")
+            return False
+        if self.rclone_path == Path(".") or library_path == Path("."):
+            logger.error("rclone_path or library_path is set to the current directory.")
             return False
         if not self.rclone_path.is_absolute():
             logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
@@ -67,20 +64,13 @@ class Symlinker:
         if not library_path.is_absolute():
             logger.error(f"library_path is not an absolute path: {library_path}")
             return False
-        try:
-            if not self.create_initial_folders():
-                logger.error(
-                    "Failed to create initial library folders in your library_path."
-                )
-                return False
-            return True
-        except FileNotFoundError as e:
-            logger.error(f"Path not found: {e}")
-        except PermissionError as e:
-            logger.error(f"Permission denied when accessing path: {e}")
-        except OSError as e:
-            logger.error(f"OS error when validating paths: {e}")
-        return False
+        if not self.rclone_path.exists():
+            logger.error(f"rclone_path does not exist: {self.rclone_path}")
+            return False
+        if not library_path.exists():
+            logger.error(f"library_path does not exist: {library_path}")
+            return False
+        return self.create_initial_folders()
 
     def start_monitor(self):
         """Starts monitoring the library path for symlink deletions."""
@@ -102,8 +92,11 @@ class Symlinker:
     def on_symlink_deleted(self, symlink_path):
         """Handle a symlink deletion event."""
         src = Path(symlink_path)
-        dst = Path(symlink_path).resolve()
-        logger.log("FILES", f"Symlink deleted: {src} -> {dst}") 
+        if src.is_symlink():
+            dst = src.resolve()
+            logger.log("FILES", f"Symlink deleted: {src} -> {dst}")
+        else:
+            logger.log("FILES", f"Symlink deleted: {src} (target unknown)")
         # TODO: Implement logic to handle deletion..
 
     def create_initial_folders(self):
@@ -148,27 +141,34 @@ class Symlinker:
     @staticmethod
     def should_submit(item) -> bool:
         """Check if the item should be submitted for symlink creation."""
-        if Symlinker.file_check(item):
-            return True
+        if isinstance(item, (Movie, Episode)):
+            if Symlinker.file_check(item):
+                return True
 
         # If we've tried 3 times to symlink the file, give up
         if item.symlinked_times >= 3:
             if isinstance(item, (Movie, Episode)):
                 item.set("file", None)
                 item.set("folder", None)
-                item.set("streams", {}) # making sure we rescrape
+                item.set("streams", {})  # Ensure rescraping
                 item.set("symlinked_times", 0)
+                infohash = item.active_stream.get("hash")
+                if infohash:
+                    hash_cache.blacklist(infohash)
+                else:
+                    logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
             return False
 
         # If the file doesn't exist, we should wait a bit and try again
-        logger.debug(f"Sleeping for 10 seconds before checking if file exists again for {item.log_string}")
+        logger.log("NOT_FOUND", f"Retrying file check in 10 seconds: {item.log_string}")
         time.sleep(10)
         return True
 
     @staticmethod
     def file_check(item: MediaItem) -> bool:
         """Check if the file exists in the rclone path."""
-        if not item.file:
+        if not item.file or item.file == "None.mkv":
+            logger.error(f"Invalid file for {item.log_string}: {item.file}. Needs to be rescraped.")
             return False
 
         try:
@@ -185,16 +185,30 @@ class Symlinker:
         alt_file_path = rclone_path / item.alternative_folder / item.file if item.alternative_folder else None
         thd_file_path = rclone_path / item.file / item.file
 
-        if std_file_path and std_file_path.exists():
-            return True
-        elif alt_file_path and alt_file_path.exists():
-            item.set("folder", item.alternative_folder)
-            return True
-        elif thd_file_path.exists():
-            item.set("folder", item.file)
-            return True
+        for attempt in range(2):
+            if std_file_path and std_file_path.exists():
+                return True
+            elif alt_file_path and alt_file_path.exists():
+                item.set("folder", item.alternative_folder)
+                return True
+            elif thd_file_path.exists():
+                item.set("folder", item.file)
+                return True
 
-        logger.log("FILES", f"File not found for {item.log_string} with file: {item.file}")
+            if attempt < 1:
+                logger.log("FILES", f"File not found for {item.log_string} with file: {item.file}. Retrying in 10 seconds...")
+                time.sleep(10)
+            else:
+                logger.log("FILES", f"File not found for {item.log_string} after 1 attempt. Searching entire rclone_path...")
+
+        # On the 2nd attempt, search the entire rclone_path
+        for file_path in rclone_path.rglob(item.file):
+            if file_path.exists():
+                item.set("folder", str(file_path.parent.relative_to(rclone_path)))
+                logger.log("FILES", f"File found for {item.log_string} by searching rclone_path: {file_path}")
+                return True
+
+        logger.log("FILES", f"File not found for {item.log_string} with file: {item.file} after searching rclone_path.")
         return False
 
     def _determine_file_name(self, item) -> str | None:
@@ -233,6 +247,10 @@ class Symlinker:
 
     def _symlink_single(self, item) -> bool:
         """Create a symlink for a single media item."""
+        if not item.file or item.file == "None.mkv":
+            logger.error(f"Cannot create symlink for {item.log_string}: Invalid file {item.file}. Needs to be rescraped.")
+            return False
+
         extension = os.path.splitext(item.file)[1][1:]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
@@ -306,3 +324,4 @@ class Symlinker:
             destination_path = os.path.join(season_path, filename.replace("/", "-"))
             item.set("update_folder", os.path.join(season_path))
         return destination_path
+

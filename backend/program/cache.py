@@ -9,7 +9,7 @@ from utils.logger import logger
 class HashCache:
     """A class for caching hashes with additional metadata and a time-to-live (TTL) mechanism."""
 
-    def __init__(self, ttl: int = 420, maxsize: int = 2000):
+    def __init__(self, ttl: int = 900, maxsize: int = 10000):
         """
         Initializes the HashCache with a specified TTL and maximum size.
 
@@ -78,3 +78,6 @@ class HashCache:
     def _get_cache_entry(self, infohash: str) -> dict:
         """Helper function to get a cache entry or create a new one if it doesn't exist."""
         return self.cache.get(infohash, {"blacklisted": False, "downloaded": False, "added_at": datetime.now()})
+
+
+hash_cache = HashCache()

@@ -111,16 +111,20 @@ class PlexLibrary:
 
                 # Gather all results
                 for future in concurrent.futures.as_completed(futures):
-                    chunk_results = future.result()
-                    items.extend(chunk_results)
-                    with self.lock:
-                        self.last_fetch_times[section.key] = datetime.now()
-                    processed_sections.add(section.key)
+                    try:
+                        chunk_results = future.result(timeout=2)  # Add timeout to speed up shutdown
+                        items.extend(chunk_results)
+                        with self.lock:
+                            self.last_fetch_times[section.key] = datetime.now()
+                        processed_sections.add(section.key)
+                    except concurrent.futures.TimeoutError:
+                        logger.warning("Timeout while waiting for chunk processing result.")
+                    except Exception as e:
+                        logger.exception(f"Failed to get chunk result: {e}")
 
             if not processed_sections:
-                logger.error("Failed to process any sections. Check your library_path settings.")
-            
-            logger.log("PLEX", f"Processed {len(items)} items.")
+                return []
+
             return items
         except Exception as e:
             logger.exception(f"Unexpected error occurred: {e}")

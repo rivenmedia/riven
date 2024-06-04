@@ -3,8 +3,8 @@ from typing import Dict, Generator
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from requests import ConnectTimeout, ReadTimeout, RequestException
-from requests.exceptions import RetryError
+from requests import RequestException
+from requests.exceptions import RetryError, ReadTimeout, ConnectTimeout
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
@@ -35,7 +35,7 @@ class TorBoxScraper:
             return False
 
         try:
-            response = ping(f"{self.base_url}/torrents/imdb:tt0080684")
+            response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=60)
             return response.ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
@@ -50,30 +50,32 @@ class TorBoxScraper:
 
         try:
             yield self.scrape(item)
-        except RateLimitExceeded:
-            self.minute_limiter.limit_hit()
-            self.second_limiter.limit_hit()
-            logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
-        except ConnectTimeout:
-            self.minute_limiter.limit_hit()
-            self.second_limiter.limit_hit()
-            logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
-        except ReadTimeout:
-            self.minute_limiter.limit_hit()
-            logger.warning(f"TorBox read timeout for item: {item.log_string}")
-        except RetryError:
-            self.minute_limiter.limit_hit()
-            logger.warning(f"TorBox retry error for item: {item.log_string}")
-        except RequestException as e:
-            self.minute_limiter.limit_hit()
-            if e.response.status_code == 418:
-                logger.log("NOT_FOUND", f"TorBox has no metadata for item: {item.log_string}, unable to scrape")
-            else:
-                pass  # Hide other TorBox connection errors
         except Exception as e:
             self.minute_limiter.limit_hit()
-            logger.exception(f"TorBox exception thrown: {e}")
+            self.second_limiter.limit_hit()
+            self.handle_exception(e, item)
         yield item
+
+    def handle_exception(self, e: Exception, item: MediaItem) -> None:
+        """Handle exceptions during scraping"""
+        if isinstance(e, RateLimitExceeded):
+            logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
+        elif isinstance(e, ConnectTimeout):
+            logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
+        elif isinstance(e, ReadTimeout):
+            logger.warning(f"TorBox read timeout for item: {item.log_string}")
+        elif isinstance(e, RetryError):
+            logger.warning(f"TorBox retry error for item: {item.log_string}")
+        elif isinstance(e, TimeoutError):
+            logger.warning(f"TorBox timeout error for item: {item.log_string}")
+        elif isinstance(e, RequestException):
+            if e.response and e.response.status_code == 418:
+                logger.log("NOT_FOUND", f"TorBox has no metadata for item: {item.log_string}, unable to scrape")
+            elif e.response and e.response.status_code == 500:
+                logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
+        else:
+            logger.error(f"TorBox exception thrown: {e}")
+        
 
     def scrape(self, item: MediaItem) -> MediaItem:
         """Scrape the given item"""

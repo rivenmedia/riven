@@ -97,13 +97,21 @@ class TraktModel(Updatable):
     enabled: bool = False
     api_key: str = ""
     watchlist: list[str] = []
-    collections: list[str] = []
     user_lists: list[str] = []
     fetch_trending: bool = False
     trending_count: int = 10
     fetch_popular: bool = False
     popular_count: int = 10
     update_interval: int = 300
+
+
+class TraktOauthModel(BaseModel):
+    # This is for app settings to handle oauth with trakt
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_redirect_uri: str = ""
+    access_token: str = ""
+    refresh_token: str = ""
 
 
 class ContentModel(Observable):
