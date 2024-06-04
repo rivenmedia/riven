@@ -47,10 +47,15 @@ set -q ORIGIN; or set ORIGIN "http://localhost:3000"
 echo "Container Initialization complete."
 
 # Start rclone in the background
-rclone rcd --rc-addr 0.0.0.0:5572 &
+# echo "Starting rclone..."
+# rclone rcd --rc-web-gui --rc-addr 0.0.0.0:5572 --rc-no-auth --log-level ERROR &> /dev/null &
+# set rclone_pid (jobs -p %1)
 
 # Start the backend
+echo "Starting backend..."
 su -m $USERNAME -c "fish -c 'cd /iceberg/backend; and poetry run python3 main.py'" &
+set backend_pid (jobs -p %1)
 
 # Start the frontend
+echo "Starting frontend..."
 exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN node /iceberg/frontend/build'"

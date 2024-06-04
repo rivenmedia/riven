@@ -1,6 +1,6 @@
 # Builder Image for Python Dependencies
-FROM python:3.11-slim AS builder
-RUN apt-get update && apt-get install -y curl build-essential && rm -rf /var/lib/apt/lists/*
+FROM python:3.11-alpine AS builder
+RUN apk add --no-cache build-base curl
 RUN pip install --upgrade pip && pip install poetry==1.4.2
 
 ENV POETRY_NO_INTERACTION=1 \
@@ -15,7 +15,7 @@ RUN touch README.md
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 
 # Frontend Builder
-FROM node:20-slim AS frontend
+FROM node:20-alpine AS frontend
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm install -g pnpm && pnpm install
@@ -23,29 +23,38 @@ COPY frontend/ .
 RUN pnpm run build && pnpm prune --prod
 
 # Final Image
-FROM python:3.11-slim
+FROM python:3.11-alpine
 LABEL name="Iceberg" \
       description="Iceberg Debrid Downloader" \
       url="https://github.com/dreulavelle/iceberg"
 
 # Install system dependencies and Node.js
 ENV PYTHONUNBUFFERED=1
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     curl \
     fish \
-    passwd \
+    shadow \
     nodejs \
     npm \
-    rclone && \
-    npm install -g pnpm && \
-    rm -rf /var/lib/apt/lists/*
+    rclone \
+    fontconfig \
+    unzip && \
+    npm install -g pnpm
+
+# Install Nerd Fonts
+RUN mkdir -p /usr/share/fonts/nerd-fonts && \
+    curl -fLo "/usr/share/fonts/nerd-fonts/FiraCode.zip" \
+    https://github.com/ryanoasis/nerd-fonts/releases/download/v2.1.0/FiraCode.zip && \
+    unzip /usr/share/fonts/nerd-fonts/FiraCode.zip -d /usr/share/fonts/nerd-fonts && \
+    rm /usr/share/fonts/nerd-fonts/FiraCode.zip && \
+    fc-cache -fv
 
 # Install Poetry
 RUN pip install poetry==1.4.2
 
 # Create user and group
-RUN groupadd -g 1000 iceberg && \
-    useradd -u 1000 -g iceberg -m -s /usr/bin/fish iceberg
+RUN addgroup -g 1000 iceberg && \
+    adduser -u 1000 -G iceberg -h /home/iceberg -s /usr/bin/fish -D iceberg
 
 # Create fish config directory
 RUN mkdir -p /home/iceberg/.config/fish

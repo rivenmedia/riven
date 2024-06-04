@@ -1,10 +1,14 @@
 """Overseerr content module"""
 
+from typing import Union
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import delete, get, ping, post
+from requests.exceptions import RetryError, ConnectionError
+from urllib3.exceptions import MaxRetryError
+from urllib3.exceptions import NewConnectionError
 
 
 class Overseerr:
@@ -39,8 +43,11 @@ class Overseerr:
                 )
                 return False
             return response.ok
-        except Exception:
-            logger.error("Overseerr url is not reachable.")
+        except (ConnectionError, RetryError, MaxRetryError, NewConnectionError) as e:
+            logger.error("Overseerr URL is not reachable. Please check your network connection and URL settings.")
+            return False
+        except Exception as e:
+            logger.error("Unexpected error during Overseerr validation. Please check the logs for more details.")
             return False
 
     def run(self):
@@ -50,9 +57,13 @@ class Overseerr:
                 self.settings.url + f"/api/v1/request?take={10000}&filter=approved",
                 additional_headers=self.headers,
             )
-        except ConnectionError as e:
-            logger.error("Failed to fetch requests from overseerr: %s", str(e))
+        except (ConnectionError, RetryError, MaxRetryError) as e:
+            logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
             return
+        except Exception as e:
+            logger.error(f"Unexpected error during fetching requests: {str(e)}")
+            return
+
         if not response.is_ok or response.data.pageInfo.results == 0:
             return
 
@@ -63,15 +74,20 @@ class Overseerr:
             if item.status == 2 and item.media.status == 3
         ]
         for item in pending_items:
-            mediaId: int = int(item.media.id)
-            if not item.media.imdbId:
-                imdb_id = self.get_imdb_id(item.media)
-            else:
-                imdb_id = item.media.imdbId
-            if not imdb_id or imdb_id in self.recurring_items:
+            try:
+                mediaId: int = int(item.media.id)
+                if not item.media.imdbId:
+                    imdb_id = self.get_imdb_id(item.media)
+                else:
+                    imdb_id = item.media.imdbId
+                if not imdb_id or imdb_id in self.recurring_items:
+                    continue
+                self.recurring_items.add(imdb_id)
+                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+            except Exception as e:
+                logger.error(f"Error processing item {item}: {str(e)}")
+
                 continue
-            self.recurring_items.add(imdb_id)
-            yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
@@ -81,16 +97,21 @@ class Overseerr:
         else:
             external_id = data.tmdbId
 
-        response = get(
-            self.settings.url + f"/api/v1/{data.mediaType}/{external_id}?language=en",
-            additional_headers=self.headers,
-        )
+        try:
+            response = get(
+                self.settings.url + f"/api/v1/{data.mediaType}/{external_id}?language=en",
+                additional_headers=self.headers,
+            )
+        except (ConnectionError, RetryError, MaxRetryError) as e:
+            logger.error(f"Failed to fetch media details from overseerr: {str(e)}")
+            return
+        except Exception as e:
+            logger.error(f"Unexpected error during fetching media details: {str(e)}")
+            return
+
         if not response.is_ok or not hasattr(response.data, "externalIds"):
             return
 
-        title = getattr(response.data, "title", None) or getattr(
-            response.data, "originalName"
-        )
         imdb_id = getattr(response.data.externalIds, "imdbId", None)
         if imdb_id:
             return imdb_id
@@ -100,12 +121,14 @@ class Overseerr:
         for id_attr, fetcher in alternate_ids:
             external_id_value = getattr(response.data.externalIds, id_attr, None)
             if external_id_value:
-                new_imdb_id = fetcher(external_id_value)
-                if new_imdb_id:
-                    logger.debug(
-                        f"Found imdbId for {title} from {id_attr}: {external_id_value}"
-                    )
+                try:
+                    new_imdb_id: Union[str, None] = fetcher(external_id_value)
+                    if not new_imdb_id:
+                        continue
                     return new_imdb_id
+                except Exception as e:
+                    logger.error(f"Error fetching alternate ID: {str(e)}")
+                    continue
         return
 
     @staticmethod
@@ -121,9 +144,8 @@ class Overseerr:
             logger.info(f"Deleted request {mediaId} from overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error("Failed to delete request from overseerr ")
-            logger.error(e)
-        return False
+            logger.error(f"Failed to delete request from overseerr: {str(e)}")
+            return False
 
     @staticmethod
     def mark_processing(mediaId: int) -> bool:
@@ -139,8 +161,7 @@ class Overseerr:
             logger.info(f"Marked media {mediaId} as processing in overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error("Failed to mark media as processing in overseerr with id %s", mediaId)
-            logger.error(e)
+            logger.error(f"Failed to mark media as processing in overseerr with id {mediaId}: {str(e)}")
             return False
 
     @staticmethod
@@ -157,8 +178,7 @@ class Overseerr:
             logger.info(f"Marked media {mediaId} as partially available in overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error("Failed to mark media as partially available in overseerr with id %s", mediaId)
-            logger.error(e)
+            logger.error(f"Failed to mark media as partially available in overseerr with id {mediaId}: {str(e)}")
             return False
 
     @staticmethod
@@ -175,8 +195,7 @@ class Overseerr:
             logger.info(f"Marked media {mediaId} as completed in overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error("Failed to mark media as completed in overseerr with id %s", mediaId)
-            logger.error(e)
+            logger.error(f"Failed to mark media as completed in overseerr with id {mediaId}: {str(e)}")
             return False
 
 

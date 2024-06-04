@@ -26,30 +26,30 @@ class MediaItem:
     """MediaItem class"""
 
     def __init__(self, item: dict) -> None:
-        self.requested_at: datetime = item.get("requested_at", datetime.now())
+        self.requested_at: Optional[datetime] = item.get("requested_at", datetime.now())
         self.requested_by: Optional[str] = item.get("requested_by", None)
 
         self.indexed_at: Optional[datetime] = None
 
         self.scraped_at: Optional[datetime] = None
-        self.scraped_times: int = 0
-        self.active_stream: dict[str, str] = item.get("active_stream", {})
-        self.streams: dict[str, Torrent] = {}
+        self.scraped_times: Optional[int] = 0
+        self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
+        self.streams: Optional[dict[str, Torrent]] = {}
 
-        self.symlinked: bool = False
+        self.symlinked: Optional[bool] = False
         self.symlinked_at: Optional[datetime] = None
-        self.symlinked_times: int = 0
+        self.symlinked_times: Optional[int] = 0
 
         self.file: Optional[str] = None
         self.folder: Optional[str] = None
-        self.is_anime: bool = item.get("is_anime", False)
+        self.is_anime: Optional[bool] = item.get("is_anime", False)
         self.parent: Optional[Self] = None
 
         # Media related
-        self.title: str = item.get("title", None)
-        self.imdb_id: str = item.get("imdb_id", None)
+        self.title: Optional[str] = item.get("title", None)
+        self.imdb_id: Optional[str] = item.get("imdb_id", None)
         if self.imdb_id:
-            self.imdb_link: str = f"https://www.imdb.com/title/{self.imdb_id}/"
+            self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, "item_id"):
                 self.item_id: ItemId = ItemId(self.imdb_id)
         self.tvdb_id: Optional[str] = item.get("tvdb_id", None)
@@ -58,11 +58,9 @@ class MediaItem:
         self.country: Optional[str] = item.get("country", None)
         self.language: Optional[str] = item.get("language", None)
         self.aired_at: Optional[datetime] = item.get("aired_at", None)
-        self.genres: List[str] = item.get("genres", [])
+        self.genres: Optional[List[str]] = item.get("genres", [])
 
         # Plex related
-        # TODO: This might be bugged? I wonder if movies that are in collections, 
-        # have a key from the collection.. needs testing.
         self.key: Optional[str] = item.get("key", None)
         self.guid: Optional[str] = item.get("guid", None)
         self.update_folder: Optional[str] = item.get("update_folder", None)
