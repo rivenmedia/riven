@@ -47,14 +47,12 @@ jobs:
     - name: Build and push Docker image
       uses: docker/build-push-action@v5.3.0
       with:
-        # context: .
+        context: .
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64
         push: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags:  |
-            ghcr.io/${{ github.event.repository.name }}:latest
-            ghcr.io/${{ github.event.repository.name }}:${{ steps.version.outputs.VERSION }}
-            docker.io/spoked/iceberg:latest
-            docker.io/spoked/iceberg:${{ steps.version.outputs.VERSION }}
+        tags: |
+          docker.io/spoked/iceberg:latest
+          docker.io/spoked/iceberg:${{ steps.version.outputs.VERSION }}
