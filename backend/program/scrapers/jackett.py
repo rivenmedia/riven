@@ -170,11 +170,6 @@ class Jackett:
         return scraped_torrents, len(scraped_torrents)
 
     def _search_movie_indexer(self, item: MediaItem, indexer):
-        logger.debug("huh?")
-        logger.debug(item)
-
-        # url = f"{self.__base_url}/indexers/all/results/torznab/api?apikey={self.__api_key}&t=movie&cat=2000&q={movie.title}&year={movie.year}"
-
         has_imdb_search_capability = (indexer.movie_search_capatabilities is not None and 'imdbid' in indexer.movie_search_capatabilities)
 
         results = []
@@ -186,8 +181,6 @@ class Jackett:
             'q': item.title,
             'year': item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
-
-        logger.debug("Set params")
 
         if has_imdb_search_capability:
             params['imdbid'] = item.imdb_id
