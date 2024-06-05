@@ -122,7 +122,7 @@ class Jackett:
             else:
                 raise TypeError("Only Movie and Series is allowed!")
 
-            logger.info(result)
+            # logger.info(result)
             logger.debug(
                 f"Search on {indexer.title} took {time.time() - start_time} seconds and found {len(result)} results")
 
@@ -144,66 +144,34 @@ class Jackett:
         while not results_queue.empty():
             results.extend(results_queue.get())
 
-        flatten_results = [result for sublist in results for result in sublist]
-        logger.info(flatten_results)
+        # logger.info(results)
 
-        with self.minute_limiter:
-            query = ""
-            if item.type == "movie":
-                if not hasattr(item.aired_at, "year") or not item.aired_at.year:
-                    query = f"cat=2000&t=movie&q={item.title}"
-                else:
-                    query = f"cat=2000&t=movie&q={item.title}&year={item.aired_at.year}"
-            elif item.type == "season":
-                query = f"cat=5000&t=tvsearch&q={item.parent.title}&season={item.number}"
-            elif item.type == "episode":
-                query = f"cat=5000&t=tvsearch&q={item.parent.parent.title}&season={item.parent.number}&ep={item.number}"
-            
-            url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab?apikey={self.api_key}&{query}"
-            
-            with self.second_limiter:
-                response = get(url=url, retry_if_failed=False, timeout=60)
-            
-            if not response.is_ok or len(response.data.get("rss", {}).get("channel", {}).get("item", [])) <= 0:
-                return {}, 0
-            
-            streams = response.data["rss"]["channel"].get("item", [])
-            if not streams:
-                return {}, 0
-            
-            torrents = set()
-            correct_title = item.get_top_title()
-            if not correct_title:
-                logger.debug(f"Correct title not found for {item.log_string}")
-                return {}, 0
-            
-            for stream in streams:
-                try:
-                    attr = stream.get("torznab:attr", [])
-                    infohash_attr = next((a for a in attr if a.get("@name") == "infohash"), None)
-                    if not infohash_attr:
-                        continue
-                    infohash = infohash_attr.get("@value")
-                except (TypeError, ValueError, AttributeError):
-                    continue
+        torrents = set()
+        correct_title = item.get_top_title()
+        if not correct_title:
+            logger.debug(f"Correct title not found for {item.log_string}")
+            return {}, 0
 
-                if self.hash_cache.is_blacklisted(infohash):
-                    continue
+        for item in results:
+            if item[1] is None or self.hash_cache.is_blacklisted(item[1]):
+                continue
 
-                try:
-                    torrent: Torrent = self.rtn.rank(
-                        raw_title=stream.get("title"), infohash=infohash, correct_title=correct_title, remove_trash=True
-                    )
-                except GarbageTorrent:
-                    continue
-                
-                if torrent and torrent.fetch:
-                    torrents.add(torrent)
+            try:
+                torrent: Torrent = self.rtn.rank(
+                    raw_title=item[0], infohash=item[1], correct_title=correct_title, remove_trash=True
+                )
+            except GarbageTorrent:
+                continue
             
-            scraped_torrents = sort_torrents(torrents)
-            return scraped_torrents, len(streams)
+            if torrent and torrent.fetch:
+                torrents.add(torrent)
+            
+        scraped_torrents = sort_torrents(torrents)
+        return scraped_torrents, len(scraped_torrents)
 
     def _search_movie_indexer(self, item: MediaItem, indexer):
+        logger.debug("huh?")
+        logger.debug(item)
 
         # url = f"{self.__base_url}/indexers/all/results/torznab/api?apikey={self.__api_key}&t=movie&cat=2000&q={movie.title}&year={movie.year}"
 
@@ -219,6 +187,8 @@ class Jackett:
             'year': item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
 
+        logger.debug("Set params")
+
         if has_imdb_search_capability:
             params['imdbid'] = item.imdb_id
 
@@ -228,7 +198,7 @@ class Jackett:
         try:
             response = requests.get(url=url, params=params)
             response.raise_for_status()
-            results.append(self._get_torrent_links_from_xml(response.text))
+            results = self._get_torrents_from_xml(response.text)
         except Exception as e:
             logger.error(
                 f"An exception occured while searching for a movie on Jackett with indexer {indexer.title}.")
@@ -273,7 +243,7 @@ class Jackett:
             response = requests.get(url=url, params=params)
             response.raise_for_status()
 
-            data = self._get_torrent_links_from_xml(response.text)
+            data = self._get_torrents_from_xml(response.text)
             return data
         except Exception:
             logger.info(
@@ -327,14 +297,17 @@ class Jackett:
 
         return indexer_list
 
-    def _get_torrent_links_from_xml(self, xml_content):
+    def _get_torrents_from_xml(self, xml_content):        
         xml_root = ET.fromstring(xml_content)
 
         result_list = []
         for item in xml_root.findall('.//item'):
             infoHash = item.find('.//torznab:attr[@name="infohash"]',
                                  namespaces={'torznab': 'http://torznab.com/schemas/2015/feed'})
-            if infoHash is not None:
-                result_list.append(infoHash.attrib['value'])
+
+            if infoHash is None:
+                continue
+
+            result_list.append((item.find('.//title').text, infoHash.attrib['value']))
 
         return result_list
