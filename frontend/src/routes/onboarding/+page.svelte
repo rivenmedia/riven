@@ -48,23 +48,24 @@
 		<div class="flex items-center justify-center slide-up">
 			<Mountain class="w-16 h-16" />
 		</div>
-		
-		{#if data.health.message !== true}
+
+		<!-- TODO: REMOVED FOR SOMETIME -->
+		<!-- {#if data.health.message !== true}
 			<div class="flex flex-col items-center justify-center gap-2 slide-up">
 				<h1 class="text-3xl font-semibold text-center">Iceberg is initializing...</h1>
 				<Button class="w-full font-semibold" href="/">Go back to home</Button>
 			</div>
-		{:else}
-			<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
-			<p
-				class="max-w-lg text-base text-center md:text-lg text-muted-foreground slide-up md:max-w-2xl"
-			>
-				Before you can start using Iceberg, you need to configure some services first.
-			</p>
-			<Button class="w-full mt-4 font-semibold slide-up md:max-w-max" href="/onboarding/1">
-				<Rocket class="w-4 h-4 mr-2" />
-				<span>Let's go</span>
-			</Button>
-		{/if}
+		{:else} -->
+		<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
+		<p
+			class="max-w-lg text-base text-center md:text-lg text-muted-foreground slide-up md:max-w-2xl"
+		>
+			Before you can start using Iceberg, you need to configure some services first.
+		</p>
+		<Button class="w-full mt-4 font-semibold slide-up md:max-w-max" href="/onboarding/1">
+			<Rocket class="w-4 h-4 mr-2" />
+			<span>Let's go</span>
+		</Button>
+		<!-- {/if} -->
 	</div>
 </div>

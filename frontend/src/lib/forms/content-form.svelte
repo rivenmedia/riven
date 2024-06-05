@@ -37,6 +37,16 @@
 		'listrr_show_lists'
 	);
 
+	const { values: traktWatchlistValues, errors: traktWatchlistErrors } = arrayProxy(
+		contentForm,
+		'trakt_watchlist'
+	);
+
+	const { values: traktUserListsValues, errors: traktUserListsErrors } = arrayProxy(
+		contentForm,
+		'trakt_user_lists'
+	);
+
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
 	} else if ($message) {
@@ -60,6 +70,21 @@
 		{
 			field_name: 'listrr_enabled',
 			label_name: 'Listrr'
+		},
+		{
+			field_name: 'trakt_enabled',
+			label_name: 'Trakt'
+		}
+	];
+
+	const traktFetchFieldData: FormGroupCheckboxFieldType[] = [
+		{
+			field_name: 'trakt_fetch_trending',
+			label_name: 'Trending'
+		},
+		{
+			field_name: 'trakt_fetch_popular',
+			label_name: 'Popular'
 		}
 	];
 </script>
@@ -97,6 +122,16 @@
 					fieldValue={$form.overseerr_api_key}
 					labelName="Overseerr API Key"
 					errors={$errors.overseerr_api_key}
+				/>
+			</div>
+
+			<div transition:slide>
+				<FormNumberField
+					{config}
+					stepValue={undefined}
+					fieldName="overseerr_update_interval"
+					labelName="Overseerr Update Interval"
+					errors={$errors.overseerr_update_interval}
 				/>
 			</div>
 		{/if}
@@ -248,6 +283,108 @@
 					numberValidate={false}
 				/>
 			</div>
+		{/if}
+
+		<div class="h-0 overflow-hidden">
+			<select
+				multiple
+				id="trakt_watchlist"
+				name="trakt_watchlist"
+				bind:value={$traktWatchlistValues}
+				tabindex="-1"
+			>
+				{#each $traktWatchlistValues as list}
+					<option value={list}>{list}</option>
+				{/each}
+			</select>
+		</div>
+
+		<div class="h-0 overflow-hidden">
+			<select
+				multiple
+				id="trakt_user_lists"
+				name="trakt_user_lists"
+				bind:value={$traktUserListsValues}
+				tabindex="-1"
+			>
+				{#each $traktUserListsValues as list}
+					<option value={list}>{list}</option>
+				{/each}
+			</select>
+		</div>
+
+		{#if $form.trakt_enabled}
+			<div transition:slide>
+				<FormTextField
+					{config}
+					fieldName="trakt_api_key"
+					isProtected={true}
+					fieldValue={$form.trakt_api_key}
+					labelName="Trakt API Key"
+					errors={$errors.trakt_api_key}
+				/>
+			</div>
+
+			<div transition:slide>
+				<FormNumberField
+					{config}
+					stepValue={undefined}
+					fieldName="trakt_update_interval"
+					labelName="Trakt Update Interval"
+					errors={$errors.trakt_update_interval}
+				/>
+			</div>
+
+			{#if $traktWatchlistErrors}
+				<small class="text-sm text-red-500">{$traktWatchlistErrors}</small>
+			{/if}
+			{#if $traktUserListsErrors}
+				<small class="text-sm text-red-500">{$traktUserListsErrors}</small>
+			{/if}
+
+			<div transition:slide>
+				<FormTagsInputField
+					fieldName="trakt_watchlist"
+					labelName="Trakt Watchlist"
+					fieldValue={traktWatchlistValues}
+					numberValidate={false}
+				/>
+			</div>
+
+			<div transition:slide>
+				<FormTagsInputField
+					fieldName="trakt_user_lists"
+					labelName="Trakt User Lists"
+					fieldValue={traktUserListsValues}
+					numberValidate={false}
+				/>
+			</div>
+
+			<FormGroupCheckboxField {config} fieldTitle="Fetch Lists" fieldData={traktFetchFieldData} />
+
+			{#if $form.trakt_fetch_trending}
+				<div transition:slide>
+					<FormNumberField
+						{config}
+						stepValue={1}
+						fieldName="trakt_trending_count"
+						labelName="Trending Count"
+						errors={$errors.trakt_trending_count}
+					/>
+				</div>
+			{/if}
+
+			{#if $form.trakt_fetch_popular}
+				<div transition:slide>
+					<FormNumberField
+						{config}
+						stepValue={1}
+						fieldName="trakt_popular_count"
+						labelName="Popular Count"
+						errors={$errors.trakt_popular_count}
+					/>
+				</div>
+			{/if}
 		{/if}
 
 		<Separator class=" mt-4" />
