@@ -97,13 +97,12 @@ class PlexLibrary:
                             futures.append(future)
                         except RuntimeError as e:
                             if 'cannot schedule new futures after shutdown' in str(e):
-                                logger.warning("Executor has been shut down, stopping chunk processing.")
                                 break
                             else:
-                                logger.exception(f"Failed to process chunk: {e}")
+                                logger.error(f"Failed to process chunk: {e}")
                         except Exception as e:
-                            logger.exception(f"Failed to process chunk: {e}")
-                            continue
+                            logger.error(f"Failed to process chunk: {e}")
+                            break
                         
                         if len(futures) % rate_limit == 0:
                             # Rate limit: process 5 chunks per minute

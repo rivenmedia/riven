@@ -1,3 +1,5 @@
+import asyncio
+
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.content.trakt import TraktContent
 from program.downloaders.realdebrid import Debrid
@@ -67,19 +69,19 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         if isinstance(item, Show):
             items_to_submit = [
                 s for s in item.seasons 
-                if s.state not in (States.Completed, States.PartiallyCompleted)
+                if s.state not in (States.Completed, States.PartiallyCompleted) and s.is_released and Scraping.should_submit(s)
             ]
         elif isinstance(item, Season):
             items_to_submit = [
                 e for e in item.episodes 
-                if e.state not in (States.Completed, States.PartiallyCompleted)
+                if e.state not in (States.Completed, States.PartiallyCompleted) and e.is_released and Scraping.should_submit(e)
             ]
 
     elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader
         items_to_submit = [item]
 
-    elif item.state == States.Downloaded and Symlinker.should_submit(item):
+    elif item.state == States.Downloaded:
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Season):
@@ -88,10 +90,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             proposed_submissions = [item]
         items_to_submit = []
         for item in proposed_submissions:
-            if not Symlinker.should_submit(item):
-                logger.error(f"Item {item.log_string} rejected by Symlinker, skipping submit")
-            else:
+            if Symlinker.should_submit(item):
                 items_to_submit.append(item)
+
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
         if isinstance(item, Show):
@@ -100,6 +101,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [e for e in item.episodes]
         else:
             items_to_submit = [item]
+
     elif item.state == States.Completed:
         return no_further_processing
 

@@ -3,7 +3,6 @@ logs/
 settings.json
 .vscode
 .git
-docker-compose.yml
 makefile
 .ruff_cache/
 *.dat

@@ -66,7 +66,6 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-        app.program.stop()
     except AttributeError as e:
         logger.error(f"Program failed to initialize: {e}")
     except KeyboardInterrupt:
@@ -75,6 +74,6 @@ with server.run_in_thread():
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
     finally:
+        app.program.stop()
         logger.critical("Server has been stopped")
-        # need to terminate to give back control of terminal to user
         sys.exit(0)

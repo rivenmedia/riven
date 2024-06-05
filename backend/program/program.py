@@ -190,6 +190,11 @@ class Program(threading.Thread):
                 self.event_queue.put(Event(emitted_by=service, item=item))
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
+        finally:
+            # Requeue the original item if it needs further processing
+            if item and service == Symlinker and not Symlinker.should_submit(item):
+                logger.debug(f"Requeueing item {item.log_string} for further processing")
+                self.event_queue.put(Event(emitted_by=service, item=item))
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:

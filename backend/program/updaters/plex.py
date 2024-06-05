@@ -51,13 +51,13 @@ class PlexUpdater:
         except BadRequest:
             logger.error("Plex is not configured correctly!")
         except MaxRetryError:
-            logger.error("Plex max retries exceeded!")
+            logger.error("Plex max retries exceeded")
         except NewConnectionError:
-            logger.error("Plex new connection error!")
+            logger.error("Plex new connection error")
         except RequestsConnectionError:
-            logger.error("Plex requests connection error!")
-        except RequestError:
-            logger.error("Plex request error!")
+            logger.error("Plex requests connection error")
+        except RequestError as e:
+            logger.error(f"Plex request error: {e}")
         except Exception as e:
             logger.exception(f"Plex exception thrown: {e}")
         return False
@@ -67,6 +67,8 @@ class PlexUpdater:
         if not item or not item.update_folder:
             logger.error(f"Item {item.log_string} is missing update folder: {item.update_folder}")
             yield item
+            return
+        
         item_type = "show" if isinstance(item, Episode) else "movie"
         for section, paths in self.sections.items():
             if section.type == item_type:

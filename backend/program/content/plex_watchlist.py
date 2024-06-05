@@ -83,9 +83,13 @@ class PlexWatchlist:
         url = f"https://metadata.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token={self.token}&{filter_params}"
         response = get(url)
         if not response.is_ok or not hasattr(response.data, "MediaContainer"):
-            yield
+            logger.error("Invalid response or missing MediaContainer in response data.")
             return
-        for item in response.data.MediaContainer.Metadata:
+        media_container = getattr(response.data, "MediaContainer", None)
+        if not media_container or not hasattr(media_container, "Metadata"):
+            logger.error("MediaContainer is missing Metadata attribute.")
+            return
+        for item in media_container.Metadata:
             if hasattr(item, "ratingKey") and item.ratingKey:
                 imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
                 if imdb_id and imdb_id not in self.recurring_items:

@@ -1,4 +1,4 @@
-import asyncio
+import time
 from typing import Generator
 
 from program.media.item import MediaItem
@@ -74,7 +74,7 @@ class TorBoxDownloader:
         except Exception as e:
             raise e
     
-    async def download_media(self, item: MediaItem):
+    def download_media(self, item: MediaItem):
         """Initiate the download of a media item using TorBox."""
         if not item:
             logger.error("No media item provided for download.")
@@ -95,7 +95,7 @@ class TorBoxDownloader:
             logger.info(f"Download initiated for item: {item.log_string}")
 
         # Wait for the download to be ready and get the path
-        download_path = await self.get_torrent_path(infohash)
+        download_path = self.get_torrent_path(infohash)
         if not download_path:
             logger.error(f"Failed to get download path for item: {item.log_string}")
             return None
@@ -103,12 +103,12 @@ class TorBoxDownloader:
         logger.success(f"Download ready at path: {download_path} for item: {item.log_string}")
         return download_path
 
-    async def get_torrent_path(self, infohash: str):
+    def get_torrent_path(self, infohash: str):
         """Check and wait until the torrent is fully downloaded and return the path."""
         for _ in range(30):  # Check for 5 minutes max
             if self.is_cached([infohash])[0]:
                 logger.info(f"Torrent cached: {infohash}")
                 return self.mount_torrents_path + infohash  # Assuming the path to be mounted torrents path + infohash
-            await asyncio.sleep(10)
+            time.sleep(10)
         logger.warning(f"Torrent not available after timeout: {infohash}")
         return None

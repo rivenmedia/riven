@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
 
 import regex
-from requests import RequestException
 from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
+from requests import RequestException
 from utils.logger import logger
 from utils.request import RateLimiter, get, post
 
