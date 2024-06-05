@@ -1,14 +1,6 @@
 import { type SuperValidated } from 'sveltekit-superforms';
 import { z } from 'zod';
 
-/**
- * Sets the settings in memory in the 
- *
- * @param fetch - The fetch function used to make the request.
- * @param toSet - The settings to be set.
- * @param toCheck - The services to check.
- * @returns An object containing the settings data and a boolean indicating if all the given services are true or not.
- */
 export async function setSettings(fetch: any, toSet: any, toCheck: string[]) {
 	const settings = await fetch('http://127.0.0.1:8080/settings/set', {
 		method: 'POST',
@@ -29,11 +21,6 @@ export async function setSettings(fetch: any, toSet: any, toCheck: string[]) {
 	};
 }
 
-/**
- * Saves the settings from memory to the json file in the 
- * @param fetch - The fetch function used to make the request.
- * @returns A promise that resolves to an object containing the response data.
- */
 export async function saveSettings(fetch: any) {
 	const data = await fetch('http://127.0.0.1:8080/settings/save', {
 		method: 'POST'
@@ -45,11 +32,6 @@ export async function saveSettings(fetch: any) {
 	};
 }
 
-/**
- * Loads settings from the json to memory in 
- * @param fetch - The fetch function used to make the HTTP request.
- * @returns A promise that resolves to an object containing the loaded settings.
- */
 export async function loadSettings(fetch: any) {
 	const data = await fetch('http://127.0.0.1:8080/settings/load', {
 		method: 'GET'
@@ -62,15 +44,24 @@ export async function loadSettings(fetch: any) {
 }
 
 // General Settings -----------------------------------------------------------------------------------
-export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
-export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
+export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'downloaders'];
+export const generalSettingsServices: string[] = [
+	'symlinklibrary',
+	'symlink',
+	'realdebrid',
+	'torbox',
+	'torbox_downloader'
+];
 
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
 	log: z.boolean().default(true),
 	rclone_path: z.string().min(1),
 	library_path: z.string().min(1),
-	realdebrid_api_key: z.string().min(1)
+	realdebrid_enabled: z.boolean().default(false),
+	realdebrid_api_key: z.string().optional().default(''),
+	torbox_enabled: z.boolean().default(false),
+	torbox_api_key: z.string().optional().default('')
 });
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
 
@@ -80,7 +71,10 @@ export function generalSettingsToPass(data: any) {
 		log: data.data.log,
 		rclone_path: data.data.symlink.rclone_path,
 		library_path: data.data.symlink.library_path,
-		realdebrid_api_key: data.data.real_debrid.api_key
+		realdebrid_enabled: data.data.downloaders.real_debrid.enabled,
+		realdebrid_api_key: data.data.downloaders.real_debrid?.api_key || '',
+		torbox_enabled: data.data.downloaders.torbox.enabled,
+		torbox_api_key: data.data.downloaders.torbox?.api_key || ''
 	};
 }
 
@@ -102,9 +96,16 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 			}
 		},
 		{
-			key: 'real_debrid',
+			key: 'downloaders',
 			value: {
-				api_key: form.data.realdebrid_api_key
+				real_debrid: {
+					enabled: form.data.realdebrid_enabled,
+					api_key: form.data.realdebrid_api_key
+				},
+				torbox: {
+					enabled: form.data.torbox_enabled,
+					api_key: form.data.torbox_api_key
+				}
 			}
 		}
 	];
@@ -118,18 +119,28 @@ export const contentSettingsSchema = z.object({
 	overseerr_enabled: z.boolean().default(false),
 	overseerr_url: z.string().optional().default(''),
 	overseerr_api_key: z.string().optional().default(''),
+	overseerr_update_interval: z.number().nonnegative().int().optional().default(30),
 	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
-	mdblist_update_interval: z.number().nonnegative().int().optional().default(80),
+	mdblist_update_interval: z.number().nonnegative().int().optional().default(300),
 	mdblist_lists: z.string().array().optional().default(['']),
 	plex_watchlist_enabled: z.boolean().default(false),
 	plex_watchlist_rss: z.string().optional().default(''),
-	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(80),
+	plex_watchlist_update_interval: z.number().nonnegative().int().optional().default(60),
 	listrr_enabled: z.boolean().default(false),
 	listrr_api_key: z.string().optional().default(''),
-	listrr_update_interval: z.number().nonnegative().int().optional().default(80),
+	listrr_update_interval: z.number().nonnegative().int().optional().default(300),
 	listrr_movie_lists: z.string().array().optional().default(['']),
-	listrr_show_lists: z.string().array().optional().default([''])
+	listrr_show_lists: z.string().array().optional().default(['']),
+	trakt_enabled: z.boolean().default(false),
+	trakt_api_key: z.string().optional().default(''),
+	trakt_update_interval: z.number().nonnegative().int().optional().default(300),
+	trakt_watchlist: z.string().array().optional().default(['']),
+	trakt_user_lists: z.string().array().optional().default(['']),
+	trakt_fetch_trending: z.boolean().default(false),
+	trakt_fetch_popular: z.boolean().default(false),
+	trakt_trending_count: z.number().nonnegative().int().optional().default(10),
+	trakt_popular_count: z.number().nonnegative().int().optional().default(10)
 });
 export type ContentSettingsSchema = typeof contentSettingsSchema;
 
@@ -138,18 +149,28 @@ export function contentSettingsToPass(data: any) {
 		overseerr_enabled: data.data.content.overseerr.enabled,
 		overseerr_url: data.data.content.overseerr?.url || '',
 		overseerr_api_key: data.data.content.overseerr?.api_key || '',
+		overseerr_update_interval: data.data.content.overseerr?.update_interval || 30,
 		mdblist_enabled: data.data.content.mdblist.enabled,
 		mdblist_api_key: data.data.content.mdblist?.api_key || '',
-		mdblist_update_interval: data.data.content.mdblist?.update_interval || 80,
+		mdblist_update_interval: data.data.content.mdblist?.update_interval || 300,
 		mdblist_lists: data.data.content.mdblist?.lists || [''],
 		plex_watchlist_enabled: data.data.content.plex_watchlist.enabled,
 		plex_watchlist_rss: data.data.content.plex_watchlist?.rss || '',
-		plex_watchlist_update_interval: data.data.content.plex_watchlist?.update_interval || 80,
+		plex_watchlist_update_interval: data.data.content.plex_watchlist?.update_interval || 60,
 		listrr_enabled: data.data.content.listrr.enabled,
 		listrr_api_key: data.data.content.listrr?.api_key || '',
-		listrr_update_interval: data.data.content.listrr?.update_interval || 80,
+		listrr_update_interval: data.data.content.listrr?.update_interval || 300,
 		listrr_movie_lists: data.data.content.listrr?.movie_lists || [''],
-		listrr_show_lists: data.data.content.listrr?.show_lists || ['']
+		listrr_show_lists: data.data.content.listrr?.show_lists || [''],
+		trakt_enabled: data.data.content.trakt.enabled,
+		trakt_api_key: data.data.content.trakt?.api_key || '',
+		trakt_update_interval: data.data.content.trakt?.update_interval || 300,
+		trakt_watchlist: data.data.content.trakt?.watchlist || [''],
+		trakt_user_lists: data.data.content.trakt?.user_lists || [''],
+		trakt_fetch_trending: data.data.content.trakt?.fetch_trending || false,
+		trakt_fetch_popular: data.data.content.trakt?.fetch_popular || false,
+		trakt_trending_count: data.data.content.trakt?.fetch_trending_count || 10,
+		trakt_popular_count: data.data.content.trakt?.fetch_popular_count || 10
 	};
 }
 
@@ -161,7 +182,8 @@ export function contentSettingsToSet(form: SuperValidated<ContentSettingsSchema>
 				overseerr: {
 					enabled: form.data.overseerr_enabled,
 					url: form.data.overseerr_url,
-					api_key: form.data.overseerr_api_key
+					api_key: form.data.overseerr_api_key,
+					update_interval: form.data.overseerr_update_interval
 				},
 				mdblist: {
 					enabled: form.data.mdblist_enabled,
@@ -180,6 +202,17 @@ export function contentSettingsToSet(form: SuperValidated<ContentSettingsSchema>
 					update_interval: form.data.listrr_update_interval,
 					movie_lists: form.data.listrr_movie_lists,
 					show_lists: form.data.listrr_show_lists
+				},
+				trakt: {
+					enabled: form.data.trakt_enabled,
+					api_key: form.data.trakt_api_key,
+					update_interval: form.data.trakt_update_interval,
+					watchlist: form.data.trakt_watchlist,
+					user_lists: form.data.trakt_user_lists,
+					fetch_trending: form.data.trakt_fetch_trending,
+					fetch_popular: form.data.trakt_fetch_popular,
+					trending_count: form.data.trakt_trending_count,
+					popular_count: form.data.trakt_popular_count
 				}
 			}
 		}
@@ -191,7 +224,7 @@ export const mediaServerSettingsToGet: string[] = ['plex'];
 export const mediaServerSettingsServices: string[] = ['plex'];
 
 export const mediaServerSettingsSchema = z.object({
-	update_interval: z.string().optional().default(''),
+	update_interval: z.number().nonnegative().int().optional().default(120),
 	plex_token: z.string().optional().default(''),
 	plex_url: z.string().optional().default('')
 });
@@ -201,7 +234,7 @@ export function mediaServerSettingsToPass(data: any) {
 	return {
 		update_interval: data.data.plex.update_interval,
 		plex_token: data.data.plex.token,
-		plex_url: data.data.plex.url
+		plex_url: data.data.plex.url // TODO: Maybe rename it to url only?
 	};
 }
 
@@ -275,7 +308,7 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				},
 				annatar: {
 					enabled: form.data.annatar_enabled,
-					url: form.data.annatar_url,
+					url: form.data.annatar_url
 				},
 				orionoid: {
 					enabled: form.data.orionoid_enabled,
@@ -283,7 +316,7 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				},
 				jackett: {
 					enabled: form.data.jackett_enabled,
-					url: form.data.jackett_url,
+					url: form.data.jackett_url
 				}
 			}
 		}
