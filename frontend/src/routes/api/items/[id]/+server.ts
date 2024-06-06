@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+// We can only access api from server-side so this needs to be made into a server route
 
 export const GET = async ({ fetch, params }) => {
 	const id: number = Number(params.id);

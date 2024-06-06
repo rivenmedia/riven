@@ -7,8 +7,15 @@
 
 	export let data: PageData;
 
-	const MandatoryServices = ['plexlibrary', 'scraping', 'realdebrid', 'symlinklibrary'];
-	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist'];
+	const CoreServices = [
+		'symlinklibrary',
+		'plexlibrary',
+		'realdebrid',
+		'symlink',
+		'torbox',
+		'torbox_downloader'
+	];
+	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist', 'listrr', 'trakt'];
 	const ScrapingServices = ['torrentio', 'annatar', 'jackett', 'orionoid'];
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
@@ -48,7 +55,7 @@
 		</div>
 	{:then services}
 		<h2 class="text-lg font-semibold md:text-xl">Core services</h2>
-		<ServiceStatus statusData={sortServices(MandatoryServices, services.data)} />
+		<ServiceStatus statusData={sortServices(CoreServices, services.data)} />
 		<br />
 		<h2 class="text-lg font-semibold md:text-xl">Content services</h2>
 		<ServiceStatus statusData={sortServices(ContentServices, services.data)} />
