@@ -304,7 +304,7 @@ export function scrapersSettingsToPass(data: any) {
 		jackett_api_key: data.data.scraping.jackett?.api_key || '',
 		mediafusion_url: data.data.scraping.mediafusion?.url || 'https://mediafusion.elfhosted.com/',
 		mediafusion_enabled: data.data.scraping.mediafusion.enabled,
-		mediafusion_catalogs: data.data.scraping.mediafusion.catalogs || [],
+		mediafusion_catalogs: data.data.scraping.mediafusion.catalogs || ["prowlarr_streams", "torrentio_streams"]
 	};
 }
 
