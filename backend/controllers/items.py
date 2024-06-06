@@ -46,20 +46,18 @@ async def remove_item(request: Request, item_id: str):
     request.app.program.media_items.remove(item)
     if item.symlinked:
         request.app.program.media_items.remove_symlink(item)
-        logger.success(f"Removed symlink for item with ID {item_id}")
+        logger.log("API", f"Removed symlink for item with ID {item_id}")
 
     overseerr_service = request.app.program.services.get(Overseerr)
     if overseerr_service and overseerr_service.initialized:
         try:
             overseerr_result = overseerr_service.delete_request(item_id)
             if overseerr_result:
-                logger.success(f"Deleted Overseerr request for item with ID {item_id}")
+                logger.log("API", f"Deleted Overseerr request for item with ID {item_id}")
             else:
-                logger.error(f"Failed to delete Overseerr request for item with ID {item_id}")
+                logger.log("API", f"Failed to delete Overseerr request for item with ID {item_id}")
         except Exception as e:
             logger.error(f"Exception occurred while deleting Overseerr request for item with ID {item_id}: {e}")
-    else:
-        logger.error("Overseerr service not found in program services")
 
     return {
         "success": True,
@@ -74,16 +72,16 @@ async def remove_item_by_imdb(request: Request, imdb_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
 
     request.app.program.media_items.remove(item)
-    if item.symlinked:
+    if item.symlinked or (item.file and item.folder):  # TODO: this needs to be checked later..
         request.app.program.media_items.remove_symlink(item)
-        logger.success(f"Removed symlink for item with IMDb ID {imdb_id}")
+        logger.log("API", f"Removed symlink for item with IMDb ID {imdb_id}")
 
     overseerr_service = request.app.program.services.get(Overseerr)
     if overseerr_service and overseerr_service.initialized:
         try:
             overseerr_result = overseerr_service.delete_request(item.overseerr_id)
             if overseerr_result:
-                logger.success(f"Deleted Overseerr request for item with IMDb ID {imdb_id}")
+                logger.log("API", f"Deleted Overseerr request for item with IMDb ID {imdb_id}")
             else:
                 logger.error(f"Failed to delete Overseerr request for item with IMDb ID {imdb_id}")
         except Exception as e:
@@ -101,5 +99,4 @@ async def get_imdb_info(request: Request, imdb_id: str):
     item = request.app.program.media_items.get_item(imdb_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    logger.debug(f"Item with IMDb ID {imdb_id} found: {item}")
     return {"success": True, "item": item.to_extended_dict()}
