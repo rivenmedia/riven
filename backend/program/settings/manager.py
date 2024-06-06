@@ -37,15 +37,15 @@ class SettingsManager:
                     settings_dict = json.loads(file.read())
             self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
-            logger.warning(
+            logger.error(
                 f"Error validating settings: {e}"
             )
-            exit(1)
+            raise
         except json.JSONDecodeError as e:
-            logger.warning(
+            logger.error(
                 f"Error parsing settings file: {e}"
             )
-            exit(1)
+            raise
         except FileNotFoundError:
             logger.warning(f"Error loading settings: {self.settings_file} does not exist")
             raise
