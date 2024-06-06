@@ -1,7 +1,8 @@
 """Plex Updater module"""
 import os
-from typing import Generator, Union
+from typing import Dict, Generator, List, Union
 
+from plexapi.library import LibrarySection
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.server import PlexServer
 from program.media.item import Episode, Movie, Season, Show
@@ -19,14 +20,14 @@ class PlexUpdater:
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.settings = settings_manager.settings.plex
-        self.plex = None
-        self.sections = None
+        self.plex: PlexServer = None
+        self.sections: Dict[LibrarySection, List[str]] = {}
         self.initialized = self.validate()
         if not self.initialized:
             return
         logger.success("Plex Updater initialized!")
 
-    def validate(self):  # noqa: C901
+    def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
         if not self.settings.token:
             logger.error("Plex Updater token is not set, this is required!")
@@ -80,9 +81,10 @@ class PlexUpdater:
 
         if isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
-        else:
+        elif isinstance(item, (Movie, Episode)):
             items_to_update = [item]
 
+        # any failures are usually because we are updating Plex too fast
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
@@ -107,8 +109,6 @@ class PlexUpdater:
                     logger.log("PLEX", f"Updated section {section.title} for episodes {updated_episodes_log} in {item.log_string}")
             else:
                 logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
-        else:
-            logger.error(f"Failed to update section {section.title} for {item.log_string}")
 
         yield item
 
@@ -121,7 +121,7 @@ class PlexUpdater:
             return True
         return False
 
-    def map_sections_with_paths(self):
+    def map_sections_with_paths(self) -> Dict[LibrarySection, List[str]]:
         """Map Plex sections with their paths"""
         # Skip sections without locations and non-movie/show sections
         sections = [section for section in self.plex.library.sections() if section.type in ["show", "movie"] and section.locations]

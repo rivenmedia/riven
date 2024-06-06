@@ -1,8 +1,8 @@
 """ Mediafusion scraper module """
-from typing import Dict, Generator
 import json
-import requests
+from typing import Dict, Generator
 
+import requests
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
@@ -11,7 +11,7 @@ from requests.exceptions import RequestException
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, post, ping
+from utils.request import RateLimiter, RateLimitExceeded, get, ping, post
 
 
 class Mediafusion:
