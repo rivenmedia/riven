@@ -357,17 +357,15 @@ def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
         logger.error(f"Error occurred while searching for file {filename} in {rclone_path}: {e}")
     return False
 
-@staticmethod
 def blacklist_item(item):
     """Blacklist the item and reset its attributes to be rescraped."""
-    infohash = Symlinker.get_infohash(item)
-    Symlinker.reset_item(item)
+    infohash = get_infohash(item)
+    reset_item(item)
     if infohash:
         hash_cache.blacklist(infohash)
     else:
         logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
 
-@staticmethod
 def reset_item(item):
     """Reset item attributes for rescraping."""
     item.set("file", None)
@@ -377,7 +375,6 @@ def reset_item(item):
     item.set("symlinked_times", 0)
     logger.debug(f"Item {item.log_string} reset for rescraping")
 
-@staticmethod
 def get_infohash(item):
     """Retrieve the infohash from the item or its parent."""
     infohash = item.active_stream.get("hash")
