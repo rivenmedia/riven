@@ -12,8 +12,6 @@
 	const version = data.settings.data.version;
 	const rclone_path = data.settings.data.symlink.rclone_path;
 	const library_path = data.settings.data.symlink.library_path;
-	const contributors = data.contributors;
-	const sponsors = data.sponsors;
 
 	interface AboutData {
 		[key: string]: any;
@@ -40,18 +38,16 @@
 
 	async function getLatestVersion() {
 		updateLoading = true;
-		const data = await fetch(
-			'https://raw.githubusercontent.com/dreulavelle/iceberg/main/backend/utils/default_settings.json'
-		);
+		const data = await fetch('https://raw.githubusercontent.com/dreulavelle/iceberg/main/VERSION');
 		if (data.status !== 200) {
 			toast.error('Failed to fetch latest version.');
 			updateLoading = false;
 			return;
 		}
-		const json = await data.json();
+		const remoteVersion = await data.text();
 		updateLoading = false;
 
-		if (json.version !== version) {
+		if (remoteVersion !== version) {
 			toast.warning('A new version is available! Checkout the changelog on GitHub.');
 		} else {
 			toast.success('You are running the latest version.');
@@ -64,13 +60,6 @@
 </svelte:head>
 
 <div class="flex flex-col">
-	<Alert.Root class="text-sm">
-		<Alert.Title>Heads up!</Alert.Title>
-		<Alert.Description class=""
-			>Iceberg is in rapid development. Expect bugs and breaking changes.</Alert.Description
-		>
-	</Alert.Root>
-
 	<h2 class="mt-2 text-xl font-semibold md:text-2xl">About</h2>
 	<p class="mb-2 text-sm md:text-base text-muted-foreground">Know what you're running.</p>
 	<div class="flex flex-col w-full gap-4">
@@ -136,37 +125,17 @@
 
 	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Contributors</h2>
 	<p class="mb-2 text-sm md:text-base text-muted-foreground">
-		Thanks to the following people for their contributions to Iceberg:
+		Thanks to the following people for their contributions to Iceberg
 	</p>
-	<div class="flex flex-wrap w-full gap-4">
-		{#each contributors as contributor}
-			<a href={contributor.profile} target="_blank" class="flex flex-col items-start gap-2 mb-2 md:flex-row md:items-center">
-				<img src={contributor.avatar} alt={contributor.name} class="w-12 h-12 rounded-full" />
-				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
-					{formatWords(contributor.name)}
-				</h3>
-			</a>
-		{/each}
-	</div>
 
-	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Sponsors</h2>
-	<p class="mb-2 text-sm md:text-base text-muted-foreground">
-		Thanks to the following people for sponsoring Iceberg:
-	</p>
-	<div class="flex flex-wrap w-full gap-4">
-		{#each sponsors as sponsor}
-			<a href={sponsor.profile} target="_blank" class="flex flex-col items-start gap-2 mb-2 md:flex-row md:items-center">
-				<img src={sponsor.avatar} alt={sponsor.name} class="w-12 h-12 rounded-full" />
-				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
-					{formatWords(sponsor.name)}
-				</h3>
-			</a>
-		{/each}
-		{#if sponsors.length === 0}
-			<p class="font-semibold text-muted-foreground">No sponsors yet.</p>
-			<p class="">Interested in sponsoring Iceberg? <a href="https://github.com/sponsors/dreulavelle" target="_blank" class="underline break-words"> Do it here!</a></p>
-		{:else}
-			<p class="text-muted-foreground">Interested in sponsoring Iceberg? <a href="https://github.com/sponsors/dreulavelle" target="_blank" class="underline break-words"> Do it here!</a></p>
-		{/if}
-	</div>
+	<a
+		href="https://github.com/dreulavelle/iceberg/graphs/contributors"
+		target="_blank"
+		rel="noopener noreferrer"
+		><img
+			alt="contributors"
+			src="https://contrib.rocks/image?repo=dreulavelle/iceberg"
+			class="mt-2 max-w-lg"
+		/></a
+	>
 </div>
