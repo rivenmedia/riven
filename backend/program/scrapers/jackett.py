@@ -57,7 +57,7 @@ class Jackett:
             self.api_key = self.settings.api_key
             try:
                 if len(self._get_indexers()) == 0:
-                    logger.exception("No Jackett indexers configured.")
+                    logger.error("No Jackett indexers configured.")
                     return False
 
                 return True
