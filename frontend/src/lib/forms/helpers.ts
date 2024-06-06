@@ -62,31 +62,16 @@ export async function loadSettings(fetch: any) {
 }
 
 // General Settings -----------------------------------------------------------------------------------
-export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'downloaders'];
-export const generalSettingsServices: string[] = ['symlink', 'downloaders'];
+export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
+export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
 
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
 	log: z.boolean().default(true),
 	rclone_path: z.string().min(1),
 	library_path: z.string().min(1),
-	realdebrid_enabled: z.boolean(),
-	realdebrid_api_key: z.string().optional().default(''),
-	torbox_enabled: z.boolean(),
-	torbox_api_key: z.string().optional().default('')
+	realdebrid_api_key: z.string().min(1)
 });
-
-// downloaders: z.object({
-// 	real_debrid: z.object({
-// 		enabled: z.boolean(),
-// 		api_key: z.string().min(1)
-// 	}),
-// 	torbox: z.object({
-// 		enabled: z.boolean(),
-// 		api_key: z.string().min(1)
-// 	})
-// })
-
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
 
 export function generalSettingsToPass(data: any) {	
@@ -95,10 +80,7 @@ export function generalSettingsToPass(data: any) {
 		log: data.data.log,
 		rclone_path: data.data.symlink.rclone_path,
 		library_path: data.data.symlink.library_path,
-		realdebrid_enabled: data.data.downloaders.real_debrid.enabled,
-		realdebrid_api_key: data.data.downloaders.real_debrid.api_key,
-		torbox_enabled: data.data.downloaders.torbox.enabled,
-		torbox_api_key: data.data.downloaders.torbox.api_key
+		realdebrid_api_key: data.data.real_debrid.api_key,
 	};
 }
 
@@ -120,16 +102,9 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 			}
 		},
 		{
-			key: 'downloaders',
+			key: 'real_debrid',
 			value: {
-				real_debrid: {
-					enabled: form.data.realdebrid_enabled,
-					api_key: form.data.realdebrid_api_key
-				},
-				torbox: {
-					enabled: form.data.torbox_enabled,
-					api_key: form.data.torbox_api_key
-				}
+				api_key: form.data.realdebrid_api_key
 			}
 		}
 	];
