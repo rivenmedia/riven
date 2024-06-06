@@ -6,14 +6,14 @@ import time
 import traceback
 
 import uvicorn
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.settings import router as settings_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from utils.logger import logger
 
 

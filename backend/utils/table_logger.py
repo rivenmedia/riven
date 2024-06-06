@@ -1,4 +1,5 @@
 from rich.table import Table
+
 from .logger import console
 
 
