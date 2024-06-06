@@ -12,8 +12,6 @@
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import FormTextField from './components/form-text-field.svelte';
 	import FormCheckboxField from './components/form-checkbox-field.svelte';
-	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
-	import type { FormGroupCheckboxFieldType } from '$lib/types';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -28,17 +26,6 @@
 	}
 
 	export let actionUrl: string = '?/default';
-
-	const downloadersEnabledFieldData: FormGroupCheckboxFieldType[] = [
-		{
-			field_name: 'realdebrid_enabled',
-			label_name: 'Real Debrid'
-		},
-		{
-			field_name: 'torbox_enabled',
-			label_name: 'Torbox'
-		},
-	];
 </script>
 
 <Form.Root
@@ -82,37 +69,14 @@
 			errors={$errors.library_path}
 		/>
 
-		<FormGroupCheckboxField
+		<FormTextField
 			{config}
-			fieldTitle="Downloaders Enabled"
-			fieldData={downloadersEnabledFieldData}
+			fieldName="realdebrid_api_key"
+			isProtected={true}
+			fieldValue={$form.realdebrid_api_key}
+			labelName="Real Debrid API Key"
+			errors={$errors.realdebrid_api_key}
 		/>
-
-		{#if $form.realdebrid_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="realdebrid_api_key"
-					isProtected={true}
-					fieldValue={$form.realdebrid_api_key}
-					labelName="Real Debrid API Key"
-					errors={$errors.realdebrid_api_key}
-				/>
-			</div>
-		{/if}
-
-		{#if $form.torbox_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="torbox_api_key"
-					isProtected={true}
-					fieldValue={$form.torbox_api_key}
-					labelName="Torbox API Key"
-					errors={$errors.torbox_api_key}
-				/>
-			</div>
-		{/if}
 
 		<Separator class=" mt-4" />
 		<div class="flex w-full justify-end">
