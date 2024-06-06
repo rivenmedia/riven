@@ -115,10 +115,14 @@ class Torrentio:
                 if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
                     continue
                 try:
-                    torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
+                    torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
                 except GarbageTorrent:
                     continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)
+            # For debug purposes:
+            # if scraped_torrents:
+            #     for _, torrent in scraped_torrents.items():
+            #         logger.debug(f"Parsed {torrent.data.parsed_title} with rank {torrent.rank} and ratio {torrent.lev_ratio}: {raw_title}")
             return scraped_torrents, len(response.data.streams)

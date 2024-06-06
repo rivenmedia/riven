@@ -2,8 +2,8 @@
 import os
 from typing import Dict, Generator, List, Union
 
-from plexapi.library import LibrarySection
 from plexapi.exceptions import BadRequest, Unauthorized
+from plexapi.library import LibrarySection
 from plexapi.server import PlexServer
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager

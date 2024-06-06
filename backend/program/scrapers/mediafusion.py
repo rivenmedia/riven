@@ -3,16 +3,16 @@ import json
 from typing import Dict, Generator
 
 import requests
-from program.settings.models import AppModel
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
+from program.settings.models import AppModel
 from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping, post
+from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
 class Mediafusion:

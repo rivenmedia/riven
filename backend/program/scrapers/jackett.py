@@ -35,15 +35,15 @@ class Jackett:
     def __init__(self, hash_cache):
         self.key = "jackett"
         self.api_key = None
+        self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
-        self.indexers = None
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         self.parse_logging = False
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
         logger.success("Jackett initialized!")
@@ -121,13 +121,14 @@ class Jackett:
         return self._process_results(item, results)
 
     def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
-        start_time = time.time()
         try:
+            start_time = time.time()
             result = self._search_indexer(item, indexer)
+            search_duration = time.time() - start_time
         except TypeError as e:
             logger.error(f"Invalid Type for {item.log_string}: {e}")
             result = []
-        search_duration = time.time() - start_time
+            search_duration = 0
         item_title = item.log_string # probably not needed, but since its concurrent, it's better to be safe
         logger.debug(f"Scraped {item_title} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
         results_queue.put(result)
@@ -258,9 +259,18 @@ class Jackett:
                 response = requests.get(url, params=params)
                 response.raise_for_status()
                 return self._parse_xml(response.text)
+            except requests.exceptions.HTTPError as http_err:
+                logger.error(f"HTTP error while fetching results from {indexer_title} ({search_type}): {http_err}")
+            except requests.exceptions.ConnectionError as conn_err:
+                logger.error(f"Connection error while fetching results from {indexer_title} ({search_type}): {conn_err}")
+            except requests.exceptions.Timeout as timeout_err:
+                logger.error(f"Timeout error while fetching results from {indexer_title} ({search_type}): {timeout_err}")
             except Exception as e:
-                logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
-                return []
+                if "Jackett.Common.IndexerException" in str(e):
+                    logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
+                else:
+                    logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
+            return []
 
     def _parse_xml(self, xml_content: str) -> list[tuple[str, str]]:
         """Parse the torrents from the XML content"""
