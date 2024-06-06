@@ -74,13 +74,13 @@ export const generalSettingsSchema = z.object({
 });
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
 
-export function generalSettingsToPass(data: any) {	
+export function generalSettingsToPass(data: any) {
 	return {
 		debug: data.data.debug,
 		log: data.data.log,
 		rclone_path: data.data.symlink.rclone_path,
 		library_path: data.data.symlink.library_path,
-		realdebrid_api_key: data.data.real_debrid.api_key,
+		realdebrid_api_key: data.data.real_debrid.api_key
 	};
 }
 

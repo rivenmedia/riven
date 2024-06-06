@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
