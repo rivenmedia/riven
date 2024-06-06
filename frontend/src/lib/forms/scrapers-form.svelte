@@ -35,6 +35,10 @@
 			label_name: 'Torrentio'
 		},
 		{
+			field_name: 'knightcrawler_enabled',
+			label_name: 'Knightcrawler'
+		},
+		{
 			field_name: 'annatar_enabled',
 			label_name: 'Annatar'
 		},
@@ -105,6 +109,26 @@
 					fieldName="torrentio_filter"
 					labelName="Torrentio Filter"
 					errors={$errors.torrentio_filter}
+				/>
+			</div>
+		{/if}
+
+		{#if $form.knightcrawler_enabled}
+			<div transition:slide>
+				<FormTextField
+					{config}
+					fieldName="knightcrawler_url"
+					labelName="Knightcrawler URL"
+					errors={$errors.knightcrawler_url}
+				/>
+			</div>
+
+			<div transition:slide>
+				<FormTextField
+					{config}
+					fieldName="knightcrawler_filter"
+					labelName="Knightcrawler Filter"
+					errors={$errors.knightcrawler_filter}
 				/>
 			</div>
 		{/if}

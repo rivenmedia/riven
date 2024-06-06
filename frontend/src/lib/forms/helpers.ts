@@ -62,25 +62,43 @@ export async function loadSettings(fetch: any) {
 }
 
 // General Settings -----------------------------------------------------------------------------------
-export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'real_debrid'];
-export const generalSettingsServices: string[] = ['symlink', 'real_debrid'];
+export const generalSettingsToGet: string[] = ['debug', 'log', 'symlink', 'downloaders'];
+export const generalSettingsServices: string[] = ['symlink', 'downloaders'];
 
 export const generalSettingsSchema = z.object({
 	debug: z.boolean().default(true),
 	log: z.boolean().default(true),
 	rclone_path: z.string().min(1),
 	library_path: z.string().min(1),
-	realdebrid_api_key: z.string().min(1)
+	realdebrid_enabled: z.boolean(),
+	realdebrid_api_key: z.string().optional().default(''),
+	torbox_enabled: z.boolean(),
+	torbox_api_key: z.string().optional().default('')
 });
+
+// downloaders: z.object({
+// 	real_debrid: z.object({
+// 		enabled: z.boolean(),
+// 		api_key: z.string().min(1)
+// 	}),
+// 	torbox: z.object({
+// 		enabled: z.boolean(),
+// 		api_key: z.string().min(1)
+// 	})
+// })
+
 export type GeneralSettingsSchema = typeof generalSettingsSchema;
 
-export function generalSettingsToPass(data: any) {
+export function generalSettingsToPass(data: any) {	
 	return {
 		debug: data.data.debug,
 		log: data.data.log,
 		rclone_path: data.data.symlink.rclone_path,
 		library_path: data.data.symlink.library_path,
-		realdebrid_api_key: data.data.real_debrid.api_key
+		realdebrid_enabled: data.data.downloaders.real_debrid.enabled,
+		realdebrid_api_key: data.data.downloaders.real_debrid.api_key,
+		torbox_enabled: data.data.downloaders.torbox.enabled,
+		torbox_api_key: data.data.downloaders.torbox.api_key
 	};
 }
 
@@ -102,9 +120,16 @@ export function generalSettingsToSet(form: SuperValidated<GeneralSettingsSchema>
 			}
 		},
 		{
-			key: 'real_debrid',
+			key: 'downloaders',
 			value: {
-				api_key: form.data.realdebrid_api_key
+				real_debrid: {
+					enabled: form.data.realdebrid_enabled,
+					api_key: form.data.realdebrid_api_key
+				},
+				torbox: {
+					enabled: form.data.torbox_enabled,
+					api_key: form.data.torbox_api_key
+				}
 			}
 		}
 	];
@@ -227,11 +252,17 @@ export const scrapersSettingsSchema = z.object({
 	after_5: z.number().nonnegative().default(2),
 	after_10: z.number().nonnegative().default(24),
 	torrentio_enabled: z.boolean().default(false),
+	knightcrawler_enabled: z.boolean().default(false),
 	annatar_enabled: z.boolean().default(false),
 	orionoid_enabled: z.boolean().default(false),
 	jackett_enabled: z.boolean().default(false),
 	torrentio_url: z.string().optional().default('https://torrentio.strem.fun'),
 	torrentio_filter: z
+		.string()
+		.optional()
+		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
+	knightcrawler_url: z.string().optional().default('https://knightcrawler.elfhosted.com/'),
+	knightcrawler_filter: z
 		.string()
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
@@ -249,11 +280,14 @@ export function scrapersSettingsToPass(data: any) {
 		after_10: data.data.scraping.after_10,
 		torrentio_url: data.data.scraping.torrentio?.url || 'https://torrentio.strem.fun',
 		torrentio_enabled: data.data.scraping.torrentio.enabled,
+		knightcrawler_url: data.data.scraping.knightcrawler?.url || 'https://knightcrawler.elfhosted.com/',
+		knightcrawler_enabled: data.data.scraping.knightcrawler.enabled,
 		annatar_url: data.data.scraping.annatar?.url || 'https://annatar.elfhosted.com',
 		annatar_enabled: data.data.scraping.annatar.enabled,
 		orionoid_enabled: data.data.scraping.orionoid.enabled,
 		jackett_enabled: data.data.scraping.jackett.enabled,
 		torrentio_filter: data.data.scraping.torrentio?.filter || '',
+		knightcrawler_filter: data.data.scraping.knightcrawler?.filter || '',
 		orionoid_api_key: data.data.scraping.orionoid?.api_key || '',
 		jackett_url: data.data.scraping.jackett?.url || '',
 		jackett_api_key: data.data.scraping.jackett?.api_key || ''
@@ -272,6 +306,11 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 					enabled: form.data.torrentio_enabled,
 					url: form.data.torrentio_url,
 					filter: form.data.torrentio_filter
+				},
+				knightcrawler: {
+					enabled: form.data.knightcrawler_enabled,
+					url: form.data.knightcrawler_url,
+					filter: form.data.knightcrawler_filter
 				},
 				annatar: {
 					enabled: form.data.annatar_enabled,

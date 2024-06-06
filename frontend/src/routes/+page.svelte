@@ -7,9 +7,9 @@
 
 	export let data: PageData;
 
-	const MandatoryServices = ['plexlibrary', 'scraping', 'realdebrid', 'symlinklibrary'];
-	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist'];
-	const ScrapingServices = ['torrentio', 'annatar', 'jackett', 'orionoid'];
+	const MandatoryServices = ['plexlibrary', 'scraping', 'realdebrid', 'torbox', 'symlinklibrary'];
+	const ContentServices = ['overseerr', 'plex_watchlist', 'mdblist', 'listrr', 'trakt'];
+	const ScrapingServices = ['torrentio', 'knightcrawler', 'jackett', 'prowlarr', 'orionoid', 'annatar', 'torbox_scraper'];
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
 		let sortedData = {} as Record<string, boolean>;
