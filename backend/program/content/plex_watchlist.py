@@ -48,12 +48,14 @@ class PlexWatchlist:
 
     def run(self):
         """Fetch new media from `Plex Watchlist`"""
-        if not self.rss_enabled:
-            yield from self._get_items_from_watchlist()
-        else:
-            watchlist_items = set(self._get_items_from_watchlist())
+
+        watchlist_items = set(self._get_items_from_watchlist())
+        rss_items = set()
+
+        if self.rss_enabled:
             rss_items = set(self._get_items_from_rss())
-            yield from (
+
+        yield from (
                 MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
                 for imdb_id in watchlist_items.union(rss_items)
             )
