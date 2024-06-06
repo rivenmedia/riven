@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import threading
-from typing import Dict, Generator, Optional
+from typing import Dict, Generator, List, Optional
 
 import dill
 from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
@@ -87,17 +87,21 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def get_item_by_imdb_id(self, imdb_id: str) -> Optional[MediaItem]:
+    def get_episodes(self, show_id: ItemId) -> List[MediaItem]:
+        """Get all episodes for a show."""
         self.lock.acquire_read()
         try:
-            return self._imdb_index.get(imdb_id)
+            return self._shows[show_id].episodes
         finally:
             self.lock.release_read()
 
-    def get_item_by_id(self, item_id: ItemId) -> Optional[MediaItem]:
-        """Retrieve an item by its ID from the container."""
+    def get_item(self, identifier: str) -> Optional[MediaItem]:
+        """Retrieve an item by its IMDb ID or item ID from the container."""
         self.lock.acquire_read()
         try:
+            if identifier.startswith("tt"):
+                return self._imdb_index.get(identifier)
+            item_id = ItemId(identifier)
             return self._items.get(item_id)
         finally:
             self.lock.release_read()
@@ -164,14 +168,14 @@ class MediaItemContainer:
                 episode.parent = item
                 self._items[episode.item_id] = episode
                 self._episodes[episode.item_id] = episode
-            if item.item_id.parent_id in self._shows:
-                show = self._shows[item.item_id.parent_id]
-                show.seasons.append(item)
+            parent_show = self._shows.get(item.item_id.parent_id)
+            if parent_show:
+                parent_show.seasons.append(item)
         elif isinstance(item, Episode):
             self._episodes[item.item_id] = item
-            if item.item_id.parent_id in self._seasons:
-                season = self._seasons[item.item_id.parent_id]
-                season.episodes.append(item)
+            parent_season = self._seasons.get(item.item_id.parent_id)
+            if parent_season:
+                parent_season.episodes.append(item)
         elif isinstance(item, Movie):
             self._movies[item.item_id] = item
 
@@ -179,26 +183,27 @@ class MediaItemContainer:
         self.lock.acquire_write()
         try:
             if item.item_id in self._items:
-                del self._items[item.item_id]
-                if item.imdb_id in self._imdb_index:
-                    del self._imdb_index[item.imdb_id]
                 if isinstance(item, Show):
-                    del self._shows[item.item_id]
                     for season in item.seasons:
-                        del self._items[season.item_id]
-                        del self._seasons[season.item_id]
                         for episode in season.episodes:
                             del self._items[episode.item_id]
                             del self._episodes[episode.item_id]
+                        del self._items[season.item_id]
+                        del self._seasons[season.item_id]
+                    del self._shows[item.item_id]
                 elif isinstance(item, Season):
-                    del self._seasons[item.item_id]
                     for episode in item.episodes:
                         del self._items[episode.item_id]
                         del self._episodes[episode.item_id]
+                    del self._seasons[item.item_id]
                 elif isinstance(item, Episode):
                     del self._episodes[item.item_id]
                 elif isinstance(item, Movie):
                     del self._movies[item.item_id]
+                
+                del self._items[item.item_id]
+                if item.imdb_id in self._imdb_index:
+                    del self._imdb_index[item.imdb_id]
         finally:
             self.lock.release_write()
 

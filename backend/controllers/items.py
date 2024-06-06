@@ -28,7 +28,7 @@ async def get_items(request: Request):
 
 @router.get("/extended/{item_id}")
 async def get_extended_item_info(request: Request, item_id: str):
-    item = request.app.program.media_items.get_item_by_id(item_id)
+    item = request.app.program.media_items.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return {
@@ -38,7 +38,7 @@ async def get_extended_item_info(request: Request, item_id: str):
 
 @router.delete("/remove/id/{item_id}")
 async def remove_item(request: Request, item_id: str):
-    item = request.app.program.media_items.get_item_by_id(item_id)
+    item = request.app.program.media_items.get_item(item_id)
     if not item:
         logger.error(f"Item with ID {item_id} not found")
         raise HTTPException(status_code=404, detail="Item not found")
@@ -68,7 +68,7 @@ async def remove_item(request: Request, item_id: str):
 
 @router.delete("/remove/imdb/{imdb_id}")
 async def remove_item_by_imdb(request: Request, imdb_id: str):
-    item = request.app.program.media_items.get_item_by_imdb_id(imdb_id)
+    item = request.app.program.media_items.get_item(imdb_id)
     if not item:
         logger.error(f"Item with IMDb ID {imdb_id} not found")
         raise HTTPException(status_code=404, detail="Item not found")
@@ -98,7 +98,8 @@ async def remove_item_by_imdb(request: Request, imdb_id: str):
 
 @router.get("/imdb/{imdb_id}")
 async def get_imdb_info(request: Request, imdb_id: str):
-    item = request.app.program.media_items.get_item_by_imdb_id(imdb_id)
+    item = request.app.program.media_items.get_item(imdb_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
+    logger.debug(f"Item with IMDb ID {imdb_id} found: {item}")
     return {"success": True, "item": item.to_extended_dict()}

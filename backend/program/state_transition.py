@@ -1,5 +1,3 @@
-import asyncio
-
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.content.trakt import TraktContent
 from program.downloaders.realdebrid import Debrid
@@ -43,39 +41,45 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.should_submit(item):
-            if isinstance(item, Movie) and item.is_released:
+            if isinstance(item, Movie):
                 items_to_submit = [item]
-            elif isinstance(item, Show) and item.is_released:
+            elif isinstance(item, Show):
                 items_to_submit = [
                     s for s in item.seasons 
-                    if s.state not in (States.Completed, States.Downloaded, States.Scraped) and s.scraped_times < 3
+                    if s.state == States.Indexed 
+                    and s.scraped_times < 3
+                    and Scraping.should_submit(s)
                 ]
             elif isinstance(item, Season):
-                if item.scraped_times >= 4:
-                    if item.is_released:
-                        items_to_submit = [
-                            e for e in item.episodes 
-                            if e.state not in (States.Completed, States.Downloaded, States.Scraped)
-                        ]
+                if item.scraped_times >= 4 and item.is_released:
+                    items_to_submit = [
+                        e for e in item.episodes 
+                        if e.state == States.Indexed
+                        and Scraping.should_submit(e)
+                    ]
                 else:
                     items_to_submit = [item]
             else:
                 items_to_submit = [item]
         else:
+            next_service = None
             items_to_submit = []
 
     elif item.state == States.PartiallyCompleted:
-        next_service = Scraping
         if isinstance(item, Show):
             items_to_submit = [
                 s for s in item.seasons 
-                if s.state not in (States.Completed, States.PartiallyCompleted) and s.is_released and Scraping.should_submit(s)
+                if s.state == States.PartiallyCompleted and Scraping.should_submit(s)
             ]
+            if items_to_submit:
+                next_service = Scraping
         elif isinstance(item, Season):
             items_to_submit = [
                 e for e in item.episodes 
-                if e.state not in (States.Completed, States.PartiallyCompleted) and e.is_released and Scraping.should_submit(e)
+                if e.state == States.Indexed and Scraping.should_submit(e)
             ]
+            if items_to_submit:
+                next_service = Scraping
 
     elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader
@@ -92,6 +96,8 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         for item in proposed_submissions:
             if Symlinker.should_submit(item):
                 items_to_submit.append(item)
+            else:
+                logger.debug(f"{item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
