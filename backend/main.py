@@ -69,8 +69,7 @@ with server.run_in_thread():
     except AttributeError as e:
         logger.error(f"Program failed to initialize: {e}")
     except KeyboardInterrupt:
-        app.program.stop()
-        sys.exit(0)
+        pass
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
     finally:

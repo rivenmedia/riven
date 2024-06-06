@@ -1,11 +1,10 @@
+import asyncio
 import contextlib
 import os
+import time
 from datetime import datetime
 from pathlib import Path
-import time
 from typing import Union
-from concurrent.futures import ThreadPoolExecutor
-import threading
 
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -15,7 +14,6 @@ from watchdog.observers import Observer
 
 from .cache import hash_cache
 
-symlink_pool = ThreadPoolExecutor(max_workers=10)
 
 class DeleteHandler(FileSystemEventHandler):
     """Handles the deletion of symlinks."""
@@ -111,7 +109,10 @@ class Symlinker:
             if self._symlink(item):
                 item.set("symlinked", True)
                 item.set("symlinked_at", datetime.now())
-                logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
+                if isinstance(item, Episode) and all(ep.symlinked for ep in item.parent.episodes):
+                    logger.log("SYMLINKER", f"Symlink created for entire season {item.parent.log_string}")
+                else:
+                    logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
             else:
                 logger.error(f"Failed to create symlink for {item.log_string}")
         except Exception as e:
@@ -126,27 +127,29 @@ class Symlinker:
         if isinstance(item, Show):
             return False
 
-        logger.debug(f"Checking if {item.log_string} should be submitted for symlink")
-
-        if isinstance(item, Season):
-            # Skip episodes that aren't set
-            if not any(ep.file and ep.folder for ep in item.episodes):
-                logger.debug(f"Skipping season {item.log_string} as no episodes have file and folder set")
-                return False
-        
         if isinstance(item, (Movie, Episode)):
+            logger.debug(f"Checking if {item.log_string} should be submitted for symlink")
             if not item.file or not item.folder or item.file == "None.mkv":
                 logger.error(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                Symlinker.blacklist_item(item)
+                blacklist_item(item)
+                return False
+
+        elif isinstance(item, Season):
+            all_episodes = all(ep.file and ep.folder for ep in item.episodes)
+            if all_episodes:
+                logger.debug(f"Checking if {item.log_string} should be submitted for symlink")
+            else:
+                logger.debug(f"Skipping season {item.log_string} as not all episodes have file and folder set")
                 return False
 
         if item.symlinked_times < 3:
             if quick_file_check(item):
-                logger.log("SYMLINKER", f"File found for {item.log_string} after waiting, resubmitting")
+                logger.log("SYMLINKER", f"File found for {item.log_string}, creating symlink")
                 return True
             else:
-                logger.debug(f"File not found for {item.log_string}, will retry")
-                symlink_pool.submit(_wait_for_file, item, Symlinker)
+                logger.debug(f"File not found for {item.log_string} at the moment, waiting for it to become available")
+                if wait_for_file(item):
+                    return True
                 return False
 
         item.set("symlinked_times", item.symlinked_times + 1)
@@ -158,7 +161,8 @@ class Symlinker:
                 return True
             else:
                 logger.log("SYMLINKER", f"File not found for {item.log_string} after 3 attempts, blacklisting")
-                Symlinker.blacklist_item(item)
+                blacklist_item(item)
+                return False
 
         logger.debug(f"Item {item.log_string} not submitted for symlink, file not found yet")
         return False
@@ -288,17 +292,27 @@ class Symlinker:
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}" 
         return filename
 
+def wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
+    """Wrapper function to run the asynchronous wait_for_file function."""
+    return asyncio.run(async_wait_for_file(item, timeout))
 
-def _wait_for_file(item: Union[Movie, Episode], symlinker: Symlinker, timeout: int = 60) -> bool:
-    """Wait for the file to become available within the given timeout."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
+async def async_wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
+    """Asynchronously wait for the file to become available within the given timeout."""
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
+        # keep trying to find the file until timeout duration is hit
         if quick_file_check(item):
-            symlinker.run(item)
+            logger.log("SYMLINKER", f"File found for {item.log_string}")
             return True
-        time.sleep(5)
+        await asyncio.sleep(5)
+        # If 30 seconds have passed, try searching for the file
+        if time.monotonic() - start_time >= 30:
+            rclone_path = Path(settings_manager.settings.symlink.rclone_path)
+            if search_file(rclone_path, item):
+                logger.log("SYMLINKER", f"File found for {item.log_string} after searching")
+                return True
     logger.log("SYMLINKER", f"File not found for {item.log_string} after waiting for {timeout} seconds, blacklisting")
-    Symlinker.blacklist_item(item)
+    blacklist_item(item)
     return False
 
 def quick_file_check(item: Union[Movie, Episode]) -> bool:
@@ -345,7 +359,7 @@ def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
 
 @staticmethod
 def blacklist_item(item):
-    """Blacklist the item and reset its attributes."""
+    """Blacklist the item and reset its attributes to be rescraped."""
     infohash = Symlinker.get_infohash(item)
     Symlinker.reset_item(item)
     if infohash:

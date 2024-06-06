@@ -87,7 +87,7 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def get_imdbid(self, imdb_id: str) -> Optional[MediaItem]:
+    def get_item_by_imdb_id(self, imdb_id: str) -> Optional[MediaItem]:
         self.lock.acquire_read()
         try:
             return self._imdb_index.get(imdb_id)
@@ -233,7 +233,6 @@ class MediaItemContainer:
             if os.path.exists(filename):
                 shutil.copyfile(filename, backup_filename)
             shutil.move(temp_file.name, filename)
-            # logger.success("Successfully saved %d items.", len(self._items))
         except Exception as e:
             logger.error(f"Failed to replace old file with new file: {e}")
             try:
