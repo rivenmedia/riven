@@ -16,7 +16,7 @@
 		'torbox_downloader'
 	];
 	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist', 'listrr', 'trakt'];
-	const ScrapingServices = ['torrentio', 'annatar', 'jackett', 'orionoid'];
+	const ScrapingServices = ['torrentio', 'knightcrawler', 'annatar', 'jackett', 'orionoid', 'mediafusion', 'torbox'];
 
 	function sortServices(services: string[], data: Record<string, boolean>) {
 		let sortedData = {} as Record<string, boolean>;
@@ -56,10 +56,10 @@
 	{:then services}
 		<h2 class="text-lg font-semibold md:text-xl">Core services</h2>
 		<ServiceStatus statusData={sortServices(CoreServices, services.data)} />
-		<br />
+		<div class="my-2"></div>
 		<h2 class="text-lg font-semibold md:text-xl">Content services</h2>
 		<ServiceStatus statusData={sortServices(ContentServices, services.data)} />
-		<br />
+		<div class="my-2"></div>
 		<h2 class="text-lg font-semibold md:text-xl">Scraping services</h2>
 		<ServiceStatus statusData={sortServices(ScrapingServices, services.data)} />
 	{:catch}

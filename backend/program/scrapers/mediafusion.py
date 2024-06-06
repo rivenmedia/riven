@@ -73,6 +73,9 @@ class Mediafusion:
         if not self.settings.url:
             logger.error("Mediafusion URL is not configured and will not be used.")
             return False
+        if len(self.settings.catalogs) == 0:
+            logger.error("Configure at least one Mediafusion catalog.")
+            return False
         try:
             url = f"{self.settings.url}/manifest.json"
             response = ping(url=url, timeout=10)
