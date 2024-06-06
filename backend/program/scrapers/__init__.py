@@ -31,9 +31,6 @@ class Scraping:
         return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem):
-        if not self.can_we_scrape(item):
-            return
-
         for service_name, service in self.services.items():
             if service.initialized:
                 try:
@@ -55,7 +52,7 @@ class Scraping:
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
-        scrape_time = 5  # 5 seconds by default
+        scrape_time = 5 * 60  # 5 minutes by default
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = settings.after_2 * 60 * 60

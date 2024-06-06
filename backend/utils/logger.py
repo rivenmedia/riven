@@ -1,5 +1,6 @@
 """Logging utils"""
 
+import logging
 import os
 import sys
 from datetime import datetime
@@ -7,43 +8,7 @@ from datetime import datetime
 from loguru import logger
 from program.settings.manager import settings_manager
 from rich.console import Console
-from rich.table import Table
 from utils import data_dir_path
-
-
-class FileLogger:
-    """A logger for rich tables."""
-
-    def __init__(self, title, show_header=False, header_style=None):
-        self.title = title
-        self.show_header = show_header
-        self.header_style = header_style
-        self.create_new_table()
-
-    def create_new_table(self):
-        """Create a new table with the initial configuration."""
-        self.table = Table(title=self.title, header_style=self.header_style or "bold white", row_styles=["bold green", "bold white", "bold green"])
-
-    def add_column(self, column_name, style="bold green"):
-        """Add a column to the table."""
-        self.table.add_column(column_name, style=style)
-    
-    def add_row(self, *args):
-        """Add a row to the table."""
-        self.table.add_row(*args)
-    
-    def log_table(self):
-        """Log the table to the console."""
-        console.print(self.table)
-        self.clear_table()
-
-    def clear_table(self):
-        """Clear the table by reinitializing it."""
-        self.create_new_table()
-
-    def progress_bar(self, *args):
-        """Add a progress bar to the table."""
-        self.table.add_row(*args)
 
 
 def setup_logger(level):
@@ -64,7 +29,10 @@ def setup_logger(level):
     logger.level("NEW", no=44, color="<fg #e63946>", icon="✨")
     logger.level("FILES", no=45, color="<light-yellow>", icon="🗃️ ")
     logger.level("ITEM", no=46, color="<fg #92a1cf>", icon="🗃️ ")
-    
+
+    # API Logging
+    logger.level("API", no=47, color="<fg #006989>", icon="👾")
+
     # Extras
     logger.level("PLEX", no=47, color="<fg #DAD3BE>", icon="📽️ ")
     logger.level("TRAKT", no=48, color="<fg #1DB954>", icon="🎵")
@@ -101,14 +69,8 @@ def setup_logger(level):
             "backtrace": False, 
             "diagnose": True,
             "enqueue": True,
-        },
+        }
     ])
-
-console = Console()
-table = FileLogger("Downloaded Files")
-
-log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
-setup_logger(log_level)
 
 
 def scrub_logs():
@@ -123,3 +85,7 @@ def scrub_logs():
     except Exception as e:
         logger.log("ERROR", f"Failed to clean old logs: {e}")
 
+
+console = Console()
+log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
+setup_logger(log_level)

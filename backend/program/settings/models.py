@@ -42,8 +42,8 @@ class DownloadersModel(Observable):
 
 
 class SymlinkModel(Observable):
-    rclone_path: Path = Path("/mnt/zurg/__all__")
-    library_path: Path = Path("/mnt/library")
+    rclone_path: Path = Path()
+    library_path: Path = Path()
 
 
 # Content Services

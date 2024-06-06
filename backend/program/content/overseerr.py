@@ -1,14 +1,14 @@
 """Overseerr content module"""
 
 from typing import Union
+
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from requests.exceptions import ConnectionError, RetryError
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 from utils.logger import logger
 from utils.request import delete, get, ping, post
-from requests.exceptions import RetryError, ConnectionError
-from urllib3.exceptions import MaxRetryError
-from urllib3.exceptions import NewConnectionError
 
 
 class Overseerr:
@@ -141,7 +141,7 @@ class Overseerr:
                 settings.url + f"/api/v1/request/{mediaId}",
                 additional_headers=headers,
             )
-            logger.info(f"Deleted request {mediaId} from overseerr")
+            logger.success(f"Deleted request {mediaId} from overseerr")
             return response.is_ok
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")

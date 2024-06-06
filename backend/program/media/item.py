@@ -73,22 +73,14 @@ class MediaItem:
         """Check if an item has been released."""
         if not self.aired_at:
             return False
-        elif self.aired_at > datetime.now():
-            time_until_release = self.aired_at - datetime.now()
-            months_until_release = time_until_release.days // 30
-            days_until_release = time_until_release.days % 30
-            hours_until_release = time_until_release.seconds // 3600
-            minutes_until_release = (time_until_release.seconds % 3600) // 60
-
-            time_message = f"{self.log_string} will be released in"
-            if months_until_release > 0:
-                time_message += f" {months_until_release} months"
-            if days_until_release > 0:
-                time_message += f" {days_until_release} days"
-            if hours_until_release > 0:
-                time_message += f" {hours_until_release} hours"
-            if minutes_until_release > 0:
-                time_message += f" {minutes_until_release} minutes"
+        now = datetime.now()
+        if self.aired_at > now:
+            time_until_release = self.aired_at - now
+            days, seconds = time_until_release.days, time_until_release.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+            time_message = f"{self.log_string} will be released in {days} days, {hours:02}:{minutes:02}:{seconds:02}"
             logger.log("ITEM", time_message)
             return False
         return True
@@ -331,7 +323,6 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
-            # TODO: Cleanup how many times state is accessed
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
             if any(episode.state == States.Completed for episode in self.episodes):

@@ -12,7 +12,25 @@ from controllers.settings import router as settings_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from utils.logger import logger
+
+
+class LoguruMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            logger.exception(f"Exception during request processing: {e}")
+            raise
+        finally:
+            process_time = time.time() - start_time
+            logger.log(
+                "API", f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s"
+            )
+        return response
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -33,6 +51,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add the custom Loguru middleware
+app.add_middleware(LoguruMiddleware)
 
 app.include_router(default_router)
 app.include_router(settings_router)
@@ -61,20 +82,17 @@ class Server(uvicorn.Server):
 config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
 server = Server(config=config)
 
-
 with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-        app.program.stop()
     except AttributeError as e:
         logger.error(f"Program failed to initialize: {e}")
     except KeyboardInterrupt:
-        app.program.stop()
-        sys.exit(0)
+        pass
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
     finally:
+        app.program.stop()
         logger.critical("Server has been stopped")
-        # need to terminate to give back control of terminal to user
         sys.exit(0)

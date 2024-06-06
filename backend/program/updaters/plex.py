@@ -4,7 +4,7 @@ from typing import Generator, Union
 
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.server import PlexServer
-from program.media.item import Episode, Movie
+from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
@@ -51,38 +51,74 @@ class PlexUpdater:
         except BadRequest:
             logger.error("Plex is not configured correctly!")
         except MaxRetryError:
-            logger.error("Plex max retries exceeded!")
+            logger.error("Plex max retries exceeded")
         except NewConnectionError:
-            logger.error("Plex new connection error!")
+            logger.error("Plex new connection error")
         except RequestsConnectionError:
-            logger.error("Plex requests connection error!")
-        except RequestError:
-            logger.error("Plex request error!")
+            logger.error("Plex requests connection error")
+        except RequestError as e:
+            logger.error(f"Plex request error: {e}")
         except Exception as e:
             logger.exception(f"Plex exception thrown: {e}")
         return False
 
-    def run(self, item: Union[Movie, Episode]) -> Generator[Union[Movie, Episode], None, None]:
-        """Update Plex library section for a single item"""
-        if not item or not item.update_folder:
-            logger.error(f"Item {item.log_string} is missing update folder: {item.update_folder}")
+    def run(self, item: Union[Movie, Episode, Season]) -> Generator[Union[Movie, Episode, Season], None, None]:
+        """Update Plex library section for a single item or a season with its episodes"""
+        if not item:
+            logger.error(f"Item type not supported, skipping {item}")
             yield item
-        item_type = "show" if isinstance(item, Episode) else "movie"
+            return
+
+        if isinstance(item, Show):
+            logger.error(f"Plex Updater does not support shows, skipping {item}")
+            yield item
+            return
+
+        item_type = "show" if isinstance(item, (Episode, Season)) else "movie"
+        updated = False
+        updated_episodes = []
+
+        if isinstance(item, Season):
+            items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
+        else:
+            items_to_update = [item]
+
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
-                    if path in item.update_folder and self._update_section(section, item):
-                        logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
+                    if isinstance(item, Season):
+                        for episode in items_to_update:
+                            if path in episode.update_folder:
+                                if self._update_section(section, episode):
+                                    updated_episodes.append(episode)
+                                    episode.set("update_folder", "updated")  # Mark the episode as updated
+                                    updated = True
+                    elif isinstance(item, (Movie, Episode)):
+                        if path in item.update_folder:
+                            if self._update_section(section, item):
+                                updated = True
+
+        if updated:
+            if isinstance(item, Season):
+                if len(updated_episodes) == len(items_to_update):
+                    logger.log("PLEX", f"Updated section {section.title} with all episodes for {item.log_string}")
+                else:
+                    updated_episodes_log = ', '.join([str(ep.number) for ep in updated_episodes])
+                    logger.log("PLEX", f"Updated section {section.title} for episodes {updated_episodes_log} in {item.log_string}")
+            else:
+                logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
+        else:
+            logger.error(f"Failed to update section {section.title} for {item.log_string}")
+
         yield item
 
-    def _update_section(self, section, item) :
+    def _update_section(self, section, item: Union[Movie, Episode]) -> bool:
         """Update the Plex section for the given item"""
         if item.symlinked and item.get("update_folder") != "updated":
             update_folder = item.update_folder
             section.update(str(update_folder))
             item.set("update_folder", "updated")
             return True
-        logger.error(f"Failed to update section {section.title} for {item.log_string}")
         return False
 
     def map_sections_with_paths(self):

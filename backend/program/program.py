@@ -5,6 +5,7 @@ import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty, Queue
+from typing import Union
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -13,7 +14,7 @@ from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media.container import MediaItemContainer
-from program.media.item import MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -243,10 +244,12 @@ class Program(threading.Thread):
 
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
-        if item is not None and item not in self.media_items:
+        if item is not None:
             self.event_queue.put(Event(emitted_by=self.__class__, item=item))
             logger.log("PROGRAM", f"Added {item.log_string} to the queue")
             return True
+        else:
+            logger.error("Attempted to add a None item to the queue")
         return False
 
     def clear_queue(self):

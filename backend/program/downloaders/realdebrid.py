@@ -63,9 +63,6 @@ class Debrid:
             return
         if not self._is_downloaded(item):
             self._download_item(item)
-        # self.set_file_paths(item)
-        # Lets handle all the logging in one place
-        # for completed downloads
         self.log_item(item)
         yield item
 
@@ -74,19 +71,33 @@ class Debrid:
         """Log only the files downloaded for the item based on its type."""
         if isinstance(item, Movie):
             if item.file and item.folder:
-                logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
+                logger.log("DEBRID", f"Downloaded {item.log_string} with file: {item.file}")
+            else:
+                logger.debug(f"Movie item missing file or folder: {item.log_string}")
         elif isinstance(item, Episode):
             if item.file and item.folder:
-                logger.log("DEBRID", f"Downloaded: {item.log_string} with file: {item.file}")
+                logger.log("DEBRID", f"Downloaded {item.log_string} with file: {item.file}")
+            else:
+                logger.debug(f"Episode item missing file or folder: {item.log_string}")
         elif isinstance(item, Season):
             for episode in item.episodes:
                 if episode.file and episode.folder:
-                    logger.log("DEBRID", f"Downloaded: {episode.log_string} with file: {episode.file}")
+                    logger.log("DEBRID", f"Downloaded {episode.log_string} with file: {episode.file}")
+                elif not episode.file:
+                    logger.debug(f"Episode item missing file: {episode.log_string}")
+                elif not episode.folder:
+                    logger.debug(f"Episode item missing folder: {episode.log_string}")
         elif isinstance(item, Show):
             for season in item.seasons:
                 for episode in season.episodes:
                     if episode.file and episode.folder:
-                        logger.log("DEBRID", f"Downloaded: {episode.log_string} with file: {episode.file}")
+                        logger.log("DEBRID", f"Downloaded {episode.log_string} with file: {episode.file}")
+                    elif not episode.file:
+                        logger.debug(f"Episode item missing file or folder: {episode.log_string}")
+                    elif not episode.folder:
+                        logger.debug(f"Episode item missing folder: {episode.log_string}")
+        else:
+            logger.debug(f"Unknown item type: {item.log_string}")
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
@@ -116,7 +127,7 @@ class Debrid:
                 logger.exception("Error checking cache for streams")
 
         item.set("streams", {})
-        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string}")
+        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
         return False
 
     def _evaluate_stream_response(self, data, processed_stream_hashes, item):
@@ -174,10 +185,6 @@ class Debrid:
             (file for file in container.values() if file and file["filesize"] > 2e+8 and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
             key=lambda file: file["filesize"], reverse=True
         )
-
-        # lets create a regex pattern to remove deleted scenes and samples and trailers from the filenames list
-        # unwanted_regex = regex.compile(r"\b(?:deleted.scene|sample|trailer|featurette)\b", regex.IGNORECASE)
-        # filenames = [file for file in filenames if not unwanted_regex.search(file["filename"])]
 
         if not filenames:
             return False
@@ -300,50 +307,79 @@ class Debrid:
             logger.log("DEBRID", f"Item already downloaded for hash: {hash_key}")
             return True
 
+        logger.debug(f"Checking if torrent is already downloaded for item: {item.log_string}")
         torrents = self.get_torrents(1000)
-        sorted_torrents = sorted(torrents.items(), key=lambda x: x[0])
+        torrent = torrents.get(hash_key)
 
-        # Binary search for the hash_key in sorted list of torrents
-        left, right = 0, len(sorted_torrents) - 1
-        while left <= right:
-            mid = (left + right) // 2
-            if sorted_torrents[mid][0] < hash_key:
-                left = mid + 1
-            elif sorted_torrents[mid][0] > hash_key:
-                right = mid - 1
-            else:
-                torrent = sorted_torrents[mid][1]
-                if torrent.hash == hash_key:
-                    if item.active_stream.get("id", None):
-                        return True
-                    info = self.get_torrent_info(torrent.id)
-                    if _matches_item(info, item):
-                        self.hash_cache.mark_downloaded(torrent.hash)
-                        # Cache this as downloaded
-                        item.set("active_stream.id", torrent.id)
-                        self.set_active_files(item)
-                        return True
-                    else:
-                        self.hash_cache.blacklist(torrent.hash)
-        return False
+        if not torrent:
+            logger.debug(f"No matching torrent found for hash: {hash_key}")
+            return False
+
+        if item.active_stream.get("id", None):
+            logger.debug(f"Item already has an active stream ID: {item.active_stream.get('id')}")
+            return True
+
+        info = self.get_torrent_info(torrent.id)
+        if not info:
+            logger.debug(f"Failed to get torrent info for ID: {torrent.id}")
+            self.hash_cache.blacklist(torrent.hash)
+            return False
+
+        if not _matches_item(info, item):
+            self.hash_cache.blacklist(torrent.hash)
+            return False
+
+        # Cache this as downloaded
+        logger.debug(f"Marking torrent as downloaded for hash: {torrent.hash}")
+        self.hash_cache.mark_downloaded(torrent.hash)
+        item.set("active_stream.id", torrent.id)
+        self.set_active_files(item)
+        logger.debug(f"Set active files for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
+        return True
 
     def _download_item(self, item: MediaItem):
         """Download item from real-debrid.com"""
+        logger.debug(f"Starting download for item: {item.log_string}")
         request_id = self.add_magnet(item) # uses item.active_stream.hash
+        logger.debug(f"Magnet added to Real-Debrid, request ID: {request_id} for {item.log_string}")
         item.set("active_stream.id", request_id)
         self.set_active_files(item)
+        logger.debug(f"Active files set for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
         time.sleep(0.5)
         self.select_files(request_id, item)
+        logger.debug(f"Files selected for request ID: {request_id} for {item.log_string}")
         self.hash_cache.mark_downloaded(item.active_stream["hash"])
+        logger.debug(f"Item marked as downloaded: {item.log_string}")
 
     def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
-        info = self.get_torrent_info(item.get("active_stream")["id"])
-        item.active_stream["alternative_name"] = info.original_filename
-        item.active_stream["name"] = info.filename
+        active_stream = item.get("active_stream")
+        if not active_stream or "id" not in active_stream:
+            logger.error(f"Invalid active stream data for item: {item.log_string}")
+            return
+
+        info = self.get_torrent_info(active_stream["id"])
+        if not info:
+            logger.error(f"Failed to get torrent info for item: {item.log_string}")
+            return
+
+        item.active_stream["alternative_name"] = getattr(info, "original_filename", None)
+        item.active_stream["name"] = getattr(info, "filename", None)
+
         if not item.folder or not item.alternative_folder:
             item.set("folder", item.active_stream.get("name"))
             item.set("alternative_folder", item.active_stream.get("alternative_name"))
+        
+        # this is only for Movie and Episode instances
+        if isinstance(item, (Movie, Episode)):
+            if not item.folder or not item.alternative_folder or not item.file:
+                logger.error(f"Missing folder or alternative_folder or file for item: {item.log_string}")
+                return
+            
+        if isinstance(item, Season) and item.folder:
+            for episode in item.episodes:
+                if episode.file and not episode.folder:
+                    episode.set("folder", item.folder)
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
@@ -439,22 +475,33 @@ class Debrid:
 
 def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
     """Check if the downloaded torrent matches the item specifics."""
-    if isinstance(item, Movie):
+    logger.debug(f"Checking if torrent matches item: {item.log_string}")
+
+    def check_movie():
         for file in torrent_info.files:
-            # TODO: This can be improved further..
-            if file.selected == 1 and file.bytes > 200_000_000:  # 200,000,000 bytes is approximately 0.186 GB
+            if file.selected == 1 and file.bytes > 200_000_000:
+                file_size_mb = file.bytes / (1024 * 1024)
+                if file_size_mb >= 1024:
+                    file_size_gb = file_size_mb / 1024
+                    logger.debug(f"Selected file: {Path(file.path).name} with size: {file_size_gb:.2f} GB")
+                else:
+                    logger.debug(f"Selected file: {Path(file.path).name} with size: {file_size_mb:.2f} MB")
                 return True
-    elif isinstance(item, Episode):
+        return False
+
+    def check_episode():
         one_season = len(item.parent.parent.seasons) == 1
-        return any(
-            file.selected == 1 and (
-                (item.number in extract_episodes(Path(file.path).name) and item.parent.number in extract_episodes(Path(file.path).name)) or
-                (one_season and item.number in extract_episodes(Path(file.path).name))
-            )
-            for file in torrent_info.files
-        )
-    elif isinstance(item, Season):
-        # Check if all episodes of the season are present in the torrent
+        item_number = item.number
+        parent_number = item.parent.number
+        for file in torrent_info.files:
+            if file.selected == 1:
+                file_episodes = extract_episodes(Path(file.path).name)
+                if (item_number in file_episodes and parent_number in file_episodes) or (one_season and item_number in file_episodes):
+                    logger.debug(f"File {Path(file.path).name} selected for episode {item_number} in season {parent_number}")
+                    return True
+        return False
+
+    def check_season():
         season_number = item.number
         episodes_in_season = {episode.number for episode in item.episodes}
         matched_episodes = set()
@@ -467,4 +514,19 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                 elif one_season and file_episodes:
                     matched_episodes.update(file_episodes)
         return len(matched_episodes) >= len(episodes_in_season) // 2
+
+    if isinstance(item, Movie):
+        if check_movie():
+            logger.info(f"Movie {item.log_string} already exists in Real-Debrid account.")
+            return True
+    elif isinstance(item, Episode):
+        if check_episode():
+            logger.info(f"Episode {item.log_string} already exists in Real-Debrid account.")
+            return True
+    elif isinstance(item, Season):
+        if check_season():
+            logger.info(f"Season {item.log_string} already exists in Real-Debrid account.")
+            return True
+
+    logger.debug(f"No matching item found for {item.log_string}")
     return False
