@@ -131,6 +131,12 @@ class TorrentioConfig(Observable):
     url: str = "http://torrentio.strem.fun"
 
 
+class KnightcrawlerConfig(Observable):
+    enabled: bool = False
+    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
+    url: str = "https://knightcrawler.elfhosted.com/"
+
+
 class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -165,6 +171,7 @@ class ScraperModel(Observable):
     after_5: int = 6
     after_10: int = 24
     torrentio: TorrentioConfig = TorrentioConfig()
+    knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()

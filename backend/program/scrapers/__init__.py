@@ -6,6 +6,7 @@ from program.scrapers.jackett import Jackett
 from program.scrapers.orionoid import Orionoid
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
+from program.scrapers.knightcrawler import Knightcrawler
 from program.settings.manager import settings_manager
 from utils.logger import logger
 
@@ -19,6 +20,7 @@ class Scraping:
         self.services = {
             Annatar: Annatar(self.hash_cache),
             Torrentio: Torrentio(self.hash_cache),
+            Knightcrawler: Knightcrawler(self.hash_cache),
             Orionoid: Orionoid(self.hash_cache),
             Jackett: Jackett(self.hash_cache),
             TorBoxScraper: TorBoxScraper(self.hash_cache),
