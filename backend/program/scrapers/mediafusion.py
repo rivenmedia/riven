@@ -3,6 +3,7 @@ import json
 from typing import Dict, Generator
 
 import requests
+from program.settings.models import AppModel
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
@@ -19,28 +20,43 @@ class Mediafusion:
 
     def __init__(self, hash_cache):
         self.key = "mediafusion"
-        self.settings = settings_manager.settings.scraping.mediafusion
-        self.settings_model = settings_manager.settings.ranking
+        self.api_key = None
+        self.downloader = None
+        self.app_settings: AppModel = settings_manager.settings
+        self.settings = self.app_settings.scraping.mediafusion
+        self.settings_model = self.app_settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
+        self.hash_cache = hash_cache
+        self.rtn = RTN(self.settings_model, self.ranking_model)
+        self.encrypted_string = None
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.minute_limiter = RateLimiter(
-            max_calls=300, period=3600, raise_on_limit=True
-        )
+        self.minute_limiter = RateLimiter(max_calls=300, period=3600)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
-        self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
-        self.running = True
+        logger.success("Mediafusion initialized!")
 
-        if settings_manager.settings.downloaders.real_debrid.enabled:
-            self.api_key = settings_manager.settings.downloaders.real_debrid.api_key
+    def validate(self) -> bool:
+        """Validate the Mediafusion settings."""
+        if not self.settings.enabled:
+            logger.warning("Mediafusion is set to disabled.")
+            return False
+        if not self.settings.url:
+            logger.error("Mediafusion URL is not configured and will not be used.")
+            return False
+        if not self.settings.catalogs:
+            logger.error("Configure at least one Mediafusion catalog.")
+            return False
+
+        if self.app_settings.downloaders.real_debrid.enabled:
+            self.api_key = self.app_settings.downloaders.real_debrid.api_key
             self.downloader = "realdebrid"
-        elif settings_manager.settings.downloaders.torbox.enabled:
-            self.api_key = settings_manager.settings.downloaders.torbox.api_key
+        elif self.app_settings.downloaders.torbox.enabled:
+            self.api_key = self.app_settings.downloaders.torbox.api_key
             self.downloader = "torbox"
-
-        url = f"{self.settings.url}/encrypt-user-data"
+        else:
+            logger.error("No downloader enabled, please enable at least one.")
+            return False
 
         payload = {
             "streaming_provider": {
@@ -57,34 +73,24 @@ class Mediafusion:
             "show_full_torrent_name": True,
             "api_password": None
         }
+
+        url = f"{self.settings.url}/encrypt-user-data"
         headers = {"Content-Type": "application/json"}
 
-        response = requests.request("POST", url, json=payload, headers=headers)
-
-        self.encrypted_string = json.loads(response.content)['encrypted_str']
-
-        logger.success("Mediafusion initialized!")
-
-    def validate(self) -> bool:
-        """Validate the Mediafusion settings."""
-        if not self.settings.enabled:
-            logger.warning("Mediafusion is set to disabled.")
+        try:
+            response = requests.request("POST", url, json=payload, headers=headers)
+            self.encrypted_string = json.loads(response.content)['encrypted_str']
+        except Exception as e:
+            logger.error(f"Failed to encrypt user data: {e}")
             return False
-        if not self.settings.url:
-            logger.error("Mediafusion URL is not configured and will not be used.")
-            return False
-        if len(self.settings.catalogs) == 0:
-            logger.error("Configure at least one Mediafusion catalog.")
-            return False
+
         try:
             url = f"{self.settings.url}/manifest.json"
-            response = ping(url=url, timeout=10)
-            if response.ok:
-                return True
+            response = ping(url=url, timeout=15)
+            return response.ok
         except Exception as e:
-            logger.error(f"Mediafusion failed to initialize: {e}", )
+            logger.error(f"Mediafusion failed to initialize: {e}")
             return False
-        return True
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the mediafusion site for the given media items
