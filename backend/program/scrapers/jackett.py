@@ -43,9 +43,6 @@ class Jackett:
         if not self.initialized and not self.api_key:
             return
         self.parse_logging = False
-        self.minute_limiter = RateLimiter(
-            max_calls=1000, period=3600, raise_on_limit=True
-        )
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
@@ -85,7 +82,6 @@ class Jackett:
         try:
             yield self.scrape(item)
         except RateLimitExceeded:
-            self.minute_limiter.limit_hit()
             self.second_limiter.limit_hit()
             logger.warning(f"Jackett rate limit hit for item: {item.log_string}")
         except RequestException as e:
@@ -221,13 +217,14 @@ class Jackett:
         """Get the indexers from Jackett"""
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
 
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return self._get_indexer_from_xml(response.text)
-        except Exception as e:
-            logger.error(f"Exception while getting indexers from Jackett: {e}")
-            return []
+        with self.second_limiter:
+            try:
+                response = requests.get(url)
+                response.raise_for_status()
+                return self._get_indexer_from_xml(response.text)
+            except Exception as e:
+                logger.error(f"Exception while getting indexers from Jackett: {e}")
+                return []
 
     def _get_indexer_from_xml(self, xml_content: str) -> list[JackettIndexer]:
         """Parse the indexers from the XML content"""
@@ -256,13 +253,14 @@ class Jackett:
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
-        try:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            return self._parse_xml(response.text)
-        except Exception as e:
-            logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
-            return []
+        with self.second_limiter:
+            try:
+                response = requests.get(url, params=params)
+                response.raise_for_status()
+                return self._parse_xml(response.text)
+            except Exception as e:
+                logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
+                return []
 
     def _parse_xml(self, xml_content: str) -> list[tuple[str, str]]:
         """Parse the torrents from the XML content"""
