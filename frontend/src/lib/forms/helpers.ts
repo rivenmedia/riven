@@ -264,6 +264,7 @@ export const scrapersSettingsSchema = z.object({
 	annatar_enabled: z.boolean().default(false),
 	orionoid_enabled: z.boolean().default(false),
 	jackett_enabled: z.boolean().default(false),
+	mediafusion_enabled: z.boolean().default(false),
 	torrentio_url: z.string().optional().default('https://torrentio.strem.fun'),
 	torrentio_filter: z
 		.string()
@@ -277,7 +278,9 @@ export const scrapersSettingsSchema = z.object({
 	annatar_url: z.string().optional().default('https://annatar.elfhosted.com'),
 	orionoid_api_key: z.string().optional().default(''),
 	jackett_url: z.string().optional().default('http://localhost:9117'),
-	jackett_api_key: z.string().optional().default('')
+	jackett_api_key: z.string().optional().default(''),
+	mediafusion_url: z.string().optional().default('https://mediafusion.elfhosted.com'),
+	mediafusion_catalogs: z.string().array().optional().default([]),
 });
 export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
 
@@ -298,7 +301,10 @@ export function scrapersSettingsToPass(data: any) {
 		knightcrawler_filter: data.data.scraping.knightcrawler?.filter || '',
 		orionoid_api_key: data.data.scraping.orionoid?.api_key || '',
 		jackett_url: data.data.scraping.jackett?.url || '',
-		jackett_api_key: data.data.scraping.jackett?.api_key || ''
+		jackett_api_key: data.data.scraping.jackett?.api_key || '',
+		mediafusion_url: data.data.scraping.mediafusion?.url || 'https://mediafusion.elfhosted.com/',
+		mediafusion_enabled: data.data.scraping.mediafusion.enabled,
+		mediafusion_catalogs: data.data.scraping.mediafusion.catalogs || ["prowlarr_streams", "torrentio_streams"]
 	};
 }
 
@@ -331,6 +337,11 @@ export function scrapersSettingsToSet(form: SuperValidated<ScrapersSettingsSchem
 				jackett: {
 					enabled: form.data.jackett_enabled,
 					url: form.data.jackett_url
+				},
+				mediafusion: {
+					enabled: form.data.mediafusion_enabled,
+					url: form.data.mediafusion_url,
+					catalogs: form.data.mediafusion_catalogs
 				}
 			}
 		}

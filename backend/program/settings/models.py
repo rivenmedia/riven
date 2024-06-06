@@ -1,6 +1,6 @@
 """Iceberg settings models"""
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 from pydantic import BaseModel, field_validator
 from RTN.models import CustomRank, SettingsModel
@@ -134,7 +134,16 @@ class TorrentioConfig(Observable):
 class KnightcrawlerConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com/"
+    url: str = "https://knightcrawler.elfhosted.com"
+
+
+class MediafusionConfig(Observable):
+    enabled: bool = False
+    url: str = "https://mediafusion.elfhosted.com"
+    catalogs: List[str] = [
+        "prowlarr_streams",
+        "torrentio_streams"
+    ]
 
 
 class OrionoidConfig(Observable):
@@ -177,6 +186,7 @@ class ScraperModel(Observable):
     orionoid: OrionoidConfig = OrionoidConfig()
     annatar: AnnatarConfig = AnnatarConfig()
     torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
+    mediafusion: MediafusionConfig = MediafusionConfig()
 
 
 # Version Ranking Model (set application defaults here!)

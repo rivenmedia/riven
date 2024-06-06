@@ -7,6 +7,7 @@ from program.scrapers.orionoid import Orionoid
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.knightcrawler import Knightcrawler
+from program.scrapers.mediafusion import Mediafusion
 from program.settings.manager import settings_manager
 from utils.logger import logger
 
@@ -24,6 +25,7 @@ class Scraping:
             Orionoid: Orionoid(self.hash_cache),
             Jackett: Jackett(self.hash_cache),
             TorBoxScraper: TorBoxScraper(self.hash_cache),
+            Mediafusion: Mediafusion(self.hash_cache)
         }
         self.initialized = self.validate()
 

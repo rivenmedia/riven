@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
-	import { superForm } from 'sveltekit-superforms/client';
+	import { arrayProxy, superForm } from 'sveltekit-superforms/client';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
 	import { toast } from 'svelte-sonner';
@@ -14,12 +14,19 @@
 	import FormNumberField from './components/form-number-field.svelte';
 	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
 	import type { FormGroupCheckboxFieldType } from '$lib/types';
+	import FormTagsInputField from './components/form-tags-input-field.svelte';
 
 	let formDebug: boolean = getContext('formDebug');
 
 	export let data: SuperValidated<ScrapersSettingsSchema>;
 	const scrapersForm = superForm(data);
 	const { form, message, delayed, errors } = scrapersForm;
+
+	const { values: mediafusionCatalogsValues, errors: mediafusionCatalogsErrors } = arrayProxy(
+		scrapersForm,
+		'mediafusion_catalogs'
+	);
+
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
@@ -49,6 +56,10 @@
 		{
 			field_name: 'jackett_enabled',
 			label_name: 'Jackett'
+		},
+		{
+			field_name: 'mediafusion_enabled',
+			label_name: 'Mediafusion'
 		}
 	];
 </script>
@@ -176,6 +187,30 @@
 					fieldDescription="Optional field if Jackett is not password protected."
 					labelName="Jackett API Key"
 					errors={$errors.jackett_api_key}
+				/>
+			</div>
+		{/if}
+
+		{#if $form.mediafusion_enabled}
+			<div transition:slide>
+				<FormTextField
+					{config}
+					fieldName="mediafusion_url"
+					labelName="Mediafusion URL"
+					errors={$errors.mediafusion_url}
+				/>
+			</div>
+
+			{#if $mediafusionCatalogsErrors}
+				<small class="text-sm text-red-500">{$mediafusionCatalogsErrors}</small>
+			{/if}
+
+			<div transition:slide>
+				<FormTagsInputField
+					fieldName="mediafusion_catalogs"
+					labelName="Mediafusion Catalogs"
+					fieldValue={mediafusionCatalogsValues}
+					numberValidate={false}
 				/>
 			</div>
 		{/if}
