@@ -53,15 +53,14 @@ class Jackett:
         if not self.settings.enabled:
             logger.warning("Jackett is set to disabled.")
             return False
-        logger.info(f"Validating Jackett settings: {self.settings.url} {self.settings.api_key}")
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
-                url = f"{self.settings.url}/api/v2.0/indexers/!status:failing,test:passed/results/torznab?apikey={self.api_key}&cat=2000&t=movie&q=test"
-                logger.info(f"Pinging {url}")
-                response = ping(url=url, timeout=60)
-                if response.ok:
-                    return True
+                if len(self._get_indexers()) == 0:
+                    logger.exception("No Jackett indexers configured.")
+                    return False
+
+                return True
             except ReadTimeout:
                 logger.exception("Jackett request timed out. Check your indexers, they may be too slow to respond.")
                 return False
@@ -122,7 +121,6 @@ class Jackett:
             else:
                 raise TypeError("Only Movie and Series is allowed!")
 
-            # logger.info(result)
             logger.debug(
                 f"Search on {indexer.title} took {time.time() - start_time} seconds and found {len(result)} results")
 
@@ -186,7 +184,6 @@ class Jackett:
             params['imdbid'] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
-        # url += '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
 
         try:
             response = requests.get(url=url, params=params)
@@ -228,11 +225,8 @@ class Jackett:
             params['imdbid'] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
-        # url += '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
 
         try:
-            # Current functionality is that it returns if the season, episode search was successful. This is subject to change
-            # TODO: what should we prioritize? season, episode or title?
             response = requests.get(url=url, params=params)
             response.raise_for_status()
 
@@ -247,7 +241,6 @@ class Jackett:
 
     def _get_indexers(self):
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
-        logger.info(url)
 
         try:
             response = requests.get(url)
