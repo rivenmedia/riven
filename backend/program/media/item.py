@@ -323,7 +323,6 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
-            # TODO: Cleanup how many times state is accessed
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
             if any(episode.state == States.Completed for episode in self.episodes):

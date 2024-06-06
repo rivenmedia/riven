@@ -40,46 +40,43 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.should_submit(item):
+        if Scraping.can_we_scrape(item):
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
                 items_to_submit = [
                     s for s in item.seasons 
-                    if s.state == States.Indexed 
-                    and s.scraped_times < 3
-                    and Scraping.should_submit(s)
+                    if s.state not in (States.Completed, States.Downloaded, States.Scraped) 
+                    and Scraping.can_we_scrape(s)
                 ]
             elif isinstance(item, Season):
-                if item.scraped_times >= 4 and item.is_released:
+                if item.scraped_times >= 4:
                     items_to_submit = [
                         e for e in item.episodes 
-                        if e.state == States.Indexed
-                        and Scraping.should_submit(e)
+                        if e.state not in (States.Completed, States.Downloaded, States.Scraped)
+                        and Scraping.can_we_scrape(e)
                     ]
                 else:
                     items_to_submit = [item]
             else:
                 items_to_submit = [item]
         else:
-            next_service = None
             items_to_submit = []
 
     elif item.state == States.PartiallyCompleted:
+        next_service = Scraping
         if isinstance(item, Show):
             items_to_submit = [
                 s for s in item.seasons 
-                if s.state == States.PartiallyCompleted and Scraping.should_submit(s)
+                if s.state not in (States.Completed, States.PartiallyCompleted)
+                and Scraping.can_we_scrape(s)
             ]
-            if items_to_submit:
-                next_service = Scraping
         elif isinstance(item, Season):
             items_to_submit = [
                 e for e in item.episodes 
-                if e.state == States.Indexed and Scraping.should_submit(e)
+                if e.state == States.Indexed
+                and Scraping.can_we_scrape(e)
             ]
-            if items_to_submit:
-                next_service = Scraping
 
     elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader
@@ -89,22 +86,25 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Season):
-            proposed_submissions = [e for e in item.episodes]
+            if all(e.file and e.folder for e in item.episodes if not e.symlinked):
+                proposed_submissions = [item]
+            else:
+                proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
         elif isinstance(item, (Movie, Episode)):
             proposed_submissions = [item]
         items_to_submit = []
-        for item in proposed_submissions:
-            if Symlinker.should_submit(item):
-                items_to_submit.append(item)
+        for sub_item in proposed_submissions:
+            if Symlinker.should_submit(sub_item):
+                items_to_submit.append(sub_item)
             else:
-                logger.debug(f"{item.log_string} not submitted to Symlinker because it is not eligible")
+                logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
         if isinstance(item, Show):
             items_to_submit = [s for s in item.seasons]
         elif isinstance(item, Season):
-            items_to_submit = [e for e in item.episodes]
+            items_to_submit = [item]
         else:
             items_to_submit = [item]
 

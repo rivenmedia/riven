@@ -103,18 +103,33 @@ class Symlinker:
             return False
         return True
 
-    def run(self, item: Union[Movie, Episode]):
+    def run(self, item: Union[Movie, Episode, Season]):
         """Check if the media item exists and create a symlink if it does"""
         try:
-            if self._symlink(item):
-                item.set("symlinked", True)
-                item.set("symlinked_at", datetime.now())
-                if isinstance(item, Episode) and all(ep.symlinked for ep in item.parent.episodes):
-                    logger.log("SYMLINKER", f"Symlink created for entire season {item.parent.log_string}")
+            if isinstance(item, Season):
+                all_symlinked = True
+                successfully_symlinked_episodes = []
+                for episode in item.episodes:
+                    if not episode.symlinked and episode.file and episode.folder:
+                        if self._symlink(episode):
+                            episode.set("symlinked", True)
+                            episode.set("symlinked_at", datetime.now())
+                            successfully_symlinked_episodes.append(episode)
+                        else:
+                            all_symlinked = False
+                if all_symlinked:
+                    logger.log("SYMLINKER", f"Symlinked all episodes for {item.log_string}")
                 else:
-                    logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
-            else:
-                logger.error(f"Failed to create symlink for {item.log_string}")
+                    for episode in successfully_symlinked_episodes:
+                        logger.log("SYMLINKER", f"Symlink created for {episode.log_string}")
+            elif isinstance(item, (Movie, Episode)):
+                if not item.symlinked and item.file and item.folder:
+                    if self._symlink(item):
+                        logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
+                    else:
+                        logger.error(f"Failed to create symlink for {item.log_string}")
+            item.set("symlinked", True)
+            item.set("symlinked_at", datetime.now())
         except Exception as e:
             logger.exception(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
@@ -122,39 +137,43 @@ class Symlinker:
         yield item
 
     @staticmethod
-    def should_submit(item: Union[Movie, Episode]) -> bool:
+    def should_submit(item: Union[Movie, Episode, Season]) -> bool:
         """Check if the item should be submitted for symlink creation."""
         if isinstance(item, Show):
             return False
 
-        if isinstance(item, (Movie, Episode)):
-            logger.debug(f"Checking if {item.log_string} should be submitted for symlink")
-            if not item.file or not item.folder or item.file == "None.mkv":
-                logger.error(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                blacklist_item(item)
-                return False
+        if isinstance(item, Season):
+            all_episodes_ready = True
+            for episode in item.episodes:
+                if not episode.file or not episode.folder or episode.file == "None.mkv":
+                    logger.warning(f"Cannot submit {episode.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
+                    blacklist_item(episode)
+                    all_episodes_ready = False
+                elif not quick_file_check(episode):
+                    logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
+                    if not _wait_for_file(episode):
+                        all_episodes_ready = False
+            return all_episodes_ready
 
-        elif isinstance(item, Season):
-            all_episodes = all(ep.file and ep.folder for ep in item.episodes)
-            if all_episodes:
-                logger.debug(f"Checking if {item.log_string} should be submitted for symlink")
-            else:
-                logger.debug(f"Skipping season {item.log_string} as not all episodes have file and folder set")
+        if isinstance(item, (Movie, Episode)):
+            if not item.file or not item.folder or item.file == "None.mkv":
+                logger.warning(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
+                blacklist_item(item)
                 return False
 
         if item.symlinked_times < 3:
             if quick_file_check(item):
-                logger.log("SYMLINKER", f"File found for {item.log_string}, creating symlink")
+                logger.log("SYMLINKER", f"File found for {item.log_string}, submitting to be symlinked")
                 return True
             else:
                 logger.debug(f"File not found for {item.log_string} at the moment, waiting for it to become available")
-                if wait_for_file(item):
+                if _wait_for_file(item):
                     return True
                 return False
 
         item.set("symlinked_times", item.symlinked_times + 1)
 
-        if item.symlinked_times == 3:
+        if item.symlinked_times >= 3:
             rclone_path = Path(settings_manager.settings.symlink.rclone_path)
             if search_file(rclone_path, item):
                 logger.log("SYMLINKER", f"File found for {item.log_string}, creating symlink")
@@ -167,7 +186,7 @@ class Symlinker:
         logger.debug(f"Item {item.log_string} not submitted for symlink, file not found yet")
         return False
 
-    def _symlink(self, item: Union[Movie, Episode]) -> bool:
+    def _symlink(self, item: Union[Movie, Season, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
         extension = os.path.splitext(item.file)[1][1:]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
@@ -189,6 +208,11 @@ class Symlinker:
             return False
         except OSError as e:
             logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
+            return False
+
+        # Validate the symlink
+        if not os.path.islink(destination) or not os.path.exists(destination):
+            logger.error(f"Symlink validation failed for {item.log_string}: {destination}")
             return False
 
         return True
@@ -292,11 +316,11 @@ class Symlinker:
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}" 
         return filename
 
-def wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
+def _wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
     """Wrapper function to run the asynchronous wait_for_file function."""
-    return asyncio.run(async_wait_for_file(item, timeout))
+    return asyncio.run(wait_for_file(item, timeout))
 
-async def async_wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
+async def wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
     """Asynchronously wait for the file to become available within the given timeout."""
     start_time = time.monotonic()
     while time.monotonic() - start_time < timeout:
