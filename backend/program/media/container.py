@@ -211,11 +211,10 @@ class MediaItemContainer:
         """Get all items that are not in a completed state."""
         self.lock.acquire_read()
         try:
-            media_items = self._items
             return {
                 item_id: item
-                for item_id, item in media_items.items()
-                if item.state is not States.Completed
+                for item_id, item in self._items.items()
+                if item.state != States.Completed
             }
         finally:
             self.lock.release_read()

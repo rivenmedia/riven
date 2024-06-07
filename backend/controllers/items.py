@@ -134,5 +134,31 @@ async def remove_item_by_imdb(request: Request, imdb_id: str):
 async def get_imdb_info(request: Request, imdb_id: str):
     item = request.app.program.media_items.get_item(imdb_id)
     if item is None:
+        logger.error(f"Item with IMDb ID {imdb_id} not found in container")
         raise HTTPException(status_code=404, detail="Item not found")
+
+    if not request.app.program.media_items.__contains__(item):
+        logger.error(f"Item with IMDb ID {imdb_id} is not in the library")
+        raise HTTPException(status_code=404, detail="Item not found in library")
+    
     return {"success": True, "item": item.to_extended_dict()}
+
+
+@router.get("/incomplete")
+async def get_incomplete_items(request: Request):
+    if not hasattr(request.app, 'program') or not hasattr(request.app.program, 'media_items'):
+        logger.error("Program or media_items not found in the request app")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    incomplete_items = request.app.program.media_items.get_incomplete_items()
+    if not incomplete_items:
+        logger.info("No incomplete items found")
+        return {
+            "success": True,
+            "incomplete_items": []
+        }
+
+    return {
+        "success": True,
+        "incomplete_items": [item.to_extended_dict() for item in incomplete_items.values()]
+    }

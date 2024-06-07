@@ -145,7 +145,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 10},
+            self._retry_library: {"interval": 60 * 2},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
