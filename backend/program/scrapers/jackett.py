@@ -33,6 +33,7 @@ class Jackett:
     def __init__(self, hash_cache):
         self.key = "jackett"
         self.api_key = None
+        self.indexers = []
         self.settings = settings_manager.settings.scraping.jackett
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
@@ -55,18 +56,18 @@ class Jackett:
             return False
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
-            try:
-                if len(self._get_indexers()) == 0:
-                    logger.error("No Jackett indexers configured.")
-                    return False
 
-                return True
-            except ReadTimeout:
-                logger.exception("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+        try:
+            self.indexers = self._get_indexers()
+            if len(self.indexers) == 0:
+                logger.error("No Jackett indexers configured.")
                 return False
-            except Exception as e:
-                logger.exception(f"Jackett failed to initialize with API Key: {e}")
-                return False
+            return True
+        except ReadTimeout:
+            logger.exception("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+        except Exception as e:
+            logger.exception(f"Jackett failed to initialize with API Key: {e}")
+
         logger.info("Jackett is not configured and will not be used.")
         return False
 
@@ -102,8 +103,6 @@ class Jackett:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Jackett` scrape method"""
-
-        indexers = self._get_indexers()
 
         threads = []
         results_queue = queue.Queue()  # Create a Queue instance to hold the results
