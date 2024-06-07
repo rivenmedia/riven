@@ -125,7 +125,7 @@ class Jackett:
 
             results_queue.put(result)  # Put the result in the queue
 
-        for indexer in indexers:
+        for indexer in self.indexers:
             # Pass the wrapper function as the target to Thread, with necessary arguments
             threads.append(threading.Thread(target=thread_target, args=(item, indexer)))
 
