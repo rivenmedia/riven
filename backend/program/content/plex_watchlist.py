@@ -48,7 +48,6 @@ class PlexWatchlist:
 
     def run(self):
         """Fetch new media from `Plex Watchlist`"""
-
         watchlist_items = set(self._get_items_from_watchlist())
         rss_items = set()
 

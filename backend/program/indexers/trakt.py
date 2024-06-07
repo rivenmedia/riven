@@ -137,7 +137,16 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
-    if hasattr(response.data[0], "ids"):
-        return response.data[0].ids.get("imdb", None)
+    imdb_id = get_imdb_id_from_list(response.data)
+    if imdb_id:
+        return imdb_id
     logger.error(f"Failed to fetch imdb_id for tmdb_id: {tmdb_id}")
+    return None
+
+def get_imdb_id_from_list(namespaces):
+    for ns in namespaces:
+        if ns.type == 'movie':
+            return ns.movie.ids.imdb
+        elif ns.type == 'show':
+            return ns.show.ids.imdb
     return None

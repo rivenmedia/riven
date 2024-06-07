@@ -84,7 +84,8 @@ class OverseerrModel(Updatable):
     enabled: bool = False
     url: str = "http://localhost:5055"
     api_key: str = ""
-    update_interval: int = 30
+    use_webhook: bool = False
+    update_interval: int = 60
 
 
 class PlexWatchlistModel(Updatable):

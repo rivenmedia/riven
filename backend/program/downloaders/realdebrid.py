@@ -320,7 +320,7 @@ class Debrid:
             return True
 
         info = self.get_torrent_info(torrent.id)
-        if not info:
+        if not info or not hasattr(info, "files"):
             logger.debug(f"Failed to get torrent info for ID: {torrent.id}")
             self.hash_cache.blacklist(torrent.hash)
             return False
@@ -476,6 +476,10 @@ class Debrid:
 def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
     """Check if the downloaded torrent matches the item specifics."""
     logger.debug(f"Checking if torrent matches item: {item.log_string}")
+
+    if not hasattr(torrent_info, "files"):
+        logger.error(f"Torrent info for {item.log_string} does not have files attribute: {torrent_info}")
+        return False
 
     def check_movie():
         for file in torrent_info.files:
