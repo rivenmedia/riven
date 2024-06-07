@@ -36,16 +36,15 @@ class Jackett:
         self.key = "jackett"
         self.api_key = None
         self.indexers = None
+        self.hash_cache = hash_cache
         self.settings = settings_manager.settings.scraping.jackett
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
-        self.parse_logging = False
         self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
+        self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
         logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -64,10 +63,10 @@ class Jackett:
                 self._log_indexers(indexers)
                 return True
             except ReadTimeout:
-                logger.exception("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+                logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")
                 return False
             except Exception as e:
-                logger.exception(f"Jackett failed to initialize with API Key: {e}")
+                logger.error(f"Jackett failed to initialize with API Key: {e}")
                 return False
         logger.info("Jackett is not configured and will not be used.")
         return False
@@ -87,7 +86,7 @@ class Jackett:
         except RequestException as e:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:
-            logger.exception(f"Jackett failed to scrape item with error: {e}")
+            logger.error(f"Jackett failed to scrape item with error: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
@@ -105,7 +104,7 @@ class Jackett:
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Jackett` scrape method"""
         
-        indexers = self._get_indexers()
+        indexers = self.indexers
         results_queue = queue.Queue()
         threads = [
             threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
@@ -122,9 +121,9 @@ class Jackett:
 
     def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
         try:
-            start_time = time.time()
+            start_time = time.perf_counter()
             result = self._search_indexer(item, indexer)
-            search_duration = time.time() - start_time
+            search_duration = time.perf_counter() - start_time
         except TypeError as e:
             logger.error(f"Invalid Type for {item.log_string}: {e}")
             result = []
@@ -217,15 +216,13 @@ class Jackett:
     def _get_indexers(self) -> List[JackettIndexer]:
         """Get the indexers from Jackett"""
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
-
-        with self.second_limiter:
-            try:
-                response = requests.get(url)
-                response.raise_for_status()
-                return self._get_indexer_from_xml(response.text)
-            except Exception as e:
-                logger.error(f"Exception while getting indexers from Jackett: {e}")
-                return []
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return self._get_indexer_from_xml(response.text)
+        except Exception as e:
+            logger.error(f"Exception while getting indexers from Jackett: {e}")
+            return []
 
     def _get_indexer_from_xml(self, xml_content: str) -> list[JackettIndexer]:
         """Parse the indexers from the XML content"""
