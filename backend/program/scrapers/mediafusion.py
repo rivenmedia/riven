@@ -33,7 +33,7 @@ class Mediafusion:
         if not self.initialized:
             return
         self.minute_limiter = RateLimiter(max_calls=300, period=3600)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=2)
         logger.success("Mediafusion initialized!")
 
     def validate(self) -> bool:
