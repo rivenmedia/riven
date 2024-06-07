@@ -60,7 +60,7 @@ class Jackett:
                     logger.error("No Jackett indexers configured.")
                     return False
                 self.indexers = indexers
-                self._log_indexers(indexers)
+                self._log_indexers()
                 return True
             except ReadTimeout:
                 logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")

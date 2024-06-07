@@ -23,6 +23,9 @@ async def overseerr_webhook(request: Request) -> Dict[str, Any]:
         req = OverseerrWebhook.model_validate(response)
     except pydantic.ValidationError:
         return {"success": False, "message": "Invalid request"}
+    except Exception as e:
+        logger.error(f"Failed to process request: {e}")
+        return {"success": False, "message": "Failed to process request"}
 
     imdb_id = req.media.imdbId
     if not imdb_id:
