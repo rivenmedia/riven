@@ -88,13 +88,14 @@ class Orionoid:
                 logger.warning("Orionoid Free Account Detected.")
         return False
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> Dict[str, Torrent]: 
         """Scrape the orionoid site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
+            return []
+
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except (ConnectTimeout, RateLimitExceeded, ReadTimeout, RequestException, Exception) as e:
             self.minute_limiter.limit_hit()
             self.second_limiter.limit_hit()
@@ -108,9 +109,9 @@ class Orionoid:
                 logger.error(f"Orionoid request exception: {e}")
             else:
                 logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
-        yield item
+        return []
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
         try:
             data, stream_count = self.api_scrape(item)
@@ -118,13 +119,13 @@ class Orionoid:
             raise e  # Raise the exception to be handled by the run method
 
         if len(data) > 0:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
+            return data
         elif stream_count > 0:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return []
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""

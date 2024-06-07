@@ -41,20 +41,19 @@ class TorBoxScraper:
             logger.exception(f"Error validating TorBox Scraper: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the TorBox site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return []
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except Exception as e:
             self.minute_limiter.limit_hit()
             self.second_limiter.limit_hit()
             self.handle_exception(e, item)
-        yield item
+        return []
 
     def handle_exception(self, e: Exception, item: MediaItem) -> None:
         """Handle exceptions during scraping"""
@@ -77,17 +76,17 @@ class TorBoxScraper:
             logger.error(f"TorBox exception thrown: {e}")
         
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
+            return data
         elif stream_count > 0:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return []
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Torbox` scrape method using Torbox API"""

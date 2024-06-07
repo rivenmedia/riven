@@ -1,4 +1,6 @@
 from datetime import datetime
+import threading
+import queue
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
@@ -33,17 +35,37 @@ class Scraping:
         return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem):
-        for service_name, service in self.services.items():
-            if service.initialized:
-                try:
-                    item = next(service.run(item))
-                except StopIteration:
-                    logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
-                except Exception as e:
-                    logger.exception(f"{service_name} failed to scrape item with error: {e}")
+        results_queue = queue.Queue()
+        threads = [
+            threading.Thread(target=self._thread_target, args=(service, service_name, item, results_queue))
+            for service_name, service in self.services.items()
+        ]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        results = []
+        while not results_queue.empty():
+            a = results_queue.get()
+            results.extend(a)
+        item.streams.update(results)
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
+
+    def _thread_target(self, service, service_name: str, item: MediaItem, results_queue: queue.Queue):
+        if not service.initialized:
+            return []
+
+        try:
+            result = service.run(item)
+            logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
+        except TypeError as e:
+            result = []
+            logger.exception(f"{service_name} failed to scrape item with error: {e}")
+        results_queue.put(result)
 
     @classmethod
     def can_we_scrape(cls, item: MediaItem) -> bool:

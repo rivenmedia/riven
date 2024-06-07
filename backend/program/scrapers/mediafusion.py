@@ -92,15 +92,14 @@ class Mediafusion:
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the mediafusion site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return []
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
             logger.warning(f"Rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
@@ -113,19 +112,19 @@ class Mediafusion:
             logger.exception(f"Mediafusion exception thrown: {e}")
         self.minute_limiter.limit_hit()
         self.second_limiter.limit_hit()
-        yield item
+        return []
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
+            return data
         elif stream_count > 0:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return []
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Mediafusion` scrape method"""
