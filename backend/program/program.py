@@ -11,7 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
-from program.indexers.trakt import TraktIndexer
+from program.indexers.trakt import TraktIndexer, create_item_from_imdb_id
 from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -145,7 +145,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 10},
+            self._retry_library: {"interval": 60 * 2},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -245,8 +245,12 @@ class Program(threading.Thread):
     def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
         if item is not None:
-            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
-            logger.log("PROGRAM", f"Added {item.log_string} to the queue")
+            new_item = create_item_from_imdb_id(item.imdb_id)
+            if not new_item:
+                logger.error(f"Failed to get item {item.log_string} from IMDb")
+                return False
+            self.event_queue.put(Event(emitted_by=self.__class__, item=new_item))
+            logger.log("PROGRAM", f"Added {new_item.log_string} to the queue")
             return True
         else:
             logger.error("Attempted to add a None item to the queue")

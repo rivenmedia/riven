@@ -5,7 +5,15 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktCont
 from program.downloaders import Debrid, TorBoxDownloader
 from program.libraries import SymlinkLibrary
 from program.media.item import MediaItem
-from program.scrapers import Annatar, Jackett, Orionoid, Scraping, Torrentio, Knightcrawler, Mediafusion
+from program.scrapers import (
+    Annatar,
+    Jackett,
+    Knightcrawler,
+    Mediafusion,
+    Orionoid,
+    Scraping,
+    Torrentio,
+)
 from program.scrapers.torbox import TorBoxScraper
 from program.symlink import Symlinker
 
