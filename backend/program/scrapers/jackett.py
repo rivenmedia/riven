@@ -103,12 +103,10 @@ class Jackett:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Jackett` scrape method"""
-        
-        indexers = self.indexers
         results_queue = queue.Queue()
         threads = [
             threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
-            for indexer in indexers
+            for indexer in self.indexers
         ]
 
         for thread in threads:
@@ -283,9 +281,9 @@ class Jackett:
             result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
         return result_list
 
-    def _log_indexers(self, indexers: List[JackettIndexer]) -> None:
+    def _log_indexers(self) -> None:
         """Log the indexers information"""
-        for indexer in indexers:
+        for indexer in self.indexers:
             logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
             if not indexer.movie_search_capabilities:
                 logger.debug(f"Movie search not available for {indexer.title}")
