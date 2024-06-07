@@ -191,6 +191,21 @@
 			</div>
 		{/if}
 
+		<!--h-0 overflow-hidden instead of hidden because it prevents `required` from operating, outside of if to persist-->
+		<div class="h-0 overflow-hidden">
+			<select
+				multiple
+				id="mediafusion_catalogs"
+				name="mediafusion_catalogs"
+				bind:value={$mediafusionCatalogsValues}
+				tabindex="-1"
+			>
+				{#each $mediafusionCatalogsValues as list}
+					<option value={list}>{list}</option>
+				{/each}
+			</select>
+		</div>
+
 		{#if $form.mediafusion_enabled}
 			<div transition:slide>
 				<FormTextField
