@@ -1,4 +1,8 @@
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+from program.media.item import MediaItem
 from program.content.overseerr import Overseerr
 from program.media.state import States
 from utils.logger import logger
@@ -8,6 +12,10 @@ router = APIRouter(
     tags=["items"],
     responses={404: {"description": "Not found"}},
 )
+
+
+class IMDbIDs(BaseModel):
+    imdb_ids: Optional[List[str]] = None
 
 
 @router.get("/states")
@@ -36,6 +44,32 @@ async def get_extended_item_info(request: Request, item_id: str):
         "item": item.to_extended_dict(),
     }
 
+
+@router.post("/add/imdb/{imdb_id}")
+@router.post("/add/imdb/")
+async def add_items(request: Request, imdb_id: Optional[str] = None, imdb_ids: Optional[IMDbIDs] = None):
+    if imdb_id:
+        imdb_ids = IMDbIDs(imdb_ids=[imdb_id])
+    elif not imdb_ids or not imdb_ids.imdb_ids or any(not id for id in imdb_ids.imdb_ids):
+        raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
+
+    valid_ids = []
+    for id in imdb_ids.imdb_ids:
+        if not id.startswith("tt"):
+            logger.warning(f"Invalid IMDb ID {id}, skipping")
+        else:
+            valid_ids.append(id)
+
+    if not valid_ids:
+        raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
+
+    for id in valid_ids:
+        item = MediaItem({"imdb_id": id, "requested_by": "iceberg", "requested_at": datetime.now()})
+        request.app.program.add_to_queue(item)
+    
+    return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
+
+
 @router.delete("/remove/id/{item_id}")
 async def remove_item(request: Request, item_id: str):
     item = request.app.program.media_items.get_item(item_id)
@@ -63,6 +97,7 @@ async def remove_item(request: Request, item_id: str):
         "success": True,
         "message": f"Removed {item_id}",
     }
+
 
 @router.delete("/remove/imdb/{imdb_id}")
 async def remove_item_by_imdb(request: Request, imdb_id: str):
@@ -93,6 +128,7 @@ async def remove_item_by_imdb(request: Request, imdb_id: str):
         "success": True,
         "message": f"Removed item with IMDb ID {imdb_id}",
     }
+
 
 @router.get("/imdb/{imdb_id}")
 async def get_imdb_info(request: Request, imdb_id: str):

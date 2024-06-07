@@ -9,6 +9,7 @@ import uvicorn
 from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.settings import router as settings_router
+from controllers.webhooks import router as webhooks_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
@@ -44,6 +45,7 @@ args = parser.parse_args()
 app = FastAPI()
 app.program = Program(args)
 
+app.add_middleware(LoguruMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -52,13 +54,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add the custom Loguru middleware
-app.add_middleware(LoguruMiddleware)
-
 app.include_router(default_router)
 app.include_router(settings_router)
 app.include_router(items_router)
-
+app.include_router(webhooks_router)
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):

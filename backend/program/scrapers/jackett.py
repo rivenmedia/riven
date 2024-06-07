@@ -11,7 +11,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from pydantic import BaseModel
-from requests import ReadTimeout, RequestException
+from requests import HTTPError, ReadTimeout, RequestException, Timeout
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
@@ -254,12 +254,8 @@ class Jackett:
                 response = requests.get(url, params=params)
                 response.raise_for_status()
                 return self._parse_xml(response.text)
-            except requests.exceptions.HTTPError as http_err:
-                logger.error(f"HTTP error while fetching results from {indexer_title} ({search_type}): {http_err}")
-            except requests.exceptions.ConnectionError as conn_err:
-                logger.error(f"Connection error while fetching results from {indexer_title} ({search_type}): {conn_err}")
-            except requests.exceptions.Timeout as timeout_err:
-                logger.error(f"Timeout error while fetching results from {indexer_title} ({search_type}): {timeout_err}")
+            except (HTTPError, ConnectionError, Timeout) as e:
+                logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
             except Exception as e:
                 if "Jackett.Common.IndexerException" in str(e):
                     logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")

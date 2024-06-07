@@ -3,21 +3,28 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
+from program.media.item import MediaItem
+from program.content.overseerr import Overseerr
 from program.indexers.trakt import get_imdbid_from_tmdb
+from utils.request import get
 from utils.logger import logger
 
 from .models.overseerr import OverseerrWebhook
 
 router = APIRouter(
+    prefix="/webhook",
     responses={404: {"description": "Not found"}},
 )
 
 
 @router.post("/overseerr")
-async def overseerr_webhook(request: Request) -> Dict[str, Any]:
+async def overseerr(request: Request) -> Dict[str, Any]:
     """Webhook for Overseerr"""
     response = await request.json()
-    logger.debug(f"Received request for: {response.get('subject', 'Unknown')}")
+
+    if response.get("subject") == "Test Notification":
+        logger.log("API", "Received test notification, Overseerr configured properly")
+        return {"success": True}
 
     try:
         req = OverseerrWebhook.model_validate(response)
@@ -27,6 +34,7 @@ async def overseerr_webhook(request: Request) -> Dict[str, Any]:
         logger.error(f"Failed to process request: {e}")
         return {"success": False, "message": "Failed to process request"}
 
+
     imdb_id = req.media.imdbId
     if not imdb_id:
         imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
@@ -34,6 +42,13 @@ async def overseerr_webhook(request: Request) -> Dict[str, Any]:
             logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
             return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
 
-    item = {"imdb_id": imdb_id, "requested_by": "overseerr", "requested_at": datetime.now()}
+    overseerr: Overseerr = request.app.program.services[Overseerr]
+    if imdb_id in overseerr.recurring_items:
+        logger.log("API", "Request already in queue", {"imdb_id": imdb_id})
+        return {"success": False, "message": "Request already in queue", "title": req.subject}
+    else:
+        overseerr.recurring_items.add(imdb_id)
+
+    item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "requested_at": datetime.now()})
     request.app.program.add_to_queue(item)
     return {"success": True}

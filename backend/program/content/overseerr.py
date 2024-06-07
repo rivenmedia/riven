@@ -44,14 +44,17 @@ class Overseerr:
                 return False
             return response.ok
         except (ConnectionError, RetryError, MaxRetryError, NewConnectionError) as e:
-            logger.error("Overseerr URL is not reachable. Please check your network connection and URL settings.")
+            logger.error(f"Overseerr URL is not reachable: {str(e)}")
             return False
         except Exception as e:
-            logger.error("Unexpected error during Overseerr validation. Please check the logs for more details.")
+            logger.error(f"Unexpected error during Overseerr validation: {str(e)}")
             return False
 
     def run(self):
         """Fetch new media from `Overseerr`"""
+        if self.settings.use_webhook:
+            return
+
         try:
             response = get(
                 self.settings.url + f"/api/v1/request?take={10000}&filter=approved",
