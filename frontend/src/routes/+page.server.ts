@@ -12,7 +12,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch user data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(503, 'Unable to fetch user data. API is down.');
+			error(503, 'Unable to fetch user data. Server error or API is down.');
 		}
 	}
 
@@ -25,12 +25,26 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			error(400, `Unable to fetch services data: ${res.status} ${res.statusText}`);
 		} catch (e) {
 			console.error(e);
-			error(503, 'Unable to fetch services data. API is down.');
+			error(503, 'Unable to fetch services data. Server error or API is down.');
+		}
+	}
+
+	async function getVersion() {
+		try {
+			const res = await fetch('http://127.0.0.1:8080/settings/get/version');
+			if (res.ok) {
+				return await res.json();
+			}
+			error(400, `Unable to fetch version data: ${res.status} ${res.statusText}`);
+		} catch (e) {
+			console.error(e);
+			error(503, 'Unable to fetch version data. Server error or API is down.');
 		}
 	}
 
 	return {
 		user: await getUserData(),
+        version: await getVersion(),
 		services: getServices()
 	};
 };

@@ -16,6 +16,17 @@ export function formatRDDate(inputDate: string, format: string = 'long'): string
 			month: 'short',
 			day: 'numeric'
 		});
+    } else if (format === 'left') {
+        const now = DateTime.now();
+        const diff = cetDate.diff(now, 'days').toObject();
+        const days = Math.round(diff.days ?? 0);
+        if (days > 0) {
+            formattedDate = `${days} days left`;
+        } else if (days < 0) {
+            formattedDate = `${Math.abs(days)} days ago`;
+        } else {
+            formattedDate = 'Today';
+        }
 	} else {
 		formattedDate = cetDate.toLocaleString(DateTime.DATETIME_FULL);
 	}

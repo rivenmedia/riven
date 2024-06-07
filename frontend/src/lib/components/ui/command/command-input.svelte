@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Command as CommandPrimitive } from "cmdk-sv";
-	import { Search } from "lucide-svelte";
-	import { cn } from "$lib/utils";
+	import Search from "lucide-svelte/icons/search";
+	import { cn } from "$lib/utils.js";
 
 	type $$Props = CommandPrimitive.InputProps;
 

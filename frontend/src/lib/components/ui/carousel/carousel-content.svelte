@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { cn } from "$lib/utils.js";
 	import type { HTMLAttributes } from "svelte/elements";
-	import { getEmblaContext } from "./context.js";
 	import emblaCarouselSvelte from "embla-carousel-svelte";
+	import { getEmblaContext } from "./context.js";
+	import { cn } from "$lib/utils.js";
 
 	type $$Props = HTMLAttributes<HTMLDivElement>;
 
@@ -19,9 +19,9 @@
 			container: "[data-embla-container]",
 			slides: "[data-embla-slide]",
 			...$options,
-			axis: $orientation === "horizontal" ? "x" : "y"
+			axis: $orientation === "horizontal" ? "x" : "y",
 		},
-		plugins: $plugins
+		plugins: $plugins,
 	}}
 	on:emblaInit={onInit}
 >

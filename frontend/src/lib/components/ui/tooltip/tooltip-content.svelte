@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Tooltip as TooltipPrimitive } from "bits-ui";
-	import { cn, flyAndScale } from "$lib/utils";
+	import { cn, flyAndScale } from "$lib/utils.js";
 
 	type $$Props = TooltipPrimitive.ContentProps;
 
@@ -9,7 +9,7 @@
 	export let transition: $$Props["transition"] = flyAndScale;
 	export let transitionConfig: $$Props["transitionConfig"] = {
 		y: 8,
-		duration: 150
+		duration: 150,
 	};
 	export { className as class };
 </script>
