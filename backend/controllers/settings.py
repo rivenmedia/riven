@@ -3,7 +3,7 @@ from typing import Any, List
 
 from fastapi import APIRouter, HTTPException
 from program.settings.manager import settings_manager
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 
 class SetSettings(BaseModel):
@@ -67,32 +67,40 @@ async def get_settings(paths: str):
 
 @router.post("/set")
 async def set_settings(settings: List[SetSettings]):
-    current_settings = settings_manager.settings.dict()
+    current_settings = settings_manager.settings.model_dump()
 
     for setting in settings:
         keys = setting.key.split(".")
         current_obj = current_settings
 
-        # Navigate to the last key's parent object, similar to the getter.
+        # Navigate to the last key's parent object, ensuring all keys exist.
         for k in keys[:-1]:
             if k not in current_obj:
-                # If a key in the path does not exist, raise an exception or optionally create a new dict.
                 raise HTTPException(
                     status_code=400,
                     detail=f"Path '{'.'.join(keys[:-1])}' does not exist.",
                 )
             current_obj = current_obj[k]
 
-        # Set the value at the final key.
+        # Ensure the final key exists before setting the value.
         if keys[-1] in current_obj:
             current_obj[keys[-1]] = setting.value
         else:
-            # If the final key does not exist, raise an exception.
             raise HTTPException(
                 status_code=400,
                 detail=f"Key '{keys[-1]}' does not exist in path '{'.'.join(keys[:-1])}'.",
             )
 
-    settings_manager.load(settings_dict=current_settings)
+    # Validate and apply the updated settings to the AppModel instance
+    try:
+        updated_settings = settings_manager.settings.__class__(**current_settings)
+        settings_manager.load(settings_dict=updated_settings.model_dump())
+        settings_manager.save()  # Ensure the changes are persisted
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to update settings: {str(e)}",
+        )
 
     return {"success": True, "message": "Settings updated successfully."}
+
