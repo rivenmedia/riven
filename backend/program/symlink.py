@@ -106,7 +106,7 @@ class Symlinker:
     def run(self, item: Union[Movie, Episode, Season, Show]):
         """Check if the media item exists and create a symlink if it does"""
         try:
-            def do_season(item, season ):
+            def do_season(item ):
                 all_symlinked = True
                 successfully_symlinked_episodes = []
                 for episode in item.episodes:
@@ -123,10 +123,10 @@ class Symlinker:
                     for episode in successfully_symlinked_episodes:
                         logger.log("SYMLINKER", f"Symlink created for {episode.log_string}")
             if isinstance(item, Season):
-                do_season(item, season)
+                do_season(item)
             if isinstance(item, Show):
                 for season in item.seasons:
-                    do_season(item, season)
+                    do_season( season)
             elif isinstance(item, (Movie, Episode)):
                 if not item.symlinked and item.file and item.folder:
                     if self._symlink(item):
