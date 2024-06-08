@@ -44,7 +44,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                if item.scraped_times >= 2:
+                if item.scraped_times >= 4:
                     pass #Season handles this below.
                 else:
                     items_to_submit = [item]
