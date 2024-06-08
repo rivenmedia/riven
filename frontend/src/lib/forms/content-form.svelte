@@ -15,6 +15,7 @@
 	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
 	import type { FormGroupCheckboxFieldType } from '$lib/types';
 	import FormTagsInputField from './components/form-tags-input-field.svelte';
+	import FormCheckboxField from './components/form-checkbox-field.svelte';
 
 	let formDebug: boolean = getContext('formDebug');
 
@@ -134,6 +135,16 @@
 					errors={$errors.overseerr_update_interval}
 				/>
 			</div>
+
+		<div transition:slide>
+			<FormCheckboxField
+					{config}
+					fieldName="overseerr_use_webhook"
+					labelName="Use Webhook"
+					bind:fieldValue={$form.overseerr_use_webhook}
+					errors={$errors.overseerr_use_webhook}
+			/>
+		</div>
 		{/if}
 
 		{#if $form.plex_watchlist_enabled}

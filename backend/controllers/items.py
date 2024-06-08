@@ -160,5 +160,5 @@ async def get_incomplete_items(request: Request):
 
     return {
         "success": True,
-        "incomplete_items": [item.to_extended_dict() for item in incomplete_items.values()]
+        "incomplete_items": [item.to_dict() for item in incomplete_items.values()]
     }
