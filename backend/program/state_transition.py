@@ -41,25 +41,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
-            if isinstance(item, Movie):
-                items_to_submit = [item]
-            elif isinstance(item, Show):
-                items_to_submit = [
-                    s for s in item.seasons 
-                    if s.state not in (States.Completed, States.Downloaded, States.Scraped) 
-                    and Scraping.can_we_scrape(s)
-                ]
-            elif isinstance(item, Season):
-                if item.scraped_times >= 4:
-                    items_to_submit = [
-                        e for e in item.episodes 
-                        if e.state not in (States.Completed, States.Downloaded, States.Scraped)
-                        and Scraping.can_we_scrape(e)
-                    ]
-                else:
-                    items_to_submit = [item]
-            else:
-                items_to_submit = [item]
+            items_to_submit = [item]
         else:
             items_to_submit = []
 
@@ -92,6 +74,14 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
         elif isinstance(item, (Movie, Episode)):
             proposed_submissions = [item]
+        elif isinstance(item, Show):
+            for season in item.seasons:
+                if all(e.file and e.folder for e in season.episodes if not e.symlinked):
+                    proposed_submissions += [season]
+                else:
+                    proposed_submissions += [e for e in season.episodes if not e.symlinked and e.file and e.folder]
+
+
         items_to_submit = []
         for sub_item in proposed_submissions:
             if Symlinker.should_submit(sub_item):
@@ -102,7 +92,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
         if isinstance(item, Show):
-            items_to_submit = [s for s in item.seasons]
+            items_to_submit = [item]
         elif isinstance(item, Season):
             items_to_submit = [item]
         else:

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler

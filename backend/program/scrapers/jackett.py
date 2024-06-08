@@ -74,7 +74,7 @@ class Jackett:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             yield item
             return
 
@@ -135,6 +135,8 @@ class Jackett:
         if isinstance(item, Movie):
             return self._search_movie_indexer(item, indexer)
         elif isinstance(item, (Season, Episode)):
+            return self._search_series_indexer(item, indexer)
+        elif isinstance(item, (Season, Show)):
             return self._search_series_indexer(item, indexer)
         else:
             raise TypeError("Only Movie and Series is allowed!")
@@ -205,7 +207,9 @@ class Jackett:
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
-        if isinstance(item, Season):
+        if isinstance(item, Show):
+            return item.get_top_title(), None, None
+        elif isinstance(item, Season):
             return item.get_top_title(), item.number, None
         elif isinstance(item, Episode):
             return item.get_top_title(), item.parent.number, item.number

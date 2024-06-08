@@ -81,6 +81,8 @@ class PlexUpdater:
 
         if isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
+        elif isinstance(item, Show):
+            items_to_update = [e for e in f.episodes for f in item.seasons if e.symlinked and e.get("update_folder") != "updated" ]
         elif isinstance(item, (Movie, Episode)):
             items_to_update = [item]
 
@@ -88,7 +90,7 @@ class PlexUpdater:
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
-                    if isinstance(item, Season):
+                    if isinstance(item, Season) or isinstance(item, Show):
                         for episode in items_to_update:
                             if path in episode.update_folder:
                                 if self._update_section(section, episode):
@@ -101,7 +103,7 @@ class PlexUpdater:
                                 updated = True
 
         if updated:
-            if isinstance(item, Season):
+            if isinstance(item, Season) or isinstance(item, Show):
                 if len(updated_episodes) == len(items_to_update):
                     logger.log("PLEX", f"Updated section {section.title} with all episodes for {item.log_string}")
                 else:
