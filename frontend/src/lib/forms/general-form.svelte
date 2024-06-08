@@ -29,9 +29,9 @@
 	}
 </script>
 
-<form method="POST" action={actionUrl} use:enhance class="my-4 flex flex-col gap-2">
-	<CheckboxField {form} name="debug" {formData} />
-	<CheckboxField {form} name="log" {formData} />
+<form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
+	<CheckboxField {form} name="debug" {formData} fieldDescription="Requires restart" />
+	<CheckboxField {form} name="log" {formData} fieldDescription="Requires restart" />
 	<TextField {form} name="rclone_path" {formData} />
 	<TextField {form} name="library_path" {formData} />
 
@@ -61,7 +61,7 @@
 		</div>
 	{/if}
 
-	<Separator class=" mt-4" />
+	<Separator class="mt-4" />
 	<div class="flex w-full justify-end">
 		<Form.Button disabled={$delayed} type="submit" size="sm" class="w-full lg:max-w-max">
 			{#if $delayed}
