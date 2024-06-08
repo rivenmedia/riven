@@ -120,6 +120,7 @@ export const contentSettingsSchema = z.object({
 	overseerr_url: z.string().optional().default(''),
 	overseerr_api_key: z.string().optional().default(''),
 	overseerr_update_interval: z.number().nonnegative().int().optional().default(30),
+	overseerr_use_webhook: z.boolean().optional().default(false),
 	mdblist_enabled: z.boolean().default(false),
 	mdblist_api_key: z.string().optional().default(''),
 	mdblist_update_interval: z.number().nonnegative().int().optional().default(300),
@@ -150,6 +151,7 @@ export function contentSettingsToPass(data: any) {
 		overseerr_url: data.data.content.overseerr?.url || '',
 		overseerr_api_key: data.data.content.overseerr?.api_key || '',
 		overseerr_update_interval: data.data.content.overseerr?.update_interval || 30,
+		overseerr_use_webhook: data.data.content.overseerr?.use_webhook || false,
 		mdblist_enabled: data.data.content.mdblist.enabled,
 		mdblist_api_key: data.data.content.mdblist?.api_key || '',
 		mdblist_update_interval: data.data.content.mdblist?.update_interval || 300,
@@ -183,7 +185,8 @@ export function contentSettingsToSet(form: SuperValidated<ContentSettingsSchema>
 					enabled: form.data.overseerr_enabled,
 					url: form.data.overseerr_url,
 					api_key: form.data.overseerr_api_key,
-					update_interval: form.data.overseerr_update_interval
+					update_interval: form.data.overseerr_update_interval,
+					use_webhook: form.data.overseerr_use_webhook
 				},
 				mdblist: {
 					enabled: form.data.mdblist_enabled,
