@@ -1,20 +1,23 @@
 <script lang="ts">
-	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
+	import { slide } from 'svelte/transition';
+	import { page } from '$app/stores';
+	import { getContext } from 'svelte';
+	import SuperDebug from 'sveltekit-superforms';
+	import { zodClient } from 'sveltekit-superforms/adapters';
 	import { type SuperValidated, type Infer, superForm } from 'sveltekit-superforms';
 	import * as Form from '$lib/components/ui/form';
-	import { zodClient } from 'sveltekit-superforms/adapters';
+	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
 	import { toast } from 'svelte-sonner';
-	import { page } from '$app/stores';
-	import SuperDebug from 'sveltekit-superforms';
 	import TextField from './components/text-field.svelte';
 	import CheckboxField from './components/checkbox-field.svelte';
 	import GroupCheckboxField from './components/group-checkbox-field.svelte';
 	import { Loader2 } from 'lucide-svelte';
 	import { Separator } from '$lib/components/ui/separator';
-	import { slide } from 'svelte/transition';
 
 	export let data: SuperValidated<Infer<GeneralSettingsSchema>>;
 	export let actionUrl: string = '?/default';
+
+	const formDebug: boolean = getContext('formDebug');
 
 	const form = superForm(data, {
 		validators: zodClient(generalSettingsSchema)
@@ -75,4 +78,6 @@
 	</div>
 </form>
 
-<SuperDebug data={$formData} />
+{#if formDebug}
+	<SuperDebug data={$formData} />
+{/if}

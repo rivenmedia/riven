@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts" generics="T extends Record<string, unknown>, U extends FormPath<T>">
-	import { type ControlProps, type FieldProps } from 'formsnap';
+	import { Control, Label, type ControlProps, Field, type FieldProps, FieldErrors } from 'formsnap';
 	import clsx from 'clsx';
 	import type { Writable } from 'svelte/store';
 	import { Input } from '$lib/components/ui/input';
@@ -20,7 +20,7 @@
 			label?: string;
 			fieldDescription?: string;
 			formData: Writable<any>;
-			isProtected?: boolean;
+			stepValue: number | undefined;
 		};
 
 	export let form: SuperForm<T>;
@@ -28,7 +28,7 @@
 	export let label: string = formatWords(name as string);
 	export let fieldDescription: string | undefined = undefined;
 	export let formData: Writable<any>;
-	export let isProtected: boolean = false;
+	export let stepValue: number | undefined;
 </script>
 
 <Form.Field {form} {name} let:value let:errors let:tainted let:constraints>
@@ -44,26 +44,12 @@
 					<p class="text-muted-foreground text-xs">{fieldDescription}</p>
 				{/if}
 			</div>
-			{#if isProtected}
-				<Input
-					{...attrs}
-					class={clsx('transition-all duration-300', {
-						'blur-sm hover:blur-none focus:blur-none': $formData[name].length > 0
-					})}
-					type="text"
-					spellcheck="false"
-					autocomplete="false"
-					bind:value={$formData[name]}
-				/>
-			{:else}
-				<Input
-					{...attrs}
-					type="text"
-					spellcheck="false"
-					autocomplete="false"
-					bind:value={$formData[name]}
-				/>
-			{/if}
+			<Input
+				{...attrs}
+				type="number"
+				step={stepValue}
+				bind:value={$formData[name]}
+			/>
 		</div>
 	</Form.Control>
 

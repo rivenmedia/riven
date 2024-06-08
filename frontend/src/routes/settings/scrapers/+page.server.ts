@@ -7,18 +7,18 @@ import {
 	setSettings,
 	saveSettings,
 	loadSettings,
-	generalSettingsSchema,
-	generalSettingsToGet,
-	generalSettingsServices,
-	generalSettingsToPass,
-	generalSettingsToSet
+	scrapersSettingsSchema,
+	scrapersSettingsToGet,
+	scrapersSettingsServices,
+	scrapersSettingsToPass,
+	scrapersSettingsToSet
 } from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
 			const results = await fetch(
-				`http://127.0.0.1:8080/settings/get/${generalSettingsToGet.join(',')}`
+				`http://127.0.0.1:8080/settings/get/${scrapersSettingsToGet.join(',')}`
 			);
 			return await results.json();
 		} catch (e) {
@@ -28,16 +28,16 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	let data: any = await getPartialSettings();
-	let toPassToSchema = generalSettingsToPass(data);
+	let toPassToSchema = scrapersSettingsToPass(data);
 
 	return {
-		form: await superValidate(toPassToSchema, zod(generalSettingsSchema))
+		form: await superValidate(toPassToSchema, zod(scrapersSettingsSchema))
 	};
 };
 
 export const actions: Actions = {
 	default: async (event) => {
-		const form = await superValidate(event, zod(generalSettingsSchema));
+		const form = await superValidate(event, zod(scrapersSettingsSchema));
 
 		if (!form.valid) {
 			console.log("form not valid")
@@ -45,14 +45,14 @@ export const actions: Actions = {
 				form
 			});
 		}
-		const toSet = generalSettingsToSet(form);
+		const toSet = scrapersSettingsToSet(form);
 
 		try {
-			const data = await setSettings(event.fetch, toSet, generalSettingsServices);
+			const data = await setSettings(event.fetch, toSet, scrapersSettingsServices);
 			if (!data.data.success) {
 				return message(
 					form,
-					`${generalSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
+					`${scrapersSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
 					{
 						status: 400
 					}
@@ -68,7 +68,7 @@ export const actions: Actions = {
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/2');
+			redirect(302, '/onboarding/4');
 		}
 
 		return message(form, 'Settings saved!');

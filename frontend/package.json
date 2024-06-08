@@ -20,6 +20,7 @@
 		"@types/eslint": "^8.56.10",
 		"@types/luxon": "^3.4.2",
 		"@types/nprogress": "^0.2.3",
+		"@types/uuid": "^9.0.8",
 		"autoprefixer": "^10.4.19",
 		"eslint": "^9.4.0",
 		"eslint-config-prettier": "^9.1.0",
@@ -53,6 +54,7 @@
 		"sveltekit-superforms": "^2.14.0",
 		"tailwind-merge": "^2.3.0",
 		"tailwind-variants": "^0.2.1",
+		"uuid": "^9.0.1",
 		"zod": "^3.23.8"
 	}
 }

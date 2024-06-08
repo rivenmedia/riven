@@ -16,7 +16,7 @@
 	})}
 >
 	<div class="flex w-full min-w-48 flex-col items-start gap-1 md:w-48">
-		<p class="text-base">{fieldTitle}</p>
+		<p class="text-sm">{fieldTitle}</p>
 		{#if fieldDescription}
 			<p class="text-muted-foreground text-xs">{fieldDescription}</p>
 		{/if}
