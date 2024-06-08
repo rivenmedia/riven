@@ -42,35 +42,36 @@ export const actions: Actions = {
         // console.log(form.data);
 
 		if (!form.valid) {
+			console.log("form not valid")
 			return fail(400, {
 				form
 			});
 		}
-		// const toSet = generalSettingsToSet(form);
+		const toSet = generalSettingsToSet(form);
 
-		// try {
-		// 	const data = await setSettings(event.fetch, toSet, generalSettingsServices);
-		// 	if (!data.data.success) {
-		// 		return message(
-		// 			form,
-		// 			`${generalSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
-		// 			{
-		// 				status: 400
-		// 			}
-		// 		);
-		// 	}
-		// 	const save = await saveSettings(event.fetch);
-		// 	const load = await loadSettings(event.fetch);
-		// } catch (e) {
-		// 	console.error(e);
-		// 	return message(form, 'Unable to save settings. API is down.', {
-		// 		status: 400
-		// 	});
-		// }
+		try {
+			const data = await setSettings(event.fetch, toSet, generalSettingsServices);
+			if (!data.data.success) {
+				return message(
+					form,
+					`${generalSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
+					{
+						status: 400
+					}
+				);
+			}
+			const save = await saveSettings(event.fetch);
+			const load = await loadSettings(event.fetch);
+		} catch (e) {
+			console.error(e);
+			return message(form, 'Unable to save settings. API is down.', {
+				status: 400
+			});
+		}
 
-		// if (event.url.searchParams.get('onboarding') === 'true') {
-		// 	redirect(302, '/onboarding/2');
-		// }
+		if (event.url.searchParams.get('onboarding') === 'true') {
+			redirect(302, '/onboarding/2');
+		}
 
 		return message(form, 'Settings saved!');
 	}
