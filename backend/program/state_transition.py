@@ -41,7 +41,26 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
-            items_to_submit = [item]
+            if isinstance(item, Movie):
+                items_to_submit = [item]
+            elif isinstance(item, Show):
+                if item.scraped_times >= 2:
+                    pass #Season handles this below.
+                else:
+                    items_to_submit = [item]
+            elif isinstance(item, Season):
+                if item.parent.scraped_times >=4:
+                    if item.scraped_times >= 4:
+                        items_to_submit = [
+                            e for e in item.episodes 
+                            if e.state not in (States.Completed, States.Downloaded, States.Scraped)
+                            and Scraping.can_we_scrape(e)
+                        ]
+                    else:
+                        items_to_submit = [item]
+            else:
+                items_to_submit = [item]
+            
         else:
             items_to_submit = []
 
@@ -75,11 +94,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         elif isinstance(item, (Movie, Episode)):
             proposed_submissions = [item]
         elif isinstance(item, Show):
-            for season in item.seasons:
-                if all(e.file and e.folder for e in season.episodes if not e.symlinked):
-                    proposed_submissions += [season]
-                else:
-                    proposed_submissions += [e for e in season.episodes if not e.symlinked and e.file and e.folder]
+            proposed_submissions = [item]
 
 
         items_to_submit = []
