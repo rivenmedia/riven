@@ -21,13 +21,13 @@ class Scraping:
         self.settings = settings_manager.settings.scraping
         self.hash_cache = hash_cache
         self.services = {
-            Annatar: Annatar(self.hash_cache),
-            Torrentio: Torrentio(self.hash_cache),
-            Knightcrawler: Knightcrawler(self.hash_cache),
-            Orionoid: Orionoid(self.hash_cache),
-            Jackett: Jackett(self.hash_cache),
-            TorBoxScraper: TorBoxScraper(self.hash_cache),
-            Mediafusion: Mediafusion(self.hash_cache)
+            "Annatar": Annatar(self.hash_cache),
+            "Torrentio": Torrentio(self.hash_cache),
+            "Knightcrawler": Knightcrawler(self.hash_cache),
+            "Orionoid": Orionoid(self.hash_cache),
+            "Jackett": Jackett(self.hash_cache),
+            "TorBoxScraper": TorBoxScraper(self.hash_cache),
+            "Mediafusion": Mediafusion(self.hash_cache)
         }
         self.initialized = self.validate()
 
@@ -46,10 +46,10 @@ class Scraping:
         for thread in threads:
             thread.join()
 
-        results = []
+        results = {}
         while not results_queue.empty():
             a = results_queue.get()
-            results.extend(a)
+            results = results | a
         item.streams.update(results)
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
@@ -57,14 +57,14 @@ class Scraping:
 
     def _thread_target(self, service, service_name: str, item: MediaItem, results_queue: queue.Queue):
         if not service.initialized:
-            return []
+            return
 
         try:
             result = service.run(item)
             logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
         except TypeError as e:
-            result = []
             logger.exception(f"{service_name} failed to scrape item with error: {e}")
+            return
         results_queue.put(result)
 
     @classmethod
