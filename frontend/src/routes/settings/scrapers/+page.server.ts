@@ -2,14 +2,12 @@ import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { fail, error, redirect } from '@sveltejs/kit';
-import { formatWords } from '$lib/helpers';
 import {
 	setSettings,
 	saveSettings,
 	loadSettings,
 	scrapersSettingsSchema,
 	scrapersSettingsToGet,
-	scrapersSettingsServices,
 	scrapersSettingsToPass,
 	scrapersSettingsToSet
 } from '$lib/forms/helpers';
@@ -40,7 +38,7 @@ export const actions: Actions = {
 		const form = await superValidate(event, zod(scrapersSettingsSchema));
 
 		if (!form.valid) {
-			console.log("form not valid")
+			console.log('form not valid');
 			return fail(400, {
 				form
 			});
@@ -48,15 +46,11 @@ export const actions: Actions = {
 		const toSet = scrapersSettingsToSet(form);
 
 		try {
-			const data = await setSettings(event.fetch, toSet, scrapersSettingsServices);
+			const data = await setSettings(event.fetch, toSet);
 			if (!data.data.success) {
-				return message(
-					form,
-					`${scrapersSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
-					{
-						status: 400
-					}
-				);
+				return message(form, `Service(s) failed to initialize. Please check your settings.`, {
+					status: 400
+				});
 			}
 			const save = await saveSettings(event.fetch);
 			const load = await loadSettings(event.fetch);

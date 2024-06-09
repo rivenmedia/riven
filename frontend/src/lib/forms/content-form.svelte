@@ -6,7 +6,7 @@
 	import { zodClient } from 'sveltekit-superforms/adapters';
 	import { type SuperValidated, type Infer, superForm } from 'sveltekit-superforms';
 	import * as Form from '$lib/components/ui/form';
-	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
+	import { contentSettingsSchema, type ContentSettingsSchema } from '$lib/forms/helpers';
 	import { toast } from 'svelte-sonner';
 	import TextField from './components/text-field.svelte';
 	import NumberField from './components/number-field.svelte';
@@ -17,13 +17,13 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Input } from '$lib/components/ui/input';
 
-	export let data: SuperValidated<Infer<ScrapersSettingsSchema>>;
+	export let data: SuperValidated<Infer<ContentSettingsSchema>>;
 	export let actionUrl: string = '?/default';
 
 	const formDebug: boolean = getContext('formDebug');
 
 	const form = superForm(data, {
-		validators: zodClient(scrapersSettingsSchema)
+		validators: zodClient(contentSettingsSchema)
 	});
 
 	const { form: formData, enhance, message, errors, delayed } = form;
@@ -46,7 +46,56 @@
 </script>
 
 <form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
-	<NumberField
+	<!-- overseerr_enabled, mdblist_enabled, plex_watchlist_enabled, , listrr_enabled, trakt_enabled -->
+
+	<GroupCheckboxField
+		fieldTitle="Content Providers"
+		fieldDescription="Enable the content providers you want to use"
+	>
+		<CheckboxField {form} name="overseerr_enabled" label="Overseerr" {formData} isForGroup={true} />
+		<CheckboxField {form} name="mdblist_enabled" label="MDB List" {formData} isForGroup={true} />
+		<CheckboxField
+			{form}
+			name="plex_watchlist_enabled"
+			label="Plex Watchlist"
+			{formData}
+			isForGroup={true}
+		/>
+		<CheckboxField {form} name="listrr_enabled" label="Listrr" {formData} isForGroup={true} />
+		<CheckboxField {form} name="trakt_enabled" label="Trakt" {formData} isForGroup={true} />
+	</GroupCheckboxField>
+
+	{#if $formData.overseerr_enabled}
+		<div transition:slide>
+			<TextField {form} name="overseerr_url" {formData} />
+		</div>
+
+		<div transition:slide>
+			<TextField {form} name="overseerr_api_key" {formData} isProtected={true} />
+		</div>
+
+		<div transition:slide>
+			<NumberField {form} name="overseerr_update_interval" {formData} stepValue={1} />
+		</div>
+	{/if}
+
+	{#if $formData.mdblist_enabled}
+        <div transition:slide>
+            <TextField {form} name="mdblist_api_key" {formData} isProtected={true} />
+        </div>
+
+        <div transition:slide>
+            <NumberField {form} name="mdblist_update_interval" {formData} stepValue={1} />
+        </div>
+    {/if}
+
+	{#if $formData.plex_watchlist_enabled}{/if}
+
+	{#if $formData.listrr_enabled}{/if}
+
+	{#if $formData.trakt_enabled}{/if}
+
+	<!-- <NumberField
 		{form}
 		name="after_2"
 		{formData}
@@ -229,7 +278,7 @@
 		<div transition:slide>
 			<TextField {form} name="prowlarr_api_key" {formData} isProtected={true} />
 		</div>
-	{/if}
+	{/if} -->
 
 	<Separator class="mt-4" />
 	<div class="flex w-full justify-end">

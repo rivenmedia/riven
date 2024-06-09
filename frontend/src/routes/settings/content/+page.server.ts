@@ -6,17 +6,17 @@ import {
 	setSettings,
 	saveSettings,
 	loadSettings,
-	generalSettingsSchema,
-	generalSettingsToGet,
-	generalSettingsToPass,
-	generalSettingsToSet
+	contentSettingsSchema,
+	contentSettingsToGet,
+	contentSettingsToPass,
+	contentSettingsToSet
 } from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
 			const results = await fetch(
-				`http://127.0.0.1:8080/settings/get/${generalSettingsToGet.join(',')}`
+				`http://127.0.0.1:8080/settings/get/${contentSettingsToGet.join(',')}`
 			);
 			return await results.json();
 		} catch (e) {
@@ -26,16 +26,16 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	let data: any = await getPartialSettings();
-	let toPassToSchema = generalSettingsToPass(data);
+	let toPassToSchema = contentSettingsToPass(data);
 
 	return {
-		form: await superValidate(toPassToSchema, zod(generalSettingsSchema))
+		form: await superValidate(toPassToSchema, zod(contentSettingsSchema))
 	};
 };
 
 export const actions: Actions = {
 	default: async (event) => {
-		const form = await superValidate(event, zod(generalSettingsSchema));
+		const form = await superValidate(event, zod(contentSettingsSchema));
 
 		if (!form.valid) {
 			console.log('form not valid');
@@ -43,7 +43,7 @@ export const actions: Actions = {
 				form
 			});
 		}
-		const toSet = generalSettingsToSet(form);
+		const toSet = contentSettingsToSet(form);
 
 		try {
 			const data = await setSettings(event.fetch, toSet);
@@ -62,7 +62,7 @@ export const actions: Actions = {
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/2');
+			redirect(302, '/?onboarding=true');
 		}
 
 		return message(form, 'Settings saved!');
