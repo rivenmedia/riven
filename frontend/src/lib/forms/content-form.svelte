@@ -80,9 +80,9 @@
 	{/if}
 
 	{#if $formData.mdblist_enabled}
-        <div transition:slide>
-            <TextField {form} name="mdblist_api_key" {formData} isProtected={true} />
-        </div>
+		<div transition:slide>
+			<TextField {form} name="mdblist_api_key" {formData} isProtected={true} />
+		</div>
 
 		<div transition:slide>
 			<ArrayField {form} name="mdblist_lists" {formData}>
@@ -131,16 +131,248 @@
 			</ArrayField>
 		</div>
 
-        <div transition:slide>
-            <NumberField {form} name="mdblist_update_interval" {formData} stepValue={1} />
-        </div>
-    {/if}
+		<div transition:slide>
+			<NumberField {form} name="mdblist_update_interval" {formData} stepValue={1} />
+		</div>
+	{/if}
 
-	{#if $formData.plex_watchlist_enabled}{/if}
+	{#if $formData.plex_watchlist_enabled}
+		<div transition:slide>
+			<TextField {form} name="plex_watchlist_rss" {formData} />
+		</div>
 
-	{#if $formData.listrr_enabled}{/if}
+		<div transition:slide>
+			<NumberField {form} name="plex_watchlist_update_interval" {formData} stepValue={1} />
+		</div>
+	{/if}
 
-	{#if $formData.trakt_enabled}{/if}
+	{#if $formData.listrr_enabled}
+		<div transition:slide>
+			<TextField {form} name="listrr_api_key" {formData} isProtected={true} />
+		</div>
+
+		<div transition:slide>
+			<NumberField {form} name="listrr_update_interval" {formData} stepValue={1} />
+		</div>
+
+		<div transition:slide>
+			<ArrayField {form} name="listrr_movie_lists" {formData}>
+				{#each $formData.listrr_movie_lists as _, i}
+					<Form.ElementField {form} name="listrr_movie_lists[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.listrr_movie_lists[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('listrr_movie_lists', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-muted-foreground text-sm">Add Listrr movie lists</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('listrr_movie_lists');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+
+		<div transition:slide>
+			<ArrayField {form} name="listrr_show_lists" {formData}>
+				{#each $formData.listrr_show_lists as _, i}
+					<Form.ElementField {form} name="listrr_show_lists[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.listrr_show_lists[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('listrr_show_lists', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-muted-foreground text-sm">Add Listrr shows lists</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('listrr_show_lists');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+	{/if}
+
+	{#if $formData.trakt_enabled}
+		<div transition:slide>
+			<TextField {form} name="trakt_api_key" {formData} isProtected={true} />
+		</div>
+
+		<div transition:slide>
+			<NumberField {form} name="trakt_update_interval" {formData} stepValue={1} />
+		</div>
+
+		<div transition:slide>
+			<ArrayField {form} name="trakt_watchlist" {formData}>
+				{#each $formData.trakt_watchlist as _, i}
+					<Form.ElementField {form} name="trakt_watchlist[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.trakt_watchlist[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('trakt_watchlist', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-muted-foreground text-sm">Add Trakt watchlist</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('trakt_watchlist');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+
+		<div transition:slide>
+			<ArrayField {form} name="trakt_user_lists" {formData}>
+				{#each $formData.trakt_user_lists as _, i}
+					<Form.ElementField {form} name="trakt_user_lists[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.trakt_user_lists[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('trakt_user_lists', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-muted-foreground text-sm">Add Trakt user watchlists</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('trakt_user_lists');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="trakt_fetch_trending" {formData} />
+		</div>
+
+		{#if $formData.trakt_fetch_trending}
+			<div transition:slide>
+				<NumberField {form} name="trakt_trending_count" {formData} stepValue={1} />
+			</div>
+		{/if}
+
+		<div transition:slide>
+			<CheckboxField {form} name="trakt_fetch_popular" {formData} />
+		</div>
+
+		{#if $formData.trakt_fetch_popular}
+			<div transition:slide>
+				<NumberField {form} name="trakt_popular_count" {formData} stepValue={1} />
+			</div>
+		{/if}
+	{/if}
 
 	<Separator class="mt-4" />
 	<div class="flex w-full justify-end">
@@ -149,7 +381,7 @@
 				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 			{/if}
 			Save changes
-			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/general'}
+			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/content'}
 				>and continue</span
 			>
 		</Form.Button>

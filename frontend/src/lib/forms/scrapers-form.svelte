@@ -238,7 +238,7 @@
 				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 			{/if}
 			Save changes
-			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/general'}
+			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/scrapers'}
 				>and continue</span
 			>
 		</Form.Button>
