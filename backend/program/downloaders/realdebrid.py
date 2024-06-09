@@ -57,7 +57,7 @@ class Debrid:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
-        if isinstance(item, Show) or (item.file and item.folder):
+        if (item.file and item.folder):
             return
         if not self.is_cached(item):
             return
@@ -171,7 +171,11 @@ class Debrid:
                 if self._is_wanted_season(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
                     return True
-
+        elif isinstance(item, Show):
+            for container in sorted_containers:
+                if self._is_wanted_show(container, item):
+                    item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    return True
         # If no cached files were found in any of the containers, return False
         return False
 
@@ -291,6 +295,64 @@ class Debrid:
                 ep.set("file", filename)
             return True
         return False
+    
+    def _is_wanted_show(self, container: dict, item: Show) -> bool:
+        """Check if container has wanted files for a show"""
+        if not isinstance(item, Show):
+            logger.error(f"Item is not a Show instance: {item.log_string}")
+            return False
+
+        # Filter and sort files once to improve performance
+        filenames = [
+            file for file in container.values()
+            if file and file["filesize"] > 4e+7 and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+        ]
+
+        if not filenames:
+            return False
+
+        # Create a dictionary to map seasons and episodes needed
+        needed_episodes = {}
+        acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed]
+
+        for season in item.seasons:
+            if season.state in acceptable_states and season.is_released:
+                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released}
+                if needed_episode_numbers:
+                    needed_episodes[season.number] = needed_episode_numbers
+        if not needed_episodes:
+            return False
+
+        # Iterate over each file to check if it matches
+        # the season and episode within the show
+        matched_files = {}
+        for file in filenames:
+            with contextlib.suppress(GarbageTorrent, TypeError):
+                parsed_file = parse(file["filename"], remove_trash=True)
+                if not parsed_file or not parsed_file.parsed_title or 0 in parsed_file.season:
+                    continue
+                # Check each season and episode to find a match
+                for season_number, episodes in needed_episodes.items():
+                    if season_number in parsed_file.season:
+                        for episode_number in list(episodes):
+                            if episode_number in parsed_file.episode:
+                                # Store the matched file for this episode
+                                matched_files[(season_number, episode_number)] = file
+                                episodes.remove(episode_number)
+        if not matched_files:
+            return False
+
+        all_found = all(len(episodes) == 0 for episodes in needed_episodes.values())
+
+        if all_found:
+            for (season_number, episode_number), file in matched_files.items():
+                season = next(season for season in item.seasons if season.number == season_number)
+                episode = next(episode for episode in season.episodes if episode.number == episode_number)
+                episode.set("folder", item.active_stream.get("name"))
+                episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                episode.set("file", file.get("filename"))
+            return True
+        return False
 
     def _is_downloaded(self, item: MediaItem) -> bool:
         """Check if item is already downloaded after checking if it was cached"""
@@ -380,6 +442,12 @@ class Debrid:
             for episode in item.episodes:
                 if episode.file and not episode.folder:
                     episode.set("folder", item.folder)
+        if isinstance(item, Show) and item.folder:
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.file and not episode.folder:
+                        episode.set("folder", item.folder)
+        
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
@@ -481,7 +549,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
         logger.error(f"Torrent info for {item.log_string} does not have files attribute: {torrent_info}")
         return False
 
-    def check_movie():
+    def check_movie(item: MediaItem):
         for file in torrent_info.files:
             if file.selected == 1 and file.bytes > 200_000_000:
                 file_size_mb = file.bytes / (1024 * 1024)
@@ -493,7 +561,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                 return True
         return False
 
-    def check_episode():
+    def check_episode(item: MediaItem):
         one_season = len(item.parent.parent.seasons) == 1
         item_number = item.number
         parent_number = item.parent.number
@@ -505,7 +573,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                     return True
         return False
 
-    def check_season():
+    def check_season(item: MediaItem):
         season_number = item.number
         episodes_in_season = {episode.number for episode in item.episodes}
         matched_episodes = set()
@@ -520,17 +588,24 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
         return len(matched_episodes) >= len(episodes_in_season) // 2
 
     if isinstance(item, Movie):
-        if check_movie():
+        if check_movie(item):
             logger.info(f"Movie {item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Episode):
-        if check_episode():
+        if check_episode(item):
             logger.info(f"Episode {item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Season):
-        if check_season():
+        if check_season(item):
             logger.info(f"Season {item.log_string} already exists in Real-Debrid account.")
             return True
+    elif isinstance(item, Show):
+        for season in item.seasons:
+            all = True
+            if check_season(season) == False:
+                all = False
+            if all == True:
+                return true
 
     logger.debug(f"No matching item found for {item.log_string}")
     return False

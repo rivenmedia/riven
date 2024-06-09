@@ -144,7 +144,7 @@ class MediaItem:
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": str(self.requested_at),
-            "requested_by": self.requested_by.__name__ if self.requested_by else None,
+            "requested_by": self.requested_by.__name__ if (self.requested_by and getattr(self.requested_by, "__name__",False)) else (self.requested_by if self.requested_by else None) ,
             "scraped_at": self.scraped_at,
             "scraped_times": self.scraped_times,
         }
@@ -266,13 +266,13 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
+        if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
+        if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
-        if any(season.state == States.Scraped for season in self.seasons):
+        if self.is_scraped():
             return States.Scraped
-        if any(season.state == States.Indexed for season in self.seasons):
+        if all(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested

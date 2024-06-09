@@ -63,24 +63,23 @@ class PlexUpdater:
             logger.exception(f"Plex exception thrown: {e}")
         return False
 
-    def run(self, item: Union[Movie, Episode, Season]) -> Generator[Union[Movie, Episode, Season], None, None]:
+    def run(self, item: Union[Movie, Episode, Season, Show]) -> Generator[Union[Movie, Episode, Season, Show], None, None]:
         """Update Plex library section for a single item or a season with its episodes"""
         if not item:
             logger.error(f"Item type not supported, skipping {item}")
             yield item
             return
 
-        if isinstance(item, Show):
-            logger.error(f"Plex Updater does not support shows, skipping {item}")
-            yield item
-            return
-
-        item_type = "show" if isinstance(item, (Episode, Season)) else "movie"
+        item_type = "show" if isinstance(item, (Episode, Season, Show)) else "movie"
         updated = False
         updated_episodes = []
+        items_to_update = []
 
         if isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
+        elif isinstance(item, Show):
+            for season in item.seasons:
+                items_to_update += [e for e in season.episodes if e.symlinked and e.get("update_folder") != "updated" ]
         elif isinstance(item, (Movie, Episode)):
             items_to_update = [item]
 
@@ -88,7 +87,7 @@ class PlexUpdater:
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
-                    if isinstance(item, Season):
+                    if isinstance(item, Season) or isinstance(item, Show):
                         for episode in items_to_update:
                             if path in episode.update_folder:
                                 if self._update_section(section, episode):
@@ -101,7 +100,7 @@ class PlexUpdater:
                                 updated = True
 
         if updated:
-            if isinstance(item, Season):
+            if isinstance(item, Season) or isinstance(item, Show):
                 if len(updated_episodes) == len(items_to_update):
                     logger.log("PLEX", f"Updated section {section.title} with all episodes for {item.log_string}")
                 else:
