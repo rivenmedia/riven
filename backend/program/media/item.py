@@ -35,7 +35,6 @@ class MediaItem:
         self.scraped_times: Optional[int] = 0
         self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
         self.streams: Optional[dict[str, Torrent]] = {}
-        self.actively_being_scraped = False
 
         self.symlinked: Optional[bool] = False
         self.symlinked_at: Optional[datetime] = None
@@ -249,7 +248,6 @@ class Show(MediaItem):
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.type = "show"
-        self.m_scraped = False
         super().__init__(item)
         self.item_id = ItemId(self.imdb_id)
 
@@ -263,7 +261,6 @@ class Show(MediaItem):
     def _determine_state(self):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
-
         if any(
             season.state in (States.Completed, States.PartiallyCompleted)
             for season in self.seasons
@@ -279,8 +276,6 @@ class Show(MediaItem):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
-        # Hmm, First, let's see if we're scraped
-        
         return States.Unknown
 
     def __repr__(self):
