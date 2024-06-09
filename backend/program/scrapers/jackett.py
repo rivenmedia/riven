@@ -40,11 +40,9 @@ class Jackett:
         self.settings = settings_manager.settings.scraping.jackett
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
-
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
         logger.success("Jackett initialized!")
