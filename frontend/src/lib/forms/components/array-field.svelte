@@ -30,7 +30,7 @@
 <Form.Fieldset {form} {name}>
 	<div
 		class={clsx('flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4', {
-			'md:items-center': !fieldDescription
+			'md:items-center': !fieldDescription || !$formData[name].length
 		})}
 	>
 		<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
@@ -41,13 +41,7 @@
 		</div>
 
 		<div class="flex flex-col items-start gap-2">
-			{#each $formData[name] as _, i}
-				<Form.ElementField {form} name="{name}[{i}]">
-					<Form.Control let:attrs>
-						<input type="text" {...attrs} bind:value={$formData[name][i]} />
-					</Form.Control>
-				</Form.ElementField>
-			{/each}
+			<slot />
 		</div>
 
 		<Form.FieldErrors class="mt-2 text-xs text-red-500" />

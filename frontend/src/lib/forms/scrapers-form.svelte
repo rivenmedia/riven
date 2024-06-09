@@ -12,10 +12,10 @@
 	import NumberField from './components/number-field.svelte';
 	import CheckboxField from './components/checkbox-field.svelte';
 	import GroupCheckboxField from './components/group-checkbox-field.svelte';
-    import ArrayField from './components/array-field.svelte';
-	import { Loader2 } from 'lucide-svelte';
+	import ArrayField from './components/array-field.svelte';
+	import { Loader2, Trash2, Plus } from 'lucide-svelte';
 	import { Separator } from '$lib/components/ui/separator';
-	import Label from '$lib/components/ui/label/label.svelte';
+	import { Input } from '$lib/components/ui/input';
 
 	export let data: SuperValidated<Infer<ScrapersSettingsSchema>>;
 	export let actionUrl: string = '?/default';
@@ -32,6 +32,16 @@
 		toast.success($message);
 	} else if ($message) {
 		toast.error($message);
+	}
+
+	function addField(name: string) {
+		// @ts-ignore
+		$formData[name] = [...$formData[name], ''];
+	}
+
+	function removeField(name: string, index: number) {
+		// @ts-ignore
+		$formData[name] = $formData[name].filter((_, i) => i !== index);
 	}
 </script>
 
@@ -163,11 +173,52 @@
 			<TextField {form} name="mediafusion_url" {formData} />
 		</div>
 
-        <div transition:slide>
-            <ArrayField {form} name="mediafusion_catalogs" {formData}>
+		<div transition:slide>
+			<ArrayField {form} name="mediafusion_catalogs" {formData}>
+				{#each $formData.mediafusion_catalogs as _, i}
+					<Form.ElementField {form} name="mediafusion_catalogs[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.mediafusion_catalogs[i]}
+								/>
 
-            </ArrayField>
-        </div>
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('mediafusion_catalogs', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-end gap-2">
+					<p class="text-muted-foreground text-sm">Add catalogs</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('mediafusion_catalogs');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
 	{/if}
 
 	{#if $formData.prowlarr_enabled}
