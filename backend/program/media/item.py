@@ -35,6 +35,7 @@ class MediaItem:
         self.scraped_times: Optional[int] = 0
         self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
         self.streams: Optional[dict[str, Torrent]] = {}
+        self.actively_being_scraped = False
 
         self.symlinked: Optional[bool] = False
         self.symlinked_at: Optional[datetime] = None
@@ -144,7 +145,7 @@ class MediaItem:
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": str(self.requested_at),
-            "requested_by": self.requested_by.__name__ if self.requested_by else None,
+            "requested_by": self.requested_by.__name__ if (self.requested_by and getattr(self.requested_by, "__name__",False)) else (self.requested_by if self.requested_by else None) ,
             "scraped_at": self.scraped_at,
             "scraped_times": self.scraped_times,
         }
