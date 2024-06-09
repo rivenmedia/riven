@@ -54,7 +54,7 @@ class Torrentio:
         """Scrape the torrentio site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            return []
+            return {}
 
         try:
             return self.scrape(item)
@@ -70,7 +70,7 @@ class Torrentio:
             logger.exception(f"Torrentio exception thrown: {e}")
         self.minute_limiter.limit_hit()
         self.second_limiter.limit_hit()
-        return []
+        return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
@@ -82,7 +82,7 @@ class Torrentio:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return []
+        return {}
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Torrentio` scrape method"""

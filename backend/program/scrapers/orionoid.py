@@ -92,7 +92,7 @@ class Orionoid:
         """Scrape the orionoid site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            return []
+            return {}
 
         try:
             return self.scrape(item)
@@ -109,7 +109,7 @@ class Orionoid:
                 logger.error(f"Orionoid request exception: {e}")
             else:
                 logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
-        return []
+        return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
@@ -125,7 +125,7 @@ class Orionoid:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return []
+        return {}
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""

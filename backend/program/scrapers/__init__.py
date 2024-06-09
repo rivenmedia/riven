@@ -1,6 +1,7 @@
 from datetime import datetime
 import threading
 import queue
+import time
 
 from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
@@ -21,13 +22,13 @@ class Scraping:
         self.settings = settings_manager.settings.scraping
         self.hash_cache = hash_cache
         self.services = {
-            "Annatar": Annatar(self.hash_cache),
-            "Torrentio": Torrentio(self.hash_cache),
-            "Knightcrawler": Knightcrawler(self.hash_cache),
-            "Orionoid": Orionoid(self.hash_cache),
-            "Jackett": Jackett(self.hash_cache),
-            "TorBoxScraper": TorBoxScraper(self.hash_cache),
-            "Mediafusion": Mediafusion(self.hash_cache)
+            Annatar: Annatar(self.hash_cache),
+            Torrentio: Torrentio(self.hash_cache),
+            Knightcrawler: Knightcrawler(self.hash_cache),
+            Orionoid: Orionoid(self.hash_cache),
+            Jackett: Jackett(self.hash_cache),
+            TorBoxScraper: TorBoxScraper(self.hash_cache),
+            Mediafusion: Mediafusion(self.hash_cache)
         }
         self.initialized = self.validate()
 
@@ -50,6 +51,7 @@ class Scraping:
         while not results_queue.empty():
             a = results_queue.get()
             results = results | a
+
         item.streams.update(results)
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
@@ -60,10 +62,11 @@ class Scraping:
             return
 
         try:
+            start = time.time()
             result = service.run(item)
-            logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
+            logger.debug(f"{service_name.__name__} finished scraping for item: {item.log_string} in {(time.time() - start):.2f}")
         except TypeError as e:
-            logger.exception(f"{service_name} failed to scrape item with error: {e}")
+            logger.exception(f"{service_name.__name__} failed to scrape item with error: {e}")
             return
         results_queue.put(result)
 

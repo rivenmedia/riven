@@ -54,7 +54,7 @@ class Knightcrawler:
         """Scrape the knightcrawler site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            return []
+            return {}
 
         try:
             return self.scrape(item)
@@ -70,7 +70,7 @@ class Knightcrawler:
             logger.exception(f"Knightcrawler exception thrown: {e}")
         self.minute_limiter.limit_hit()
         self.second_limiter.limit_hit()
-        return []
+        return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
@@ -82,7 +82,7 @@ class Knightcrawler:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return []
+        return {}
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Knightcrawler` scrape method"""

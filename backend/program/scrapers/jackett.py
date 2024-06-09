@@ -75,7 +75,7 @@ class Jackett:
         """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            return []
+            return {}
 
         try:
             return self.scrape(item)
@@ -86,7 +86,7 @@ class Jackett:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:
             logger.error(f"Jackett failed to scrape item with error: {e}")
-        return []
+        return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
@@ -98,7 +98,7 @@ class Jackett:
             logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return []
+        return {}
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Jackett` scrape method"""

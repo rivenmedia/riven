@@ -90,7 +90,7 @@ class Annatar:
         except Exception as e:
             self.second_limiter.limit_hit()
             logger.exception(f"Annatar failed to scrape item with error: {e}")
-        return []
+        return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, Torrent]:
         """Scrape the given media item"""
