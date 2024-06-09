@@ -1,12 +1,14 @@
 import asyncio
 import contextlib
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
-from program.media.item import Episode, Movie, Season, Show
+from program.media.container import MediaItemContainer
+from program.media.item import Episode, ItemId, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -37,9 +39,10 @@ class Symlinker:
         library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
 
-    def __init__(self):
+    def __init__(self, media_items: MediaItemContainer):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
+        self.media_items = media_items
         # we can't delete from rclone if this is enabled
         self.torbox_enabled = settings_manager.settings.downloaders.torbox.enabled
         self.rclone_path = self.settings.rclone_path
@@ -283,15 +286,58 @@ class Symlinker:
             self.observer.join()
             logger.log("FILES", "Stopped monitoring for symlink deletions")
 
-    def on_symlink_deleted(self, symlink_path):
-        """Handle a symlink deletion event."""
-        src = Path(symlink_path)
-        if src.is_symlink():
-            dst = src.resolve()
-            logger.log("FILES", f"Symlink deleted: {src} -> {dst}")
+    def on_symlink_deleted(self, src: str) -> None:
+        """Handle the event when a symlink is deleted."""
+        logger.info(f"Symlink deleted: {src}")
+        src_path = Path(src)
+        imdb_id = self.extract_imdb_id(src_path)
+        season_number, episode_number = self.extract_season_episode(src_path.name)
+
+        if imdb_id:
+            item_id = ItemId(imdb_id)
+            if season_number is not None:
+                item_id = ItemId(str(season_number), parent_id=item_id)
+            if episode_number is not None:
+                item_id = ItemId(str(episode_number), parent_id=item_id)
+
+            item = self.media_items.get(item_id)
+            if item:
+                self.media_items.remove(item)
+                logger.info(f"Successfully removed item: {item.log_string}")
+            else:
+                logger.error(f"Failed to find item with IMDb ID {imdb_id}, season {season_number}, episode {episode_number}")
         else:
-            logger.log("FILES", f"Symlink deleted: {src} (target unknown)")
-        # TODO: Implement logic to handle deletion..
+            logger.error(f"IMDb ID not found in path: {src}")
+
+    def extract_imdb_id(self, path: Path) -> Optional[str]:
+        """Extract IMDb ID from the file or folder name using regex."""
+        logger.debug(f"Extracting IMDb ID from file name: {path.name}")
+        match = re.search(r'tt\d+', path.name)
+        if match:
+            return match.group(0)
+        
+        logger.debug(f"Extracting IMDb ID from parent folder name: {path.parent.name}")
+        match = re.search(r'tt\d+', path.parent.name)
+        if match:
+            return match.group(0)
+        
+        logger.debug(f"Extracting IMDb ID from grandparent folder name: {path.parent.parent.name}")
+        match = re.search(r'tt\d+', path.parent.parent.name)
+        if match:
+            return match.group(0)
+        
+        logger.error(f"IMDb ID not found in file or folder name: {path}")
+        return None
+
+    def extract_season_episode(self, filename: str) -> (Optional[int], Optional[int]):
+        """Extract season and episode numbers from the file name using regex."""
+        season = episode = None
+        match = re.search(r'[Ss](\d+)[Ee](\d+)', filename)
+        if match:
+            season = int(match.group(1))
+            episode = int(match.group(2))
+            logger.debug(f"Found season and episode in file name: {season} and {episode}")
+        return season, episode
 
     def _determine_file_name(self, item) -> str | None:
         """Determine the filename of the symlink."""

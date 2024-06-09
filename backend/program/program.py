@@ -52,7 +52,7 @@ class Program(threading.Thread):
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
             Scraping: Scraping(hash_cache),
-            Symlinker: Symlinker(),
+            Symlinker: Symlinker(self.media_items),
             PlexUpdater: PlexUpdater(),
         }
         self.downloader_services = {
@@ -62,7 +62,10 @@ class Program(threading.Thread):
         # Depends on Symlinker having created the file structure so needs
         # to run after it
         self.library_services = {
-            SymlinkLibrary: SymlinkLibrary(),
+            SymlinkLibrary: SymlinkLibrary(
+                self.indexing_services[TraktIndexer],
+                self.media_items
+            ),
             PlexLibrary: PlexLibrary(),
         }
         if not any(s.initialized for s in self.requesting_services.values()):
@@ -104,6 +107,7 @@ class Program(threading.Thread):
         try:
             self.initialize_services()
             scrub_logs()
+            self._update_library() 
         except Exception as e:
             logger.exception(f"Failed to initialize services: {e}")
 
@@ -121,10 +125,13 @@ class Program(threading.Thread):
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
 
-        if not len(self.media_items):
-            # Seed initial MIC with Library State
-            for item in self.services[SymlinkLibrary].run():
-                self.media_items.upsert(item)
+        unfinished_items = self.media_items.incomplete_episodes
+        logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
+
+        # if not len(self.media_items):
+        #     # Seed initial MIC with Library State
+        #     for item in self.services[SymlinkLibrary].run():
+        #         self.media_items.upsert(item)
 
         self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
         self.scheduler = BackgroundScheduler()
@@ -138,14 +145,14 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
-        for item in items_to_submit:
-            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+        incomplete_episodes = self.media_items.incomplete_episodes
+        for episode in incomplete_episodes:
+            self.event_queue.put(Event(emitted_by=self.__class__, item=episode))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 2},
+            self._retry_library: {"interval": 60 * 30},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -242,18 +249,14 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Iceberg has been stopped.")
 
-    def add_to_queue(self, item: MediaItem) -> bool:
+    def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""
-        if item is not None:
-            new_item = create_item_from_imdb_id(item.imdb_id)
-            if not new_item:
-                logger.error(f"Failed to get item {item.log_string} from IMDb")
-                return False
-            self.event_queue.put(Event(emitted_by=self.__class__, item=new_item))
-            logger.log("PROGRAM", f"Added {new_item.log_string} to the queue")
+        if isinstance(item, Union[Movie, Show, Season, Episode]):
+            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+            logger.log("PROGRAM", f"Added {item.log_string} to the queue")
             return True
         else:
-            logger.error("Attempted to add a None item to the queue")
+            logger.error(f"Failed to add item with type {type(item)} to the queue")
         return False
 
     def clear_queue(self):
@@ -267,20 +270,23 @@ class Program(threading.Thread):
                 break
         logger.log("PROGRAM", "Cleared the event queue")
 
-    def _rebuild_library(self):
-        """Rebuild the media items container from the SymlinkLibrary service."""
+    def _update_library(self):
+        """Update the media items container with new or updated items from the SymlinkLibrary service."""
         new_items = list(self.services[SymlinkLibrary].run())
-        existing_item_ids = {item.item_id for item in self.media_items}
+        existing_item_ids = {item.item_id: item for item in self.media_items}
 
-        items_to_add = [item for item in new_items if item.item_id not in existing_item_ids]
-        items_to_update = [item for item in new_items if item.item_id in existing_item_ids and item != self.media_items.get(item.item_id)]
+        for new_item in new_items:
+            existing_item = existing_item_ids.get(new_item.item_id)
+            if existing_item:
+                if self._needs_update(existing_item, new_item):
+                    logger.debug(f"Updating item {existing_item.item_id} in the media items container")
+                    self._process_item(new_item, existing_item)
+            else:
+                logger.debug(f"Adding new item {new_item.item_id} to the media items container")
+                self._process_item(new_item)
 
-        if items_to_add:
-            logger.log("PROGRAM", f"Adding {len(items_to_add)} new items to the media items container")
-            for item in items_to_add:
-                self.media_items.upsert(item)
-
-        if items_to_update:
-            logger.log("PROGRAM", f"Updating {len(items_to_update)} existing items in the media items container")
-            for item in items_to_update:
-                self.media_items.upsert(item)
+    def _needs_update(self, existing_item, new_item):
+        """Determine if an existing item needs to be updated based on new data."""
+        return (existing_item.title != new_item.title or
+                existing_item.state != new_item.state or
+                existing_item.symlinked != new_item.symlinked)

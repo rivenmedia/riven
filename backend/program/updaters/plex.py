@@ -70,19 +70,33 @@ class PlexUpdater:
             yield item
             return
 
-        if isinstance(item, Show):
-            logger.error(f"Plex Updater does not support shows, skipping {item}")
-            yield item
-            return
-
-        item_type = "show" if isinstance(item, (Episode, Season)) else "movie"
+        item_type = "movie" if isinstance(item, Movie) else "show"
         updated = False
         updated_episodes = []
+        items_to_update = []
 
-        if isinstance(item, Season):
-            items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
-        elif isinstance(item, (Movie, Episode)):
+        if isinstance(item, Movie):
             items_to_update = [item]
+        elif isinstance(item, Show):
+            items_to_update = [
+                episode for season in item.seasons
+                for episode in season.episodes
+                if episode.symlinked
+                and episode.get("update_folder") != "updated"
+            ]
+        elif isinstance(item, Season):
+            items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
+        elif isinstance(item, Episode):
+            items_to_update = [item]
+        else:
+            logger.error(f"Plex Updater does not support {type(item)}")
+            yield item
+            return
+        
+        if not items_to_update:
+            logger.error(f"No items to update for {item}")
+            yield item
+            return
 
         # any failures are usually because we are updating Plex too fast
         for section, paths in self.sections.items():

@@ -19,7 +19,12 @@ class ItemId:
         return f"{self.parent_id}/{self.value}"
 
     def __hash__(self):
-        return hash(self.__repr__())
+        return hash(repr(self))
+
+    def __eq__(self, other):
+        if isinstance(other, ItemId):
+            return repr(self) == repr(other)
+        return False
 
 
 class MediaItem:
@@ -230,9 +235,9 @@ class Movie(MediaItem):
     """Movie class"""
 
     def __init__(self, item):
+        super().__init__(item)
         self.type = "movie"
         self.file = item.get("file", None)
-        super().__init__(item)
         self.item_id = ItemId(self.imdb_id)
 
     def __repr__(self):
@@ -245,10 +250,10 @@ class Show(MediaItem):
     """Show class"""
 
     def __init__(self, item):
+        super().__init__(item)
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.type = "show"
-        super().__init__(item)
         self.item_id = ItemId(self.imdb_id)
 
     def get_season_index_by_id(self, item_id):
@@ -308,11 +313,11 @@ class Season(MediaItem):
     """Season class"""
 
     def __init__(self, item):
+        super().__init__(item)
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
-        self.item_id = ItemId(self.number)
-        super().__init__(item)
+        self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
 
     def get_episode_index_by_id(self, item_id):
         """Find the index of an episode by its item_id."""
@@ -382,11 +387,12 @@ class Episode(MediaItem):
     """Episode class"""
 
     def __init__(self, item):
+        super().__init__(item)
         self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
-        self.item_id = ItemId(self.number)
-        super().__init__(item)
+        self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
+        self.title = item.get("title", None)
 
     def __eq__(self, other):
         if (
@@ -407,6 +413,9 @@ class Episode(MediaItem):
     @property
     def log_string(self):
         return f"{self.parent.log_string}E{self.number:02}"
+
+    def get_top_title(self) -> str:
+        return self.parent.parent.title
 
 
 def _set_nested_attr(obj, key, value):

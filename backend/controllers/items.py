@@ -1,10 +1,13 @@
 from datetime import datetime
 from typing import List, Optional
+
+import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-from program.media.item import MediaItem
 from program.content.overseerr import Overseerr
+from program.media.container import MediaItemContainer
+from program.media.item import ItemId, MediaItem
 from program.media.state import States
+from pydantic import BaseModel
 from utils.logger import logger
 
 router = APIRouter(
@@ -27,16 +30,56 @@ async def get_states():
 
 
 @router.get("/")
-async def get_items(request: Request):
+async def get_items(
+    request: Request,
+    limit: Optional[int] = 20,
+    page: Optional[int] = 1,
+    search: Optional[str] = None,
+    filter: Optional[str] = None,
+    fetch_all: Optional[bool] = False,
+    max_distance: Optional[float] = 0.90
+):
+    mic: MediaItemContainer = request.app.program.media_items
+    items = list(mic._items.values())
+    total_count = len(items)
+
+    if search:
+        search_lower = search.lower()
+        items = [
+            item for item in items
+            if (item.title and Levenshtein.distance(search_lower, item.title.lower()) <= max_distance) or
+               (item.imdb_id and Levenshtein.distance(search_lower, item.imdb_id.lower()) <= 1)
+        ]
+    if filter:
+        filter_lower = filter.lower()
+        filter_state = None
+        for state in States:
+            if Levenshtein.distance(filter_lower, state.name.lower()) <= 0.8:
+                filter_state = state
+                break
+        if filter_state:
+            items = [item for item in items if item.state == filter_state]
+        else:
+            valid_states = [state.name for state in States]
+            raise HTTPException(status_code=400, detail=f"Invalid filter state: {filter}. Valid states are: {valid_states}")
+    if fetch_all:
+        paginated_items = items
+    else:
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_items = items[start:end]
+
     return {
         "success": True,
-        "items": [item.to_dict() for item in request.app.program.media_items],
+        "items": [item.to_dict() for item in paginated_items],
+        "page": page,
+        "limit": limit,
+        "total": total_count
     }
-
 
 @router.get("/extended/{item_id}")
 async def get_extended_item_info(request: Request, item_id: str):
-    item = request.app.program.media_items.get_item(item_id)
+    item = request.app.program.media_items.get(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return {
@@ -72,7 +115,7 @@ async def add_items(request: Request, imdb_id: Optional[str] = None, imdb_ids: O
 
 @router.delete("/remove/id/{item_id}")
 async def remove_item(request: Request, item_id: str):
-    item = request.app.program.media_items.get_item(item_id)
+    item = request.app.program.media_items.get(item_id)
     if not item:
         logger.error(f"Item with ID {item_id} not found")
         raise HTTPException(status_code=404, detail="Item not found")
@@ -101,7 +144,7 @@ async def remove_item(request: Request, item_id: str):
 
 @router.delete("/remove/imdb/{imdb_id}")
 async def remove_item_by_imdb(request: Request, imdb_id: str):
-    item = request.app.program.media_items.get_item(imdb_id)
+    item = request.app.program.media_items.get(imdb_id)
     if not item:
         logger.error(f"Item with IMDb ID {imdb_id} not found")
         raise HTTPException(status_code=404, detail="Item not found")
@@ -131,15 +174,21 @@ async def remove_item_by_imdb(request: Request, imdb_id: str):
 
 
 @router.get("/imdb/{imdb_id}")
-async def get_imdb_info(request: Request, imdb_id: str):
-    item = request.app.program.media_items.get_item(imdb_id)
+async def get_imdb_info(request: Request, imdb_id: str, season: Optional[int] = None, episode: Optional[int] = None):
+    """
+    Get the item with the given IMDb ID.
+    If the season and episode are provided, get the item with the given season and episode.
+    """
+    item_id = ItemId(imdb_id)
+    if season is not None:
+        item_id = ItemId(str(season), parent_id=item_id)
+    if episode is not None:
+        item_id = ItemId(str(episode), parent_id=item_id)
+    
+    item = request.app.program.media_items.get(item_id)
     if item is None:
-        logger.error(f"Item with IMDb ID {imdb_id} not found in container")
+        logger.error(f"Item with ID {item_id} not found in container")
         raise HTTPException(status_code=404, detail="Item not found")
-
-    if not request.app.program.media_items.__contains__(item):
-        logger.error(f"Item with IMDb ID {imdb_id} is not in the library")
-        raise HTTPException(status_code=404, detail="Item not found in library")
     
     return {"success": True, "item": item.to_extended_dict()}
 
@@ -150,7 +199,7 @@ async def get_incomplete_items(request: Request):
         logger.error("Program or media_items not found in the request app")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    incomplete_items = request.app.program.media_items.get_incomplete_items()
+    incomplete_items = request.app.program.media_items.incomplete_episodes
     if not incomplete_items:
         logger.info("No incomplete items found")
         return {
