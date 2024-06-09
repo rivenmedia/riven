@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union
 
-from program.media.item import Episode, Movie, Season, Show
+from program.media.item import Episode, Movie, Season, Show, MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
@@ -142,7 +142,7 @@ class Symlinker:
         yield item
 
     @staticmethod
-    def should_submit(item: Union[Movie, Episode, Season]) -> bool:
+    def should_submit(item: MediaItem) -> bool:
         """Check if the item should be submitted for symlink creation."""
         if isinstance(item, Show):
             all_episodes_ready = True
@@ -172,7 +172,7 @@ class Symlinker:
             return all_episodes_ready
 
         if isinstance(item, (Movie, Episode)):
-            if not item.file or not item.folder or item.file == "None.mkv":
+            if not item.file or not item.folder or item.file["filename"] == "None.mkv":
                 logger.warning(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
                 blacklist_item(item)
                 return False
@@ -204,10 +204,10 @@ class Symlinker:
 
     def _symlink(self, item: Union[Movie, Season, Episode, Show]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
-        extension = os.path.splitext(item.file)[1][1:]
+        extension = os.path.splitext(item.file["filename"])[1][1:]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
-        source = os.path.join(self.rclone_path, item.folder, item.file)
+        source = os.path.join(self.rclone_path, item.folder, item.file["filename"])
 
         if not os.path.exists(source):
             logger.error(f"Source file does not exist: {source}")
@@ -361,16 +361,16 @@ def quick_file_check(item: Union[Movie, Episode]) -> bool:
         logger.debug(f"Cannot create symlink for {item.log_string}: Not a movie or episode")
         return False
 
-    if not item.file or item.file == "None.mkv":
-        logger.log("NOT_FOUND", f"Invalid file for {item.log_string}: {item.file}. Needs to be rescraped.")
+    if not item.file or item.file["filename"] == "None.mkv":
+        logger.log("NOT_FOUND", f"Invalid file for {item.log_string}: {item.file['filename']}. Needs to be rescraped.")
         return False
 
     rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-    possible_folders = [item.folder, item.file, item.alternative_folder]
+    possible_folders = [item.folder, item.file['filename'], item.alternative_folder]
 
     for folder in possible_folders:
         if folder:
-            file_path = rclone_path / folder / item.file
+            file_path = rclone_path / folder / item.file['filename']
             if file_path.exists():
                 item.set("folder", folder)
                 return True
@@ -382,7 +382,7 @@ def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
         logger.debug(f"Cannot search for file for {item.log_string}: Not a movie or episode")
         return False
 
-    filename = item.file
+    filename = item.file["filename"]
     if not filename:
         return False
     logger.debug(f"Searching for file {filename} in {rclone_path}")
