@@ -2,7 +2,8 @@ import os
 import shutil
 import tempfile
 import threading
-from pathlib import Path
+from copy import deepcopy
+from pickle import UnpicklingError
 from typing import Dict, Generator, List, Optional
 
 import dill
@@ -47,38 +48,12 @@ class MediaItemContainer:
 
     def __init__(self):
         self._items: Dict[ItemId, MediaItem] = {}
+        self._shows: Dict[ItemId, Show] = {}
+        self._seasons: Dict[ItemId, Season] = {}
+        self._episodes: Dict[ItemId, Episode] = {}
+        self._movies: Dict[ItemId, Movie] = {}
         self.library_file: str = "media.pkl"
         self.lock: ReadWriteLock = ReadWriteLock()
-
-    @property
-    def movies(self) -> Dict[ItemId, Movie]:
-        """Retrieve all movies in the container."""
-        return {item_id: item for item_id, item in self._items.items() if isinstance(item, Movie)}
-
-    @property
-    def shows(self) -> Dict[ItemId, Show]:
-        """Retrieve all shows in the container."""
-        return {item_id: item for item_id, item in self._items.items() if isinstance(item, Show)}
-
-    @property
-    def seasons(self) -> Dict[ItemId, Season]:
-        """Retrieve all seasons in the container."""
-        return {item_id: item for item_id, item in self._items.items() if isinstance(item, Season)}
-
-    @property
-    def episodes(self) -> Dict[ItemId, Episode]:
-        """Retrieve all episodes in the container."""
-        return {item_id: item for item_id, item in self._items.items() if isinstance(item, Episode)}
-
-    @property
-    def incomplete_episodes(self) -> List[Episode]:
-        """Retrieve all episodes that are in an incomplete or partially completed state."""
-        incomplete_episodes = [
-            item for item in self.episodes.values() 
-            if item.state not in (States.Completed, States.PartiallyCompleted)
-        ]
-        logger.debug(f"Found {len(incomplete_episodes)} incomplete episodes.")
-        return incomplete_episodes
 
     def __iter__(self) -> Generator[MediaItem, None, None]:
         self.lock.acquire_read()
@@ -116,6 +91,53 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
+    @property
+    def seasons(self) -> dict[ItemId, Season]:
+        return deepcopy(self._seasons)
+
+    @property
+    def episodes(self) -> dict[ItemId, Episode]:
+        return deepcopy(self._episodes)
+
+    @property
+    def shows(self) -> dict[ItemId, Show]:
+        return deepcopy(self._shows)
+
+    @property
+    def movies(self) -> dict[ItemId, Movie]:
+        return deepcopy(self._movies)
+
+    def get_items_with_state(self, state) -> dict[ItemId, MediaItem]:
+        """Get items with the specified state"""
+        return {
+            item_id: self[item_id]
+            for item_id, item in self._items.items()
+            if item.state == state
+        }
+
+    def get_incomplete_items(self) -> dict[ItemId, MediaItem]:
+        """Get items that are not completed."""
+        self.lock.acquire_read()
+        try:
+            return {
+                item_id: item
+                for item_id, item in self._items.items()
+                if item.state not in (States.Completed, States.PartiallyCompleted)
+            }
+        finally:
+            self.lock.release_read()
+
+    def get_item(self, identifier: str) -> Optional[MediaItem]:
+        """Retrieve an item by its IMDb ID or item ID from the container."""
+        self.lock.acquire_read()
+        try:
+            if identifier.startswith("tt"):
+                return self._imdb_index.get(identifier)
+            item_id = ItemId(identifier)
+            return self._items.get(item_id)
+        finally:
+            self.lock.release_read()
+
     def get_episodes(self, show_id: ItemId) -> List[MediaItem]:
         """Get all episodes for a show."""
         self.lock.acquire_read()
@@ -125,33 +147,49 @@ class MediaItemContainer:
             self.lock.release_read()
 
     def upsert(self, item: MediaItem) -> None:
-        """Upsert an item into the container."""
-        self.lock.acquire_write()
-        try:
-            if item.item_id in self._items:
-                existing_item = self._items[item.item_id]
-                self._merge_items(existing_item, item)
-            else:
-                self._index_item(item)
-        finally:
-            self.lock.release_write()
-
-    def _merge_items(self, existing_item: MediaItem, new_item: MediaItem) -> None:
-        """Merge new item data into existing item without losing existing state."""
-        if existing_item.state == States.Completed and new_item.state != States.Completed:
-            return
-        for attr in vars(new_item):
-            new_value = getattr(new_item, attr)
-            if new_value is not None and getattr(existing_item, attr) != new_value:
-                setattr(existing_item, attr, new_value)
-        if isinstance(existing_item, Show):
-            for season in new_item.seasons:
-                existing_season = next((s for s in existing_item.seasons if s.item_id == season.item_id), None)
-                if existing_season:
-                    self._merge_items(existing_season, season)
-                else:
-                    existing_item.seasons.append(season)
-                    season.parent = existing_item
+        """Iterate through the input item and upsert all parents and children."""
+        # Use deepcopy so that further modifications made to the input item
+        # will not affect the container state
+        self._items[item.item_id] = item
+        detatched = item.item_id.parent_id is None or item.parent is None
+        if isinstance(item, (Season, Episode)) and detatched:
+            logger.error(
+                "%s item %s is detatched and not associated with a parent, and thus" +
+                " it cannot be upserted into the database",
+                item.__class__.name, item.log_string
+            )
+            raise ValueError("Item detached from parent")
+        if isinstance(item, Show):
+            self._shows[item.item_id] = item
+            for season in item.seasons:
+                season.parent = item
+                self._items[season.item_id] = season
+                self._seasons[season.item_id] = season
+                for episode in season.episodes:
+                    episode.parent = season
+                    self._items[episode.item_id] = episode
+                    self._episodes[episode.item_id] = episode
+        if isinstance(item, Season):
+            self._seasons[item.item_id] = item
+            # update children
+            for episode in item.episodes:
+                episode.parent = item
+                self._items[episode.item_id] = episode
+                self._episodes[episode.item_id] = episode
+            # Ensure the parent Show is updated in the container
+            container_show: Show = self._items[item.item_id.parent_id]
+            parent_index = container_show.get_season_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_show.seasons[parent_index] = item
+        elif isinstance(item, Episode):
+            self._episodes[item.item_id] = item
+            # Ensure the parent Season is updated in the container
+            container_season: Season = self._items[item.item_id.parent_id]
+            parent_index = container_season.get_episode_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_season.episodes[parent_index] = item
+        elif isinstance(item, Movie):
+            self._movies[item.item_id] = item
 
     def _index_item(self, item: MediaItem):
         """Index the item and its children in the appropriate dictionaries."""
@@ -169,7 +207,7 @@ class MediaItemContainer:
 
     def remove(self, item: MediaItem) -> None:
         """Remove an item, which could be a movie, show, season, or episode."""
-        if item is None:
+        if not item:
             logger.error("Attempted to remove a None item.")
             return
 
@@ -178,30 +216,22 @@ class MediaItemContainer:
 
         self.lock.acquire_write()
         try:
-            if isinstance(item, Episode):
-                parent_season = item.parent
-                if parent_season:
-                    parent_season.episodes.remove(item)
-                self._remove_item(item)
-            elif isinstance(item, Season):
-                parent_show = item.parent
-                if parent_show:
-                    parent_show.seasons.remove(item)
-                for episode in item.episodes:
-                    self._remove_item(episode)
-                self._remove_item(item)
-            elif isinstance(item, Show):
-                for season in item.seasons:
-                    for episode in season.episodes:
+            def remove_children(item):
+                if isinstance(item, Show):
+                    for season in item.seasons:
+                        remove_children(season)
+                elif isinstance(item, Season):
+                    for episode in item.episodes:
                         self._remove_item(episode)
-                    self._remove_item(season)
                 self._remove_item(item)
-            elif isinstance(item, Movie):
-                self._remove_item(item)
+
+            remove_children(item)
             logger.debug(f"Removed item: {log_title} (IMDb ID: {imdb_id})")
             self.save("media.pkl")
         except KeyError as e:
             logger.error(f"Failed to remove item: {log_title} (IMDb ID: {imdb_id}). KeyError: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error occurred while removing item: {log_title} (IMDb ID: {imdb_id}). Exception: {e}")
         finally:
             self.lock.release_write()
 
@@ -214,13 +244,9 @@ class MediaItemContainer:
         else:
             logger.error(f"Item ID {item_id} not found in _items.")
 
-    def get_incomplete_episodes(self) -> List[Episode]:
-        """Retrieve all episodes that are in an incomplete state."""
-        incomplete_episodes = []
-        for item in self._items.values():
-            if isinstance(item, Episode) and item.state != States.Completed:
-                incomplete_episodes.append(item)
-        return incomplete_episodes
+    def count(self, state) -> int:
+        """Count items with given state in container"""
+        return len(self.get_items_with_state(state))
 
     def save(self, filename: str = "media.pkl") -> None:
         """Save the container to a file."""
@@ -247,33 +273,24 @@ class MediaItemContainer:
 
     def load(self, filename: str = "media.pkl") -> None:
         """Load the container from a file."""
-        from_disk: Optional[MediaItemContainer] = None
         try:
             with open(filename, "rb") as file:
                 from_disk = dill.load(file)
-                if not isinstance(from_disk, MediaItemContainer):
-                    logger.debug("Loaded data is malformed. Resetting to blank slate.")
-                    return
+                self._items = from_disk._items
+                self._movies = from_disk._movies
+                self._shows = from_disk._shows
+                self._seasons = from_disk._seasons
+                self._episodes = from_disk._episodes
         except FileNotFoundError:
-            logger.debug("No media data found. Starting fresh.")
-        except Exception as e:
-            logger.debug(f"Failed to load media data: {e}. Starting fresh.")
-            return
+            pass
+        except (EOFError, UnpicklingError):
+            logger.error(f"Failed to unpickle media data at {filename}, wiping cached data")
+            os.remove(filename)
+            self._items = {}
+            self._movies = {}
+            self._shows = {}
+            self._seasons = {}
+            self._episodes = {}
 
-        if from_disk is None:
-            return
-
-        with self.lock:
-            self._items = from_disk._items
-            # Reconstruct parent-child relationships
-            for item in self._items.values():
-                if isinstance(item, (Season, Episode)):
-                    parent = self._items.get(item.item_id.parent_id)
-                    if parent:
-                        item.parent = parent
-                        if isinstance(item, Season):
-                            parent.seasons.append(item)
-                        elif isinstance(item, Episode):
-                            parent.episodes.append(item)
-
-        logger.success(f"Loaded {len(self._items)} items from {filename}")
+        if self._items:
+            logger.success(f"Loaded {len(self._items)} items from {filename}")

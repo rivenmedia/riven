@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Self
 
 from program.media.state import States
@@ -134,6 +134,10 @@ class MediaItem:
             )
         return False
 
+    def has_complete_metadata(self) -> bool:
+        """Check if the item has complete metadata."""
+        return self.title is not None and self.aired_at is not None
+
     def to_dict(self):
         """Convert item to dictionary (API response)"""
         return {
@@ -149,7 +153,7 @@ class MediaItem:
             "genres": self.genres if hasattr(self, "genres") else None,
             "guid": self.guid,
             "requested_at": str(self.requested_at),
-            "requested_by": self.requested_by.__name__ if self.requested_by else None,
+            "requested_by": self.requested_by,
             "scraped_at": self.scraped_at,
             "scraped_times": self.scraped_times,
         }
@@ -235,9 +239,9 @@ class Movie(MediaItem):
     """Movie class"""
 
     def __init__(self, item):
-        super().__init__(item)
         self.type = "movie"
         self.file = item.get("file", None)
+        super().__init__(item)
         self.item_id = ItemId(self.imdb_id)
 
     def __repr__(self):
@@ -251,9 +255,9 @@ class Show(MediaItem):
 
     def __init__(self, item):
         super().__init__(item)
+        self.type = "show"
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
-        self.type = "show"
         self.item_id = ItemId(self.imdb_id)
 
     def get_season_index_by_id(self, item_id):
@@ -313,18 +317,11 @@ class Season(MediaItem):
     """Season class"""
 
     def __init__(self, item):
-        super().__init__(item)
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
-
-    def get_episode_index_by_id(self, item_id):
-        """Find the index of an episode by its item_id."""
-        for i, episode in enumerate(self.episodes):
-            if episode.item_id == item_id:
-                return i
-        return None
+        super().__init__(item)
 
     def _determine_state(self):
         if len(self.episodes) > 0:
@@ -363,6 +360,13 @@ class Season(MediaItem):
             if e.number not in existing_episodes:
                 self.add_episode(e)
 
+    def get_episode_index_by_id(self, item_id):
+        """Find the index of an episode by its item_id."""
+        for i, episode in enumerate(self.episodes):
+            if episode.item_id == item_id:
+                return i
+        return None
+
     def represent_children(self):
         return [e.log_string for e in self.episodes]
 
@@ -387,12 +391,11 @@ class Episode(MediaItem):
     """Episode class"""
 
     def __init__(self, item):
-        super().__init__(item)
         self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
-        self.title = item.get("title", None)
+        super().__init__(item)
 
     def __eq__(self, other):
         if (
@@ -408,6 +411,8 @@ class Episode(MediaItem):
         return super().__hash__()
 
     def get_file_episodes(self) -> List[int]:
+        if not self.file or not isinstance(self.file, str):
+            raise ValueError("The file attribute must be a non-empty string.")
         return extract_episodes(self.file)
 
     @property

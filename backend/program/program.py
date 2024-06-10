@@ -62,10 +62,7 @@ class Program(threading.Thread):
         # Depends on Symlinker having created the file structure so needs
         # to run after it
         self.library_services = {
-            SymlinkLibrary: SymlinkLibrary(
-                self.indexing_services[TraktIndexer],
-                self.media_items
-            ),
+            SymlinkLibrary: SymlinkLibrary(),
             PlexLibrary: PlexLibrary(),
         }
         if not any(s.initialized for s in self.requesting_services.values()):
@@ -107,7 +104,6 @@ class Program(threading.Thread):
         try:
             self.initialize_services()
             scrub_logs()
-            self._update_library() 
         except Exception as e:
             logger.exception(f"Failed to initialize services: {e}")
 
@@ -125,13 +121,13 @@ class Program(threading.Thread):
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
 
-        unfinished_items = self.media_items.incomplete_episodes
-        logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
+        if not len(self.media_items):
+            # Seed initial MIC with Library State
+            for item in self.services[SymlinkLibrary].run():
+                self.media_items.upsert(item)
 
-        # if not len(self.media_items):
-        #     # Seed initial MIC with Library State
-        #     for item in self.services[SymlinkLibrary].run():
-        #         self.media_items.upsert(item)
+        unfinished_items = self.media_items.get_incomplete_items()
+        logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
 
         self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
         self.scheduler = BackgroundScheduler()
@@ -144,15 +140,14 @@ class Program(threading.Thread):
         logger.success("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        """Retry any items that are in an incomplete state."""
-        incomplete_episodes = self.media_items.incomplete_episodes
-        for episode in incomplete_episodes:
-            self.event_queue.put(Event(emitted_by=self.__class__, item=episode))
+        for _, item in self.media_items.get_incomplete_items().items():
+            if item.state not in (States.Completed, States.PartiallyCompleted):
+                self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 30},
+            self._retry_library: {"interval": 60 * 2},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -269,24 +264,3 @@ class Program(threading.Thread):
             except Empty:
                 break
         logger.log("PROGRAM", "Cleared the event queue")
-
-    def _update_library(self):
-        """Update the media items container with new or updated items from the SymlinkLibrary service."""
-        new_items = list(self.services[SymlinkLibrary].run())
-        existing_item_ids = {item.item_id: item for item in self.media_items}
-
-        for new_item in new_items:
-            existing_item = existing_item_ids.get(new_item.item_id)
-            if existing_item:
-                if self._needs_update(existing_item, new_item):
-                    logger.debug(f"Updating item {existing_item.item_id} in the media items container")
-                    self._process_item(new_item, existing_item)
-            else:
-                logger.debug(f"Adding new item {new_item.item_id} to the media items container")
-                self._process_item(new_item)
-
-    def _needs_update(self, existing_item, new_item):
-        """Determine if an existing item needs to be updated based on new data."""
-        return (existing_item.title != new_item.title or
-                existing_item.state != new_item.state or
-                existing_item.symlinked != new_item.symlinked)
