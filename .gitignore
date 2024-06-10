@@ -9,6 +9,7 @@ makefile
 profile.svg
 *.gz
 *.zip
+*.lockb
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/
