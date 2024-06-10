@@ -78,7 +78,8 @@ def _make_request(
     if retry_if_failed:
         session.mount("http://", _adapter)
         session.mount("https://", _adapter)
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers = {}
+    # headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if additional_headers:
         headers.update(additional_headers)
 

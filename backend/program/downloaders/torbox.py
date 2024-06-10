@@ -1,10 +1,15 @@
+import contextlib
+from datetime import datetime
 import time
 from typing import Generator
 
-from program.media.item import MediaItem
+from RTN import parse
+from RTN.exceptions import GarbageTorrent
+
+from program.media.item import MediaItem, Movie
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import get
+from utils.request import get, post
 
 
 class TorBoxDownloader:
@@ -15,7 +20,7 @@ class TorBoxDownloader:
         self.settings = settings_manager.settings.downloaders.torbox
         self.api_key = self.settings.api_key
         self.base_url = "https://api.torbox.app/v1/api"
-        self.headers = {"Authorization": f"{self.api_key}"}
+        self.headers = {"Authorization": f"Bearer {self.api_key}"}
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -24,91 +29,73 @@ class TorBoxDownloader:
 
     def validate(self) -> bool:
         """Validate the TorBox Downloader as a service"""
-        return False
-        # if not self.settings.enabled:
-        #     logger.warning("TorBox Downloader is set to disabled")
-        #     return False
-        # if not self.api_key:
-        #     logger.warning("TorBox Downloader API key is not set")
-        #     return False
-
-        # try:
-        #     response = get(
-        #         f"{self.base_url}/user/me",
-        #         additional_headers=self.headers
-        #     )
-        #     return response.data.is_subscribed
-        # except Exception:
-        #     return False # for now..
+        if not self.settings.enabled:
+            logger.info("Torbox downloader is not enabled")
+            return False
+        if not self.settings.api_key:
+            logger.error("Torbox API key is not set")
+        try:
+            return self.get_expiry_date() > datetime.now()
+        except:
+            return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from TorBox"""   
         logger.info(f"Downloading {item.log_string} from TorBox")
+        if self.is_cached(item):
+            self.download(item)
+        yield item
 
-    def is_cached(self, infohashes: list[str]) -> list[bool]:
-        """Check if the given infohashes are cached in TorBox"""
-        cached_results = []
-        for infohash in infohashes:
-            try:
-                response = get(
-                    f"{self.base_url}/torrents/checkcached",
-                    headers=self.headers,
-                    params={"hash": infohash, "format": "object"}
-                )
-                result = response.json()
-                cached = result['data']['data'] if 'data' in result and 'data' in result['data'] and result['data']['data'] is not False else False
-                cached_results.append(cached)
-            except Exception as e:
-                cached_results.append(False)
-        return cached_results
 
-    def request_download(self, infohash: str):
-        """Request a download from TorBox"""
-        try:
-            response = get(
-                f"{self.base_url}/torrents/requestdl",
-                headers=self.headers,
-                params={"torrent_id": infohash, "file_id": 0, "zip": False},
-            )
-            return response.json()
-        except Exception as e:
-            raise e
+    def is_cached(self, item: MediaItem):
+        streams = [hash for hash in item.streams]
+        data = self.get_web_download_cached(streams)
+        for hash in data:
+            item.active_stream=data[hash]
+            return True
+
+    def download(self, item: MediaItem):
+        if item.type == "movie":
+            exists = False
+            torrent_list = self.get_torrent_list()
+            for torrent in torrent_list:
+                if item.active_stream["hash"] == torrent["hash"]:
+                    id = torrent["id"]
+                    exists = True
+                    break
+            if not exists:
+                id = self.create_torrent(item.active_stream["hash"])
+            for torrent in torrent_list:
+                if torrent["id"] == id:
+                    with contextlib.suppress(GarbageTorrent, TypeError):
+                        for file in torrent["files"]:
+                            if file["size"] > 10000:
+                                parsed_file = parse(file["short_name"])
+                                if parsed_file.type == "movie":
+                                    item.set("folder", ".")
+                                    item.set("alternative_folder", ".")
+                                    item.set("file", file["short_name"])
+                                    return True
+
+    def get_expiry_date(self):
+        expiry = datetime.fromisoformat(self.get_user_data().premium_expires_at)
+        expiry = expiry.replace(tzinfo=None)
+        return expiry
+
+    def get_web_download_cached(self, hash_list):
+        hash_string = ",".join(hash_list)
+        response = get(f"{self.base_url}/webdl/checkcached?hash={hash_string}", additional_headers=self.headers, response_type=dict)
+        return response.data["data"]
+
+    def get_user_data(self):
+        response = get(f"{self.base_url}/user/me", additional_headers=self.headers, retry_if_failed=False)
+        return response.data.data
+
+    def create_torrent(self, hash) -> int:
+        magnet_url = f"magnet:?xt=urn:btih:{hash}&dn=&tr="
+        response = post(f"{self.base_url}/torrents/createtorrent", data={"magnet": magnet_url}, additional_headers=self.headers)
+        return response.data.data.torrent_id
     
-    def download_media(self, item: MediaItem):
-        """Initiate the download of a media item using TorBox."""
-        if not item:
-            logger.error("No media item provided for download.")
-            return None
-
-        infohash = item.active_stream.get("hash")
-        if not infohash:
-            logger.error(f"No infohash found for item: {item.log_string}")
-            return None
-
-        if self.is_cached([infohash])[0]:
-            logger.info(f"Item already cached: {item.log_string}")
-        else:
-            download_response = self.request_download(infohash)
-            if download_response.get('status') != 'success':
-                logger.error(f"Failed to initiate download for item: {item.log_string}")
-                return None
-            logger.info(f"Download initiated for item: {item.log_string}")
-
-        # Wait for the download to be ready and get the path
-        download_path = self.get_torrent_path(infohash)
-        if not download_path:
-            logger.error(f"Failed to get download path for item: {item.log_string}")
-            return None
-
-        logger.success(f"Download ready at path: {download_path} for item: {item.log_string}")
-        return download_path
-
-    def get_torrent_path(self, infohash: str):
-        """Check and wait until the torrent is fully downloaded and return the path."""
-        for _ in range(30):  # Check for 5 minutes max
-            if self.is_cached([infohash])[0]:
-                logger.info(f"Torrent cached: {infohash}")
-                return self.mount_torrents_path + infohash  # Assuming the path to be mounted torrents path + infohash
-            time.sleep(10)
-        logger.warning(f"Torrent not available after timeout: {infohash}")
-        return None
+    def get_torrent_list(self) -> list:
+        response = get(f"{self.base_url}/torrents/mylist", additional_headers=self.headers, response_type=dict)
+        return response.data["data"]
