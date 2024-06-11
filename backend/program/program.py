@@ -141,7 +141,7 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         incomplete_items = list(self.media_items.get_incomplete_items().items())
-        current_queue_items = list(self.event_queue.queue)  # Create a copy of the current queue
+        current_queue_items = set(self.event_queue.queue)
 
         for _, item in incomplete_items:
             if item.state not in (States.Completed, States.PartiallyCompleted) and item not in current_queue_items:
