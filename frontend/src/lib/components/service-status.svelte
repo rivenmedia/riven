@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { Separator } from '$lib/components/ui/separator';
-	import { Check, X } from 'lucide-svelte';
-
 	const servicesObject: Record<string, string> = {
 		symlinklibrary: 'Symlink Library',
 		plexlibrary: 'Plex Library',
@@ -84,7 +81,12 @@
 		};
 	});
 
-	const servicesStatus = [
+	type ServiceStatus = {
+		name: string;
+		services: any;
+	};
+
+	const servicesStatus: ServiceStatus[] = [
 		{
 			name: 'Core services',
 			services: coreServicesStatus
@@ -106,17 +108,28 @@
 
 <div class="flex flex-col items-start">
 	{#each servicesStatus as status}
-		<h2 class="text-base md:text-lg">{status.name}</h2>
-		{#each status.services as service}
-			<div class="flex items-center gap-1">
-				{#if service.status}
-					<Check class="h-4 w-4 text-green-500" />
-				{:else}
-					<X class="h-4 w-4 text-red-500" />
-				{/if}
-				<p class="text-muted-foreground">{service.name}</p>
-			</div>
-		{/each}
-		<Separator class="my-2" />
+		<div class="mb-2">
+			<h2 class="text-sm md:text-base">{status.name}</h2>
+			{#each status.services as service}
+				<div class="flex items-center gap-2">
+					{#if service.status}
+						<span class="relative flex h-3 w-3">
+							<span
+								class="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"
+							></span>
+							<span class="relative inline-flex h-3 w-3 rounded-full bg-green-500"></span>
+						</span>
+					{:else}
+						<span class="relative flex h-3 w-3">
+							<span
+								class="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"
+							></span>
+							<span class="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
+						</span>
+					{/if}
+					<p class="text-muted-foreground">{service.name}</p>
+				</div>
+			{/each}
+		</div>
 	{/each}
 </div>

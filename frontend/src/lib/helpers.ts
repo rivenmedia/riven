@@ -57,6 +57,17 @@ export function formatDate(
 			formattedDate = date.toLocaleString({
 				year: 'numeric'
 			});
+		} else if (format === 'left') {
+			const now = DateTime.now();
+			const diff = date.diff(now, 'days').toObject();
+			const days = Math.round(diff.days ?? 0);
+			if (days > 0) {
+				formattedDate = `${days} days left`;
+			} else if (days < 0) {
+				formattedDate = `${Math.abs(days)} days ago`;
+			} else {
+				formattedDate = 'Today';
+			}
 		} else {
 			formattedDate = date.toLocaleString(DateTime.DATETIME_FULL);
 		}
