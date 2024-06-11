@@ -63,53 +63,56 @@ class PlexUpdater:
             logger.exception(f"Plex exception thrown: {e}")
         return False
 
-    def run(self, item: Union[Movie, Episode, Season]) -> Generator[Union[Movie, Episode, Season], None, None]:
+    def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Update Plex library section for a single item or a season with its episodes"""
         if not item:
             logger.error(f"Item type not supported, skipping {item}")
             yield item
             return
 
-        if isinstance(item, Show):
-            logger.error(f"Plex Updater does not support shows, skipping {item}")
+        item_type = "movie" if isinstance(item, Movie) else "show"
+        updated = False
+        updated_episodes = []
+        items_to_update = []
+
+        if isinstance(item, (Movie, Episode)):
+            items_to_update = [item]
+        elif isinstance(item, Show):
+            items_to_update = [s for s in item.seasons for e in s.episodes if e.symlinked and e.update_folder != "updated"]
+        elif isinstance(item, Season):
+            items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
+
+        if not items_to_update:
             yield item
             return
 
-        item_type = "show" if isinstance(item, (Episode, Season)) else "movie"
-        updated = False
-        updated_episodes = []
-
-        if isinstance(item, Season):
-            items_to_update = [e for e in item.episodes if e.symlinked and e.get("update_folder") != "updated"]
-        elif isinstance(item, (Movie, Episode)):
-            items_to_update = [item]
-
+        section_name = None
         # any failures are usually because we are updating Plex too fast
         for section, paths in self.sections.items():
             if section.type == item_type:
                 for path in paths:
-                    if isinstance(item, Season):
+                    if isinstance(item, (Show, Season)):
                         for episode in items_to_update:
                             if path in episode.update_folder:
                                 if self._update_section(section, episode):
                                     updated_episodes.append(episode)
-                                    episode.set("update_folder", "updated")  # Mark the episode as updated
+                                    section_name = section.title
                                     updated = True
                     elif isinstance(item, (Movie, Episode)):
                         if path in item.update_folder:
                             if self._update_section(section, item):
+                                section_name = section.title
                                 updated = True
 
         if updated:
-            if isinstance(item, Season):
+            if isinstance(item, (Show, Season)):
                 if len(updated_episodes) == len(items_to_update):
-                    logger.log("PLEX", f"Updated section {section.title} with all episodes for {item.log_string}")
+                    logger.log("PLEX", f"Updated section {section_name} with all episodes for {item.log_string}")
                 else:
                     updated_episodes_log = ', '.join([str(ep.number) for ep in updated_episodes])
-                    logger.log("PLEX", f"Updated section {section.title} for episodes {updated_episodes_log} in {item.log_string}")
+                    logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
             else:
-                logger.log("PLEX", f"Updated section {section.title} for {item.log_string}")
-
+                logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
         yield item
 
     def _update_section(self, section, item: Union[Movie, Episode]) -> bool:

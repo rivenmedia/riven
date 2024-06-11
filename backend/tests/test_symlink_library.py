@@ -17,6 +17,8 @@ def symlink_library(fs):
     library_path = "/fake/library"
     fs.create_dir(f"{library_path}/movies")
     fs.create_dir(f"{library_path}/shows")
+    fs.create_dir(f"{library_path}/anime_movies")
+    fs.create_dir(f"{library_path}/anime_shows")
     settings_manager.settings = MockSettings(library_path)
     return SymlinkLibrary()
 

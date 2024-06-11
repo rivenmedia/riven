@@ -160,6 +160,13 @@ def test_process_event_transition_shows(state, service, next_service, show):
     # Given: A media item (show) and a service
     show._determine_state = lambda: state  # Manually override the state
 
+    # Ensure the show has seasons and episodes
+    if not hasattr(show, 'seasons'):
+        show.seasons = []
+    for season in show.seasons:
+        if not hasattr(season, 'episodes'):
+            season.episodes = []
+
     # When: The event is processed
     updated_item, next_service_result, items_to_submit = process_event(None, service, show)
 
