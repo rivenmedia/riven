@@ -35,7 +35,7 @@ class Overseerr:
             response = ping(
                 self.settings.url + "/api/v1/auth/me",
                 additional_headers=self.headers,
-                timeout=15,
+                timeout=30,
             )
             if response.status_code >= 201:
                 logger.error(
