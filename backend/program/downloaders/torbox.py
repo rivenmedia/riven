@@ -104,5 +104,5 @@ class TorBoxDownloader:
         return response.data.data.torrent_id
     
     def get_torrent_list(self) -> list:
-        response = get(f"{self.base_url}/torrents/mylist", additional_headers=self.headers, response_type=dict)
+        response = get(f"{self.base_url}/torrents/mylist?bypass_cache=true", additional_headers=self.headers, response_type=dict)
         return response.data["data"]
