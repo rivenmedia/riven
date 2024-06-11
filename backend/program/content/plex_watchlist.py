@@ -1,8 +1,9 @@
 """Plex Watchlist Module"""
 
-from typing import Generator
+from typing import Generator, Union
+from program.indexers.trakt import create_item_from_imdb_id
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import HTTPError
 from utils.logger import logger
@@ -46,19 +47,30 @@ class PlexWatchlist:
                 return True
         return True
 
-    def run(self):
-        """Fetch new media from `Plex Watchlist`"""
-        watchlist_items = set(self._get_items_from_watchlist())
-        rss_items = set()
+    def run(self) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
+        """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
+        try:
+            watchlist_items = set(self._get_items_from_watchlist())
+            rss_items = set(self._get_items_from_rss()) if self.rss_enabled else set()
+        except Exception as e:
+            logger.error(f"Error fetching items: {e}")
+            return
 
-        if self.rss_enabled:
-            rss_items = set(self._get_items_from_rss())
+        new_items = watchlist_items | rss_items
 
-        yield from (
-                MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
-                for imdb_id in watchlist_items.union(rss_items)
-            )
-
+        for imdb_id in new_items:
+            if imdb_id in self.recurring_items:
+                continue
+            self.recurring_items.add(imdb_id)
+            try:
+                media_item: MediaItem = create_item_from_imdb_id(imdb_id)
+                if not media_item:
+                    logger.error(f"Failed to create media item from IMDb ID: {imdb_id}")
+                    continue
+                yield media_item
+            except Exception as e:
+                logger.error(f"Error processing IMDb ID {imdb_id}: {e}")
+                continue
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feed."""
@@ -68,15 +80,9 @@ class PlexWatchlist:
                 logger.error(f"Failed to fetch Plex RSS feed: HTTP {response.status_code}")
                 return
             for item in response.data.items:
-                for guid in item.guids:
-                    if guid.startswith("imdb://"):
-                        imdb_id = guid.split("//")[-1]
-                        if imdb_id and imdb_id not in self.recurring_items:
-                            self.recurring_items.add(imdb_id)
-                            yield imdb_id
+                yield from self._extract_imdb_ids(item.guids)
         except Exception as e:
             logger.error(f"An unexpected error occurred while fetching Plex RSS feed: {e}")
-            return
 
     def _get_items_from_watchlist(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex watchlist"""
@@ -93,8 +99,7 @@ class PlexWatchlist:
         for item in media_container.Metadata:
             if hasattr(item, "ratingKey") and item.ratingKey:
                 imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
-                if imdb_id and imdb_id not in self.recurring_items:
-                    self.recurring_items.add(imdb_id)
+                if imdb_id:
                     yield imdb_id
 
     @staticmethod
@@ -104,10 +109,16 @@ class PlexWatchlist:
         filter_params = "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
         response = get(url)
-        if response.is_ok and hasattr(response.data, "MediaContainer"):  # noqa: SIM102
-            if hasattr(response.data.MediaContainer.Metadata[0], "Guid"):
-                for guid in response.data.MediaContainer.Metadata[0].Guid:
-                    if "imdb://" in guid.id:
-                        return guid.id.split("//")[-1]
+        if response.is_ok and hasattr(response.data, "MediaContainer"):
+            metadata = response.data.MediaContainer.Metadata[0]
+            return next((guid.id.split("//")[-1] for guid in metadata.Guid if "imdb://" in guid.id), None)
         logger.debug(f"Failed to fetch IMDb ID for ratingKey: {ratingKey}")
         return None
+
+    def _extract_imdb_ids(self, guids):
+        """Helper method to extract IMDb IDs from guids"""
+        for guid in guids:
+            if guid.startswith("imdb://"):
+                imdb_id = guid.split("//")[-1]
+                if imdb_id:
+                    yield imdb_id
