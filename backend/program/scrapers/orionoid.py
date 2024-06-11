@@ -36,9 +36,7 @@ class Orionoid:
         self.parse_logging = False
         self.max_calls = 100 if not self.is_premium else 2500
         self.period = 86400 if not self.is_premium else 3600
-        self.minute_limiter = RateLimiter(
-            max_calls=self.max_calls, period=self.period, raise_on_limit=True
-        )
+        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period)
         self.second_limiter = RateLimiter(max_calls=1, period=5)
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
@@ -54,7 +52,7 @@ class Orionoid:
             return False
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-            response = get(url, retry_if_failed=False)
+            response = get(url, retry_if_failed=True, timeout=30)
             if response.is_ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
                     logger.error(

@@ -44,7 +44,7 @@ class Overseerr:
                 return False
             return response.ok
         except (ConnectionError, RetryError, MaxRetryError, NewConnectionError) as e:
-            logger.error(f"Overseerr URL is not reachable: {str(e)}")
+            logger.error(f"Overseerr URL is not reachable, or it timed out")
             return False
         except Exception as e:
             logger.error(f"Unexpected error during Overseerr validation: {str(e)}")
