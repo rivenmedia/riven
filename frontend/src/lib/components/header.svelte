@@ -27,7 +27,9 @@
 	}
 </script>
 
-<header class="flex w-full items-center justify-between border-b p-8 md:px-24 lg:px-32 bg-primary-foreground dark:bg-background">
+<header
+	class="flex w-full items-center justify-between border-b bg-primary-foreground p-8 dark:bg-background md:px-24 lg:px-32"
+>
 	<div class="flex items-center gap-2">
 		<a href="/" class="flex items-center gap-2">
 			<Mountain class="size-6 md:size-8" />

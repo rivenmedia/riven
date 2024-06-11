@@ -21,9 +21,7 @@
 					<Card.Title>Recently Requested</Card.Title>
 					<Card.Description>Items you requested recently</Card.Description>
 				</Card.Header>
-				<Card.Content class="mt-4 flex flex-col items-start gap-4">
-					Soon..
-				</Card.Content>
+				<Card.Content class="mt-4 flex flex-col items-start gap-4">Soon..</Card.Content>
 			</Card.Root>
 
 			<Card.Root>
@@ -43,44 +41,44 @@
 				</Card.Header>
 				<Card.Content class="mt-4 flex flex-col items-start gap-4">
 					<div class="flex items-center gap-2">
-						<div class="bg-secondary rounded-full p-2">
+						<div class="rounded-full bg-secondary p-2">
 							<Download class="h-6 w-6 p-1" />
 						</div>
 						<div class="flex flex-col items-start">
 							<p>Dowloader configured</p>
 							{#if data.appData.downloader === 'rd'}
-								<p class="text-muted-foreground text-sm">Real-Debrid</p>
+								<p class="text-sm text-muted-foreground">Real-Debrid</p>
 							{:else}
-								<p class="text-muted-foreground text-sm">Torbox</p>
+								<p class="text-sm text-muted-foreground">Torbox</p>
 							{/if}
 						</div>
 					</div>
 
 					<div class="flex items-center gap-2">
-						<div class="bg-secondary rounded-full p-2">
+						<div class="rounded-full bg-secondary p-2">
 							<Mail class="h-6 w-6 p-1" />
 						</div>
 						<div class="flex flex-col items-start">
 							<p>Email Address</p>
-							<p class="text-muted-foreground text-sm">{data.appData.user.data.email}</p>
+							<p class="text-sm text-muted-foreground">{data.appData.user.data.email}</p>
 						</div>
 					</div>
 
 					<div class="flex items-center gap-2">
-						<div class="bg-secondary rounded-full p-2">
+						<div class="rounded-full bg-secondary p-2">
 							<Calendar class="h-6 w-6 p-1" />
 						</div>
 						<div class="flex flex-col items-start">
 							<p>Subscription</p>
 							{#if data.appData.downloader === 'rd'}
-								<p class="text-muted-foreground text-sm">
+								<p class="text-sm text-muted-foreground">
 									Expires on {formatRDDate(data.appData.user.data.expiration, 'short')} ({formatRDDate(
 										data.appData.user.data.expiration,
 										'left'
 									)})
 								</p>
 							{:else}
-								<p class="text-muted-foreground text-sm">
+								<p class="text-sm text-muted-foreground">
 									Expires on {formatDate(data.appData.user.data.premium_expires_at, 'short')} ({formatDate(
 										data.appData.user.data.premium_expires_at,
 										'left'

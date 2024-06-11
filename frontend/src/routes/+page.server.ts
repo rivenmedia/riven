@@ -40,8 +40,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 					if (userRes.ok) {
 						return {
 							services,
-							user: (await userRes.json()),
-							downloader: "torbox"
+							user: await userRes.json(),
+							downloader: 'torbox'
 						};
 					}
 				} else {
@@ -49,8 +49,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 					if (userRes.ok) {
 						return {
 							services,
-							user: (await userRes.json()),
-							downloader: "rd"
+							user: await userRes.json(),
+							downloader: 'rd'
 						};
 					}
 				}

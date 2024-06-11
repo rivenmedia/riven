@@ -57,7 +57,7 @@
 		{:else} -->
 		<h1 class="slide-up text-center text-3xl font-semibold">Welcome to Riven!</h1>
 		<p
-			class="text-muted-foreground slide-up max-w-lg text-center text-base md:max-w-2xl md:text-lg"
+			class="slide-up max-w-lg text-center text-base text-muted-foreground md:max-w-2xl md:text-lg"
 		>
 			Before you can start using Riven, you need to configure some services first.
 		</p>
