@@ -6,7 +6,7 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-xl font-semibold md:text-2xl">Scrapers Settings</h2>
+	<h2 class="text-xl font-semibold md:text-2xl">Scraper Settings</h2>
 	<p class="text-sm text-muted-foreground md:text-base">Configure scraper settings for Iceberg</p>
 
 	<ScrapersForm data={data.form} actionUrl="/settings/scrapers" />

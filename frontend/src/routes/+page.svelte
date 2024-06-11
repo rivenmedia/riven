@@ -4,6 +4,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { Loader2, Check, X } from 'lucide-svelte';
 	import ServiceStatus from '$lib/components/service-status.svelte';
+	import * as Card from '$lib/components/ui/card';
 
 	export let data: PageData;
 </script>
@@ -12,13 +13,11 @@
 	<title>Iceberg | Home</title>
 </svelte:head>
 
-<div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32">
+<!-- <div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32">
 	{#if 'error' in data.user || !data.user}
 		<p class="text-red-500">Failed to fetch user data.</p>
 		<p class="text-red-500">Error: {data.user?.error || 'Unknown'}</p>
 	{:else}
-		<!-- <h1 class="text-xl md:text-2xl font-bold text-primary">Iceberg v{data.version.data.version}</h1> -->
-		<!-- <h1 class="text-lg font-bold md:text-xl">Welcome {data.user?.username}</h1> -->
 		<h1 class="text-xl font-bold text-primary md:text-2xl">
 			Welcome {data.user?.username} (v{data.version.data.version})
 		</h1>
@@ -42,4 +41,49 @@
 	{:catch}
 		<p class="text-muted-foreground">Failed to fetch services status</p>
 	{/await}
+</div> -->
+
+<div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32">
+	{#if data.appData.user.success}
+		<div class="grid grid-flow-row gap-4 lg:grid-flow-col">
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>Card Title</Card.Title>
+					<Card.Description>Card Description</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p>Card Content</p>
+				</Card.Content>
+				<Card.Footer>
+					<p>Card Footer</p>
+				</Card.Footer>
+			</Card.Root>
+
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>Card Title</Card.Title>
+					<Card.Description>Card Description</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p>Card Content</p>
+				</Card.Content>
+				<Card.Footer>
+					<p>Card Footer</p>
+				</Card.Footer>
+			</Card.Root>
+
+			<Card.Root>
+				<Card.Header>
+					<Card.Title>Card Title</Card.Title>
+					<Card.Description>Card Description</Card.Description>
+				</Card.Header>
+				<Card.Content>
+					<p>Card Content</p>
+				</Card.Content>
+				<Card.Footer>
+					<p>Card Footer</p>
+				</Card.Footer>
+			</Card.Root>
+		</div>
+	{/if}
 </div>

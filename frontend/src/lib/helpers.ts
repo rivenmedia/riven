@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import type { IcebergItem } from '$lib/types';
+import type { RivenItem } from '$lib/types';
 
 // only works with real-debrid dates because of CET format provided by RD
 export function formatRDDate(inputDate: string, format: string = 'long'): string {
@@ -72,8 +72,8 @@ export function formatWords(words: string) {
 		.join(' ');
 }
 
-export function convertIcebergItemsToObject(items: IcebergItem[]) {
-	const result: { [key: string]: IcebergItem[] } = {};
+export function convertIcebergItemsToObject(items: RivenItem[]) {
+	const result: { [key: string]: RivenItem[] } = {};
 
 	for (const item of items) {
 		if (!result[item.state]) {
