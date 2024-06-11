@@ -36,7 +36,7 @@
 		<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
 			<Form.Legend>{legend}</Form.Legend>
 			{#if fieldDescription}
-				<p class="text-muted-foreground text-xs">{fieldDescription}</p>
+				<p class="text-xs text-muted-foreground">{fieldDescription}</p>
 			{/if}
 		</div>
 

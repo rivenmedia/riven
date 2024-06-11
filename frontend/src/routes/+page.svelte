@@ -19,12 +19,15 @@
 	{:else}
 		<!-- <h1 class="text-xl md:text-2xl font-bold text-primary">Iceberg v{data.version.data.version}</h1> -->
 		<!-- <h1 class="text-lg font-bold md:text-xl">Welcome {data.user?.username}</h1> -->
-		<h1 class="text-primary text-xl font-bold md:text-2xl">
+		<h1 class="text-xl font-bold text-primary md:text-2xl">
 			Welcome {data.user?.username} (v{data.version.data.version})
 		</h1>
 		<p class="mt-2">{data.user?.email}</p>
 		<p class="break-words">
-			Premium expires on {formatRDDate(data.user?.expiration, 'short')} ({formatRDDate(data.user?.expiration, 'left')})
+			Premium expires on {formatRDDate(data.user?.expiration, 'short')} ({formatRDDate(
+				data.user?.expiration,
+				'left'
+			)})
 		</p>
 	{/if}
 	<Separator class="my-4" />

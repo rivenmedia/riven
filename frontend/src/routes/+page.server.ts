@@ -44,7 +44,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 
 	return {
 		user: await getUserData(),
-        version: await getVersion(),
+		version: await getVersion(),
 		services: getServices()
 	};
 };

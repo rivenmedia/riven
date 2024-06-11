@@ -27,7 +27,7 @@
 	}
 </script>
 
-<header class="flex w-full items-center justify-between p-8 md:px-24 lg:px-32 border-b">
+<header class="flex w-full items-center justify-between border-b p-8 md:px-24 lg:px-32">
 	<div class="flex items-center gap-2">
 		<a href="/" class="flex items-center gap-2">
 			<Mountain class="size-6 md:size-8" />
@@ -55,7 +55,7 @@
 	class:h-0={!showMenu}
 	class:h-screen={showMenu}
 	class:h-[100dvh]={showMenu}
-	class="bg-background fixed left-0 top-0 z-[99] flex h-0 w-screen flex-col items-center overflow-x-hidden md:hidden"
+	class="fixed left-0 top-0 z-[99] flex h-0 w-screen flex-col items-center overflow-x-hidden bg-background md:hidden"
 >
 	<div class="flex w-full items-end justify-end p-8 transition-all duration-300 ease-in-out">
 		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">

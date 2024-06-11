@@ -111,10 +111,10 @@
 
 	<Form.Field {form} name="plex_token">
 		<Form.Control let:attrs>
-			<div class="flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4 mb-2">
+			<div class="mb-2 flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4">
 				<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
 					<Form.Label>Plex Token</Form.Label>
-					<p class="text-muted-foreground text-xs">Click the button to generate a new Plex token</p>
+					<p class="text-xs text-muted-foreground">Click the button to generate a new Plex token</p>
 				</div>
 				<input type="hidden" name="plex_token" id="plex_token" value={$formData.plex_token} />
 				<Button
@@ -131,12 +131,12 @@
 						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 					{/if}
 					{#if $formData.plex_token.length > 0}
-						<p class="text-left w-full">
+						<p class="w-full text-left">
 							Reauthenticate with Plex
 							<span class="ml-1">({$formData.plex_token.slice(0, 5)}...)</span>
 						</p>
 					{:else}
-						<p class="text-left w-full">Authenticate with Plex</p>
+						<p class="w-full text-left">Authenticate with Plex</p>
 					{/if}
 				</Button>
 			</div>

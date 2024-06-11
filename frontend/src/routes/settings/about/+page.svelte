@@ -61,14 +61,14 @@
 
 <div class="flex flex-col">
 	<h2 class="text-xl font-semibold md:text-2xl">About</h2>
-	<p class="text-muted-foreground text-sm md:text-base">
+	<p class="text-sm text-muted-foreground md:text-base">
 		Know what you're running and how to get help.
 	</p>
 	<div class="my-8 flex w-full flex-col gap-4">
 		<div class="mb-2 flex flex-col items-start md:flex-row md:items-center">
 			<h3 class="w-48 min-w-48 text-sm">Version</h3>
 			<div class="flex w-full flex-wrap gap-2">
-				<p class="bg-secondary break-words rounded-md p-2 text-sm">
+				<p class="break-words rounded-md bg-secondary p-2 text-sm">
 					{version}
 				</p>
 				<Button
@@ -95,7 +95,7 @@
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<p class="bg-secondary break-words rounded-md p-2 text-sm">
+					<p class="break-words rounded-md bg-secondary p-2 text-sm">
 						{aboutData[key]}
 					</p>
 				</div>
@@ -104,7 +104,7 @@
 	</div>
 
 	<h2 class="text-xl font-semibold md:text-2xl">Support</h2>
-	<p class="text-muted-foreground text-sm md:text-base">
+	<p class="text-sm text-muted-foreground md:text-base">
 		Need help? Reach out to the Iceberg community or report an issue on GitHub.
 	</p>
 	<div class="my-8 flex w-full flex-col gap-4">
@@ -124,7 +124,7 @@
 	</div>
 
 	<h2 class="text-xl font-semibold md:text-2xl">Contributors</h2>
-	<p class="text-muted-foreground text-sm md:text-base">
+	<p class="text-sm text-muted-foreground md:text-base">
 		Thanks to the following people for their contributions to Iceberg
 	</p>
 	<a

@@ -16,12 +16,12 @@
 			path: '/settings/mediaserver'
 		},
 		{
-			name: 'Scrapers',
-			path: '/settings/scrapers'
-		},
-		{
 			name: 'Content',
 			path: '/settings/content'
+		},
+		{
+			name: 'Scrapers',
+			path: '/settings/scrapers'
 		},
 		{
 			name: 'About',
@@ -56,12 +56,12 @@
 		</Select.Content>
 	</Select.Root>
 
-	<div class="text-foreground hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm lg:flex">
+	<div class="hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm text-foreground lg:flex">
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
-					'bg-secondary text-foreground font-semibold': item.path === $page.url.pathname,
-					'hover:bg-secondary text-foreground': item.path !== $page.url.pathname
+					'bg-secondary font-semibold text-foreground': item.path === $page.url.pathname,
+					'text-foreground hover:bg-secondary': item.path !== $page.url.pathname
 				})}
 				href={item.path}
 			>

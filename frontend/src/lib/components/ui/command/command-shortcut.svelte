@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLAttributes } from "svelte/elements";
-	import { cn } from "$lib/utils.js";
+	import type { HTMLAttributes } from 'svelte/elements';
+	import { cn } from '$lib/utils.js';
 
 	type $$Props = HTMLAttributes<HTMLSpanElement>;
 
@@ -9,7 +9,7 @@
 </script>
 
 <span
-	class={cn("ml-auto text-xs tracking-widest text-muted-foreground", className)}
+	class={cn('ml-auto text-xs tracking-widest text-muted-foreground', className)}
 	{...$$restProps}
 >
 	<slot />
