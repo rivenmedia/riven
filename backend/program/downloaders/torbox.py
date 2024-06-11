@@ -55,7 +55,10 @@ class TorBoxDownloader:
             return True
 
     def download(self, item: MediaItem):
+        # Support only movies for now
         if item.type == "movie":
+
+            # Check if the torrent already exists
             exists = False
             torrent_list = self.get_torrent_list()
             for torrent in torrent_list:
@@ -63,8 +66,12 @@ class TorBoxDownloader:
                     id = torrent["id"]
                     exists = True
                     break
+            # If it doesnt, lets download it and refresh the torrent_list
             if not exists:
                 id = self.create_torrent(item.active_stream["hash"])
+                torrent_list = self.get_torrent_list()
+
+            # Find the torrent, correct file and we gucci
             for torrent in torrent_list:
                 if torrent["id"] == id:
                     with contextlib.suppress(GarbageTorrent, TypeError):
@@ -84,7 +91,7 @@ class TorBoxDownloader:
 
     def get_web_download_cached(self, hash_list):
         hash_string = ",".join(hash_list)
-        response = get(f"{self.base_url}/webdl/checkcached?hash={hash_string}", additional_headers=self.headers, response_type=dict)
+        response = get(f"{self.base_url}/torrents/checkcached?hash={hash_string}", additional_headers=self.headers, response_type=dict)
         return response.data["data"]
 
     def get_user_data(self):
