@@ -26,11 +26,11 @@ class Mdblist:
         if not self.settings.enabled:
             logger.warning("Mdblist is set to disabled.")
             return False
-        if self.settings.lists == [""]:
-            logger.error("Mdblist is enabled, but list is empty.")
-            return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 25:
             logger.error("Mdblist api key is not set.")
+            return False
+        if not self.settings.lists:
+            logger.error("Mdblist is enabled, but list is empty.")
             return False
         response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
         if "Invalid API key!" in response.text:
@@ -71,7 +71,7 @@ def my_limits(api_key: str):
     return response.data
 
 
-def list_items(list_id: str, api_key: str):
+def list_items(list_id: int, api_key: str):
     """Wrapper for mdblist api method 'List items'"""
-    response = get(f"http://www.mdblist.com/api/lists/{list_id}/items?apikey={api_key}")
+    response = get(f"http://www.mdblist.com/api/lists/{str(list_id)}/items?apikey={api_key}")
     return response.data
