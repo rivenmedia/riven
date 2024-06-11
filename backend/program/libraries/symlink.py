@@ -60,7 +60,11 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
             logger.error(f"Can't extract {item_type} imdb_id or title at path {path / filename}")
             continue
         item = item_class({'imdb_id': imdb_id.group(), 'title': title.group(1)})
-        item.update_folder = "updated"
+        if settings_manager.settings.force_refresh:
+            item.set("symlinked", True)
+            item.set("update_folder", path)
+        else:
+            item.set("update_folder", "updated")
         if is_anime:
             item.is_anime = True
         yield item
@@ -87,7 +91,11 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                     logger.error(f"Can't extract episode number at path {directory / show / season / episode}")
                     continue
                 episode_item = Episode({'number': int(episode_number.group(1))})
-                episode_item.update_folder = "updated"
+                if settings_manager.settings.force_refresh:
+                    episode_item.set("symlinked", True)
+                    episode_item.set("update_folder", f"{directory}/{show}/{season}/{episode}")
+                else:
+                    episode_item.set("update_folder", "updated")
                 if is_anime:
                     episode_item.is_anime = True
                 season_item.add_episode(episode_item)

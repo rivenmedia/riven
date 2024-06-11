@@ -238,6 +238,7 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
+    force_refresh: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()
     symlink: SymlinkModel = SymlinkModel()
     downloaders: DownloadersModel = DownloadersModel()

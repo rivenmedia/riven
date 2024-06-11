@@ -107,47 +107,19 @@ class Symlinker:
             return False
         return True
 
-    def run(self, item: Union[Movie, Episode, Season]):
+    def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
+        if not item:
+            logger.error("Invalid item sent to Symlinker: None")
+            return
+
         try:
             if isinstance(item, Show):
-                all_symlinked = True
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        if not episode.symlinked and episode.file and episode.folder:
-                            if self._symlink(episode):
-                                episode.set("symlinked", True)
-                                episode.set("symlinked_at", datetime.now())
-                            else:
-                                all_symlinked = False
-                if all_symlinked:
-                    logger.log("SYMLINKER", f"Symlinked all episodes for show {item.log_string}")
-                else:
-                    logger.error(f"Failed to symlink some episodes for show {item.log_string}")
+                self._symlink_show(item)
             elif isinstance(item, Season):
-                all_symlinked = True
-                successfully_symlinked_episodes = []
-                for episode in item.episodes:
-                    if not episode.symlinked and episode.file and episode.folder:
-                        if self._symlink(episode):
-                            episode.set("symlinked", True)
-                            episode.set("symlinked_at", datetime.now())
-                            successfully_symlinked_episodes.append(episode)
-                        else:
-                            all_symlinked = False
-                if all_symlinked:
-                    logger.log("SYMLINKER", f"Symlinked all episodes for {item.log_string}")
-                else:
-                    for episode in successfully_symlinked_episodes:
-                        logger.log("SYMLINKER", f"Symlink created for {episode.log_string}")
+                self._symlink_season(item)
             elif isinstance(item, (Movie, Episode)):
-                if not item.symlinked and item.file and item.folder:
-                    if self._symlink(item):
-                        logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
-                    else:
-                        logger.error(f"Failed to create symlink for {item.log_string}")
-            item.set("symlinked", True)
-            item.set("symlinked_at", datetime.now())
+                self._symlink_single(item)
         except Exception as e:
             logger.exception(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
@@ -155,7 +127,7 @@ class Symlinker:
         yield item
 
     @staticmethod
-    def should_submit(item: Union[Movie, Episode, Season]) -> bool:
+    def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""
 
         if isinstance(item, Show):
@@ -225,6 +197,45 @@ class Symlinker:
 
         logger.debug(f"Item {item.log_string} not submitted for symlink, file not found yet")
         return False
+
+    def _symlink_show(self, show: Show):
+        all_symlinked = True
+        for season in show.seasons:
+            for episode in season.episodes:
+                if not episode.symlinked and episode.file and episode.folder:
+                    if self._symlink(episode):
+                        episode.set("symlinked", True)
+                        episode.set("symlinked_at", datetime.now())
+                    else:
+                        all_symlinked = False
+        if all_symlinked:
+            logger.log("SYMLINKER", f"Symlinked all episodes for show {show.log_string}")
+        else:
+            logger.error(f"Failed to symlink some episodes for show {show.log_string}")
+
+    def _symlink_season(self, season: Season):
+        all_symlinked = True
+        successfully_symlinked_episodes = []
+        for episode in season.episodes:
+            if not episode.symlinked and episode.file and episode.folder:
+                if self._symlink(episode):
+                    episode.set("symlinked", True)
+                    episode.set("symlinked_at", datetime.now())
+                    successfully_symlinked_episodes.append(episode)
+                else:
+                    all_symlinked = False
+        if all_symlinked:
+            logger.log("SYMLINKER", f"Symlinked all episodes for {season.log_string}")
+        else:
+            for episode in successfully_symlinked_episodes:
+                logger.log("SYMLINKER", f"Symlink created for {episode.log_string}")
+
+    def _symlink_single(self, item: Union[Movie, Episode]):
+        if not item.symlinked and item.file and item.folder:
+            if self._symlink(item):
+                logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
+            else:
+                logger.error(f"Failed to create symlink for {item.log_string}")
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
