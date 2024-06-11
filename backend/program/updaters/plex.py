@@ -93,13 +93,13 @@ class PlexUpdater:
                 for path in paths:
                     if isinstance(item, (Show, Season)):
                         for episode in items_to_update:
-                            if path in episode.update_folder:
+                            if episode.update_folder and path in episode.update_folder:
                                 if self._update_section(section, episode):
                                     updated_episodes.append(episode)
                                     section_name = section.title
                                     updated = True
                     elif isinstance(item, (Movie, Episode)):
-                        if path in item.update_folder:
+                        if item.update_folder and path in item.update_folder:
                             if self._update_section(section, item):
                                 section_name = section.title
                                 updated = True
