@@ -76,7 +76,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    lists: list[str] = []
+    lists: list[int] = []
     update_interval: int = 300
 
 

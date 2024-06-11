@@ -11,7 +11,7 @@ RUN apk add --no-cache \
     curl
 
 # Upgrade pip and install poetry
-RUN pip install --upgrade pip && pip install poetry==1.4.2
+RUN pip install --upgrade pip && pip install poetry==1.8.3
 
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
@@ -64,7 +64,7 @@ RUN mkdir -p /usr/share/fonts/nerd-fonts && \
     fc-cache -fv
 
 # Install Poetry
-RUN pip install poetry==1.4.2
+RUN pip install poetry==1.8.3
 
 # Create user and group
 RUN addgroup -g 1000 iceberg && \
@@ -72,9 +72,6 @@ RUN addgroup -g 1000 iceberg && \
 
 # Create fish config directory
 RUN mkdir -p /home/iceberg/.config/fish
-
-# Expose ports
-EXPOSE 3000 8080 5572
 
 # Set environment variable to force color output
 ENV FORCE_COLOR=1
