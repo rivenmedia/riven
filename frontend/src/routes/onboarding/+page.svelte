@@ -59,7 +59,7 @@
 		<p
 			class="text-muted-foreground slide-up max-w-lg text-center text-base md:max-w-2xl md:text-lg"
 		>
-			Before you can start using Iceberg, you need to configure some services first.
+			Before you can start using Riven, you need to configure some services first.
 		</p>
 		<Button class="slide-up mt-4 w-full font-semibold md:max-w-max" href="/onboarding/1">
 			<Rocket class="mr-2 h-4 w-4" />

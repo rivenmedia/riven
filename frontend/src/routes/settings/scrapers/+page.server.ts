@@ -62,7 +62,7 @@ export const actions: Actions = {
 		}
 
 		if (event.url.searchParams.get('onboarding') === 'true') {
-			redirect(302, '/onboarding/4');
+			redirect(302, '/?onboarding=true');
 		}
 
 		return message(form, 'Settings saved!');
