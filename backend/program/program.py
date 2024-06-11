@@ -52,7 +52,7 @@ class Program(threading.Thread):
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
             Scraping: Scraping(hash_cache),
-            Symlinker: Symlinker(),
+            Symlinker: Symlinker(self.media_items),
             PlexUpdater: PlexUpdater(),
         }
         self.downloader_services = {
@@ -126,6 +126,9 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
 
+        unfinished_items = self.media_items.get_incomplete_items()
+        logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
+
         self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
@@ -137,10 +140,9 @@ class Program(threading.Thread):
         logger.success("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        """Retry any items that are in an incomplete state."""
-        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
-        for item in items_to_submit:
-            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+        for _, item in self.media_items.get_incomplete_items().items():
+            if item.state not in (States.Completed, States.PartiallyCompleted) and item not in self.event_queue.queue:
+                self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -242,18 +244,14 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Iceberg has been stopped.")
 
-    def add_to_queue(self, item: MediaItem) -> bool:
+    def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""
-        if item is not None:
-            new_item = create_item_from_imdb_id(item.imdb_id)
-            if not new_item:
-                logger.error(f"Failed to get item {item.log_string} from IMDb")
-                return False
-            self.event_queue.put(Event(emitted_by=self.__class__, item=new_item))
-            logger.log("PROGRAM", f"Added {new_item.log_string} to the queue")
+        if isinstance(item, Union[Movie, Show, Season, Episode]):
+            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+            logger.log("PROGRAM", f"Added {item.log_string} to the queue")
             return True
         else:
-            logger.error("Attempted to add a None item to the queue")
+            logger.error(f"Failed to add item with type {type(item)} to the queue")
         return False
 
     def clear_queue(self):
@@ -266,21 +264,3 @@ class Program(threading.Thread):
             except Empty:
                 break
         logger.log("PROGRAM", "Cleared the event queue")
-
-    def _rebuild_library(self):
-        """Rebuild the media items container from the SymlinkLibrary service."""
-        new_items = list(self.services[SymlinkLibrary].run())
-        existing_item_ids = {item.item_id for item in self.media_items}
-
-        items_to_add = [item for item in new_items if item.item_id not in existing_item_ids]
-        items_to_update = [item for item in new_items if item.item_id in existing_item_ids and item != self.media_items.get(item.item_id)]
-
-        if items_to_add:
-            logger.log("PROGRAM", f"Adding {len(items_to_add)} new items to the media items container")
-            for item in items_to_add:
-                self.media_items.upsert(item)
-
-        if items_to_update:
-            logger.log("PROGRAM", f"Updating {len(items_to_update)} existing items in the media items container")
-            for item in items_to_update:
-                self.media_items.upsert(item)
