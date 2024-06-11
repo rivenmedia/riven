@@ -140,14 +140,17 @@ class Program(threading.Thread):
         logger.success("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        for _, item in self.media_items.get_incomplete_items().items():
-            if item.state not in (States.Completed, States.PartiallyCompleted) and item not in self.event_queue.queue:
+        incomplete_items = list(self.media_items.get_incomplete_items().items())
+        current_queue_items = list(self.event_queue.queue)  # Create a copy of the current queue
+
+        for _, item in incomplete_items:
+            if item.state not in (States.Completed, States.PartiallyCompleted) and item not in current_queue_items:
                 self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 2},
+            self._retry_library: {"interval": 60 * 10},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
