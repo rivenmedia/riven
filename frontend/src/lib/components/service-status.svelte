@@ -25,14 +25,8 @@
 		torbox_downloader: 'Torbox Downloader'
 	};
 
-	const coreServices = [
-		'symlinklibrary',
-		'plexlibrary',
-		'realdebrid',
-		'symlink',
-		'torbox',
-		'torbox_downloader'
-	];
+	const coreServices = ['symlinklibrary', 'plexlibrary', 'symlink'];
+	const downloaderServices = ['realdebrid', 'torbox', 'torbox_downloader'];
 	const contentServices = ['mdblist', 'overseerr', 'plex_watchlist', 'listrr', 'trakt'];
 	const scrapingServices = [
 		'torrentio',
@@ -58,6 +52,7 @@
 
 	export let data: Record<string, boolean>;
 	const coreServicesData = sortServices(coreServices, data);
+	const downloaderServicesData = sortServices(downloaderServices, data);
 	const contentServicesData = sortServices(contentServices, data);
 	const scrapingServicesData = sortServices(scrapingServices, data);
 
@@ -65,6 +60,13 @@
 		return {
 			name: servicesObject[service],
 			status: coreServicesData[service]
+		};
+	});
+
+	const downloaderServicesStatus = Object.keys(downloaderServicesData).map((service) => {
+		return {
+			name: servicesObject[service],
+			status: downloaderServicesData[service]
 		};
 	});
 
@@ -86,6 +88,10 @@
 		{
 			name: 'Core services',
 			services: coreServicesStatus
+		},
+		{
+			name: 'Downloader services',
+			services: downloaderServicesStatus
 		},
 		{
 			name: 'Content services',
