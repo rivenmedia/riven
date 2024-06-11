@@ -141,7 +141,7 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         for _, item in self.media_items.get_incomplete_items().items():
-            if item.state not in (States.Completed, States.PartiallyCompleted):
+            if item.state not in (States.Completed, States.PartiallyCompleted) and item not in self.event_queue.queue:
                 self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:

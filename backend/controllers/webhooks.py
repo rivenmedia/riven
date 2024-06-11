@@ -55,10 +55,9 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     else:
         overseerr.recurring_items.add(imdb_id)
 
-    new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "requested_at": datetime.now()})
+    new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
     item = create_item_from_imdb_id(new_item.imdb_id)
     if isinstance(item, Show):
         trakt._add_seasons_to_show(item, imdb_id)
-    item.indexed_at = datetime.now()
     request.app.program.add_to_queue(item)
     return {"success": True}

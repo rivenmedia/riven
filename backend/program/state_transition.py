@@ -41,7 +41,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
-            if isinstance(item, Movie):
+            if isinstance(item, (Movie, Episode)):
                 items_to_submit = [item]
             elif isinstance(item, Show):
                 items_to_submit = [
@@ -60,8 +60,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                     items_to_submit = [item]
             else:
                 items_to_submit = [item]
-        else:
-            items_to_submit = []
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
@@ -82,31 +80,34 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Debrid or TorBoxDownloader
         items_to_submit = [item]
 
+    # elif item.state == States.Downloaded:
+    #     next_service = Symlinker
+    #     proposed_submissions = []
+    #     if isinstance(item, Season):
+    #         if all(e.file and e.folder for e in item.episodes if not e.symlinked):
+    #             proposed_submissions = [item]
+    #         else:
+    #             proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
+    #     elif isinstance(item, (Movie, Episode)):
+    #         proposed_submissions = [item]
+    #     items_to_submit = []
+    #     for sub_item in proposed_submissions:
+    #         if Symlinker.should_submit(sub_item):
+    #             items_to_submit.append(sub_item)
+    #         else:
+    #             logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
+
     elif item.state == States.Downloaded:
         next_service = Symlinker
-        proposed_submissions = []
-        if isinstance(item, Season):
-            if all(e.file and e.folder for e in item.episodes if not e.symlinked):
-                proposed_submissions = [item]
-            else:
-                proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
-        elif isinstance(item, (Movie, Episode)):
-            proposed_submissions = [item]
-        items_to_submit = []
-        for sub_item in proposed_submissions:
-            if Symlinker.should_submit(sub_item):
-                items_to_submit.append(sub_item)
-            else:
-                logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
+        if Symlinker.should_submit(item):
+            items_to_submit = [item]
+        else:
+            items_to_submit = []
+            logger.debug(f"{item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater
-        if isinstance(item, Show):
-            items_to_submit = [s for s in item.seasons]
-        elif isinstance(item, Season):
-            items_to_submit = [item]
-        else:
-            items_to_submit = [item]
+        items_to_submit = [item]
 
     elif item.state == States.Completed:
         return no_further_processing

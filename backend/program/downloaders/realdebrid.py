@@ -584,18 +584,19 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
 
     if isinstance(item, Movie):
         if check_movie():
-            logger.info(f"Movie {item.log_string} already exists in Real-Debrid account.")
+            logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Show):
         if all(check_season(season) for season in item.seasons):
+            logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Season):
         if check_season():
-            logger.info(f"Season {item.log_string} already exists in Real-Debrid account.")
+            logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Episode):
         if check_episode():
-            logger.info(f"Episode {item.log_string} already exists in Real-Debrid account.")
+            logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
 
     logger.debug(f"No matching item found for {item.log_string}")

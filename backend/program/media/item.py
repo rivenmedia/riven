@@ -151,6 +151,7 @@ class MediaItem:
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
             "genres": self.genres if hasattr(self, "genres") else None,
+            "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,
@@ -307,6 +308,7 @@ class Show(MediaItem):
     def add_season(self, season):
         """Add season to show"""
         if season.number not in [s.number for s in self.seasons]:
+            season.is_anime = self.is_anime
             self.seasons.append(season)
             season.parent = self
             season.item_id.parent_id = self.item_id
@@ -322,6 +324,8 @@ class Season(MediaItem):
         self.episodes: list[Episode] = item.get("episodes", [])
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
         super().__init__(item)
+        if self.parent and isinstance(self.parent, Show):
+            self.is_anime = self.parent.is_anime
 
     def _determine_state(self):
         if len(self.episodes) > 0:
@@ -375,6 +379,7 @@ class Season(MediaItem):
         if episode.number in [e.number for e in self.episodes]:
             return
 
+        episode.is_anime = self.is_anime
         self.episodes.append(episode)
         episode.parent = self
         episode.item_id.parent_id = self.item_id
@@ -396,6 +401,8 @@ class Episode(MediaItem):
         self.file = item.get("file", None)
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
         super().__init__(item)
+        if self.parent and isinstance(self.parent, Season):
+            self.is_anime = self.parent.is_anime
 
     def __eq__(self, other):
         if (

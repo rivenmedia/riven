@@ -78,12 +78,11 @@ class PlexUpdater:
         if isinstance(item, (Movie, Episode)):
             items_to_update = [item]
         elif isinstance(item, Show):
-            items_to_update = [e for season in item.seasons for e in season.episodes if e.symlinked and e.update_folder != "updated"]
+            items_to_update = [s for s in item.seasons for e in s.episodes if e.symlinked and e.update_folder != "updated"]
         elif isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
 
         if not items_to_update:
-            logger.error(f"No items to update for {item}")
             yield item
             return
 
@@ -114,8 +113,6 @@ class PlexUpdater:
                     logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
             else:
                 logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
-
-        logger.log("PLEX", f"{item.log_string} state is {item.state.value}")
         yield item
 
     def _update_section(self, section, item: Union[Movie, Episode]) -> bool:

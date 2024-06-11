@@ -227,7 +227,6 @@ class MediaItemContainer:
 
             remove_children(item)
             logger.debug(f"Removed item: {log_title} (IMDb ID: {imdb_id})")
-            self.save("media.pkl")
         except KeyError as e:
             logger.error(f"Failed to remove item: {log_title} (IMDb ID: {imdb_id}). KeyError: {e}")
         except Exception as e:

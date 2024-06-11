@@ -170,6 +170,11 @@ class Symlinker:
                         logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
                         if not _wait_for_file(episode):
                             all_episodes_ready = False
+                            break  # Give up on the whole season if one episode is not found in 90 seconds
+            if not all_episodes_ready:
+                for episode in item.episodes:
+                    blacklist_item(episode)
+                logger.warning(f"Cannot submit season {item.log_string} for symlink: One or more episodes need to be rescraped.")
             return all_episodes_ready
 
         if isinstance(item, Season):
@@ -254,6 +259,17 @@ class Symlinker:
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
         """Create necessary folders and determine the destination path for symlinks."""
+        is_anime = hasattr(item, 'is_anime') and item.is_anime
+
+        movie_path = self.library_path_movies
+        show_path = self.library_path_shows
+
+        if is_anime:
+            if isinstance(item, Movie):
+                movie_path = self.library_path_anime_movies
+            elif isinstance(item, (Show, Season, Episode)):
+                show_path = self.library_path_anime_shows
+
         def create_folder_path(base_path, *subfolders):
             path = os.path.join(base_path, *subfolders)
             os.makedirs(path, exist_ok=True)
@@ -261,23 +277,23 @@ class Symlinker:
 
         if isinstance(item, Movie):
             movie_folder = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
-            destination_folder = create_folder_path(self.library_path_movies, movie_folder)
+            destination_folder = create_folder_path(movie_path, movie_folder)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Show):
             folder_name_show = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
-            destination_folder = create_folder_path(self.library_path_shows, folder_name_show)
+            destination_folder = create_folder_path(show_path, folder_name_show)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Season):
             show = item.parent
             folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
-            show_path = create_folder_path(self.library_path_shows, folder_name_show)
+            show_path = create_folder_path(show_path, folder_name_show)
             folder_season_name = f"Season {str(item.number).zfill(2)}"
             destination_folder = create_folder_path(show_path, folder_season_name)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Episode):
             show = item.parent.parent
             folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
-            show_path = create_folder_path(self.library_path_shows, folder_name_show)
+            show_path = create_folder_path(show_path, folder_name_show)
             season = item.parent
             folder_season_name = f"Season {str(season.number).zfill(2)}"
             destination_folder = create_folder_path(show_path, folder_season_name)
@@ -492,6 +508,7 @@ def reset_item(item):
     item.set("streams", {})
     item.set("active_stream", {})
     item.set("symlinked_times", 0)
+    item.set("scraped_times", 0)
     logger.debug(f"Item {item.log_string} reset for rescraping")
 
 def get_infohash(item):

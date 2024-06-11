@@ -1,7 +1,7 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -67,21 +67,24 @@ class TraktIndexer:
         for season in seasons:
             if season.number == 0:
                 continue
-            season_item = _map_item_from_data(season, "season")
+            season_item = _map_item_from_data(season, "season", show.genres)
             if season_item:
                 for episode in season.episodes:
-                    episode_item = _map_item_from_data(episode, "episode")
+                    episode_item = _map_item_from_data(episode, "episode", show.genres)
                     if episode_item:
                         season_item.add_episode(episode_item)
                 show.add_season(season_item)
 
 
-def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
+def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
         return None
+
     formatted_aired_at = _get_formatted_date(data, item_type)
+    genres = getattr(data, "genres", None) or show_genres
+
     item = {
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
@@ -90,8 +93,8 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
         "imdb_id": getattr(data.ids, "imdb", None),
         "tvdb_id": getattr(data.ids, "tvdb", None),
         "tmdb_id": getattr(data.ids, "tmdb", None),
-        "genres": getattr(data, "genres", None),
-        "anime": True if "anime" in getattr(data, "genres", []) else False,
+        "genres": genres,
+        "is_anime": "anime" in genres if genres else False,
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),

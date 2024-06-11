@@ -17,12 +17,13 @@ class SymlinkLibrary:
             return
 
     def validate(self) -> bool:
+        """Validate the symlink library settings."""
         library_path = Path(self.settings.library_path).resolve()
         if library_path == Path.cwd().resolve():
             logger.error("Library path not set or set to the current directory in SymlinkLibrary settings.")
             return False
 
-        required_dirs = ["shows", "movies"]
+        required_dirs = ["shows", "movies", "anime_shows", "anime_movies"]
         missing_dirs = [d for d in required_dirs if not (library_path / d).exists()]
 
         if missing_dirs:
@@ -33,52 +34,62 @@ class SymlinkLibrary:
         return True
 
     def run(self) -> MediaItem:
-        """Create a library from the symlink paths.  Return stub items that should
-        be fed into an Indexer to have the rest of the metadata filled in."""
-        movies = [
-            (root, files[0]) 
-            for root, _, files 
-            in os.walk(self.settings.library_path / "movies") 
-            if files
-        ]
-        for path, filename in movies:
-            imdb_id = re.search(r'(tt\d+)', filename)
-            title = re.search(r'(.+)?( \()', filename)
-            if not imdb_id or not title:
-                logger.error("Can't extract movie imdb_id or title at path %s", path / filename)
+        """
+        Create a library from the symlink paths. Return stub items that should
+        be fed into an Indexer to have the rest of the metadata filled in.
+        """
+        for directory, item_type, is_anime in [("movies", "movie", False), ("anime_movies", "anime movie", True)]:
+            yield from process_items(self.settings.library_path / directory, Movie, item_type, is_anime)
+
+        for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
+            yield from process_shows(self.settings.library_path / directory, item_type, is_anime)
+
+
+def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
+    """Process items in the given directory and yield MediaItem instances."""
+    items = [
+        (root, files[0])
+        for root, _, files
+        in os.walk(directory)
+        if files
+    ]
+    for path, filename in items:
+        imdb_id = re.search(r'(tt\d+)', filename)
+        title = re.search(r'(.+)?( \()', filename)
+        if not imdb_id or not title:
+            logger.error(f"Can't extract {item_type} imdb_id or title at path {path / filename}")
+            continue
+        item = item_class({'imdb_id': imdb_id.group(), 'title': title.group(1)})
+        item.update_folder = "updated"
+        if is_anime:
+            item.is_anime = True
+        yield item
+
+
+def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
+    """Process shows in the given directory and yield Show instances."""
+    for show in os.listdir(directory):
+        imdb_id = re.search(r'(tt\d+)', show)
+        title = re.search(r'(.+)?( \()', show)
+        if not imdb_id or not title:
+            logger.error(f"Can't extract {item_type} imdb_id or title at path {directory / show}")
+            continue
+        show_item = Show({'imdb_id': imdb_id.group(), 'title': title.group(1)})
+        if is_anime:
+            show_item.is_anime = True
+        for season in os.listdir(directory / show):
+            if not (season_number := re.search(r'(\d+)', season)):
+                logger.error(f"Can't extract season number at path {directory / show / season}")
                 continue
-            movie_item = Movie({'imdb_id': imdb_id.group(), 'title': title.group(1)})
-            movie_item.update_folder = "updated"
-            yield movie_item
-        
-        shows_dir = self.settings.library_path / "shows" 
-        for show in os.listdir(shows_dir):
-            imdb_id = re.search(r'(tt\d+)', show)
-            title = re.search(r'(.+)?( \()', show)
-            if not imdb_id or not title:
-                logger.error(
-                    "Can't extract episode imdb_id or title at path %s", 
-                    shows_dir / show
-                )
-                continue
-            show_item = Show({'imdb_id': imdb_id.group(), 'title': title.group(1)})
-            for season in os.listdir(shows_dir / show):
-                if not (season_number := re.search(r'(\d+)', season)):
-                    logger.error(
-                        "Can't extract episode number at path %s", 
-                        shows_dir / show / season
-                    )
+            season_item = Season({'number': int(season_number.group())})
+            for episode in os.listdir(directory / show / season):
+                if not (episode_number := re.search(r's\d+e(\d+)', episode)):
+                    logger.error(f"Can't extract episode number at path {directory / show / season / episode}")
                     continue
-                season_item = Season({'number': int(season_number.group())})
-                for episode in os.listdir(shows_dir / show / season):
-                    if not (episode_number := re.search(r's\d+e(\d+)', episode)):
-                        logger.error(
-                            "Can't extract episode number at path %s", 
-                            shows_dir / show / season / episode
-                        )
-                        continue
-                    episode_item = Episode({'number': int(episode_number.group(1))})
-                    episode_item.update_folder = "updated"
-                    season_item.add_episode(episode_item)
-                show_item.add_season(season_item)
-            yield show_item
+                episode_item = Episode({'number': int(episode_number.group(1))})
+                episode_item.update_folder = "updated"
+                if is_anime:
+                    episode_item.is_anime = True
+                season_item.add_episode(episode_item)
+            show_item.add_season(season_item)
+        yield show_item
