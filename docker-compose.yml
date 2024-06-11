@@ -2,7 +2,7 @@ services:
   iceberg:
     image: spoked/iceberg:latest
     container_name: iceberg
-    network_mode: host
+    restart: unless-stopped
     tty: true
     environment:
       - PUID=1000
@@ -12,5 +12,5 @@ services:
     volumes:
       - ./data:/iceberg/data
       - /mnt:/mnt
-    # ports:  # disabled when network_mode set to `host`
-    #   - "3000:3000"
+    ports:
+      - "3000:3000"
