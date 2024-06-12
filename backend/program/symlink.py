@@ -240,6 +240,10 @@ class Symlinker:
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
+        if item.file is None:
+            logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
+            return False
+
         extension = os.path.splitext(item.file)[1][1:]
         symlink_filename = f"{self._determine_file_name(item)}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
@@ -418,25 +422,42 @@ class Symlinker:
 
     def _delete_show_symlinks(self, show: Show):
         """Delete all symlinks and the directory for the show."""
-        show_path = self.library_path_shows / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
-        if show_path.exists():
-            shutil.rmtree(show_path)
-            logger.info(f"Deleted all symlinks and directory for show: {show.log_string}")
+        try:
+            show_path = self.library_path_shows / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
+            if show_path.exists():
+                shutil.rmtree(show_path)
+                logger.info(f"Deleted all symlinks and directory for show: {show.log_string}")
+        except Exception as e:
+            logger.error(f"Failed to delete all symlinks and directory for show: {show.log_string}, error: {e}")
 
     def _delete_season_symlinks(self, season: Season):
         """Delete all symlinks in the season and its directory."""
-        show = season.parent
-        season_path = self.library_path_shows / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}" / f"Season {str(season.number).zfill(2)}"
-        if season_path.exists():
-            shutil.rmtree(season_path)
-            logger.info(f"Deleted all symlinks and directory for season: {season.log_string}")
+        try:
+            show = season.parent
+            season_path = self.library_path_shows / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}" / f"Season {str(season.number).zfill(2)}"
+            if season_path.exists():
+                shutil.rmtree(season_path)
+                logger.info(f"Deleted all symlinks and directory for season: {season.log_string}")
+        except Exception as e:
+            logger.error(f"Failed to delete all symlinks and directory for season: {season.log_string}, error: {e}")
 
     def _delete_single_symlink(self, item: Union[Movie, Episode]):
         """Delete the specific symlink for a movie or episode."""
-        symlink_path = Path(item.update_folder) / f"{self._determine_file_name(item)}.{os.path.splitext(item.file)[1][1:]}"
-        if symlink_path.exists() and symlink_path.is_symlink():
-            symlink_path.unlink()
-            logger.info(f"Deleted symlink for {item.log_string}")
+        if item.file is None:
+            logger.error(f"Item file is None for {item.log_string}, cannot delete symlink.")
+            return
+
+        if item.update_folder is None:
+            logger.error(f"Item update_folder is None for {item.log_string}, cannot delete symlink.")
+            return
+
+        try:
+            symlink_path = Path(item.update_folder) / f"{self._determine_file_name(item)}.{os.path.splitext(item.file)[1][1:]}"
+            if symlink_path.exists() and symlink_path.is_symlink():
+                symlink_path.unlink()
+                logger.info(f"Deleted symlink for {item.log_string}")
+        except Exception as e:
+            logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
 
 
 def _wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:

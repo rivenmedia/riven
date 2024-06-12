@@ -89,6 +89,8 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
             for episode in os.listdir(directory / show / season):
                 if not (episode_number := re.search(r's\d+e(\d+)', episode)):
                     logger.error(f"Can't extract episode number at path {directory / show / season / episode}")
+                    # Delete the episode since it can't be indexed
+                    os.remove(directory / show / season / episode)
                     continue
                 episode_item = Episode({'number': int(episode_number.group(1))})
                 if settings_manager.settings.force_refresh:

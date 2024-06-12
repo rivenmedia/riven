@@ -10,6 +10,7 @@ profile.svg
 *.gz
 *.zip
 *.lockb
+*.pkl
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/
