@@ -144,9 +144,10 @@ class Symlinker:
                             all_episodes_ready = False
                             break  # Give up on the whole season if one episode is not found in 90 seconds
             if not all_episodes_ready:
-                for episode in item.episodes:
-                    blacklist_item(episode)
-                logger.warning(f"Cannot submit season {item.log_string} for symlink: One or more episodes need to be rescraped.")
+                for season in item.seasons:
+                    for episode in season.episodes:
+                        blacklist_item(episode)
+                logger.warning(f"Cannot submit show {item.log_string} for symlink: One or more episodes need to be rescraped.")
             return all_episodes_ready
 
         if isinstance(item, Season):
