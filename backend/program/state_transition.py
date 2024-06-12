@@ -84,10 +84,17 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Show):
-            if all(s.file and s.folder for s in item.seasons if not s.symlinked):
+            all_found = True
+            for season in item.seasons:
+                if all(e.file and e.folder for e in season.episodes if not e.symlinked):
+                    pass
+                else:
+                    all_found = False
+            if all_found:
                 proposed_submissions = [item]
             else:
-                proposed_submissions = [s for s in item.seasons if not s.symlinked and s.file and s.folder]
+                for season in item.seasons:
+                    proposed_submissions += [e for e in season.episodes if not e.symlinked and e.file and e.folder]
         elif isinstance(item, Season):
             if all(e.file and e.folder for e in item.episodes if not e.symlinked):
                 proposed_submissions = [item]
