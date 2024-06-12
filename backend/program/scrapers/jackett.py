@@ -134,7 +134,7 @@ class Jackett:
         """Search for the given item on the given indexer"""
         if isinstance(item, Movie):
             return self._search_movie_indexer(item, indexer)
-        elif isinstance(item, (Season, Episode)):
+        elif isinstance(item, (Season, Episode, Show)):
             return self._search_series_indexer(item, indexer)
         else:
             raise TypeError("Only Movie and Series is allowed!")
@@ -209,6 +209,8 @@ class Jackett:
             return item.get_top_title(), item.number, None
         elif isinstance(item, Episode):
             return item.get_top_title(), item.parent.number, item.number
+        elif isinstance(item, Show):
+            return item.get_top_title(), None, None
         return "", 0, None
 
     def _get_indexers(self) -> List[JackettIndexer]:
