@@ -95,7 +95,7 @@ class Mediafusion:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the mediafusion site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             yield item
             return
 
@@ -131,7 +131,9 @@ class Mediafusion:
         """Wrapper for `Mediafusion` scrape method"""
         with self.minute_limiter:
             identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-            if isinstance(item, Season):
+            if(isinstance(item, Show)):
+                identifier, scrape_type, imdb_id = None, "series", item.imdb_id
+            elif isinstance(item, Season):
                 identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
             elif isinstance(item, Episode):
                 identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id

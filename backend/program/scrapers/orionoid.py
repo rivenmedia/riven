@@ -89,7 +89,7 @@ class Orionoid:
     def run(self, item: MediaItem):
         """Scrape the orionoid site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             yield item
         try:
             yield self.scrape(item)
@@ -159,7 +159,10 @@ class Orionoid:
     def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
         """Wrapper for `Orionoid` scrape method"""
         with self.minute_limiter:
-            if isinstance(item, Season):
+            if isinstance(item, Show):
+                imdb_id = item.imdb_id
+                url = self.construct_url("show", imdb_id)
+            elif isinstance(item, Season):
                 imdb_id = item.parent.imdb_id
                 url = self.construct_url("show", imdb_id, season=item.number)
             elif isinstance(item, Episode):
