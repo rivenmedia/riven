@@ -271,22 +271,22 @@ class Show(MediaItem):
     def _determine_state(self):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
+
         if any(
             season.state in (States.Completed, States.PartiallyCompleted)
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
+        if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
+        if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
-        if any(season.state == States.Scraped for season in self.seasons):
+        if self.is_scraped():
             return States.Scraped
-        if any(season.state == States.Indexed for season in self.seasons):
+        if all(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
-        return States.Unknown
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
