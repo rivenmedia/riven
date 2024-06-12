@@ -34,17 +34,21 @@ if not getent passwd $USERNAME > /dev/null
         exit 1
     end
 else
-    usermod -u $PUID -g $PGID $USERNAME
-    if test $status -ne 0
-        echo "Failed to modify user UID/GID. Exiting..."
-        exit 1
+    if test $PUID -ne 0
+        usermod -u $PUID -g $PGID $USERNAME
+        if test $status -ne 0
+            echo "Failed to modify user UID/GID. Exiting..."
+            exit 1
+        end
+    else
+        echo "Skipping usermod for root user."
     end
 end
 
 set USER_HOME "/home/$USERNAME"
 mkdir -p $USER_HOME
-chown $USERNAME:$GROUPNAME $USER_HOME
-chown -R $USERNAME:$GROUPNAME /iceberg
+chown -R $PUID:$PGID $USER_HOME
+chown -R $PUID:$PGID /iceberg
 
 umask 002
 

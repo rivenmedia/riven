@@ -129,6 +129,9 @@ class Symlinker:
     @staticmethod
     def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""
+        if not item:
+            logger.error("Invalid item sent to Symlinker: None")
+            return False
 
         if isinstance(item, Show):
             all_episodes_ready = True
@@ -200,6 +203,10 @@ class Symlinker:
         return False
 
     def _symlink_show(self, show: Show):
+        if not show or not isinstance(show, Show):
+            logger.error(f"Invalid show sent to Symlinker: {show}")
+            return
+
         all_symlinked = True
         for season in show.seasons:
             for episode in season.episodes:
@@ -215,6 +222,10 @@ class Symlinker:
             logger.error(f"Failed to symlink some episodes for show {show.log_string}")
 
     def _symlink_season(self, season: Season):
+        if not season or not isinstance(season, Season):
+            logger.error(f"Invalid season sent to Symlinker: {season}")
+            return
+
         all_symlinked = True
         successfully_symlinked_episodes = []
         for episode in season.episodes:
@@ -240,8 +251,16 @@ class Symlinker:
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
+        if not item:
+            logger.error("Invalid item sent to Symlinker: None")
+            return False
+
         if item.file is None:
             logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
+            return False
+
+        if not item.folder:
+            logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
             return False
 
         extension = os.path.splitext(item.file)[1][1:]
