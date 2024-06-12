@@ -8,7 +8,7 @@ LABEL name="Iceberg" \
 # Install system dependencies
 RUN apk --update add --no-cache curl bash shadow gcc python3-dev musl-dev build-base linux-headers && \
     rm -rf /var/cache/apk/*
-RUN pip install --upgrade pip && pip install poetry==1.4.2
+RUN pip install --upgrade pip && pip install poetry==1.8.3
 
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
