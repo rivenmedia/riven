@@ -25,14 +25,21 @@ async def health(request: Request):
     }
 
 
-@router.get("/user")
+@router.get("/rd")
 async def get_rd_user():
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         "https://api.real-debrid.com/rest/1.0/user", headers=headers, timeout=10
     )
-    return response.json()
+    if response.status_code != 200:
+        return {"success": False, "message": response.json()}
+
+    return {
+        "success": True,
+        "data": response.json(),
+    }
+
 
 @router.get("/torbox")
 async def get_torbox_user():
@@ -42,6 +49,7 @@ async def get_torbox_user():
         "https://api.torbox.app/v1/api/user/me", headers=headers, timeout=10
     )
     return response.json()
+
 
 @router.get("/services")
 async def get_services(request: Request):
@@ -55,6 +63,7 @@ async def get_services(request: Request):
                 data[sub_service.key] = sub_service.initialized
     return {"success": True, "data": data}
 
+
 @router.get("/trakt/oauth/initiate")
 async def initiate_trakt_oauth(request: Request):
     trakt = request.app.program.services.get(TraktContent)
@@ -62,6 +71,7 @@ async def initiate_trakt_oauth(request: Request):
         raise HTTPException(status_code=404, detail="Trakt service not found")
     auth_url = trakt.perform_oauth_flow()
     return {"auth_url": auth_url}
+
 
 @router.get("/trakt/oauth/callback")
 async def trakt_oauth_callback(code: str, request: Request):

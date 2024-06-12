@@ -80,22 +80,27 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Debrid or TorBoxDownloader
         items_to_submit = [item]
 
-    # elif item.state == States.Downloaded:
-    #     next_service = Symlinker
-    #     proposed_submissions = []
-    #     if isinstance(item, Season):
-    #         if all(e.file and e.folder for e in item.episodes if not e.symlinked):
-    #             proposed_submissions = [item]
-    #         else:
-    #             proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
-    #     elif isinstance(item, (Movie, Episode)):
-    #         proposed_submissions = [item]
-    #     items_to_submit = []
-    #     for sub_item in proposed_submissions:
-    #         if Symlinker.should_submit(sub_item):
-    #             items_to_submit.append(sub_item)
-    #         else:
-    #             logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
+    elif item.state == States.Downloaded:
+        next_service = Symlinker
+        proposed_submissions = []
+        if isinstance(item, Show):
+            if all(s.file and s.folder for s in item.seasons if not s.symlinked):
+                proposed_submissions = [item]
+            else:
+                proposed_submissions = [s for s in item.seasons if not s.symlinked and s.file and s.folder]
+        elif isinstance(item, Season):
+            if all(e.file and e.folder for e in item.episodes if not e.symlinked):
+                proposed_submissions = [item]
+            else:
+                proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
+        elif isinstance(item, (Movie, Episode)):
+            proposed_submissions = [item]
+        items_to_submit = []
+        for sub_item in proposed_submissions:
+            if Symlinker.should_submit(sub_item):
+                items_to_submit.append(sub_item)
+            else:
+                logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Downloaded:
         next_service = Symlinker

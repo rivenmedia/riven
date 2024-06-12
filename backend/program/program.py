@@ -140,20 +140,10 @@ class Program(threading.Thread):
         logger.success("Iceberg is running!")
 
     def _retry_library(self) -> None:
-        incomplete_items = list(self.media_items.get_incomplete_items().items())
-
-        try:
-            current_queue_items = set(self.event_queue.queue)
-        except RuntimeError as e:
-            logger.debug(f"Failed to retrieve current queue items: {e}")
-            return
-
-        for _, item in incomplete_items:
-            if item.state not in (States.Completed, States.PartiallyCompleted) and item not in current_queue_items:
-                try:
-                    self.event_queue.put(Event(emitted_by=self.__class__, item=item))
-                except RuntimeError as e:
-                    logger.debug(f"Failed to add item to event queue: {e}")
+        """Retry any items that are in an incomplete state."""
+        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
+        for item in items_to_submit:
+            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
