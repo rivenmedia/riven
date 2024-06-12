@@ -140,14 +140,21 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
         logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
         return None
     index = 0
-    lowest_id = response.data[index].ids.trakt
-    if(response.data.len() > 1):
-        loop_count = 0
-        for res in response.data:
-            if(res.ids.trakt < lowest_id):
-                lowest_id = res.ids.trakt
-                index = loop_count
-            loop_count = loop_count+1
+    lowest_id = -1
+    def scroll_results(response, index, lowest_id):
+        trakt_id = getattr(response.data[index], response.data[index].type).ids.trakt
+        if(lowest_id == -1):
+            lowest_id = trakt_id
+            return (True, lowest_id)
+        elif(trakt_id < lowest_id):
+            lowest_id = trakt_id
+            return (True, lowest_id)
+        return (False, lowest_id)
+    
+    for i in range(0, len(response.data)):
+        Changed, lowest_id = scroll_results(response, i, lowest_id)
+        if Changed:
+            index = i
             
     media_type = response.data[index].type
     data = response.data[index]
