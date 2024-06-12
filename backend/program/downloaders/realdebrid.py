@@ -568,7 +568,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                     return True
         return False
 
-    def check_season():
+    def check_season(item):
         season_number = item.number
         episodes_in_season = {episode.number for episode in item.episodes}
         matched_episodes = set()
@@ -591,7 +591,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Season):
-        if check_season():
+        if check_season(item):
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Episode):
