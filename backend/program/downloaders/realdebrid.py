@@ -441,6 +441,11 @@ class Debrid:
             for episode in item.episodes:
                 if episode.file and not episode.folder:
                     episode.set("folder", item.folder)
+        if isinstance(item, Show) and item.folder:
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.file and not episode.folder:
+                        episode.set("folder", item.folder)
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
