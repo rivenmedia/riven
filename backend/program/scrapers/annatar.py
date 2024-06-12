@@ -63,7 +63,7 @@ class Annatar:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
-        if not item:
+        if not item or isinstance(item, Show):
             yield item
             return
 
@@ -108,14 +108,18 @@ class Annatar:
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Annatar` scrape method"""
         with self.minute_limiter:
-            if(isinstance(item, Show)):
-                identifier, scrape_type, imdb_id = None, "series", item.imdb_id
-            elif isinstance(item, Season):
-                identifier, scrape_type, imdb_id = f"season={item.number}", "series", item.parent.imdb_id
+            if isinstance(item, Season):
+                scrape_type = "series"
+                imdb_id = item.parent.imdb_id
+                identifier = f"season={item.number}"
             elif isinstance(item, Episode):
-                identifier, scrape_type, imdb_id = f"season={item.parent.number}&episode={item.number}", "series", item.parent.parent.imdb_id
+                scrape_type = "series"
+                imdb_id = item.parent.parent.imdb_id
+                identifier = f"season={item.parent.number}&episode={item.number}"
             else:
-                identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+                identifier = None
+                scrape_type = "movie"
+                imdb_id = item.imdb_id
 
             if identifier is not None:
                 url = f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?{identifier}&{self.query_limits}"
