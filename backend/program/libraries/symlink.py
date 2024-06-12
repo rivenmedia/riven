@@ -48,7 +48,7 @@ class SymlinkLibrary:
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
     """Process items in the given directory and yield MediaItem instances."""
     items = [
-        (root, files[0])
+        (Path(root), files[0])
         for root, _, files
         in os.walk(directory)
         if files
