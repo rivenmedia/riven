@@ -3,10 +3,9 @@
 	import { animate, stagger, timeline } from 'motion';
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
-	import Rocket from 'lucide-svelte/icons/rocket';
-	import Mountain from 'lucide-svelte/icons/mountain';
+	import { Rocket, Mountain } from 'lucide-svelte';
 
-	export let data: PageData;
+	// export let data: PageData;
 
 	let rootElement: HTMLElement;
 	let inView = false;
@@ -42,11 +41,11 @@
 
 <div
 	bind:this={rootElement}
-	class="flex flex-col w-full p-8 overflow-x-hidden md:px-24 lg:px-32 h-svh"
+	class="flex h-svh w-full flex-col overflow-x-hidden p-8 md:px-24 lg:px-32"
 >
-	<div class:opacity-0={!inView} class="flex flex-col items-center justify-center w-full h-full">
-		<div class="flex items-center justify-center slide-up">
-			<Mountain class="w-16 h-16" />
+	<div class:opacity-0={!inView} class="flex h-full w-full flex-col items-center justify-center">
+		<div class="slide-up flex items-center justify-center">
+			<Mountain class="h-16 w-16" />
 		</div>
 
 		<!-- TODO: REMOVED FOR SOMETIME -->
@@ -56,14 +55,14 @@
 				<Button class="w-full font-semibold" href="/">Go back to home</Button>
 			</div>
 		{:else} -->
-		<h1 class="text-3xl font-semibold text-center slide-up">Welcome to Iceberg!</h1>
+		<h1 class="slide-up text-center text-3xl font-semibold">Welcome to Riven!</h1>
 		<p
-			class="max-w-lg text-base text-center md:text-lg text-muted-foreground slide-up md:max-w-2xl"
+			class="slide-up max-w-lg text-center text-base text-muted-foreground md:max-w-2xl md:text-lg"
 		>
-			Before you can start using Iceberg, you need to configure some services first.
+			Before you can start using Riven, you need to configure some services first.
 		</p>
-		<Button class="w-full mt-4 font-semibold slide-up md:max-w-max" href="/onboarding/1">
-			<Rocket class="w-4 h-4 mr-2" />
+		<Button class="slide-up mt-4 w-full font-semibold md:max-w-max" href="/onboarding/1">
+			<Rocket class="mr-2 h-4 w-4" />
 			<span>Let's go</span>
 		</Button>
 		<!-- {/if} -->

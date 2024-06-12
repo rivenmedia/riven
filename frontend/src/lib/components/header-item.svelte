@@ -8,7 +8,7 @@
 {#if $page.url.pathname === navItem.path}
 	<a href={navItem.path}>
 		<div
-			class="relative font-medium hover:text-gray-700 dark:hover:text-gray-200 after:absolute after:bg-gray-800 dark:after:bg-gray-200 after:bottom-0 after:left-0 after:h-[2px] after:w-full after:origin-bottom-left after:scale-x-100 hover:after:origin-bottom-right hover:after:scale-x-0 after:transition-transform after:ease-in-out after:duration-300"
+			class="relative font-medium after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-full after:origin-bottom-left after:scale-x-100 after:bg-gray-800 after:transition-transform after:duration-300 after:ease-in-out hover:text-gray-700 hover:after:origin-bottom-right hover:after:scale-x-0 dark:after:bg-gray-200 dark:hover:text-gray-200"
 		>
 			{navItem.name}
 		</div>
@@ -16,7 +16,7 @@
 {:else}
 	<a href={navItem.path}>
 		<div
-			class="relative font-medium hover:text-gray-700 dark:hover:text-gray-200 after:absolute after:bg-gray-800 dark:after:bg-gray-200 after:bottom-0 after:left-0 after:h-[2px] after:w-full after:origin-bottom-right after:scale-x-0 hover:after:origin-bottom-left hover:after:scale-x-100 after:transition-transform after:ease-in-out after:duration-300"
+			class="relative font-medium after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-full after:origin-bottom-right after:scale-x-0 after:bg-gray-800 after:transition-transform after:duration-300 after:ease-in-out hover:text-gray-700 hover:after:origin-bottom-left hover:after:scale-x-100 dark:after:bg-gray-200 dark:hover:text-gray-200"
 		>
 			{navItem.name}
 		</div>

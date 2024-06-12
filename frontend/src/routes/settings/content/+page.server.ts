@@ -1,14 +1,13 @@
 import type { PageServerLoad, Actions } from './$types';
+import { superValidate, message } from 'sveltekit-superforms';
+import { zod } from 'sveltekit-superforms/adapters';
 import { fail, error, redirect } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
-import { formatWords } from '$lib/helpers';
 import {
 	setSettings,
 	saveSettings,
 	loadSettings,
 	contentSettingsSchema,
 	contentSettingsToGet,
-	contentSettingsServices,
 	contentSettingsToPass,
 	contentSettingsToSet
 } from '$lib/forms/helpers';
@@ -27,16 +26,19 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	let data: any = await getPartialSettings();
-	const toPassToSchema = contentSettingsToPass(data);
+	let toPassToSchema = contentSettingsToPass(data);
 
-	const form = await superValidate(toPassToSchema, contentSettingsSchema);
-	return { form };
+	return {
+		form: await superValidate(toPassToSchema, zod(contentSettingsSchema))
+	};
 };
 
 export const actions: Actions = {
 	default: async (event) => {
-		const form = await superValidate(event, contentSettingsSchema);
+		const form = await superValidate(event, zod(contentSettingsSchema));
+
 		if (!form.valid) {
+			console.log('form not valid');
 			return fail(400, {
 				form
 			});
@@ -44,17 +46,12 @@ export const actions: Actions = {
 		const toSet = contentSettingsToSet(form);
 
 		try {
-			const data = await setSettings(event.fetch, toSet, contentSettingsServices);
+			const data = await setSettings(event.fetch, toSet);
 			if (!data.data.success) {
-				return message(
-					form,
-					`${contentSettingsServices.map(formatWords).join(', ')} service(s) failed to initialize. Please check your settings.`,
-					{
-						status: 400
-					}
-				);
+				return message(form, `Service(s) failed to initialize. Please check your settings.`, {
+					status: 400
+				});
 			}
-
 			const save = await saveSettings(event.fetch);
 			const load = await loadSettings(event.fetch);
 		} catch (e) {

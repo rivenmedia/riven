@@ -1,134 +1,83 @@
 <script lang="ts">
-	import { superForm } from 'sveltekit-superforms/client';
-	import { Button } from '$lib/components/ui/button';
-	import { Separator } from '$lib/components/ui/separator';
-	import { toast } from 'svelte-sonner';
-	import { Loader2 } from 'lucide-svelte';
+	import { slide } from 'svelte/transition';
 	import { page } from '$app/stores';
+	import { getContext } from 'svelte';
+	import SuperDebug from 'sveltekit-superforms';
+	import { zodClient } from 'sveltekit-superforms/adapters';
+	import { type SuperValidated, type Infer, superForm } from 'sveltekit-superforms';
 	import * as Form from '$lib/components/ui/form';
 	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
-	import { getContext } from 'svelte';
-	import type { SuperValidated } from 'sveltekit-superforms';
-	import FormTextField from './components/form-text-field.svelte';
-	import FormCheckboxField from './components/form-checkbox-field.svelte';
-	import type { FormGroupCheckboxFieldType } from '$lib/types';
-	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
-	import { slide } from 'svelte/transition';
+	import { toast } from 'svelte-sonner';
+	import TextField from './components/text-field.svelte';
+	import CheckboxField from './components/checkbox-field.svelte';
+	import GroupCheckboxField from './components/group-checkbox-field.svelte';
+	import { Loader2 } from 'lucide-svelte';
+	import { Separator } from '$lib/components/ui/separator';
 
-	let formDebug: boolean = getContext('formDebug');
+	export let data: SuperValidated<Infer<GeneralSettingsSchema>>;
+	export let actionUrl: string = '?/default';
 
-	export let data: SuperValidated<GeneralSettingsSchema>;
-	const generalForm = superForm(data);
-	const { form, message, delayed, errors } = generalForm;
+	const formDebug: boolean = getContext('formDebug');
+
+	const form = superForm(data, {
+		validators: zodClient(generalSettingsSchema)
+	});
+
+	const { form: formData, enhance, message, errors, delayed } = form;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
 	} else if ($message) {
 		toast.error($message);
 	}
-
-	export let actionUrl: string = '?/default';
-	const generalDownloadersFieldData: FormGroupCheckboxFieldType[] = [
-		{
-			field_name: 'realdebrid_enabled',
-			label_name: 'Real Debrid'
-		},
-		{
-			field_name: 'torbox_enabled',
-			label_name: 'Torbox'
-		}
-	];
 </script>
 
-<Form.Root
-	action={actionUrl}
-	schema={generalSettingsSchema}
-	controlled
-	form={generalForm}
-	let:config
-	debug={formDebug}
->
-	<div class="flex flex-col my-4 gap-4">
-		<FormCheckboxField
-			{config}
-			fieldName="debug"
-			fieldDescription="DEBUG is the log level, disabling it will only show INFO level."
-			requiresReboot={true}
-			labelName="Debug"
-			errors={$errors.debug}
+<form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
+	<CheckboxField {form} name="debug" {formData} fieldDescription="Requires restart" />
+	<CheckboxField {form} name="log" {formData} fieldDescription="Requires restart" />
+	<TextField {form} name="rclone_path" {formData} />
+	<TextField {form} name="library_path" {formData} />
+
+	<GroupCheckboxField
+		fieldTitle="Downloaders"
+		fieldDescription="Enable only one downloader at a time"
+	>
+		<CheckboxField
+			{form}
+			name="realdebrid_enabled"
+			label="Real-Debrid"
+			{formData}
+			isForGroup={true}
 		/>
+		<CheckboxField {form} name="torbox_enabled" label="Torbox" {formData} isForGroup={true} />
+	</GroupCheckboxField>
 
-		<FormCheckboxField
-			{config}
-			fieldName="log"
-			fieldDescription="Toggle logging to a file."
-			requiresReboot={true}
-			labelName="Log"
-			errors={$errors.log}
-		/>
-
-		<FormTextField
-			{config}
-			fieldName="rclone_path"
-			labelName="Rclone Path"
-			errors={$errors.rclone_path}
-		/>
-
-		<FormTextField
-			{config}
-			fieldName="library_path"
-			labelName="Library Path"
-			errors={$errors.library_path}
-		/>
-
-		<FormGroupCheckboxField
-			{config}
-			fieldTitle="Downloaders"
-			fieldData={generalDownloadersFieldData}
-		/>
-
-		{#if $form.realdebrid_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="realdebrid_api_key"
-					isProtected={true}
-					fieldValue={$form.realdebrid_api_key}
-					labelName="Real Debrid API Key"
-					errors={$errors.realdebrid_api_key}
-				/>
-			</div>
-		{/if}
-
-		{#if $form.torbox_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="torbox_api_key"
-					isProtected={true}
-					fieldValue={$form.torbox_api_key}
-					labelName="Torbox API Key"
-					errors={$errors.torbox_api_key}
-				/>
-			</div>
-		{/if}
-
-		<Separator class=" mt-4" />
-		<div class="flex w-full justify-end">
-			<Button
-				disabled={$delayed}
-				type="submit"
-				size="sm"
-				class="w-full md:max-w-max font-semibold text-xs"
-			>
-				{#if $delayed}
-					<Loader2 class="w-4 h-4 animate-spin mr-2" />
-				{/if}
-				Save changes
-				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/general'}
-					>and continue</span
-				>
-			</Button>
+	{#if $formData.realdebrid_enabled}
+		<div transition:slide>
+			<TextField {form} name="realdebrid_api_key" {formData} isProtected={true} />
 		</div>
+	{/if}
+
+	{#if $formData.torbox_enabled}
+		<div transition:slide>
+			<TextField {form} name="torbox_api_key" {formData} />
+		</div>
+	{/if}
+
+	<Separator class="mt-4" />
+	<div class="flex w-full justify-end">
+		<Form.Button disabled={$delayed} type="submit" size="sm" class="w-full lg:max-w-max">
+			{#if $delayed}
+				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+			{/if}
+			Save changes
+			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/general'}
+				>and continue</span
+			>
+		</Form.Button>
 	</div>
-</Form.Root>
+</form>
+
+{#if formDebug}
+	<SuperDebug data={$formData} />
+{/if}

@@ -60,15 +60,15 @@
 </svelte:head>
 
 <div class="flex flex-col">
-	<h2 class="mt-2 text-xl font-semibold md:text-2xl">About</h2>
-	<p class="mb-2 text-sm md:text-base text-muted-foreground">Know what you're running.</p>
-	<div class="flex flex-col w-full gap-4">
-		<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
-			<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
-				{formatWords('Version')}
-			</h3>
-			<div class="flex flex-wrap w-full gap-2">
-				<p class="p-2 text-xs break-words rounded-md md:text-sm bg-secondary">
+	<h2 class="text-xl font-semibold md:text-2xl">About</h2>
+	<p class="text-sm text-muted-foreground md:text-base">
+		Know what you're running and how to get help.
+	</p>
+	<div class="my-8 flex w-full flex-col gap-4">
+		<div class="mb-2 flex flex-col items-start md:flex-row md:items-center">
+			<h3 class="w-48 min-w-48 text-sm">Version</h3>
+			<div class="flex w-full flex-wrap gap-2">
+				<p class="break-words rounded-md bg-secondary p-2 text-sm">
 					{version}
 				</p>
 				<Button
@@ -80,9 +80,9 @@
 					size="sm"
 				>
 					{#if updateLoading}
-						<Loader2 class="w-4 h-4 mr-1 animate-spin" />
+						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 					{:else}
-						<MoveUpRight class="w-4 h-4 mr-1" />
+						<MoveUpRight class="mr-2 h-4 w-4" />
 					{/if}
 					Check for updates
 				</Button>
@@ -90,12 +90,12 @@
 		</div>
 		{#each Object.keys(aboutData) as key}
 			<Separator />
-			<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
-				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
+			<div class="mb-2 flex flex-col items-start md:flex-row md:items-center">
+				<h3 class="w-48 min-w-48 text-sm">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<p class="p-2 text-xs break-words rounded-md md:text-sm bg-secondary">
+					<p class="break-words rounded-md bg-secondary p-2 text-sm">
 						{aboutData[key]}
 					</p>
 				</div>
@@ -103,19 +103,19 @@
 		{/each}
 	</div>
 
-	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Support</h2>
-	<p class="mb-2 text-sm md:text-base text-muted-foreground">
-		Need help? Join the Discord server or open an issue on GitHub.
+	<h2 class="text-xl font-semibold md:text-2xl">Support</h2>
+	<p class="text-sm text-muted-foreground md:text-base">
+		Need help? Reach out to the Iceberg community or report an issue on GitHub.
 	</p>
-	<div class="flex flex-col w-full gap-4">
+	<div class="my-8 flex w-full flex-col gap-4">
 		{#each Object.keys(supportData) as key}
 			<Separator />
-			<div class="flex flex-col items-start mb-2 md:flex-row md:items-center">
-				<h3 class="w-48 text-sm font-semibold md:text-base min-w-48 text-muted-foreground">
+			<div class="mb-2 flex flex-col items-start md:flex-row md:items-center">
+				<h3 class="w-48 min-w-48 text-sm">
 					{formatWords(key)}
 				</h3>
 				<div class="flex w-full">
-					<a href={supportData[key]} class="text-xs underline break-words md:text-sm">
+					<a href={supportData[key]} class="break-words text-sm underline">
 						{supportData[key]}
 					</a>
 				</div>
@@ -123,15 +123,15 @@
 		{/each}
 	</div>
 
-	<h2 class="mt-2 text-xl font-semibold md:text-2xl">Contributors</h2>
-	<p class="mb-2 text-sm md:text-base text-muted-foreground">
+	<h2 class="text-xl font-semibold md:text-2xl">Contributors</h2>
+	<p class="text-sm text-muted-foreground md:text-base">
 		Thanks to the following people for their contributions to Iceberg
 	</p>
-
 	<a
 		href="https://github.com/dreulavelle/iceberg/graphs/contributors"
 		target="_blank"
 		rel="noopener noreferrer"
+		class="my-8"
 		><img
 			alt="contributors"
 			src="https://contrib.rocks/image?repo=dreulavelle/iceberg"
