@@ -39,4 +39,4 @@ su -m $USERNAME -c "poetry config virtualenvs.create false"
 ORIGIN=${ORIGIN:-http://localhost:3000}
 
 echo "Container Initialization complete."
-exec su -m $USERNAME -c "cd /iceberg/backend && poetry run python3 main.py"
+exec su -m $USERNAME -c "cd /iceberg/backend && poetry run python3 -m debugpy --listen 0.0.0.0:5678 --wait-for-client main.py"
