@@ -78,7 +78,8 @@ class PlexUpdater:
         if isinstance(item, (Movie, Episode)):
             items_to_update = [item]
         elif isinstance(item, Show):
-            items_to_update = [s for s in item.seasons for e in s.episodes if e.symlinked and e.update_folder != "updated"]
+            for season in item.seasons:
+                items_to_update += [e for e in season.episodes if e.symlinked and e.get("update_folder") != "updated" ]
         elif isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
 
