@@ -139,9 +139,18 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     if not response.is_ok or not response.data:
         logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
         return None
-
-    media_type = response.data[0].type
-    data = response.data[0]
+    index = 0
+    lowest_id = response.data[index].ids.trakt
+    if(response.data.len() > 1):
+        loop_count = 0
+        for res in response.data:
+            if(res.ids.trakt < lowest_id):
+                lowest_id = res.ids.trakt
+                index = loop_count
+            loop_count = loop_count+1
+            
+    media_type = response.data[index].type
+    data = response.data[index]
     return _map_item_from_data(data.movie, media_type) if media_type == "movie" else \
            _map_item_from_data(data.show, media_type) if media_type == "show" else \
            _map_item_from_data(data.season, media_type) if media_type == "season" else \
