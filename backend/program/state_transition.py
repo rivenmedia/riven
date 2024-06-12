@@ -41,25 +41,25 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
-            if isinstance(item, (Movie, Episode)):
+            if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                items_to_submit = [
-                    s for s in item.seasons 
-                    if s.state not in (States.Completed, States.Downloaded, States.Scraped) 
-                    and Scraping.can_we_scrape(s)
-                ]
-            elif isinstance(item, Season):
                 if item.scraped_times >= 4:
-                    items_to_submit = [
-                        e for e in item.episodes 
-                        if e.state not in (States.Completed, States.Downloaded, States.Scraped)
-                        and Scraping.can_we_scrape(e)
-                    ]
+                    pass #Season handles this below.
                 else:
                     items_to_submit = [item]
-            else:
-                items_to_submit = [item]
+            elif isinstance(item, Season):
+                if item.parent.scraped_times >=4:
+                    if item.scraped_times >= 4:
+                        pass
+                    else:
+                        items_to_submit = [item]
+            else: 
+                if( item.parent and item.parent.scraped_times > 4):
+                    items_to_submit = [item]
+                else:
+                    if not item.parent:
+                        items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
