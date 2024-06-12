@@ -170,9 +170,9 @@ class MediaItemContainer:
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
             logger.error(
-                "%s item %s is detatched and not associated with a parent, and thus" +
-                " it cannot be upserted into the database",
-                item.__class__.name, item.log_string
+                f"{item.__class__.__name__} item {item.log_string} is detatched " +
+                "and not associated with a parent, and thus" +
+                " it cannot be upserted into the database"
             )
             raise ValueError("Item detached from parent")
         if isinstance(item, Show):
