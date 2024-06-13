@@ -186,7 +186,7 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
-    def _push_event_queue(event):
+    def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items):
                 if( event.item.parent and event.item.parent in self.queued_items ):
@@ -195,9 +195,9 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
-    def _pop_event_queue(event):
+    def _pop_event_queue(self, event):
         with self.mutex:
-            self.event_queue.remove(event.item)
+            self.queued_items.remove(event.item)
 
     def _process_future_item(self, future: Future, service: Service, item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
