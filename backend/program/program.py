@@ -188,7 +188,16 @@ class Program(threading.Thread):
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
-                if not isinstance(item, MediaItem):
+                if isinstance(item, list):
+                    all_media_items = True
+                    for i in item:
+                        if not isinstance(i, MediaItem):
+                            all_media_items = False
+                    if all_media_items == False:
+                         continue
+                    for i in item:
+                        self.event_queue.put(Event(emitted_by=service, item=i))
+                elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
                 self.event_queue.put(Event(emitted_by=service, item=item))
