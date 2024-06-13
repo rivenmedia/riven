@@ -39,7 +39,7 @@ LABEL name="Iceberg" \
       url="https://github.com/dreulavelle/iceberg"
 
 ARG S6_OVERLAY_VERSION=3.2.0.0
-ARG TARGETPLATFORM
+ARG TARGETPLATFORM=linux/amd64 # Set a default
 
 # Install s6 noarch
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp
@@ -50,10 +50,10 @@ RUN \
   case ${TARGETPLATFORM} in \
     "linux/amd64")  DOWNLOAD_ARCH="x86_64"  ;; \
     "linux/arm/v7") DOWNLOAD_ARCH="arm"  ;; \
-
-    wget https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${DOWNLOAD_ARCH}.tar.xz -P /tmp \
-    tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz \
-    rm /tmp/s6-overlay-x86_64.tar.xz
+  esac && \
+  wget https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${DOWNLOAD_ARCH}.tar.xz -P /tmp \
+  tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz \
+  rm /tmp/s6-overlay-x86_64.tar.xz
 
 
 # Install system dependencies and Node.js
