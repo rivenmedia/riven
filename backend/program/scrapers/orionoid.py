@@ -150,8 +150,8 @@ class Orionoid:
         if self.settings.limitcount > 200:
             params["limitcount"] = 200
 
-        if media_type == "show" and season:
-            params["numberseason"] = season
+        if media_type == "show":
+            params["numberseason"] = season if season else 1
             params["numberepisode"] = episode if episode else 1
 
         return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
