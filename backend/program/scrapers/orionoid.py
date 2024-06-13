@@ -150,7 +150,7 @@ class Orionoid:
         if self.settings.limitcount > 200:
             params["limitcount"] = 200
 
-        if media_type == "show":
+        if media_type == "show" and season:
             params["numberseason"] = season
             params["numberepisode"] = episode if episode else 1
 
