@@ -63,7 +63,7 @@ class Debrid:
             if isinstance(item, Season) and item.scraped_times > 1:
                 res = [e for e in item.episodes]
                 yield res
-            if isinstance(item, Show) and item.scraped_times > 1:
+            if isinstance(item, Show) and item.scraped_times > 0:
                 res = [s for s in item.seasons]
                 yield res
             return
