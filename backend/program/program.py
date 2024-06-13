@@ -221,10 +221,10 @@ class Program(threading.Thread):
                 existing_item, event.emitted_by, event.item
             )
             if( len(items_to_submit) == 0):
-                if isinstance(item, Show) and next_service == Scraping:
+                if isinstance(existing_item, Show) and next_service == Scraping:
                     for season in item.seasons:
                         self.add_to_queue(season)
-                if isinstance(item, Season) and next_service == Scraping:
+                if isinstance(existing_item, Season) and next_service == Scraping:
                     for episode in item.episodes:
                         self.add_to_queue(episode)
             if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
