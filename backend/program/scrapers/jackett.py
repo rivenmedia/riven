@@ -44,7 +44,7 @@ class Jackett:
         if not self.initialized and not self.api_key:
             return
         self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
+        self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2*4)
         logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
