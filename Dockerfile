@@ -38,11 +38,16 @@ LABEL name="Iceberg" \
       description="Iceberg Debrid Downloader" \
       url="https://github.com/dreulavelle/iceberg"
 
+# Install s6
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp
+RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
+
 # Install system dependencies and Node.js
 ENV PYTHONUNBUFFERED=1
 RUN apk add --no-cache \
     curl \
-    fish \
     shadow \
     nodejs \
     npm \
@@ -69,9 +74,6 @@ RUN pip install poetry==1.8.3
 # Create user and group
 RUN addgroup -g 1000 iceberg && \
     adduser -u 1000 -G iceberg -h /home/iceberg -s /usr/bin/fish -D iceberg
-
-# Create fish config directory
-RUN mkdir -p /home/iceberg/.config/fish
 
 # Set environment variable to force color output
 ENV FORCE_COLOR=1
@@ -101,7 +103,4 @@ RUN chmod +x /iceberg/entrypoint.sh
 # Set correct permissions for the iceberg user
 RUN chown -R iceberg:iceberg /home/iceberg/.config /iceberg
 
-# Switch to fish shell
-SHELL ["fish", "--login"]
-
-ENTRYPOINT ["fish", "/iceberg/entrypoint.sh"]
+ENTRYPOINT ["/init"]

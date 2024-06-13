@@ -1,0 +1,5 @@
+#!/command/with-contenv sh
+
+s6-setuidgid ${PUID}:${PGID} \
+
+sleep infinity

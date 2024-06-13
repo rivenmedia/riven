@@ -1,0 +1,14 @@
+#!/command/with-contenv sh
+
+s6-setuidgid ${PUID}:${PGID} \
+sleep infinity
+# /usr/bin/rclone rcd \
+#     --config=/config/rclone.conf \
+#     --rc-web-gui \
+#     --rc-addr=0.0.0.0:5572 \
+#     --rc-web-gui-no-open-browser \
+#     --rc-no-auth \
+#     --transfers=1 \
+#     --bwlimit=10M \
+#     --multi-thread-streams=1 \
+#     /var/lib/rcloneui
