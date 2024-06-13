@@ -1,11 +1,13 @@
 """Iceberg settings models"""
 from pathlib import Path
 from typing import Callable, Dict, List
+import os
 
 from pydantic import BaseModel, field_validator
 from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
+is_elfhosted = os.environ.get("IS_ELFHOSTED", False)
 
 class Observable(BaseModel):
     class Config:
@@ -62,7 +64,7 @@ class Updatable(Observable):
 class PlexLibraryModel(Updatable):
     update_interval: int = 120
     token: str = ""
-    url: str = "http://localhost:32400"
+    url: str = "http://plex:32400" if is_elfhosted else "http://localhost:32400"
 
 
 class ListrrModel(Updatable):
@@ -82,7 +84,7 @@ class MdblistModel(Updatable):
 
 class OverseerrModel(Updatable):
     enabled: bool = False
-    url: str = "http://localhost:5055"
+    url: str = "http://overseerr:5055" if is_elfhosted else "http://localhost:5055"
     api_key: str = ""
     use_webhook: bool = False
     update_interval: int = 60
@@ -135,12 +137,12 @@ class TorrentioConfig(Observable):
 class KnightcrawlerConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com"
+    url: str = "http://elfhosted-internal.knightcrawler" if is_elfhosted else "https://knightcrawler.elfhosted.com"
 
 
 class MediafusionConfig(Observable):
     enabled: bool = False
-    url: str = "https://mediafusion.elfhosted.com"
+    url: str = "http://elfhosted-internal.mediafusion" if is_elfhosted else "https://mediafusion.elfhosted.com"
     catalogs: List[str] = [
         "prowlarr_streams",
         "torrentio_streams"
@@ -155,19 +157,19 @@ class OrionoidConfig(Observable):
 
 class JackettConfig(Observable):
     enabled: bool = False
-    url: str = "http://localhost:9117"
+    url: str = "http://jackett:9117" if is_elfhosted else "http://localhost:9117"
     api_key: str = ""
 
 
 class ProwlarrConfig(Observable):
     enabled: bool = False
-    url: str = "http://localhost:9696"
+    url: str = "http://prowlarr:9696" if is_elfhosted else "http://localhost:9696"
     api_key: str = ""
 
 
 class AnnatarConfig(Observable):
     enabled: bool = False
-    url: str = "http://annatar.elfhosted.com"
+    url: str = "http://elfhosted-internal.annatar" if is_elfhosted else "http://annatar.elfhosted.com"
     limit: int = 2000
     timeout: int = 10 # cant be higher than 10 # TODO: remove
 
