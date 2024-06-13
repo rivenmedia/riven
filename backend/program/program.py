@@ -4,6 +4,7 @@ import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
+from multiprocessing import Lock
 from queue import Empty, Queue
 from typing import Union
 
@@ -40,6 +41,8 @@ class Program(threading.Thread):
         self.event_queue = Queue()
         self.media_items = MediaItemContainer()
         self.services = {}
+        self.queued_items = []
+        self.mutex = Lock()
 
     def initialize_services(self):
         self.requesting_services = {
@@ -143,7 +146,7 @@ class Program(threading.Thread):
         """Retry any items that are in an incomplete state."""
         items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
         for item in items_to_submit:
-            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -183,6 +186,18 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+    def _push_event_queue(event):
+        with self.mutex:
+            if( not event.item in self.queued_items):
+                if( event.item.parent and event.item.parent in self.queued_items ):
+                    return
+                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
+                    return
+                self.queued_items.append(event.item)
+                self.event_queue.put(event)
+    def _pop_event_queue(event)
+        with self.mutex:
+            self.event_queue.remove(event.item)
 
     def _process_future_item(self, future: Future, service: Service, item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -196,12 +211,12 @@ class Program(threading.Thread):
                     if all_media_items == False:
                          continue
                     for i in item:
-                        self.event_queue.put(Event(emitted_by=self.__class__, item=i))
+                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
                 elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
-                self.event_queue.put(Event(emitted_by=service, item=item))
+                self._push_event_queue(Event(emitted_by=service, item=item))
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
 
@@ -223,6 +238,7 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
+                self._pop_event_queue(event)
             except Empty:
                 continue
 
@@ -258,7 +274,7 @@ class Program(threading.Thread):
     def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""
         if isinstance(item, Union[Movie, Show, Season, Episode]):
-            self.event_queue.put(Event(emitted_by=self.__class__, item=item))
+            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
             logger.log("PROGRAM", f"Added {item.log_string} to the queue")
             return True
         else:
