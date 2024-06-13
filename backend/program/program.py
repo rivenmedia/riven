@@ -195,7 +195,7 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
-    def _pop_event_queue(event)
+    def _pop_event_queue(event):
         with self.mutex:
             self.event_queue.remove(event.item)
 
