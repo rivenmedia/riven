@@ -16,12 +16,12 @@
 			path: '/settings/mediaserver'
 		},
 		{
-			name: 'Scrapers',
-			path: '/settings/scrapers'
-		},
-		{
 			name: 'Content',
 			path: '/settings/content'
+		},
+		{
+			name: 'Scrapers',
+			path: '/settings/scrapers'
 		},
 		{
 			name: 'About',
@@ -34,7 +34,7 @@
 	<title>Settings | General</title>
 </svelte:head>
 
-<div class="p-8 md:px-24 lg:px-32 flex flex-col w-full">
+<div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<Select.Root
 		portal={null}
 		onSelectedChange={(selected) => {
@@ -46,7 +46,7 @@
 				(settingsItems.find((item) => item.path === $page.url.pathname) || {}).name || 'Not found'
 		}}
 	>
-		<Select.Trigger class="text-sm lg:hidden w-full">
+		<Select.Trigger class="w-full text-sm lg:hidden">
 			<Select.Value placeholder="Select settings type" />
 		</Select.Trigger>
 		<Select.Content>
@@ -56,12 +56,12 @@
 		</Select.Content>
 	</Select.Root>
 
-	<div class="hidden lg:flex flex-wrap w-full p-1 gap-2 rounded-md text-sm text-foreground">
+	<div class="hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm text-foreground lg:flex">
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
-					'bg-secondary font-semibold text-foreground': item.path === $page.url.pathname,
-					'hover:bg-secondary text-foreground': item.path !== $page.url.pathname
+					'bg-primary font-semibold': item.path === $page.url.pathname,
+					'hover:bg-primary': item.path !== $page.url.pathname
 				})}
 				href={item.path}
 			>

@@ -18,21 +18,36 @@ set -q USERNAME; or set USERNAME iceberg
 set -q GROUPNAME; or set GROUPNAME iceberg
 
 if not getent group $PGID > /dev/null
-    addgroup -g $PGID $GROUPNAME > /dev/null
+    addgroup -g $PGID $GROUPNAME
+    if test $status -ne 0
+        echo "Failed to create group. Exiting..."
+        exit 1
+    end
 else
     set GROUPNAME (getent group $PGID | cut -d: -f1)
 end
 
-if not getent passwd $PUID > /dev/null
-    adduser -D -u $PUID -G $GROUPNAME $USERNAME > /dev/null
+if not getent passwd $USERNAME > /dev/null
+    adduser -D -u $PUID -G $GROUPNAME $USERNAME
+    if test $status -ne 0
+        echo "Failed to create user. Exiting..."
+        exit 1
+    end
 else
-    set USERNAME (getent passwd $PUID | cut -d: -f1)
+    usermod -u $PUID -g $PGID $USERNAME
+    if test $status -ne 0
+        echo "Failed to modify user UID/GID. Exiting..."
+        exit 1
+    end
 end
 
 set USER_HOME "/home/$USERNAME"
 mkdir -p $USER_HOME
 chown $USERNAME:$GROUPNAME $USER_HOME
 chown -R $USERNAME:$GROUPNAME /iceberg
+
+umask 002
+
 set -x XDG_CONFIG_HOME "$USER_HOME/.config"
 set -x XDG_DATA_HOME "$USER_HOME/.local/share"
 set -x POETRY_CACHE_DIR "$USER_HOME/.cache/pypoetry"

@@ -43,16 +43,38 @@ We are constantly adding features and improvements as we go along and squashing 
 
 ## Table of Contents
 
--   [Docker Compose](#docker-compose)
-    -   [What is ORIGIN ?](#what-is-origin-)
--   [Running outside of Docker](#running-outside-of-docker)
--   [Symlinking settings](#symlinking-settings)
--   [Development](#development)
-    -   [Development without `make`](#development-without-make)
+- [Table of Contents](#table-of-contents)
+- [ElfHosted](#elfhosted)
+- [Self Hosted](#self-hosted)
+  - [Docker Compose](#docker-compose)
+    - [What is ORIGIN ?](#what-is-origin-)
+  - [Running outside of Docker](#running-outside-of-docker)
+    - [First terminal:](#first-terminal)
+    - [Second terminal:](#second-terminal)
+  - [Symlinking settings](#symlinking-settings)
+    - [Example:](#example)
+- [Development](#development)
+  - [Development without `make`](#development-without-make)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## Docker Compose
+## ElfHosted
+
+[ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (*hosting, security, updates, etc*) for your self-hosted apps. 
+
+> [!IMPORTANT]
+> Riven is a top-tier app in the [ElfHosted app catalogue](https://elfhosted.com/apps/). 30% of your subscription goes to Riven developers, and the remainder offsets [infrastructure costs](https://elfhosted.com/open/pricing/).
+
+> [!TIP] 
+> New accounts get $10 free credit, enough for a week's free trial of the [Riven / Plex Infinite Streaming](https://store.elfhosted.com/product/infinite-plex-riven-streaming-bundle) bundle!
+
+(*[ElfHosted Discord](https://discord.elfhosted.com)*)
+
+## Self Hosted
+
+### Docker Compose
 
 Create a `docker-compose.yml` file with the following contents:
 
@@ -81,7 +103,7 @@ Then run `docker compose up -d` to start the container in the background. You ca
 
 `ORIGIN` is the URL of the frontend on which you will access it from anywhere. If you are hosting Iceberg on a vps with IP address `134.32.24.44` then you will need to set the `ORIGIN` to `http://134.32.24.44:3000` (no trailing slash). Similarly, if using a domain name, you will need to set the `ORIGIN` to `http://iceberg.mydomain.com:3000` (no trailing slash). If you change the port in the `docker-compose.yml` file, you will need to change it in the `ORIGIN` as well.
 
-## Running outside of Docker
+### Running outside of Docker
 
 To run outside of docker you will need to have node (v18.13+) and python (3.10+) installed. Then clone the repository
 
@@ -111,13 +133,13 @@ python backend/main.py
 
 ---
 
-## Symlinking settings
+### Symlinking settings
 
 "host_mount" should point to your rclone mount that has your torrents on your host, if you are using native webdav set webdav-url to "https://dav.real-debrid.com/torrents"
 
 "container_mount" should point to the location of the mount in plex container
 
-### Example:
+#### Example:
 
 Rclone is mounted to /iceberg/vfs on your host machine -> settings should have: "host_mount": "/iceberg/vfs"
 

@@ -76,7 +76,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    lists: list[str] = []
+    lists: list[int] = []
     update_interval: int = 300
 
 
@@ -238,6 +238,7 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
+    force_refresh: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()
     symlink: SymlinkModel = SymlinkModel()
     downloaders: DownloadersModel = DownloadersModel()

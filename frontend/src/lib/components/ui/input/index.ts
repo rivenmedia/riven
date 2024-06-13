@@ -1,6 +1,6 @@
-import Root from "./input.svelte";
+import Root from './input.svelte';
 
-type FormInputEvent<T extends Event = Event> = T & {
+export type FormInputEvent<T extends Event = Event> = T & {
 	currentTarget: EventTarget & HTMLInputElement;
 };
 export type InputEvents = {
@@ -16,8 +16,10 @@ export type InputEvents = {
 	mouseover: FormInputEvent<MouseEvent>;
 	mouseenter: FormInputEvent<MouseEvent>;
 	mouseleave: FormInputEvent<MouseEvent>;
+	mousemove: FormInputEvent<MouseEvent>;
 	paste: FormInputEvent<ClipboardEvent>;
 	input: FormInputEvent<InputEvent>;
+	wheel: FormInputEvent<WheelEvent>;
 };
 
 export {

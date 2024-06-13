@@ -1,8 +1,12 @@
 import type { PageServerLoad } from './$types';
+import { superValidate } from 'sveltekit-superforms';
+import { zod } from 'sveltekit-superforms/adapters';
 import { error } from '@sveltejs/kit';
-import { superValidate } from 'sveltekit-superforms/server';
-import { generalSettingsSchema } from '$lib/forms/helpers';
-import { generalSettingsToGet, generalSettingsToPass } from '$lib/forms/helpers';
+import {
+	generalSettingsSchema,
+	generalSettingsToGet,
+	generalSettingsToPass
+} from '$lib/forms/helpers';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
@@ -20,6 +24,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	let data: any = await getPartialSettings();
 	let toPassToSchema = generalSettingsToPass(data);
 
-	const form = await superValidate(toPassToSchema, generalSettingsSchema, { errors: false });
-	return { form };
+	return {
+		form: await superValidate(toPassToSchema, zod(generalSettingsSchema))
+	};
 };

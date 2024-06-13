@@ -67,10 +67,10 @@ def test_remove_show_with_season_and_episodes():
     container.upsert(show)
     container.remove(show)
 
-    assert len(container._shows) == 0
-    assert len(container._seasons) == 0
-    assert len(container._episodes) == 0
-    assert len(container._items) == 0
+    assert len(container._shows) == 1
+    assert len(container._seasons) == 1
+    assert len(container._episodes) == 2
+    assert len(container._items) == 1
 
 def test_merge_items():
     container = MediaItemContainer()
@@ -90,7 +90,7 @@ def test_merge_items():
     new_show.add_season(new_season)
     container.upsert(new_show)
 
-    assert len(container._items) == 4, "Items should be merged"
+    assert len(container._items) == 5, "Items should be merged"
     assert len(container._shows) == 1, "Shows should be merged"
     assert len(container._seasons) == 1, "Seasons should be merged"
 

@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { cn } from "$lib/utils";
-	import { Select as SelectPrimitive } from "bits-ui";
-	import { Check } from "lucide-svelte";
+	import Check from 'lucide-svelte/icons/check';
+	import { Select as SelectPrimitive } from 'bits-ui';
+	import { cn } from '$lib/utils.js';
 
 	type $$Props = SelectPrimitive.ItemProps;
 	type $$Events = SelectPrimitive.ItemEvents;
 
-	let className: $$Props["class"] = undefined;
-	export let value: $$Props["value"];
-	export let label: $$Props["label"] = undefined;
-	export let disabled: $$Props["disabled"] = undefined;
+	let className: $$Props['class'] = undefined;
+	export let value: $$Props['value'];
+	export let label: $$Props['label'] = undefined;
+	export let disabled: $$Props['disabled'] = undefined;
 	export { className as class };
 </script>
 
@@ -18,7 +18,7 @@
 	{disabled}
 	{label}
 	class={cn(
-		"relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+		'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50',
 		className
 	)}
 	{...$$restProps}
@@ -34,5 +34,7 @@
 			<Check class="h-4 w-4" />
 		</SelectPrimitive.ItemIndicator>
 	</span>
-	<slot />
+	<slot>
+		{label || value}
+	</slot>
 </SelectPrimitive.Item>

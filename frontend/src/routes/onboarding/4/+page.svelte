@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-    import ScrapersForm from '$lib/forms/scrapers-form.svelte';
+	import ScrapersForm from '$lib/forms/scrapers-form.svelte';
 	import { Separator } from '$lib/components/ui/separator';
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
@@ -12,16 +12,13 @@
 	export let data: PageData;
 </script>
 
-<div class="flex flex-col p-8 md:px-24 lg:px-32 overflow-x-hidden h-full w-full py-32 items-center">
-	<div class="flex flex-col items-start w-full max-w-6xl">
-		<Progress class="w-full mb-2" max={4} value={$formProgress} />
-		<h1 class="text-2xl md:text-3xl lg:text-4xl font-bold mb-2">Step 4/4</h1>
+<div class="flex h-full w-full flex-col items-center overflow-x-hidden p-8 py-32 md:px-24 lg:px-32">
+	<div class="flex w-full max-w-6xl flex-col items-start">
+		<Progress class="mb-2 w-full" max={4} value={$formProgress} />
+		<h1 class="mb-2 text-2xl font-bold md:text-3xl lg:text-4xl">Step 4/4</h1>
 		<p class="text-base md:text-lg">Configure where to scrape content from.</p>
-		<small class="text-sm text-muted-foreground"
-			>Fields marked with <span class="text-red-500">*</span> require restart of backend services.</small
-		>
 	</div>
-	<div class="mt-4 flex flex-col w-full max-w-6xl">
+	<div class="mt-4 flex w-full max-w-6xl flex-col">
 		<Separator class="mb-8" />
 		<ScrapersForm data={data.form} actionUrl="/settings/scrapers?onboarding=true" />
 	</div>

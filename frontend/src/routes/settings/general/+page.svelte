@@ -6,15 +6,9 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-xl md:text-2xl font-semibold">General Settings</h2>
-	<p class="text-sm md:text-base text-muted-foreground">
+	<h2 class="text-xl font-semibold md:text-2xl">General Settings</h2>
+	<p class="text-sm text-muted-foreground md:text-base">
 		Configure global and default settings for Iceberg.
-	</p>
-
-	<p class="text-sm text-muted-foreground">
-		<small class="text-sm text-muted-foreground"
-			>Fields marked with <span class="text-red-500">*</span> require restart of backend services.</small
-		>
 	</p>
 
 	<GeneralForm data={data.form} actionUrl="/settings/general" />

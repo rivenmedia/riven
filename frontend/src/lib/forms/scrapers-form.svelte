@@ -1,32 +1,32 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
-	import { arrayProxy, superForm } from 'sveltekit-superforms/client';
-	import { Button } from '$lib/components/ui/button';
-	import { Separator } from '$lib/components/ui/separator';
-	import { toast } from 'svelte-sonner';
-	import { Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
+	import { getContext } from 'svelte';
+	import SuperDebug from 'sveltekit-superforms';
+	import { zodClient } from 'sveltekit-superforms/adapters';
+	import { type SuperValidated, type Infer, superForm } from 'sveltekit-superforms';
 	import * as Form from '$lib/components/ui/form';
 	import { scrapersSettingsSchema, type ScrapersSettingsSchema } from '$lib/forms/helpers';
-	import { getContext } from 'svelte';
-	import type { SuperValidated } from 'sveltekit-superforms';
-	import FormTextField from './components/form-text-field.svelte';
-	import FormNumberField from './components/form-number-field.svelte';
-	import FormGroupCheckboxField from './components/form-group-checkbox-field.svelte';
-	import type { FormGroupCheckboxFieldType } from '$lib/types';
-	import FormTagsInputField from './components/form-tags-input-field.svelte';
+	import { toast } from 'svelte-sonner';
+	import TextField from './components/text-field.svelte';
+	import NumberField from './components/number-field.svelte';
+	import CheckboxField from './components/checkbox-field.svelte';
+	import GroupCheckboxField from './components/group-checkbox-field.svelte';
+	import ArrayField from './components/array-field.svelte';
+	import { Loader2, Trash2, Plus } from 'lucide-svelte';
+	import { Separator } from '$lib/components/ui/separator';
+	import { Input } from '$lib/components/ui/input';
 
-	let formDebug: boolean = getContext('formDebug');
+	export let data: SuperValidated<Infer<ScrapersSettingsSchema>>;
+	export let actionUrl: string = '?/default';
 
-	export let data: SuperValidated<ScrapersSettingsSchema>;
-	const scrapersForm = superForm(data);
-	const { form, message, delayed, errors } = scrapersForm;
+	const formDebug: boolean = getContext('formDebug');
 
-	const { values: mediafusionCatalogsValues, errors: mediafusionCatalogsErrors } = arrayProxy(
-		scrapersForm,
-		'mediafusion_catalogs'
-	);
+	const form = superForm(data, {
+		validators: zodClient(scrapersSettingsSchema)
+	});
 
+	const { form: formData, enhance, message, errors, delayed } = form;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
@@ -34,218 +34,217 @@
 		toast.error($message);
 	}
 
-	export let actionUrl: string = '?/default';
+	function addField(name: string) {
+		// @ts-ignore eslint-disable-next-line
+		$formData[name] = [...$formData[name], ''];
+	}
 
-	const scrapersEnabledFieldData: FormGroupCheckboxFieldType[] = [
-		{
-			field_name: 'torrentio_enabled',
-			label_name: 'Torrentio'
-		},
-		{
-			field_name: 'knightcrawler_enabled',
-			label_name: 'Knightcrawler'
-		},
-		{
-			field_name: 'annatar_enabled',
-			label_name: 'Annatar'
-		},
-		{
-			field_name: 'orionoid_enabled',
-			label_name: 'Orionoid'
-		},
-		{
-			field_name: 'jackett_enabled',
-			label_name: 'Jackett'
-		},
-		{
-			field_name: 'mediafusion_enabled',
-			label_name: 'Mediafusion'
-		}
-	];
+	function removeField(name: string, index: number) {
+		// @ts-ignore eslint-disable-next-line
+		$formData[name] = $formData[name].filter((_, i) => i !== index);
+	}
 </script>
 
-<Form.Root
-	action={actionUrl}
-	schema={scrapersSettingsSchema}
-	controlled
-	form={scrapersForm}
-	let:config
-	debug={formDebug}
->
-	<div class="flex flex-col my-4 gap-4">
-		<FormNumberField
-			{config}
-			fieldName="after_2"
-			fieldDescription="Time to wait after 2 failed attempts in hours."
-			stepValue={0.01}
-			labelName="After 2"
-			errors={$errors.after_2}
+<form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
+	<NumberField
+		{form}
+		name="after_2"
+		{formData}
+		stepValue={0.01}
+		fieldDescription="Time to wait after 2 failed attempts in hours"
+	/>
+	<NumberField
+		{form}
+		name="after_5"
+		{formData}
+		stepValue={0.01}
+		fieldDescription="Time to wait after 5 failed attempts in hours"
+	/>
+	<NumberField
+		{form}
+		name="after_10"
+		{formData}
+		stepValue={0.01}
+		fieldDescription="Time to wait after 10 failed attempts in hours"
+	/>
+
+	<GroupCheckboxField fieldTitle="Scrapers" fieldDescription="Enable the scrapers you want to use">
+		<CheckboxField {form} name="torrentio_enabled" label="Torrentio" {formData} isForGroup={true} />
+		<CheckboxField
+			{form}
+			name="knightcrawler_enabled"
+			label="Knightcrawler"
+			{formData}
+			isForGroup={true}
 		/>
-		<FormNumberField
-			{config}
-			fieldName="after_5"
-			fieldDescription="Time to wait after 5 failed attempts in hours."
-			stepValue={0.01}
-			labelName="After 5"
-			errors={$errors.after_5}
+		<CheckboxField {form} name="annatar_enabled" label="Annatar" {formData} isForGroup={true} />
+		<CheckboxField {form} name="orionoid_enabled" label="Orionoid" {formData} isForGroup={true} />
+		<CheckboxField {form} name="jackett_enabled" label="Jackett" {formData} isForGroup={true} />
+		<CheckboxField
+			{form}
+			name="mediafusion_enabled"
+			label="Mediafusion"
+			{formData}
+			isForGroup={true}
 		/>
-		<FormNumberField
-			{config}
-			fieldName="after_10"
-			fieldDescription="Time to wait after 10 failed attempts in hours."
-			stepValue={0.01}
-			labelName="After 10"
-			errors={$errors.after_10}
+		<CheckboxField {form} name="prowlarr_enabled" label="Prowlarr" {formData} isForGroup={true} />
+		<CheckboxField
+			{form}
+			name="torbox_scraper_enabled"
+			label="Torbox"
+			{formData}
+			isForGroup={true}
 		/>
+	</GroupCheckboxField>
 
-		<FormGroupCheckboxField
-			{config}
-			fieldTitle="Scrapers Enabled"
-			fieldData={scrapersEnabledFieldData}
-		/>
+	{#if $formData.torrentio_enabled}
+		<div transition:slide>
+			<TextField {form} name="torrentio_url" {formData} />
+		</div>
 
-		{#if $form.torrentio_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="torrentio_url"
-					labelName="Torrentio URL"
-					errors={$errors.torrentio_url}
-				/>
-			</div>
+		<div transition:slide>
+			<TextField {form} name="torrentio_filter" {formData} />
+		</div>
+	{/if}
 
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="torrentio_filter"
-					labelName="Torrentio Filter"
-					errors={$errors.torrentio_filter}
-				/>
-			</div>
-		{/if}
+	{#if $formData.knightcrawler_enabled}
+		<div transition:slide>
+			<TextField {form} name="knightcrawler_url" {formData} />
+		</div>
+		<div transition:slide>
+			<TextField {form} name="knightcrawler_filter" {formData} />
+		</div>
+	{/if}
 
-		{#if $form.knightcrawler_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="knightcrawler_url"
-					labelName="Knightcrawler URL"
-					errors={$errors.knightcrawler_url}
-				/>
-			</div>
+	{#if $formData.annatar_enabled}
+		<div transition:slide>
+			<TextField {form} name="annatar_url" {formData} />
+		</div>
 
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="knightcrawler_filter"
-					labelName="Knightcrawler Filter"
-					errors={$errors.knightcrawler_filter}
-				/>
-			</div>
-		{/if}
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="annatar_limit"
+				{formData}
+				stepValue={1}
+				fieldDescription="Search results limit"
+			/>
+		</div>
 
-		{#if $form.annatar_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="annatar_url"
-					labelName="Annatar URL"
-					errors={$errors.annatar_url}
-				/>
-			</div>
-		{/if}
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="annatar_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="Timeout in seconds"
+			/>
+		</div>
+	{/if}
 
-		{#if $form.orionoid_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="orionoid_api_key"
-					isProtected={true}
-					fieldValue={$form.orionoid_api_key}
-					labelName="Orionoid API Key"
-					errors={$errors.orionoid_api_key}
-				/>
-			</div>
-		{/if}
+	{#if $formData.orionoid_enabled}
+		<div transition:slide>
+			<TextField {form} name="orionoid_api_key" {formData} isProtected={true} />
+		</div>
 
-		{#if $form.jackett_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="jackett_url"
-					labelName="Jackett URL"
-					errors={$errors.jackett_url}
-				/>
-			</div>
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="orionoid_limitcount"
+				{formData}
+				stepValue={1}
+				fieldDescription="Search results limit"
+			/>
+		</div>
+	{/if}
 
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="jackett_api_key"
-					isProtected={true}
-					fieldValue={$form.jackett_api_key}
-					fieldDescription="Optional field if Jackett is not password protected."
-					labelName="Jackett API Key"
-					errors={$errors.jackett_api_key}
-				/>
-			</div>
-		{/if}
+	{#if $formData.jackett_enabled}
+		<div transition:slide>
+			<TextField {form} name="jackett_url" {formData} />
+		</div>
 
-		<!--h-0 overflow-hidden instead of hidden because it prevents `required` from operating, outside of if to persist-->
-		<div class="h-0 overflow-hidden">
-			<select
-				multiple
-				id="mediafusion_catalogs"
-				name="mediafusion_catalogs"
-				bind:value={$mediafusionCatalogsValues}
-				tabindex="-1"
-			>
-				{#each $mediafusionCatalogsValues as list}
-					<option value={list}>{list}</option>
+		<div transition:slide>
+			<TextField {form} name="jackett_api_key" {formData} isProtected={true} />
+		</div>
+	{/if}
+
+	{#if $formData.mediafusion_enabled}
+		<div transition:slide>
+			<TextField {form} name="mediafusion_url" {formData} />
+		</div>
+
+		<div transition:slide>
+			<ArrayField {form} name="mediafusion_catalogs" {formData}>
+				{#each $formData.mediafusion_catalogs as _, i}
+					<Form.ElementField {form} name="mediafusion_catalogs[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.mediafusion_catalogs[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('mediafusion_catalogs', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
 				{/each}
-			</select>
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-sm text-muted-foreground">Add catalogs</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('mediafusion_catalogs');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+	{/if}
+
+	{#if $formData.prowlarr_enabled}
+		<div transition:slide>
+			<TextField {form} name="prowlarr_url" {formData} />
 		</div>
 
-		{#if $form.mediafusion_enabled}
-			<div transition:slide>
-				<FormTextField
-					{config}
-					fieldName="mediafusion_url"
-					labelName="Mediafusion URL"
-					errors={$errors.mediafusion_url}
-				/>
-			</div>
+		<div transition:slide>
+			<TextField {form} name="prowlarr_api_key" {formData} isProtected={true} />
+		</div>
+	{/if}
 
-			{#if $mediafusionCatalogsErrors}
-				<small class="text-sm text-red-500">{$mediafusionCatalogsErrors}</small>
+	<Separator class="mt-4" />
+	<div class="flex w-full justify-end">
+		<Form.Button disabled={$delayed} type="submit" size="sm" class="w-full lg:max-w-max">
+			{#if $delayed}
+				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 			{/if}
-
-			<div transition:slide>
-				<FormTagsInputField
-					fieldName="mediafusion_catalogs"
-					labelName="Mediafusion Catalogs"
-					fieldValue={mediafusionCatalogsValues}
-					numberValidate={false}
-				/>
-			</div>
-		{/if}
-
-		<Separator class=" mt-4" />
-		<div class="flex w-full justify-end">
-			<Button
-				disabled={$delayed}
-				type="submit"
-				size="sm"
-				class="w-full md:max-w-max font-semibold text-xs"
+			Save changes
+			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/scrapers'}
+				>and continue</span
 			>
-				{#if $delayed}
-					<Loader2 class="w-4 h-4 animate-spin mr-2" />
-				{/if}
-				Save changes
-				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/scrapers'}
-					>and continue</span
-				>
-			</Button>
-		</div>
+		</Form.Button>
 	</div>
-</Form.Root>
+</form>
+
+{#if formDebug}
+	<SuperDebug data={$formData} />
+{/if}

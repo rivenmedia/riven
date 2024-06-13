@@ -1,68 +1,94 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { formatRDDate, formatWords } from '$lib/helpers';
-	import ServiceStatus from '$lib/components/service-status.svelte';
 	import { Separator } from '$lib/components/ui/separator';
-	import { Loader2, Check, X } from 'lucide-svelte';
+	import { Loader2, Check, X, CircleDot, Download, Mail, Calendar } from 'lucide-svelte';
+	import ServiceStatus from '$lib/components/service-status.svelte';
+	import { formatDate, formatRDDate } from '$lib/helpers';
+	import * as Card from '$lib/components/ui/card';
 
 	export let data: PageData;
-
-	const CoreServices = [
-		'symlinklibrary',
-		'plexlibrary',
-		'realdebrid',
-		'symlink',
-		'torbox',
-		'torbox_downloader'
-	];
-	const ContentServices = ['mdblist', 'overseerr', 'plex_watchlist', 'listrr', 'trakt'];
-	const ScrapingServices = ['torrentio', 'knightcrawler', 'annatar', 'jackett', 'orionoid', 'mediafusion', 'torbox'];
-
-	function sortServices(services: string[], data: Record<string, boolean>) {
-		let sortedData = {} as Record<string, boolean>;
-
-		for (let service of services) {
-			sortedData[service] = data[service];
-			if (!data[service]) {
-				data[service] = false;
-			}
-		}
-		return sortedData as Record<string, boolean>;
-	}
 </script>
 
 <svelte:head>
 	<title>Iceberg | Home</title>
 </svelte:head>
 
-<div class="flex flex-col w-full p-8 font-medium md:px-24 lg:px-32">
-	{#if 'error' in data.user || !data.user}
-		<p class="text-red-500">Failed to fetch user data.</p>
-		<p class="text-red-500">Error: {data.user?.error || 'Unknown'}</p>
-	{:else}
-		<h1 class="text-lg font-semibold md:text-xl">Welcome {data.user?.username}</h1>
-		<p class="text-muted-foreground">{data.user?.email}</p>
-		<p class="break-words text-muted-foreground">
-			Premium expires on {formatRDDate(data.user?.expiration, 'short')}
-		</p>
-	{/if}
-	<Separator class="my-4" />
+<div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32">
+	{#if data.appData.user.success}
+		<div class="grid grid-flow-row gap-4 lg:grid-flow-col">
+			<Card.Root class="min-h-96">
+				<Card.Header class="flex flex-col items-center border-b">
+					<Card.Title>Recently Requested</Card.Title>
+					<Card.Description>Items you requested recently</Card.Description>
+				</Card.Header>
+				<Card.Content class="mt-4 flex flex-col items-start gap-4">Soon..</Card.Content>
+			</Card.Root>
 
-	{#await data.services}
-		<div class="flex items-center gap-1 mt-2">
-			<Loader2 class="w-4 h-4 animate-spin" />
-			<p class="text-muted-foreground">Fetching services status</p>
+			<Card.Root>
+				<Card.Header class="flex flex-col items-center border-b">
+					<Card.Title>Services</Card.Title>
+					<Card.Description>Know the status of services</Card.Description>
+				</Card.Header>
+				<Card.Content class="mt-4 flex flex-col items-start gap-4">
+					<ServiceStatus data={data.appData.services.data} />
+				</Card.Content>
+			</Card.Root>
+
+			<Card.Root>
+				<Card.Header class="flex flex-col items-center border-b">
+					<Card.Title>Account information</Card.Title>
+					<Card.Description>Information about your account</Card.Description>
+				</Card.Header>
+				<Card.Content class="mt-4 flex flex-col items-start gap-4">
+					<div class="flex items-center gap-2">
+						<div class="rounded-full bg-secondary p-2">
+							<Download class="h-6 w-6 p-1" />
+						</div>
+						<div class="flex flex-col items-start">
+							<p>Dowloader configured</p>
+							{#if data.appData.downloader === 'rd'}
+								<p class="text-sm text-muted-foreground">Real-Debrid</p>
+							{:else}
+								<p class="text-sm text-muted-foreground">Torbox</p>
+							{/if}
+						</div>
+					</div>
+
+					<div class="flex items-center gap-2">
+						<div class="rounded-full bg-secondary p-2">
+							<Mail class="h-6 w-6 p-1" />
+						</div>
+						<div class="flex flex-col items-start">
+							<p>Email Address</p>
+							<p class="text-sm text-muted-foreground">{data.appData.user.data.email}</p>
+						</div>
+					</div>
+
+					<div class="flex items-center gap-2">
+						<div class="rounded-full bg-secondary p-2">
+							<Calendar class="h-6 w-6 p-1" />
+						</div>
+						<div class="flex flex-col items-start">
+							<p>Subscription</p>
+							{#if data.appData.downloader === 'rd'}
+								<p class="text-sm text-muted-foreground">
+									Expires on {formatRDDate(data.appData.user.data.expiration, 'short')} ({formatRDDate(
+										data.appData.user.data.expiration,
+										'left'
+									)})
+								</p>
+							{:else}
+								<p class="text-sm text-muted-foreground">
+									Expires on {formatDate(data.appData.user.data.premium_expires_at, 'short')} ({formatDate(
+										data.appData.user.data.premium_expires_at,
+										'left'
+									)})
+								</p>
+							{/if}
+						</div>
+					</div>
+				</Card.Content>
+			</Card.Root>
 		</div>
-	{:then services}
-		<h2 class="text-lg font-semibold md:text-xl">Core services</h2>
-		<ServiceStatus statusData={sortServices(CoreServices, services.data)} />
-		<div class="my-2"></div>
-		<h2 class="text-lg font-semibold md:text-xl">Content services</h2>
-		<ServiceStatus statusData={sortServices(ContentServices, services.data)} />
-		<div class="my-2"></div>
-		<h2 class="text-lg font-semibold md:text-xl">Scraping services</h2>
-		<ServiceStatus statusData={sortServices(ScrapingServices, services.data)} />
-	{:catch}
-		<p class="text-muted-foreground">Failed to fetch services status</p>
-	{/await}
+	{/if}
 </div>

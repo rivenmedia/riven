@@ -34,8 +34,16 @@ class ResponseObject:
 
     def handle_response(self, response: requests.Response) -> dict:
         """Handle different types of responses."""
-        if self.status_code in [408, 460, 504, 520, 524, 522, 598, 599]:
+        timeout_statuses = [408, 460, 504, 520, 524, 522, 598, 599]
+        client_error_statuses = list(range(400, 451))  # 400-450
+        server_error_statuses = list(range(500, 512))  # 500-511
+
+        if self.status_code in timeout_statuses:
             raise ConnectTimeout(f"Connection timed out with status {self.status_code}", response=response)
+        if self.status_code in client_error_statuses:
+            raise RequestException(f"Client error with status {self.status_code}", response=response)
+        if self.status_code in server_error_statuses:
+            raise RequestException(f"Server error with status {self.status_code}", response=response)
         if not self.is_ok:
             raise RequestException(f"Request failed with status {self.status_code}", response=response)
 

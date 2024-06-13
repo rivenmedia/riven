@@ -1,30 +1,36 @@
 <script lang="ts">
-	import { superForm } from 'sveltekit-superforms/client';
-	import { Button } from '$lib/components/ui/button';
-	import { Separator } from '$lib/components/ui/separator';
-	import { toast } from 'svelte-sonner';
-	import { Loader2 } from 'lucide-svelte';
+	import { slide } from 'svelte/transition';
 	import { page } from '$app/stores';
+	import { getContext } from 'svelte';
+	import SuperDebug from 'sveltekit-superforms';
+	import { zodClient } from 'sveltekit-superforms/adapters';
+	import { type SuperValidated, type Infer, superForm } from 'sveltekit-superforms';
 	import * as Form from '$lib/components/ui/form';
 	import { mediaServerSettingsSchema, type MediaServerSettingsSchema } from '$lib/forms/helpers';
-	import { getContext } from 'svelte';
-	import type { SuperValidated } from 'sveltekit-superforms';
+	import { toast } from 'svelte-sonner';
+	import TextField from './components/text-field.svelte';
+	import NumberField from './components/number-field.svelte';
+	import { Loader2 } from 'lucide-svelte';
+	import { Separator } from '$lib/components/ui/separator';
 	import { v4 as uuidv4 } from 'uuid';
-	import FormTextField from './components/form-text-field.svelte';
+	import { Button } from '$lib/components/ui/button';
 
-	let formDebug: boolean = getContext('formDebug');
+	export let data: SuperValidated<Infer<MediaServerSettingsSchema>>;
+	export let actionUrl: string = '?/default';
 
-	export let data: SuperValidated<MediaServerSettingsSchema>;
-	const mediaServerForm = superForm(data);
-	const { form, message, delayed, errors } = mediaServerForm;
+	const formDebug: boolean = getContext('formDebug');
+
+	const form = superForm(data, {
+		validators: zodClient(mediaServerSettingsSchema)
+	});
+
+	const { form: formData, enhance, message, errors, delayed } = form;
 
 	$: if ($message && $page.status === 200) {
 		toast.success($message);
 	} else if ($message) {
 		toast.error($message);
 	}
-
-	export let actionUrl: string = '?/default';
 
 	let ongoingAuth: boolean = false;
 	let clientIdentifier: string;
@@ -71,7 +77,7 @@
 		}
 
 		if (json.authToken) {
-			$form.plex_token = json.authToken;
+			$formData.plex_token = json.authToken;
 			clearInterval(pollingInterval);
 			ongoingAuth = false;
 		}
@@ -100,64 +106,59 @@
 	}
 </script>
 
-<Form.Root
-	action={actionUrl}
-	schema={mediaServerSettingsSchema}
-	controlled
-	form={mediaServerForm}
-	let:config
-	debug={formDebug}
->
-	<div class="flex flex-col my-4 gap-4">
-		<FormTextField {config} fieldName="plex_url" labelName="Plex URL" errors={$errors.plex_url} />
+<form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
+	<TextField {form} name="plex_url" {formData} label="Plex URL" />
 
-		<Form.Field {config} name="plex_token">
-			<Form.Item class="flex flex-col md:flex-row items-start md:items-center max-w-6xl md:gap-4">
-				<Form.Label class="font-semibold w-48 min-w-48">
-					Plex Token
-				</Form.Label>
-				<input type="hidden" name="plex_token" id="plex_token" value={$form.plex_token} />
+	<Form.Field {form} name="plex_token">
+		<Form.Control let:attrs>
+			<div class="mb-2 flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4">
+				<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
+					<Form.Label>Plex Token</Form.Label>
+					<p class="text-xs text-muted-foreground">Click the button to generate a new Plex token</p>
+				</div>
+				<input type="hidden" name="plex_token" id="plex_token" value={$formData.plex_token} />
 				<Button
+					type="button"
+					disabled={ongoingAuth}
+					variant="outline"
+					size="sm"
+					class="w-full"
 					on:click={async () => {
 						await startLogin();
 					}}
-					disabled={ongoingAuth}
-					size="sm"
-					variant="secondary"
-					class="w-full md:max-w-max text-xs font-semibold"
 				>
 					{#if ongoingAuth}
-						<Loader2 class="w-4 h-4 animate-spin mr-2" />
+						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 					{/if}
-					{#if $form.plex_token.length > 0}
-						Reauthenticate with Plex
+					{#if $formData.plex_token.length > 0}
+						<p class="w-full text-left">
+							Reauthenticate with Plex
+							<span class="ml-1">({$formData.plex_token.slice(0, 5)}...)</span>
+						</p>
 					{:else}
-						Authenticate with Plex
+						<p class="w-full text-left">Authenticate with Plex</p>
 					{/if}
 				</Button>
-			</Form.Item>
-			{#if $errors.plex_token}
-				<Form.Validation class="text-sm text-red-500" />
-			{/if}
-		</Form.Field>
-		<FormTextField {config} fieldName="update_interval" labelName="Library Refresh Interval" errors={$errors.plex_url} />
+			</div>
+		</Form.Control>
+	</Form.Field>
 
-		<Separator class=" mt-4" />
-		<div class="flex w-full justify-end">
-			<Button
-				disabled={$delayed}
-				type="submit"
-				size="sm"
-				class="w-full md:max-w-max text-xs font-semibold"
+	<NumberField {form} name="update_interval" {formData} stepValue={1} />
+
+	<Separator class="mt-4" />
+	<div class="flex w-full justify-end">
+		<Form.Button disabled={$delayed} type="submit" size="sm" class="w-full lg:max-w-max">
+			{#if $delayed}
+				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+			{/if}
+			Save changes
+			<span class="ml-1" class:hidden={$page.url.pathname === '/settings/mediaserver'}
+				>and continue</span
 			>
-				{#if $delayed}
-					<Loader2 class="w-4 h-4 animate-spin mr-2" />
-				{/if}
-				Save changes
-				<span class="ml-1" class:hidden={$page.url.pathname === '/settings/mediaserver'}
-					>and continue</span
-				>
-			</Button>
-		</div>
+		</Form.Button>
 	</div>
-</Form.Root>
+</form>
+
+{#if formDebug}
+	<SuperDebug data={$formData} />
+{/if}

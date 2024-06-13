@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     image: iceberg:dev
     container_name: iceberg
+    restart: unless-stopped
     network_mode: host
     tty: true
     environment:

@@ -1,7 +1,7 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -40,9 +40,11 @@ class TraktIndexer:
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
-        if not item.indexed_at:
+        if not item.indexed_at or not item.title:
             return True
+
         settings = settings_manager.settings.indexer
+
         try:
             interval = timedelta(seconds=settings.update_interval)
             return datetime.now() - item.indexed_at > interval
@@ -50,25 +52,39 @@ class TraktIndexer:
             logger.error(f"Failed to parse date: {item.indexed_at} with format: {interval}")
             return False
 
-    def _add_seasons_to_show(self, show: Show, imdb_id: str):
+    @staticmethod
+    def _add_seasons_to_show(show: Show, imdb_id: str):
         """Add seasons to the given show using Trakt API."""
+        if not isinstance(show, Show):
+            logger.error(f"Item {show.log_string} is not a show")
+            return
+
+        if not imdb_id or not imdb_id.startswith("tt"):
+            logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
+            return
+
         seasons = get_show(imdb_id)
         for season in seasons:
             if season.number == 0:
                 continue
-            season_item = _map_item_from_data(season, "season")
-            for episode in season.episodes:
-                episode_item = _map_item_from_data(episode, "episode")
-                season_item.add_episode(episode_item)
-            show.add_season(season_item)
+            season_item = _map_item_from_data(season, "season", show.genres)
+            if season_item:
+                for episode in season.episodes:
+                    episode_item = _map_item_from_data(episode, "episode", show.genres)
+                    if episode_item:
+                        season_item.add_episode(episode_item)
+                show.add_season(season_item)
 
 
-def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
+def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
         return None
+
     formatted_aired_at = _get_formatted_date(data, item_type)
+    genres = getattr(data, "genres", None) or show_genres
+
     item = {
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
@@ -77,12 +93,12 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
         "imdb_id": getattr(data.ids, "imdb", None),
         "tvdb_id": getattr(data.ids, "tvdb", None),
         "tmdb_id": getattr(data.ids, "tmdb", None),
-        "genres": getattr(data, "genres", None),
+        "genres": genres,
+        "is_anime": "anime" in genres if genres else False,
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
-        "is_anime": "anime" in getattr(data, "genres", []),
     }
 
     match item_type:

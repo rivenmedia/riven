@@ -74,7 +74,7 @@ class Jackett:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             yield item
             return
 

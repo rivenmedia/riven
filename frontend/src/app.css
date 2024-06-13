@@ -1,0 +1,61 @@
+@import 'nprogress.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+		--background: 204 60% 98%;
+		--foreground: 204 70% 4%;
+		--muted: 204 21% 89%;
+		--muted-foreground: 204 15% 40%;
+		--popover: 204 60% 98%;
+		--popover-foreground: 204 70% 4%;
+		--card: 204 60% 97%;
+		--card-foreground: 204 70% 3%;
+		--border: 220 13% 91%;
+		--input: 220 13% 91%;
+		--primary: 181.13 45.2% 59.29%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 204 4% 92%;
+		--secondary-foreground: 204 4% 32%;
+		--accent: 204 13% 83%;
+		--accent-foreground: 204 13% 23%;
+		--destructive: 0 75% 36.08%;
+		--destructive-foreground: 0 0% 100%;
+		--ring: 185.66 41.87% 53.69%;
+		--radius: 0.5rem;
+	}
+
+	.dark {
+		--background: 215.29 48.57% 6.86%;
+		--foreground: 204 31% 99%;
+		--muted: 204 21% 11%;
+		--muted-foreground: 204 15% 60%;
+		--popover: 204 43% 4%;
+		--popover-foreground: 204 31% 99%;
+		--card: 204 43% 5%;
+		--card-foreground: 0 0% 100%;
+		--border: 215 27.9% 16.9%;
+		--input: 215 27.9% 16.9%;
+		--primary: 204.78 44.23% 20.39%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 204 3% 18%;
+		--secondary-foreground: 204 3% 78%;
+		--accent: 204 9% 28%;
+		--accent-foreground: 204 9% 88%;
+		--destructive: 0 74.71% 36.1%;
+		--destructive-foreground: 0 0% 100%;
+		--ring: 29.43 92.41% 32.78%;
+	}
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+}
