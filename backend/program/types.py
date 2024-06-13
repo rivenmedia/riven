@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Generator, Union
 
+from program.downloaders.realdebrid import Debrid
+from program.downloaders.torbox import TorBoxDownloader
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
-from program.downloaders import Debrid, TorBoxDownloader
 from program.libraries import SymlinkLibrary
 from program.media.item import MediaItem
 from program.scrapers import (

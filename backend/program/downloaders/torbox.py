@@ -1,12 +1,11 @@
 import contextlib
 from datetime import datetime
-import time
 from typing import Generator
 
 from RTN import parse
 from RTN.exceptions import GarbageTorrent
 
-from program.media.item import MediaItem, Movie
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.request import get, post
@@ -15,7 +14,7 @@ from utils.request import get, post
 class TorBoxDownloader:
     """TorBox Downloader"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "torbox_downloader"
         self.settings = settings_manager.settings.downloaders.torbox
         self.api_key = self.settings.api_key
@@ -24,7 +23,6 @@ class TorBoxDownloader:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.hash_cache = hash_cache
         logger.success("TorBox Downloader initialized!")
 
     def validate(self) -> bool:
@@ -40,18 +38,17 @@ class TorBoxDownloader:
             return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Download media item from TorBox"""   
+        """Download media item from TorBox"""
         logger.info(f"Downloading {item.log_string} from TorBox")
         if self.is_cached(item):
             self.download(item)
         yield item
 
-
     def is_cached(self, item: MediaItem):
         streams = [hash for hash in item.streams]
         data = self.get_web_download_cached(streams)
         for hash in data:
-            item.active_stream=data[hash]
+            item.active_stream = data[hash]
             return True
 
     def download(self, item: MediaItem):
@@ -91,18 +88,34 @@ class TorBoxDownloader:
 
     def get_web_download_cached(self, hash_list):
         hash_string = ",".join(hash_list)
-        response = get(f"{self.base_url}/torrents/checkcached?hash={hash_string}", additional_headers=self.headers, response_type=dict)
+        response = get(
+            f"{self.base_url}/torrents/checkcached?hash={hash_string}",
+            additional_headers=self.headers,
+            response_type=dict,
+        )
         return response.data["data"]
 
     def get_user_data(self):
-        response = get(f"{self.base_url}/user/me", additional_headers=self.headers, retry_if_failed=False)
+        response = get(
+            f"{self.base_url}/user/me",
+            additional_headers=self.headers,
+            retry_if_failed=False,
+        )
         return response.data.data
 
     def create_torrent(self, hash) -> int:
         magnet_url = f"magnet:?xt=urn:btih:{hash}&dn=&tr="
-        response = post(f"{self.base_url}/torrents/createtorrent", data={"magnet": magnet_url}, additional_headers=self.headers)
+        response = post(
+            f"{self.base_url}/torrents/createtorrent",
+            data={"magnet": magnet_url},
+            additional_headers=self.headers,
+        )
         return response.data.data.torrent_id
-    
+
     def get_torrent_list(self) -> list:
-        response = get(f"{self.base_url}/torrents/mylist?bypass_cache=true", additional_headers=self.headers, response_type=dict)
+        response = get(
+            f"{self.base_url}/torrents/mylist?bypass_cache=true",
+            additional_headers=self.headers,
+            response_type=dict,
+        )
         return response.data["data"]
