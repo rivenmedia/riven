@@ -64,7 +64,7 @@ class Annatar:
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            return []
+            return {}
 
         try:
             return self.scrape(item)
