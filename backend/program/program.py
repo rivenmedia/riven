@@ -197,6 +197,7 @@ class Program(threading.Thread):
                          continue
                     for i in item:
                         self.event_queue.put(Event(emitted_by=service, item=i))
+                    continue
                 elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
