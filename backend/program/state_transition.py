@@ -41,7 +41,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.can_we_scrape(item):
-            def instant_queue_children(item: MediaItem):
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
@@ -53,7 +52,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                     items_to_submit = [item] if item.parent.scraped_times > 1 else []
                 else:
                     items_to_submit = [item]
-
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
