@@ -134,7 +134,7 @@ class Jackett:
         """Search for the given item on the given indexer"""
         if isinstance(item, Movie):
             return self._search_movie_indexer(item, indexer)
-        elif isinstance(item, (Season, Episode)):
+        elif isinstance(item, (Show, Season, Episode)):
             return self._search_series_indexer(item, indexer)
         else:
             raise TypeError("Only Movie and Series is allowed!")
@@ -188,6 +188,10 @@ class Jackett:
         """Search for series on the given indexer"""
         q, season, ep = self._get_series_search_params(item)
 
+        if not q:
+            logger.debug(f"No search query found for {item.log_string}")
+            return []
+
         params = {
             "apikey": self.api_key,
             "t": "tvsearch",
@@ -205,7 +209,9 @@ class Jackett:
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
-        if isinstance(item, Season):
+        if isinstance(item, Show):
+            return item.get_top_title(), None, None
+        elif isinstance(item, Season):
             return item.get_top_title(), item.number, None
         elif isinstance(item, Episode):
             return item.get_top_title(), item.parent.number, item.number

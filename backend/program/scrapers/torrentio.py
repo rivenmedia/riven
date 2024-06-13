@@ -103,6 +103,7 @@ class Torrentio:
                 return {}, 0
 
             torrents = set()
+            all_torrents = set()
             correct_title = item.get_top_title()
             if not correct_title:
                 logger.scraper(f"Correct title not found for {item.log_string}")
@@ -116,13 +117,14 @@ class Torrentio:
                     continue
                 try:
                     torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
+                    all_torrents.add(torrent)
                 except GarbageTorrent:
                     continue
                 if torrent and torrent.fetch:
                     torrents.add(torrent)
             scraped_torrents = sort_torrents(torrents)
             # For debug purposes:
-            # if scraped_torrents:
-            #     for _, torrent in scraped_torrents.items():
-            #         logger.debug(f"Parsed {torrent.data.parsed_title} with rank {torrent.rank} and ratio {torrent.lev_ratio}: {raw_title}")
+            if scraped_torrents:
+                for _, sorted_tor in scraped_torrents.items():
+                    logger.debug(f"Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
             return scraped_torrents, len(response.data.streams)

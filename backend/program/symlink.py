@@ -15,6 +15,7 @@ from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from utils import data_dir_path
 from .cache import hash_cache
 
 
@@ -370,16 +371,32 @@ class Symlinker:
 
             item = self.media_items.get(item_id)
             if item:
-                if isinstance(item, Episode) and not item.file:
-                    logger.error(f"File attribute is invalid for item: {item.log_string}")
-                    return
-                self.delete_item_symlinks(item)
-                self.media_items.remove(item)
-                logger.log("FILES", f"Successfully removed item: {item.log_string}")
-            else:
-                logger.error(f"Failed to find item with IMDb ID {imdb_id}, season {season_number}, episode {episode_number}")
-        else:
-            logger.error(f"IMDb ID not found in path: {src}")
+                if isinstance(item, Show):
+                    for season in item.seasons:
+                        for episode in season.episodes:
+                            self.media_items.remove(episode)
+                        self.media_items.remove(season)
+                    self.media_items.remove(item)
+                    logger.log("FILES", f"Successfully removed show and all its symlinks: {item.log_string}")
+                elif isinstance(item, Season):
+                    for episode in item.episodes:
+                        self.media_items.remove(episode)
+                    self.media_items.remove(item)
+                    logger.log("FILES", f"Successfully removed season and all its symlinks: {item.log_string}")
+                elif isinstance(item, Episode):
+                    self.media_items.remove(item)
+                    logger.log("FILES", f"Successfully removed episode: {item.log_string}")
+                elif isinstance(item, Movie):
+                    self.media_items.remove(item)
+                    logger.log("FILES", f"Successfully removed movie: {item.log_string}")
+
+        # Save the updated media items to disk
+        self.media_items.save(data_dir_path / "media.pkl")
+        logger.log("FILES", "Successfully saved updated media items to disk")
+
+        # Reload the media items from disk to ensure in-memory state is consistent
+        self.media_items.load(data_dir_path / "media.pkl")
+        logger.log("FILES", "Successfully reloaded media items from disk")
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""
@@ -463,7 +480,6 @@ class Symlinker:
     def _delete_single_symlink(self, item: Union[Movie, Episode]):
         """Delete the specific symlink for a movie or episode."""
         if item.file is None:
-            logger.error(f"Item file is None for {item.log_string}, cannot delete symlink.")
             return
 
         if item.update_folder is None:
@@ -553,14 +569,15 @@ def blacklist_item(item):
     else:
         logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
 
-def reset_item(item):
+def reset_item(item: Union[Movie, Show, Season, Episode], reset_times: bool = True) -> None:
     """Reset item attributes for rescraping."""
     item.set("file", None)
     item.set("folder", None)
     item.set("streams", {})
     item.set("active_stream", {})
-    item.set("symlinked_times", 0)
-    item.set("scraped_times", 0)
+    if reset_times:
+        item.set("symlinked_times", 0)
+        item.set("scraped_times", 0)
     logger.debug(f"Item {item.log_string} reset for rescraping")
 
 def get_infohash(item):

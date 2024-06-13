@@ -57,8 +57,6 @@ class Debrid:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
-        if isinstance(item, Show) or (item.file and item.folder):
-            return
         if not self.is_cached(item):
             return
         if not self._is_downloaded(item):
@@ -441,6 +439,12 @@ class Debrid:
             for episode in item.episodes:
                 if episode.file and not episode.folder:
                     episode.set("folder", item.folder)
+        
+        if isinstance(item, Show) and item.folder:
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.file and not episode.folder:
+                        episode.set("folder", item.folder)
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
@@ -568,11 +572,11 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                     return True
         return False
 
-    def check_season():
-        season_number = item.number
-        episodes_in_season = {episode.number for episode in item.episodes}
+    def check_season(season):
+        season_number = season.number
+        episodes_in_season = {episode.number for episode in season.episodes}
         matched_episodes = set()
-        one_season = len(item.parent.seasons) == 1
+        one_season = len(season.parent.seasons) == 1
         for file in torrent_info.files:
             if file.selected == 1:
                 file_episodes = extract_episodes(Path(file.path).name)
@@ -591,7 +595,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Season):
-        if check_season():
+        if check_season(item):
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Episode):
