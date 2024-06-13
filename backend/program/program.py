@@ -222,12 +222,12 @@ class Program(threading.Thread):
             )
             if( len(items_to_submit) == 0):
                 if isinstance(existing_item, Show):
-                    if item.streams == {} and next_service == Debrid or TorBoxDownloader:
-                        for season in item.seasons:
+                    if len(existing_item.streams) == 0 and next_service == Debrid or TorBoxDownloader:
+                        for season in existing_item.seasons:
                             self.add_to_queue(season)
                 if isinstance(existing_item, Season):
-                    if item.streams == {}  and item.scraped_times > 1 and next_service == Debrid or TorBoxDownloader:
-                        for episode in item.episodes:
+                    if len(existing_item.streams) == 0 and item.scraped_times > 1 and next_service == Debrid or TorBoxDownloader:
+                        for episode in existing_item.episodes:
                             self.add_to_queue(episode)
             if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
                 logger.success(f"Item has been completed: {updated_item.log_string}")
