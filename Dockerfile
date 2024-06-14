@@ -6,7 +6,7 @@ LABEL name="Iceberg" \
       url="https://github.com/dreulavelle/iceberg"
 
 # Install system dependencies
-RUN apk --update add --no-cache curl bash shadow && \
+RUN apk --update add --no-cache curl bash shadow gcc python3-dev musl-dev linux-headers && \
     rm -rf /var/cache/apk/*
 RUN pip install --upgrade pip && pip install poetry==1.8.3
 
