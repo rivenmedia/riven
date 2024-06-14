@@ -3,13 +3,11 @@ from pathlib import Path
 from typing import Callable, Dict, List
 
 from pydantic import BaseModel, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
 
-class Observable(BaseSettings):
-
+class Observable(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
@@ -159,7 +157,6 @@ class JackettConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
-    limiter_seconds: int = 8
 
 
 class ProwlarrConfig(Observable):
@@ -238,7 +235,6 @@ def get_version() -> str:
 
 
 class AppModel(Observable):
-    model_config = SettingsConfigDict(env_prefix='riven_',env_nested_delimiter='_')
     version: str = get_version()
     debug: bool = True
     log: bool = True
