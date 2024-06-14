@@ -30,12 +30,6 @@ class SettingsManager:
     def notify_observers(self):
         for observer in self.observers:
             observer()
-
-    def load_settings_file(self):
-        with open(self.settings_file, "r", encoding="utf-8") as file:
-            return json.loads(file.read())
-    def save_settings_string(self):
-        return self.settings.model_dump_json()
     
     def check_environment(self, settings, prefix="", seperator="_"):
         checked_settings = {}
