@@ -2,12 +2,13 @@
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from pydantic import BaseModel, field_validator, SettingsConfigDict
+from pydantic import BaseModel, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
 
-class Observable(BaseModel):
+class Observable(BaseSettings):
 
     class Config:
         arbitrary_types_allowed = True
