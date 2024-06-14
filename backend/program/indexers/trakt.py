@@ -79,9 +79,9 @@ class TraktIndexer:
 def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer.
     
-    If the year is found in the slug, append the year to the title 
+    If the year is found in the slug, we have a better title, to use in non-imdb scrappers; as 'known_title' 
     Slug is used as an page index for trakt but it's also a very good index for torrents
-    Seperating movies, shows of the same name.
+    Seperating movies, shows of the same name but different year
     """
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
@@ -99,7 +99,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
 
     item = {
         "title": title,
-        "known_title": known_title
+        "known_title": known_title,
         "year": year,
         "status": getattr(data, "status", None),
         "aired_at": formatted_aired_at,
