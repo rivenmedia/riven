@@ -19,7 +19,8 @@ class SettingsManager:
 
         if not self.settings_file.exists():
             self.settings = AppModel()
-            self.settings = self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
+            self.settings = AppModel.model_validate(self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN"))
+            
             self.notify_observers()
         else:
             self.load()
