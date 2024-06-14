@@ -40,7 +40,7 @@ class SettingsManager:
             else:
                 environment_variable = f"{prefix}_{key}".upper()
                 if os.getenv(environment_variable, None):
-                    print(f"Found the following environment variable: {environment_variable}")
+                    logger.log("PROGRAM",f"Found the following environment variable: {environment_variable}")
                     new_value = os.getenv(environment_variable)
                     if isinstance(value, bool):
                         checked_settings[key] = new_value.lower() == "true" or new_value == "1"
