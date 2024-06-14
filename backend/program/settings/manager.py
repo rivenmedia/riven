@@ -19,9 +19,8 @@ class SettingsManager:
 
         if not self.settings_file.exists():
             self.settings = AppModel()
-            self.save()
-            self.load()
-            #self.notify_observers()
+            self.settings = self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
+            self.notify_observers()
         else:
             self.load()
 
@@ -31,6 +30,13 @@ class SettingsManager:
     def notify_observers(self):
         for observer in self.observers:
             observer()
+
+    def load_settings_file(self):
+        with open(self.settings_file, "r", encoding="utf-8") as file:
+            return json.loads(file.read())
+    def save_settings_string(self):
+        return self.settings.model_dump_json()
+    
     def check_environment(self, settings, prefix="", seperator="_"):
         checked_settings = {}
         for key, value in settings.items():
@@ -40,7 +46,7 @@ class SettingsManager:
             else:
                 environment_variable = f"{prefix}_{key}".upper()
                 if os.getenv(environment_variable, None):
-                    logger.log("PROGRAM",f"Found the following environment variable: {environment_variable}")
+                    print(f"Found the following environment variable: {environment_variable}")
                     new_value = os.getenv(environment_variable)
                     if isinstance(value, bool):
                         checked_settings[key] = new_value.lower() == "true" or new_value == "1"
@@ -62,7 +68,8 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    settings_dict = self.check_environment(settings_dict, "RIVEN")
+                    if os.environ["RIVEN_FORCE_ENV"]:
+                        settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
             logger.error(
