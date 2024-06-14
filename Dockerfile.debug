@@ -41,7 +41,7 @@ COPY backend/ /iceberg/backend
 COPY VERSION debug_entrypoint.sh /iceberg/
 
 # Add debug depenencies
-run cd /iceberg/backend && poetry add debugpy && poetry add pydantic_settings && mv /iceberg/debug_entrypoint.sh /iceberg/entrypoint.sh
+run cd /iceberg/backend && poetry add debugpy && mv /iceberg/debug_entrypoint.sh /iceberg/entrypoint.sh
 
 # Ensure entrypoint script is executable
 RUN chmod +x ./entrypoint.sh

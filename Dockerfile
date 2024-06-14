@@ -6,7 +6,7 @@ LABEL name="Iceberg" \
       url="https://github.com/dreulavelle/iceberg"
 
 # Install system dependencies
-RUN apk --update add --no-cache curl bash shadow gcc python3-dev musl-dev linux-headers && \
+RUN apk --update add --no-cache curl bash shadow && \
     rm -rf /var/cache/apk/*
 RUN pip install --upgrade pip && pip install poetry==1.8.3
 
@@ -35,7 +35,6 @@ COPY pyproject.toml poetry.lock* /iceberg/
 
 # Install Python dependencies
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR 
-RUN poetry add pydantic-settings
 
 # Copy backend code and other necessary files
 COPY backend/ /iceberg/backend
