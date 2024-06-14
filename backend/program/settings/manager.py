@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 from program.settings.models import AppModel, Observable
 from pydantic import ValidationError
@@ -43,7 +44,9 @@ class SettingsManager:
                 if os.getenv(environment_variable, None):
                     logger.debug(f"Found the following environment variable: {environment_variable}")
                     new_value = os.getenv(environment_variable)
-                    if isinstance(value, bool):
+                    if isinstance(value, Path):
+                        checked_settings[key] = Path(new_value)  
+                    elif isinstance(value, bool):
                         checked_settings[key] = new_value.lower() == "true" or new_value == "1"
                     elif isinstance(value, int):
                         checked_settings[key] = int(new_value)
