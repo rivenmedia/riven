@@ -77,7 +77,12 @@ class TraktIndexer:
 
 
 def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
-    """Map trakt.tv API data to MediaItemContainer."""
+    """Map trakt.tv API data to MediaItemContainer.
+    
+    If the year is found in the slug, append the year to the title 
+    Slug is used as an page index for trakt but it's also a very good index for torrents
+    Seperating movies, shows of the same name.
+    """
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
         return None
@@ -85,9 +90,14 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
     formatted_aired_at = _get_formatted_date(data, item_type)
     genres = getattr(data, "genres", None) or show_genres
 
+    title = getattr(data, "title", None)
+    year = getattr(data, "year", None)
+    if hasattr(data.ids, "slug") and str(year) in getattr(data.ids, "slug"):
+        title = f"{title} {year}"
+
     item = {
-        "title": getattr(data, "title", None),
-        "year": getattr(data, "year", None),
+        "title": title,
+        "year": year,
         "status": getattr(data, "status", None),
         "aired_at": formatted_aired_at,
         "imdb_id": getattr(data.ids, "imdb", None),
@@ -147,6 +157,7 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
            _map_item_from_data(data.season, media_type) if media_type == "season" else \
            _map_item_from_data(data.episode, media_type) if media_type == "episode" else None
 
+
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""
     url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?extended=full"
@@ -158,6 +169,7 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
         return imdb_id
     logger.error(f"Failed to fetch imdb_id for tmdb_id: {tmdb_id}")
     return None
+
 
 def get_imdb_id_from_list(namespaces):
     for ns in namespaces:
