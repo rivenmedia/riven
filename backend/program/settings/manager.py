@@ -66,7 +66,7 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    if os.environ["RIVEN_FORCE_ENV"]:
+                    if "RIVEN_FORCE_ENV" in os.environ:
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
