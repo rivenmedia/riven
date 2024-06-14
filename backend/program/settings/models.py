@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, SettingsConfigDict
 from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
