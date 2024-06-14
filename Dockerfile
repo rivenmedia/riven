@@ -34,7 +34,7 @@ ENV TERM=xterm-256color
 COPY pyproject.toml poetry.lock* /iceberg/
 
 # Install Python dependencies
-RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
+RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR && poetry add pydantic_settings
 
 # Copy backend code and other necessary files
 COPY backend/ /iceberg/backend
