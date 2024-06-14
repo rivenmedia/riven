@@ -1,5 +1,5 @@
 import json
-
+import os 
 from program.settings.models import AppModel, Observable
 from pydantic import ValidationError
 from utils import data_dir_path
@@ -32,10 +32,13 @@ class SettingsManager:
     def load(self, settings_dict: dict | None = None):
         """Load settings from file, validating against the AppModel schema."""
         try:
-            if not settings_dict:
-                with open(self.settings_file, "r", encoding="utf-8") as file:
-                    settings_dict = json.loads(file.read())
-            self.settings = AppModel.model_validate(settings_dict)
+            if "USE_ENV" in os.environ:
+                self.settings = AppModel()
+            else:
+                if not settings_dict:
+                    with open(self.settings_file, "r", encoding="utf-8") as file:
+                        settings_dict = json.loads(file.read())
+                self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
             logger.error(
                 f"Error validating settings: {e}"

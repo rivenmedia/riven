@@ -8,6 +8,7 @@ from utils import version_file_path
 
 
 class Observable(BaseModel):
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -236,6 +237,7 @@ def get_version() -> str:
 
 
 class AppModel(Observable):
+    model_config = SettingsConfigDict(env_prefix='riven_',env_nested_delimiter='_')
     version: str = get_version()
     debug: bool = True
     log: bool = True

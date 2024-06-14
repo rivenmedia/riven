@@ -131,8 +131,8 @@ class Program(threading.Thread):
 
         unfinished_items = self.media_items.get_incomplete_items()
         logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
-
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
+        max_workers = os.environ["MAX_WORKERS"] if os.environ["MAX_WORKERS"] else 1
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=max_workers )
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
