@@ -186,6 +186,7 @@ def _map_item_from_data(item):
 
     media_item_data = {
         "title": title,
+        "known_title": title,
         "imdb_id": imdb_id,
         "tvdb_id": tvdb_id,
         "aired_at": aired_at,
@@ -196,7 +197,7 @@ def _map_item_from_data(item):
         "file": file,
         "is_anime": is_anime,
     }
-
+    
     # Instantiate the appropriate subclass based on 'item_type'
     if item.type == "movie":
         return Movie(media_item_data)

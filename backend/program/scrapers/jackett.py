@@ -174,7 +174,7 @@ class Jackett:
             "apikey": self.api_key,
             "t": "movie",
             "cat": "2000",
-            "q": item.title,
+            "q": item.known_title,
             "year": item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
 
@@ -206,9 +206,9 @@ class Jackett:
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
         if isinstance(item, Season):
-            return item.get_top_title(), item.number, None
+            return item.get_top_known_title(), item.number, None
         elif isinstance(item, Episode):
-            return item.get_top_title(), item.parent.number, item.number
+            return item.get_top_known_title(), item.parent.number, item.number
         return "", 0, None
 
     def _get_indexers(self) -> List[JackettIndexer]:

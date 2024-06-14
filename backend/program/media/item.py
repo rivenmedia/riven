@@ -52,6 +52,7 @@ class MediaItem:
 
         # Media related
         self.title: Optional[str] = item.get("title", None)
+        self.known_title: Operation[str] = item.get("known_title", None)
         self.imdb_id: Optional[str] = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
@@ -112,6 +113,7 @@ class MediaItem:
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""
         self.title = getattr(other, "title", None)
+        self.known_title = getattr(other, "known_title", None)
         self.tvdb_id = getattr(other, "tvdb_id", None)
         self.tmdb_id = getattr(other, "tmdb_id", None)
         self.network = getattr(other, "network", None)
@@ -143,6 +145,7 @@ class MediaItem:
         return {
             "item_id": str(self.item_id),
             "title": self.title,
+            "known_title": self.known_title,            
             "type": self.__class__.__name__,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
@@ -223,6 +226,16 @@ class MediaItem:
                 return self.parent.parent.title
             case _:
                 return self.title
+
+    def get_top_known_title(self) -> str:
+        """Get the known title of the item."""
+        match self.__class__.__name__:
+            case "Season":
+                return self.parent.known_title
+            case "Episode":
+                return self.parent.parent.known_title
+            case _:
+                return self.known_title
 
     def __hash__(self):
         return hash(self.item_id)
@@ -391,6 +404,9 @@ class Season(MediaItem):
 
     def get_top_title(self) -> str:
         return self.parent.title
+    
+    def get_top_known_title(self) -> str:
+        return self.parent.known_title
 
 class Episode(MediaItem):
     """Episode class"""
@@ -428,6 +444,9 @@ class Episode(MediaItem):
 
     def get_top_title(self) -> str:
         return self.parent.parent.title
+    
+    def get_top_known_title(self) -> str:
+        return self.parent.parent.known_title
 
 
 def _set_nested_attr(obj, key, value):

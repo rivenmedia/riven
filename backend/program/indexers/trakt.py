@@ -92,11 +92,14 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
 
     title = getattr(data, "title", None)
     year = getattr(data, "year", None)
-    if hasattr(data.ids, "slug") and str(year) in getattr(data.ids, "slug"):
-        title = f"{title} {year}"
+
+    known_title = title
+    if hasattr(data.ids, "slug") and year is not None and str(year) in getattr(data.ids, "slug"):
+        known_title = f"{title} {year}"
 
     item = {
         "title": title,
+        "known_title": known_title
         "year": year,
         "status": getattr(data, "status", None),
         "aired_at": formatted_aired_at,
