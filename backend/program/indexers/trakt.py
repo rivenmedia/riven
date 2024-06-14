@@ -140,12 +140,14 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
         logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
         return None
 
-    media_type = response.data[0].type
-    data = response.data[0]
-    return _map_item_from_data(data.movie, media_type) if media_type == "movie" else \
-           _map_item_from_data(data.show, media_type) if media_type == "show" else \
-           _map_item_from_data(data.season, media_type) if media_type == "season" else \
-           _map_item_from_data(data.episode, media_type) if media_type == "episode" else None
+    def find_first(set, data):
+        for type in set:
+            for d in data:
+                if d.type == type:
+                    return d
+    data = find_first(["movie", "show", "season", "episode"], response.data)
+
+    return _map_item_from_data(getattr(data, data.type), data.type)
 
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""

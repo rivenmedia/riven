@@ -60,6 +60,12 @@ class Debrid:
         if (item.file and item.folder):
             return
         if not self.is_cached(item):
+            if isinstance(item, Season) and item.scraped_times > 1:
+                res = [e for e in item.episodes]
+                yield res
+            if isinstance(item, Show) and item.scraped_times > 0:
+                res = [s for s in item.seasons]
+                yield res
             return
         if not self._is_downloaded(item):
             self._download_item(item)

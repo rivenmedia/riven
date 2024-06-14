@@ -157,6 +157,7 @@ class JackettConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
+    limiter_seconds: int = 60
 
 
 class ProwlarrConfig(Observable):

@@ -44,22 +44,14 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                if item.scraped_times >= 4:
-                    pass #Season handles this below.
-                else:
-                    items_to_submit = [item]
+                items_to_submit = [item] if item.scraped_times < 1 else []
             elif isinstance(item, Season):
-                if item.parent.scraped_times >=4:
-                    if item.scraped_times >= 4:
-                        pass
-                    else:
-                        items_to_submit = [item]
-            else: 
-                if( item.parent and item.parent.scraped_times > 4):
-                    items_to_submit = [item]
+                items_to_submit = [item] if item.parent.scraped_times > 0 or item.scraped_times < 2 else []
+            else:
+                if item.parent:
+                    items_to_submit = [item] if item.parent.scraped_times > 1 else []
                 else:
-                    if not item.parent:
-                        items_to_submit = [item]
+                    items_to_submit = [item]
 
     elif item.state == States.PartiallyCompleted:
         next_service = Scraping
@@ -84,10 +76,17 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Show):
-            if all(s.file and s.folder for s in item.seasons if not s.symlinked):
+            all_found = True
+            for season in item.seasons:
+                if all(e.file and e.folder for e in season.episodes if not e.symlinked):
+                    pass
+                else:
+                    all_found = False
+            if all_found:
                 proposed_submissions = [item]
             else:
-                proposed_submissions = [s for s in item.seasons if not s.symlinked and s.file and s.folder]
+                for season in item.seasons:
+                    proposed_submissions += [e for e in season.episodes if not e.symlinked and e.file and e.folder]
         elif isinstance(item, Season):
             if all(e.file and e.folder for e in item.episodes if not e.symlinked):
                 proposed_submissions = [item]
