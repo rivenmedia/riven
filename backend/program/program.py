@@ -189,7 +189,7 @@ class Program(threading.Thread):
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
     def _push_event_queue(self, event):
         with self.mutex:
-            if( not event.item in self.queued_items):
+            if( not event.item in self.queued_items and not event.item in self.running_items):
                 if( event.item.parent and event.item.parent in self.queued_items ):
                     return
                 if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
