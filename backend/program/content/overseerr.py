@@ -53,6 +53,7 @@ class Overseerr:
     def run(self):
         """Fetch new media from `Overseerr`"""
         if self.settings.use_webhook:
+            logger.info("Skipping Overseerr because webhook is enabled")
             return
 
         try:
