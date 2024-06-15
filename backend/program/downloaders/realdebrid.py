@@ -199,7 +199,7 @@ class Debrid:
 
         filenames = sorted(
             (file for file in container.values() if file and file["filesize"] > min_size 
-            and (max_size == -1 or file["filesize"] < max_size)
+            and (self.download_settings.movie_filesize_max == -1 or file["filesize"] < max_size)
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
             key=lambda file: file["filesize"], reverse=True
         )
@@ -233,7 +233,7 @@ class Debrid:
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (max_size == -1 or file["filesize"] < max_size)
+            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -274,7 +274,7 @@ class Debrid:
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (max_size == -1 or file["filesize"] < max_size)
+            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -332,7 +332,7 @@ class Debrid:
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (max_size == -1 or file["filesize"] < max_size)
+            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
