@@ -215,7 +215,7 @@ class Program(threading.Thread):
                             all_media_items = False
                     if all_media_items == False:
                          continue
-                    with mutex:
+                    with self.mutex:
                         self.running_items.remove(orig_item)
                     for i in item:
                         self._push_event_queue(Event(emitted_by=self.__class__, item=i))
