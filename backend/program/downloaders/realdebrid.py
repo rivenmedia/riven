@@ -194,8 +194,8 @@ class Debrid:
             logger.error(f"Item is not a Movie instance: {item.log_string}")
             return False
 
-        min_size = self.downloaders_settings.movie_filesize_min * 1e+6
-        max_size = self.downloaders_settings.movie_filesize_max * 1e+6
+        min_size = self.download_settings.movie_filesize_min * 1e+6
+        max_size = self.download_settings.movie_filesize_max * 1e+6
 
         filenames = sorted(
             (file for file in container.values() if file and file["filesize"] > min_size 

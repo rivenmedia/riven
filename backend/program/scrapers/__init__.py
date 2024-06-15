@@ -41,8 +41,7 @@ class Scraping:
         for service_name, service in self.services.items():
             if service.initialized:
                 try:
-                    if item:
-                        item = next(service.run(item))
+                    item = next(service.run(item))
                 except StopIteration:
                     logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
                 except Exception as e:
@@ -60,7 +59,7 @@ class Scraping:
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
-        scrape_time = 5
+        scrape_time = 1
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = settings.after_2 * 60 * 60

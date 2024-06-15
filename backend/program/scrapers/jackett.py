@@ -41,11 +41,12 @@ class Jackett:
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
+        self.second_limiter = None
+        self.rate_limit = self.settings.ratelimit
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
         logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -67,6 +68,8 @@ class Jackett:
                     logger.error("No Jackett indexers configured.")
                     return False
                 self.indexers = indexers
+                if self.rate_limit:
+                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
                 self._log_indexers()
                 return True
             except ReadTimeout:

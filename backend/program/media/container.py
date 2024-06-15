@@ -250,9 +250,6 @@ class MediaItemContainer:
 
     def save(self, filename: str = "media.pkl") -> None:
         """Save the container to a file."""
-        if isinstance(filename, str):
-            filename = Path(filename)
-
         with self.lock, tempfile.NamedTemporaryFile(delete=False, mode="wb") as temp_file:
             try:
                 dill.dump(self, temp_file, dill.HIGHEST_PROTOCOL)
@@ -263,8 +260,8 @@ class MediaItemContainer:
                 return
 
             try:
-                backup_filename = filename.with_suffix(filename.suffix + ".bak")
-                if filename.exists():
+                backup_filename = filename + ".bak"
+                if os.path.exists(filename):
                     shutil.copyfile(filename, backup_filename)
                 shutil.move(temp_file.name, filename)
             except Exception as e:
@@ -276,8 +273,6 @@ class MediaItemContainer:
 
     def load(self, filename: str = "media.pkl", log_items: bool = False) -> None:
         """Load the container from a file."""
-        if isinstance(filename, str):
-            filename = Path(filename)
         try:
             with open(filename, "rb") as file:
                 from_disk = dill.load(file)
@@ -296,7 +291,6 @@ class MediaItemContainer:
             self._shows = {}
             self._seasons = {}
             self._episodes = {}
-
 
         if self._items and log_items:
             self.log_items()

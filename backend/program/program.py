@@ -128,12 +128,11 @@ class Program(threading.Thread):
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
 
-
         if not len(self.media_items):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
-            self.media_items.save(data_dir_path / "media.pkl")
+            self.media_items.save(str(data_dir_path / "media.pkl"))
 
         self.media_items.load(log_items=True)
 
@@ -173,7 +172,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now(),
-                misfire_grace_time=5,
+                misfire_grace_time=30,
             )
             logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 

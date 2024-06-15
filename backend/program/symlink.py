@@ -393,9 +393,10 @@ class Symlinker:
         # Acquire write lock for the duration of save and reload to ensure consistency
         media_items.lock.acquire_write()
         try:
-            media_items.save(data_dir_path / "media.pkl")
+            media_file_path = str(data_dir_path / "media.pkl")
+            media_items.save(media_file_path)
             logger.log("FILES", "Successfully saved updated media items to disk")
-            media_items.load(data_dir_path / "media.pkl")
+            media_items.load(media_file_path)
             logger.log("FILES", "Successfully reloaded media items from disk")
         except Exception as e:
             logger.error(f"Failed to save or reload media items: {e}")
