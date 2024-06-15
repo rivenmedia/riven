@@ -223,14 +223,15 @@ class Program(threading.Thread):
                          continue
                     with self.mutex:
                         self.running_items.remove(orig_item)
-                    with self.mutex:
-                            if orig_item in self.running_items:
-                                self.running_items.remove(orig_item)
-                    self._push_event_queue(Event(emitted_by=service, item=item))
+                    for i in item:
+                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
                 elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
+                with self.mutex:
+                    if orig_item in self.running_items:
+                        self.running_items.remove(orig_item)
                 self._push_event_queue(Event(emitted_by=service, item=item))
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
