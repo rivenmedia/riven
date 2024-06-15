@@ -72,8 +72,6 @@ class Annatar:
         except RateLimitExceeded:
             if self.second_limiter:
                 self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"Annatar rate limit hit for item: {item.log_string}")
         except ConnectTimeout:
             logger.debug(f"Annatar connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -84,12 +82,10 @@ class Annatar:
             elif e.response.status_code == 429:
                 if self.second_limiter:
                     self.second_limiter.limit_hit()
-                else:
-                    logger.warning(f"Annatar rate limit hit for item: {item.log_string}")
             else:
                 logger.error(f"Annatar request exception: {e}")
         except Exception as e:
-            logger.error(f"Annatar failed to scrape item with error: {e}")
+            logger.error(f"Annatar failed to scrape item with error: {e}", exc_info=True)
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:

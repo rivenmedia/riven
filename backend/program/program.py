@@ -42,6 +42,7 @@ class Program(threading.Thread):
         self.media_items = MediaItemContainer()
         self.services = {}
         self.queued_items = []
+        self.running_items = []
         self.mutex = Lock()
 
     def initialize_services(self):
@@ -193,10 +194,14 @@ class Program(threading.Thread):
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if( not event.item in self.queued_items):
+            if( not event.item in self.queued_items and not event.item in self.running_items):
                 if( event.item.parent and event.item.parent in self.queued_items ):
                     return
                 if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
+                    return
+                if( event.item.parent and event.item.parent in self.running_items ):
+                    return
+                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items ):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
@@ -205,7 +210,7 @@ class Program(threading.Thread):
         with self.mutex:
             self.queued_items.remove(event.item)
 
-    def _process_future_item(self, future: Future, service: Service, item: MediaItem) -> None:
+    def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
             for item in future.result():
@@ -216,8 +221,12 @@ class Program(threading.Thread):
                             all_media_items = False
                     if all_media_items == False:
                          continue
-                    for i in item:
-                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
+                    with self.mutex:
+                        self.running_items.remove(orig_item)
+                    with self.mutex:
+                            if orig_item in self.running_items:
+                                self.running_items.remove(orig_item)
+                    self._push_event_queue(Event(emitted_by=service, item=item))
                     continue
                 elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
@@ -259,6 +268,8 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
+                with self.mutex:
+                    self.running_items.append(self.media_items.get(event.item.item_id, None))
                 self._pop_event_queue(event)
             except Empty:
                 continue

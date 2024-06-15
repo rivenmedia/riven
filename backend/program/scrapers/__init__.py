@@ -35,6 +35,9 @@ class Scraping:
         return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem):
+        if not self.should_submit(item):
+            return
+
         for service_name, service in self.services.items():
             if service.initialized:
                 try:

@@ -184,6 +184,11 @@ class Debrid:
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
                     return True
         elif isinstance(item, Season):
+            other_containers = [s for s in item.parent.seasons if s != item and len(s.active_stream) > 0]
+            for c in other_containers:
+                if self._is_wanted_season(c.active_stream.files, item):
+                    item.set("active_stream", {"hash": c.active_stream.hash, "files": c.active_stream.files, "id": None})
+                    return True
             for container in sorted_containers:
                 if self._is_wanted_season(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
