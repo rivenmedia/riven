@@ -106,6 +106,7 @@ class TraktModel(Updatable):
     api_key: str = ""
     watchlist: List[str] = []
     user_lists: List[str] = []
+    collection: List[str] = []
     fetch_trending: bool = False
     trending_count: int = 10
     fetch_popular: bool = False
