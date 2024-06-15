@@ -234,7 +234,7 @@ class Program(threading.Thread):
         for executor in self.executors:
             if executor["_name_prefix"] == service.__name__:
                 found = True
-                cur_executor = executor.["_executor"]
+                cur_executor = executor["_executor"]
                 break
         if not found:
             max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
