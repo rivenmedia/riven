@@ -40,6 +40,7 @@ class MediaItem:
         self.scraped_times: Optional[int] = 0
         self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
         self.streams: Optional[dict[str, Torrent]] = {}
+        self.all_streams: Optional[dict[str, Torrent]] = {}
 
         self.symlinked: Optional[bool] = False
         self.symlinked_at: Optional[datetime] = None
@@ -287,6 +288,7 @@ class Show(MediaItem):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
+        
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
