@@ -107,10 +107,6 @@ class Debrid:
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
-        if item.parent:
-            item.streams.update(item.parent.all_streams)
-        if item.parent and item.parent.parent:
-            item.streams.update(item.parent.parent.all_streams)
         if not item.get("streams", {}):
             return False
 
@@ -135,14 +131,6 @@ class Debrid:
                     return True
             except Exception:
                 logger.exception("Error checking cache for streams")
-        
-
-        if item.parent:
-            item.parent.all_streams.update(streams)
-        if item.parent and item.parent.parent:
-            item.parent.parent.all_streams.update(streams)
-        if not item.parent:
-            item.all_streams.update(streams)
         
         item.set("streams", {})
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
