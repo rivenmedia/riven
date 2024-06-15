@@ -37,7 +37,7 @@ class PlexLibrary:
     def validate(self):
         """Validate Plex library"""
         if not self.settings.token:
-            logger.error("Plex Library token is not set. This is required!")
+            logger.warning("Plex Library is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set. This is required!")
@@ -74,12 +74,11 @@ class PlexLibrary:
         items = []
         sections = self.plex.library.sections()
         processed_sections = set()
-        max_workers = os.cpu_count() // 2  # Use integer division for workers
         rate_limit = 5  # Process 5 chunks per minute
 
         # Create a synchronous executor
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Plex") as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="Plex") as executor:
                 futures = []
                 for section in sections:
                     is_wanted = self._is_wanted_section(section)

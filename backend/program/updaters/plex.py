@@ -30,7 +30,7 @@ class PlexUpdater:
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
         if not self.settings.token:
-            logger.error("Plex Updater token is not set, this is required!")
+            logger.warning("Plex Updater is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set!")
@@ -114,6 +114,7 @@ class PlexUpdater:
                     logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
             else:
                 logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
+
         yield item
 
     def _update_section(self, section, item: Union[Movie, Episode]) -> bool:

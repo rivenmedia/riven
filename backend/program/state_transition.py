@@ -6,6 +6,7 @@ from program.indexers.trakt import TraktIndexer
 from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.scrapers import Scraping
+from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
@@ -40,13 +41,27 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.can_we_scrape(item):
+        if Scraping.should_submit(item):
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                items_to_submit = [item] if item.scraped_times < 3 else []
+                if settings_manager.settings.scraping.jackett.enabled: # currently only jackett supports Show scraping
+                    items_to_submit = [item] if item.scraped_times < 3 else []
+                else:
+                    items_to_submit = [
+                        season for season in item.seasons 
+                        if season.state == States.Indexed
+                        and Scraping.should_submit(season)
+                    ]
             elif isinstance(item, Season):
-                items_to_submit = [item] if item.parent.scraped_times < 3 or item.scraped_times < 3 else []
+                if item.parent.scraped_times < 3 or item.scraped_times < 3:
+                    items_to_submit = [item]
+                else:
+                    items_to_submit = [
+                        e for e in item.episodes 
+                        if e.state == States.Indexed
+                        and Scraping.should_submit(e)
+                    ]
             else:
                 if item.parent:
                     items_to_submit = [item] if item.parent.scraped_times <= 3 else []
@@ -59,13 +74,13 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [
                 s for s in item.seasons 
                 if s.state not in (States.Completed, States.PartiallyCompleted)
-                and Scraping.can_we_scrape(s)
+                and Scraping.should_submit(s)
             ]
         elif isinstance(item, Season):
             items_to_submit = [
                 e for e in item.episodes 
                 if e.state == States.Indexed
-                and Scraping.can_we_scrape(e)
+                and Scraping.should_submit(e)
             ]
 
     elif item.state == States.Scraped:

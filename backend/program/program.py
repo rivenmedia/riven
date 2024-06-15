@@ -11,13 +11,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
-from program.indexers.trakt import TraktIndexer, create_item_from_imdb_id
+from program.indexers.trakt import TraktIndexer
 from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
+from program.updaters import Updater
+from program.updaters.local import LocalUpdater
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
@@ -33,7 +35,7 @@ class Program(threading.Thread):
     """Program class"""
 
     def __init__(self, args):
-        super().__init__(name="Iceberg")
+        super().__init__(name="Riven")
         self.running = False
         self.startup_args = args
         self.initialized = False
@@ -50,10 +52,14 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
+        self.updating_services = {
+            PlexUpdater: PlexUpdater(),
+            LocalUpdater: LocalUpdater(),
+        }
         self.processing_services = {
             Scraping: Scraping(hash_cache),
             Symlinker: Symlinker(self.media_items),
-            PlexUpdater: PlexUpdater(),
+            Updater: Updater(self.updating_services),
         }
         self.downloader_services = {
             Debrid: Debrid(hash_cache),
@@ -78,6 +84,7 @@ class Program(threading.Thread):
             **self.requesting_services,
             **self.processing_services,
             **self.downloader_services,
+            **self.updating_services,
         }
 
     def validate(self) -> bool:
@@ -93,7 +100,7 @@ class Program(threading.Thread):
         )
 
     def start(self):
-        logger.log("PROGRAM", f"Iceberg v{settings_manager.settings.version} starting!")
+        logger.log("PROGRAM", f"Riven v{settings_manager.settings.version} starting!")
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
@@ -108,28 +115,34 @@ class Program(threading.Thread):
             logger.exception(f"Failed to initialize services: {e}")
 
         logger.log("PROGRAM", "----------------------------------------------")
-        logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
+        logger.log("PROGRAM", "Riven is waiting for configuration to start!")
         logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
 
         self.initialized = True
-        logger.log("PROGRAM", "Iceberg started!")
+        logger.log("PROGRAM", "Riven started!")
 
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
             self.pickly.start()
 
+
         if not len(self.media_items):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
+            self.media_items.save(data_dir_path / "media.pkl")
+
+        self.media_items.load(log_items=True)
 
         unfinished_items = self.media_items.get_incomplete_items()
         logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
 
-        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker")
+        max_workers = int(os.getenv("MAX_WORKERS", 1))
+        self.executor = ThreadPoolExecutor(thread_name_prefix="Worker", max_workers=max_workers)
+
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
@@ -137,7 +150,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         self.running = True
-        logger.success("Iceberg is running!")
+        logger.success("Riven is running!")
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
@@ -160,7 +173,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now(),
-                misfire_grace_time=30,
+                misfire_grace_time=5,
             )
             logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
@@ -198,10 +211,9 @@ class Program(threading.Thread):
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
-            if service.__name__ == "TraktIndexer":
-                logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
-            else:
-                logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+            logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+        elif not item and service:
+            logger.log("DISCOVERY", f"Submitting service {service.__name__} to the pool")
         func = self.services[service].run
         future = self.executor.submit(func) if item is None else self.executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
@@ -230,9 +242,6 @@ class Program(threading.Thread):
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
-                    if isinstance(item_to_submit, Season) and next_service == Scraping:
-                        if item_to_submit.scraped_times >= 3:
-                            continue
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
@@ -242,9 +251,11 @@ class Program(threading.Thread):
             self.executor.shutdown(wait=False)
         if hasattr(self, "scheduler") and getattr(self.scheduler, 'running', False):
             self.scheduler.shutdown(wait=False)
+        if hasattr(self, "symlinker") and getattr(self.symlinker, 'running', False):
+            self.symlinker.stop_monitor()
         if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
             self.pickly.stop()
-        logger.log("PROGRAM", "Iceberg has been stopped.")
+        logger.log("PROGRAM", "Riven has been stopped.")
 
     def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""

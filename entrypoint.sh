@@ -14,8 +14,8 @@ if not echo $PGID | grep -qE '^[0-9]+$'
     exit 1
 end
 
-set -q USERNAME; or set USERNAME iceberg
-set -q GROUPNAME; or set GROUPNAME iceberg
+set -q USERNAME; or set USERNAME riven
+set -q GROUPNAME; or set GROUPNAME riven
 
 if not getent group $PGID > /dev/null
     addgroup -g $PGID $GROUPNAME
@@ -48,7 +48,7 @@ end
 set USER_HOME "/home/$USERNAME"
 mkdir -p $USER_HOME
 chown -R $PUID:$PGID $USER_HOME
-chown -R $PUID:$PGID /iceberg
+chown -R $PUID:$PGID /riven
 
 umask 002
 
@@ -72,9 +72,9 @@ echo "Container Initialization complete."
 
 # Start the backend
 echo "Starting backend..."
-su -m $USERNAME -c "fish -c 'cd /iceberg/backend; and poetry run python3 main.py'" &
+su -m $USERNAME -c "fish -c 'cd /riven/backend; and poetry run python3 main.py'" &
 set backend_pid (jobs -p %1)
 
 # Start the frontend
 echo "Starting frontend..."
-exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN node /iceberg/frontend/build'"
+exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN node /riven/frontend/build'"

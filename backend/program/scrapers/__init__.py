@@ -28,19 +28,25 @@ class Scraping:
             Mediafusion: Mediafusion(self.hash_cache)
         }
         self.initialized = self.validate()
+        if not self.initialized:
+            return
 
     def validate(self):
         return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem):
+        if not item.is_released:
+            return
+
         for service_name, service in self.services.items():
             if service.initialized:
                 try:
-                    item = next(service.run(item))
+                    if item:
+                        item = next(service.run(item))
                 except StopIteration:
                     logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
                 except Exception as e:
-                    logger.exception(f"{service_name} failed to scrape item with error: {e}")
+                    logger.error(f"{service_name} failed to scrape {item.log_string}: {e}")
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         yield item
@@ -54,7 +60,7 @@ class Scraping:
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
-        scrape_time = 5 * 60  # 5 minutes by default
+        scrape_time = 5
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = settings.after_2 * 60 * 60

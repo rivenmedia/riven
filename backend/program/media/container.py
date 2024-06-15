@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import threading
 from copy import deepcopy
+from pathlib import Path
 from pickle import UnpicklingError
 from typing import Dict, Generator, List, Optional
 
@@ -143,14 +144,15 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def get_item(self, identifier: str) -> Optional[MediaItem]:
+    def get_item(self, identifier: str | ItemId) -> Optional[MediaItem]:
         """Retrieve an item by its IMDb ID or item ID from the container."""
         self.lock.acquire_read()
         try:
-            if identifier.startswith("tt"):
-                return self._imdb_index.get(identifier)
-            item_id = ItemId(identifier)
-            return self._items.get(item_id)
+            if isinstance(identifier, str) and identifier.startswith("tt"):
+                return self._items.get(ItemId(identifier))
+            if isinstance(identifier, ItemId):
+                return self._items.get(identifier)
+            return None
         finally:
             self.lock.release_read()
 
@@ -221,38 +223,21 @@ class MediaItemContainer:
                 episode.item_id.parent_id = item.item_id
                 self._index_item(episode)
 
-    def remove(self, item: MediaItem) -> None:
-        """Remove an item, which could be a movie, show, season, or episode."""
-        if not item:
-            logger.error("Attempted to remove a None item.")
-            return
-
-        log_title = item.log_string
-        imdb_id = item.imdb_id
-
+    def remove(self, items):
+        """Remove a list of items, which could be movies, shows, seasons, or episodes."""
         self.lock.acquire_write()
         try:
-            def remove_children(item):
-                if isinstance(item, Show):
-                    for season in item.seasons:
-                        remove_children(season)
-                elif isinstance(item, Season):
-                    for episode in item.episodes:
-                        self._remove_item(episode)
+            for item in items:
                 self._remove_item(item)
-
-            remove_children(item)
-            logger.debug(f"Removed item: {log_title} (IMDb ID: {imdb_id})")
-        except KeyError as e:
-            logger.error(f"Failed to remove item: {log_title} (IMDb ID: {imdb_id}). KeyError: {e}")
+            logger.debug(f"Removed items: {[item.log_string for item in items]}")
         except Exception as e:
-            logger.error(f"Unexpected error occurred while removing item: {log_title} (IMDb ID: {imdb_id}). Exception: {e}")
+            logger.error(f"Unexpected error occurred while removing items: {e}")
         finally:
             self.lock.release_write()
 
-    def _remove_item(self, item: MediaItem) -> None:
+    def _remove_item(self, item):
         """Helper method to remove an item from the container."""
-        item_id: ItemId = item.item_id
+        item_id = item.item_id
         if item_id in self._items:
             del self._items[item_id]
             logger.debug(f"Successfully removed item with ID: {item_id}")
@@ -265,6 +250,9 @@ class MediaItemContainer:
 
     def save(self, filename: str = "media.pkl") -> None:
         """Save the container to a file."""
+        if isinstance(filename, str):
+            filename = Path(filename)
+
         with self.lock, tempfile.NamedTemporaryFile(delete=False, mode="wb") as temp_file:
             try:
                 dill.dump(self, temp_file, dill.HIGHEST_PROTOCOL)
@@ -275,8 +263,8 @@ class MediaItemContainer:
                 return
 
             try:
-                backup_filename = filename + ".bak"
-                if os.path.exists(filename):
+                backup_filename = filename.with_suffix(filename.suffix + ".bak")
+                if filename.exists():
                     shutil.copyfile(filename, backup_filename)
                 shutil.move(temp_file.name, filename)
             except Exception as e:
@@ -286,8 +274,10 @@ class MediaItemContainer:
                 except OSError as remove_error:
                     logger.error(f"Failed to remove temporary file: {remove_error}")
 
-    def load(self, filename: str = "media.pkl") -> None:
+    def load(self, filename: str = "media.pkl", log_items: bool = False) -> None:
         """Load the container from a file."""
+        if isinstance(filename, str):
+            filename = Path(filename)
         try:
             with open(filename, "rb") as file:
                 from_disk = dill.load(file)
@@ -307,5 +297,21 @@ class MediaItemContainer:
             self._seasons = {}
             self._episodes = {}
 
+
+        if self._items and log_items:
+            self.log_items()
+
         if self._items:
             logger.success(f"Loaded {len(self._items)} items from {filename}")
+
+    def log_items(self):
+        """Log the items in the container."""
+        all_movies = self._movies.values()
+        all_shows = self._shows.values()
+        all_seasons = self._seasons.values()
+        all_episodes = self._episodes.values()
+
+        logger.log("ITEM", f"Movies: {len(all_movies)}")
+        logger.log("ITEM", f"Shows: {len(all_shows)}")
+        logger.log("ITEM", f"Seasons: {len(all_seasons)}")
+        logger.log("ITEM", f"Episodes: {len(all_episodes)}")

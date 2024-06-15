@@ -4,23 +4,25 @@ import os
 import re
 import shutil
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
+from threading import Event, Thread
 from typing import Optional, Union
 
 from program.media.container import MediaItemContainer
 from program.media.item import Episode, ItemId, Movie, Season, Show
 from program.settings.manager import settings_manager
+from utils import data_dir_path
 from utils.logger import logger
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from utils import data_dir_path
 from .cache import hash_cache
 
 
 class DeleteHandler(FileSystemEventHandler):
-    """Handles the deletion of symlinks."""
+    """Handles the deletion of symlinks with batching."""
 
     def __init__(self, symlinker):
         super().__init__()
@@ -28,9 +30,9 @@ class DeleteHandler(FileSystemEventHandler):
 
     def on_deleted(self, event):
         """Called when a file or directory is deleted."""
+        logger.info(f"Delete event detected: {event.src_path}")
         if event.src_path:
             self.symlinker.on_symlink_deleted(event.src_path)
-
 
 class Symlinker:
     """
@@ -45,14 +47,11 @@ class Symlinker:
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
         self.media_items = media_items
-        # we can't delete from rclone if this is enabled
-        self.torbox_enabled = settings_manager.settings.downloaders.torbox.enabled
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
-            logger.error("Symlink initialization failed due to invalid configuration.")
             return
-        if self.initialized:
+        if settings_manager.settings.symlink_monitor:
             self.start_monitor()
         logger.info(f"Rclone path symlinks are pointed to: {self.rclone_path}")
         logger.info(f"Symlinks will be placed in: {self.settings.library_path}")
@@ -67,17 +66,17 @@ class Symlinker:
         if self.rclone_path == Path(".") or library_path == Path("."):
             logger.error("rclone_path or library_path is set to the current directory.")
             return False
-        if not self.rclone_path.is_absolute():
-            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
-            return False
-        if not library_path.is_absolute():
-            logger.error(f"library_path is not an absolute path: {library_path}")
-            return False
         if not self.rclone_path.exists():
             logger.error(f"rclone_path does not exist: {self.rclone_path}")
             return False
         if not library_path.exists():
             logger.error(f"library_path does not exist: {library_path}")
+            return False
+        if not self.rclone_path.is_absolute():
+            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
+            return False
+        if not library_path.is_absolute():
+            logger.error(f"library_path is not an absolute path: {library_path}")
             return False
         return self.create_initial_folders()
 
@@ -274,8 +273,9 @@ class Symlinker:
             return False
 
         try:
-            with contextlib.suppress(FileExistsError):
-                os.symlink(source, destination)
+            if os.path.exists(destination):
+                os.remove(destination)
+            os.symlink(source, destination)
             item.set("symlinked", True)
             item.set("symlinked_at", datetime.now())
             item.set("symlinked_times", item.symlinked_times + 1)
@@ -342,9 +342,7 @@ class Symlinker:
         """Starts monitoring the library path for symlink deletions."""
         self.event_handler = DeleteHandler(self)
         self.observer = Observer()
-        self.observer.schedule(
-            self.event_handler, self.settings.library_path, recursive=True
-        )
+        self.observer.schedule(self.event_handler, self.settings.library_path, recursive=True)
         self.observer.start()
         logger.log("FILES", "Symlink deletion monitoring started")
 
@@ -358,6 +356,7 @@ class Symlinker:
     def on_symlink_deleted(self, src: str) -> None:
         """Handle the event when a symlink is deleted."""
         logger.info(f"Symlink deleted: {src}")
+
         src_path = Path(src)
         imdb_id = self.extract_imdb_id(src_path)
         season_number, episode_number = self.extract_season_episode(src_path.name)
@@ -371,32 +370,38 @@ class Symlinker:
 
             item = self.media_items.get(item_id)
             if item:
+                items_to_remove = []
                 if isinstance(item, Show):
                     for season in item.seasons:
-                        for episode in season.episodes:
-                            self.media_items.remove(episode)
-                        self.media_items.remove(season)
-                    self.media_items.remove(item)
-                    logger.log("FILES", f"Successfully removed show and all its symlinks: {item.log_string}")
+                        items_to_remove.extend(self.collect_items_for_removal(season))
+                    items_to_remove.append(item)
                 elif isinstance(item, Season):
                     for episode in item.episodes:
-                        self.media_items.remove(episode)
-                    self.media_items.remove(item)
-                    logger.log("FILES", f"Successfully removed season and all its symlinks: {item.log_string}")
-                elif isinstance(item, Episode):
-                    self.media_items.remove(item)
-                    logger.log("FILES", f"Successfully removed episode: {item.log_string}")
-                elif isinstance(item, Movie):
-                    self.media_items.remove(item)
-                    logger.log("FILES", f"Successfully removed movie: {item.log_string}")
+                        items_to_remove.append(episode)
+                    items_to_remove.append(item)
+                elif isinstance(item, Episode) or isinstance(item, Movie):
+                    items_to_remove.append(item)
 
-        # Save the updated media items to disk
-        self.media_items.save(data_dir_path / "media.pkl")
-        logger.log("FILES", "Successfully saved updated media items to disk")
+                self.media_items.remove(items_to_remove)
+                logger.log("FILES", f"Successfully removed items: {[i.log_string for i in items_to_remove]}")
 
-        # Reload the media items from disk to ensure in-memory state is consistent
-        self.media_items.load(data_dir_path / "media.pkl")
-        logger.log("FILES", "Successfully reloaded media items from disk")
+        self.save_and_reload_media_items(self.media_items)
+
+    @classmethod
+    def save_and_reload_media_items(cls, media_items: MediaItemContainer):
+        """Save and reload the media items to ensure consistency."""
+        # Acquire write lock for the duration of save and reload to ensure consistency
+        media_items.lock.acquire_write()
+        try:
+            media_items.save(data_dir_path / "media.pkl")
+            logger.log("FILES", "Successfully saved updated media items to disk")
+            media_items.load(data_dir_path / "media.pkl")
+            logger.log("FILES", "Successfully reloaded media items from disk")
+        except Exception as e:
+            logger.error(f"Failed to save or reload media items: {e}")
+            # Consider what rollback or recovery actions might be appropriate here
+        finally:
+            media_items.lock.release_write()
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""

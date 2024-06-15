@@ -30,7 +30,7 @@ class TraktIndexer:
             logger.error(f"Item {item.log_string} does not have an imdb_id, cannot index it")
             return
         item = create_item_from_imdb_id(imdb_id)
-        if not item:
+        if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
         if isinstance(item, Show):

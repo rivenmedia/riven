@@ -28,6 +28,7 @@ class Debrid:
     def __init__(self, hash_cache):
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
+        self.download_settings = settings_manager.settings.downloaders
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.initialized = self.validate()
         if not self.initialized:
@@ -43,7 +44,18 @@ class Debrid:
         if not self.settings.api_key:
             logger.warning("Real-Debrid API key is not set")
             return False
-
+        if not isinstance(self.download_settings.movie_filesize_min, float) or self.download_settings.movie_filesize_min < -1:
+            logger.error("Real-Debrid movie filesize min is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.movie_filesize_max, float) or self.download_settings.movie_filesize_max < -1:
+            logger.error("Real-Debrid movie filesize max is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.episode_filesize_min, float) or self.download_settings.episode_filesize_min < -1:
+            logger.error("Real-Debrid episode filesize min is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.episode_filesize_max, float) or self.download_settings.episode_filesize_max < -1:
+            logger.error("Real-Debrid episode filesize max is not set or invalid.")
+            return False
         try:
             response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers)
             if response.ok:
@@ -182,8 +194,13 @@ class Debrid:
             logger.error(f"Item is not a Movie instance: {item.log_string}")
             return False
 
+        min_size = self.downloaders_settings.movie_filesize_min * 1e+6
+        max_size = self.downloaders_settings.movie_filesize_max * 1e+6
+
         filenames = sorted(
-            (file for file in container.values() if file and file["filesize"] > 2e+8 and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
+            (file for file in container.values() if file and file["filesize"] > min_size 
+            and (max_size == -1 or file["filesize"] < max_size)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
             key=lambda file: file["filesize"], reverse=True
         )
 
@@ -198,9 +215,9 @@ class Debrid:
                 if not parsed_file or not parsed_file.parsed_title:
                     continue
                 if parsed_file.type == "movie":
-                    item.set("folder", item.active_stream.get("name")) # TODO: to get this and alt_name we need info from the torrent
+                    item.set("folder", item.active_stream.get("name"))
                     item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                    item.set("file", file["filename"]) # TODO: Does this need to be a dict instead of str to be downloaded?
+                    item.set("file", file["filename"])
                     return True        
         return False
 
@@ -210,9 +227,13 @@ class Debrid:
             logger.error(f"Item is not an Episode instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1e+6
+        max_size = self.download_settings.episode_filesize_max * 1e+6
+
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7
+            if file and file["filesize"] > min_size
+            and (max_size == -1 or file["filesize"] < max_size)
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -246,10 +267,15 @@ class Debrid:
             logger.error(f"Item is not a Season instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1e+6
+        max_size = self.download_settings.episode_filesize_max * 1e+6
+
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7 and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+            if file and file["filesize"] > min_size
+            and (max_size == -1 or file["filesize"] < max_size)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:
@@ -299,10 +325,15 @@ class Debrid:
             logger.error(f"Item is not a Show instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1e+6
+        max_size = self.download_settings.episode_filesize_max * 1e+6
+
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7 and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+            if file and file["filesize"] > min_size
+            and (max_size == -1 or file["filesize"] < max_size)
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:

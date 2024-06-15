@@ -1,13 +1,12 @@
 import contextlib
-from datetime import datetime
 import time
+from datetime import datetime
 from typing import Generator
-
-from RTN import parse
-from RTN.exceptions import GarbageTorrent
 
 from program.media.item import MediaItem, Movie
 from program.settings.manager import settings_manager
+from RTN import parse
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import get, post
 

@@ -271,6 +271,11 @@ def get_user_list(api_url, headers, user, list_name, limit=10):
     url = f"{api_url}/users/{user}/lists/{list_name}/items"
     return _fetch_data(url, headers, {"limit": limit})
 
+def get_collections(api_url, headers, limit=10):
+    """Get collections from Trakt with pagination support."""
+    url = f"{api_url}/users/collections"
+    return _fetch_data(url, headers, {"limit": limit})
+
 def get_liked_lists(api_url, headers, limit=10):
     """Get liked lists from Trakt with pagination support."""
     url = f"{api_url}/users/likes/lists"
