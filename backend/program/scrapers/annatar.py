@@ -49,9 +49,8 @@ class Annatar:
             logger.error("Annatar ratelimit must be a valid boolean.")
             return False
         try:
-            url = self.settings.url if self.settings.url.endswith("/manifest.json") else self.settings.url + "/manifest.json"
-            response = ping(url=url, timeout=self.timeout)
-            if not response.ok:
+            response = get("https://annatar.elfhosted.com/manifest.json", timeout=15)
+            if not response.is_ok:
                 return False
             return True
         except ReadTimeout:
@@ -83,7 +82,10 @@ class Annatar:
             if e.response.status_code == 525:
                 logger.error(f"Annatar SSL handshake failed for item: {item.log_string}")
             elif e.response.status_code == 429:
-                self.second_limiter.limit_hit()
+                if self.second_limiter:
+                    self.second_limiter.limit_hit()
+                else:
+                    logger.warning(f"Annatar rate limit hit for item: {item.log_string}")
             else:
                 logger.error(f"Annatar request exception: {e}")
         except Exception as e:
@@ -154,3 +156,4 @@ class Annatar:
 
         scraped_torrents = sort_torrents(torrents)
         return scraped_torrents, len(response.data.media)
+

@@ -37,10 +37,10 @@ class TorboxModel(Observable):
 
 
 class DownloadersModel(Observable):
-    movie_filesize_min: float = 200.0 # MB
-    movie_filesize_max: float = -1 # MB (-1 is no limit)
-    episode_filesize_min: float = 40.0 # MB
-    episode_filesize_max: float = -1 # MB (-1 is no limit)
+    movie_filesize_min: int = 200   # MB
+    movie_filesize_max: int = -1    # MB (-1 is no limit)
+    episode_filesize_min: int = 40  # MB
+    episode_filesize_max: int = -1  # MB (-1 is no limit)
     real_debrid: DebridModel = DebridModel()
     torbox: TorboxModel = TorboxModel()
 

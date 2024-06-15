@@ -41,31 +41,19 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.should_submit(item):
+        if Scraping.can_we_scrape(item):
             if isinstance(item, Movie):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                if settings_manager.settings.scraping.jackett.enabled: # currently only jackett supports Show scraping
-                    if item.scraped_times < 3 and item.state not in (States.Completed, States.Downloaded, States.Scraped):
-                        items_to_submit = [item]
-                    else:
-                        items_to_submit = []
+                if settings_manager.settings.scraping.jackett.enabled:
+                    items_to_submit = [item] if item.scraped_times < 1 else []
                 else:
-                    items_to_submit = [
-                        season for season in item.seasons 
-                        if season.state not in (States.Completed, States.Downloaded, States.Scraped)
-                    ]
+                    items_to_submit = [s for s in item.seasons if Scraping.can_we_scrape(s)]
             elif isinstance(item, Season):
-                if item.parent.scraped_times < 3 or item.scraped_times < 3:
-                    items_to_submit = [item]
-                else:
-                    items_to_submit = [
-                        e for e in item.episodes 
-                        if e.state not in (States.Completed, States.Downloaded, States.Scraped)
-                    ]
+                items_to_submit = [item] if item.parent.scraped_times > 0 or item.scraped_times < 2 else []
             else:
                 if item.parent:
-                    items_to_submit = [item] if item.parent.scraped_times <= 3 else []
+                    items_to_submit = [item] if item.parent.scraped_times > 1 else []
                 else:
                     items_to_submit = [item]
 

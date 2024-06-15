@@ -292,3 +292,11 @@ class MediaItemContainer:
 
         if self._items:
             logger.success(f"Loaded {len(self._items)} items from {filename}")
+
+    def log(self):
+        """Log the items in the container."""
+        logger.log("ITEM", f"Movies: {len(self._movies)}")
+        logger.log("ITEM", f"Shows: {len(self._shows)}")
+        logger.log("ITEM", f"Seasons: {len(self._seasons)}")
+        logger.log("ITEM", f"Episodes: {len(self._episodes)}")
+        logger.log("ITEM", f"Total: {len(self._items)}")

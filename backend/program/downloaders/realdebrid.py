@@ -44,16 +44,16 @@ class Debrid:
         if not self.settings.api_key:
             logger.warning("Real-Debrid API key is not set")
             return False
-        if not isinstance(self.download_settings.movie_filesize_min, float) or self.download_settings.movie_filesize_min < -1:
+        if not isinstance(self.download_settings.movie_filesize_min, int) or self.download_settings.movie_filesize_min < -1:
             logger.error("Real-Debrid movie filesize min is not set or invalid.")
             return False
-        if not isinstance(self.download_settings.movie_filesize_max, float) or self.download_settings.movie_filesize_max < -1:
+        if not isinstance(self.download_settings.movie_filesize_max, int) or self.download_settings.movie_filesize_max < -1:
             logger.error("Real-Debrid movie filesize max is not set or invalid.")
             return False
-        if not isinstance(self.download_settings.episode_filesize_min, float) or self.download_settings.episode_filesize_min < -1:
+        if not isinstance(self.download_settings.episode_filesize_min, int) or self.download_settings.episode_filesize_min < -1:
             logger.error("Real-Debrid episode filesize min is not set or invalid.")
             return False
-        if not isinstance(self.download_settings.episode_filesize_max, float) or self.download_settings.episode_filesize_max < -1:
+        if not isinstance(self.download_settings.episode_filesize_max, int) or self.download_settings.episode_filesize_max < -1:
             logger.error("Real-Debrid episode filesize max is not set or invalid.")
             return False
         try:
@@ -69,7 +69,15 @@ class Debrid:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
+        if (item.file and item.folder):
+            return
         if not self.is_cached(item):
+            if isinstance(item, Season) and item.scraped_times > 1:
+                res = [e for e in item.episodes]
+                yield res
+            if isinstance(item, Show) and item.scraped_times > 0:
+                res = [s for s in item.seasons]
+                yield res
             return
         if not self._is_downloaded(item):
             self._download_item(item)
@@ -194,12 +202,12 @@ class Debrid:
             logger.error(f"Item is not a Movie instance: {item.log_string}")
             return False
 
-        min_size = self.download_settings.movie_filesize_min * 1e+6
-        max_size = self.download_settings.movie_filesize_max * 1e+6
+        min_size = self.download_settings.movie_filesize_min * 1_000_000
+        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float('inf')
 
         filenames = sorted(
             (file for file in container.values() if file and file["filesize"] > min_size 
-            and (self.download_settings.movie_filesize_max == -1 or file["filesize"] < max_size)
+            and file["filesize"] < max_size
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
             key=lambda file: file["filesize"], reverse=True
         )
@@ -227,13 +235,13 @@ class Debrid:
             logger.error(f"Item is not an Episode instance: {item.log_string}")
             return False
 
-        min_size = self.download_settings.episode_filesize_min * 1e+6
-        max_size = self.download_settings.episode_filesize_max * 1e+6
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
 
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
+            and file["filesize"] < max_size
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -267,14 +275,14 @@ class Debrid:
             logger.error(f"Item is not a Season instance: {item.log_string}")
             return False
 
-        min_size = self.download_settings.episode_filesize_min * 1e+6
-        max_size = self.download_settings.episode_filesize_max * 1e+6
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
 
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
+            and file["filesize"] < max_size
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -325,14 +333,14 @@ class Debrid:
             logger.error(f"Item is not a Show instance: {item.log_string}")
             return False
 
-        min_size = self.download_settings.episode_filesize_min * 1e+6
-        max_size = self.download_settings.episode_filesize_max * 1e+6
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
 
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
             if file and file["filesize"] > min_size
-            and (self.download_settings.episode_filesize_max == -1 or file["filesize"] < max_size)
+            and file["filesize"] < max_size
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 

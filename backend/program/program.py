@@ -34,7 +34,7 @@ class Program(threading.Thread):
     """Program class"""
 
     def __init__(self, args):
-        super().__init__(name="Iceberg")
+        super().__init__(name="Riven")
         self.running = False
         self.startup_args = args
         self.initialized = False
@@ -96,7 +96,7 @@ class Program(threading.Thread):
         )
 
     def start(self):
-        logger.log("PROGRAM", f"Iceberg v{settings_manager.settings.version} starting!")
+        logger.log("PROGRAM", f"Riven v{settings_manager.settings.version} starting!")
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
@@ -111,14 +111,14 @@ class Program(threading.Thread):
             logger.exception(f"Failed to initialize services: {e}")
 
         logger.log("PROGRAM", "----------------------------------------------")
-        logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
+        logger.log("PROGRAM", "Riven is waiting for configuration to start!")
         logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
 
         self.initialized = True
-        logger.log("PROGRAM", "Iceberg started!")
+        logger.log("PROGRAM", "Riven started!")
 
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
@@ -128,6 +128,10 @@ class Program(threading.Thread):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
+            self.media_items.save(str(data_dir_path / "media.pkl"))
+
+        if len(self.media_items):
+            self.media_items.log()
 
         unfinished_items = self.media_items.get_incomplete_items()
         logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
@@ -140,7 +144,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         self.running = True
-        logger.success("Iceberg is running!")
+        logger.success("Riven is running!")
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
@@ -288,7 +292,7 @@ class Program(threading.Thread):
             self.scheduler.shutdown(wait=False)
         if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
             self.pickly.stop()
-        logger.log("PROGRAM", "Iceberg has been stopped.")
+        logger.log("PROGRAM", "Riven has been stopped.")
 
     def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""
