@@ -113,6 +113,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
             item["number"] = data.number
             return Episode(item)
         case _:
+            logger.error(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
             return None
 
 
