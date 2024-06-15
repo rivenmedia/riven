@@ -286,6 +286,7 @@ class Show(MediaItem):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
+        return States.Unknown
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
