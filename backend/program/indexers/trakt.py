@@ -138,7 +138,7 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
-        logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
+        logger.error(f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
         return None
 
     def find_first(preferred_types, data):

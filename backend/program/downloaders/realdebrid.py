@@ -142,7 +142,7 @@ class Debrid:
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
             except Exception:
-                logger.exception("Error checking cache for streams")
+                logger.error("Error checking cache for streams", exc_info=True)
 
         item.set("streams", {})
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")

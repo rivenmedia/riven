@@ -121,7 +121,7 @@ class Symlinker:
             elif isinstance(item, (Movie, Episode)):
                 self._symlink_single(item)
         except Exception as e:
-            logger.exception(f"Exception thrown when creating symlink for {item.log_string}: {e}")
+            logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}", exc_info=True)
 
         item.set("symlinked_times", item.symlinked_times + 1)
         yield item

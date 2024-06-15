@@ -43,7 +43,7 @@ class PlexWatchlist:
                             f"Plex RSS URL {rss_url} is not reachable (HTTP status code: {e.response.status_code})."
                         )
                 except Exception as e:
-                    logger.exception(f"Failed to validate Plex RSS URL {rss_url}: {e}")
+                    logger.error(f"Failed to validate Plex RSS URL {rss_url}: {e}", exc_info=True)
             logger.warning("None of the provided RSS URLs are reachable. Falling back to using user Watchlist.")
             return False
         return True
@@ -65,13 +65,13 @@ class PlexWatchlist:
             self.recurring_items.add(imdb_id)
             try:
                 media_item: MediaItem = create_item_from_imdb_id(imdb_id)
-                if not media_item:
+                if media_item:
+                    yield media_item
+                else:
                     logger.error(f"Failed to create media item from IMDb ID: {imdb_id}")
-                    continue
-                yield media_item
             except Exception as e:
                 logger.error(f"Error processing IMDb ID {imdb_id}: {e}")
-                continue
+            continue
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feeds."""
