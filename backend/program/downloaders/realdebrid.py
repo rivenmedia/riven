@@ -141,8 +141,8 @@ class Debrid:
                 response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
-            except Exception:
-                logger.error("Error checking cache for streams", exc_info=True)
+            except Exception as e:
+                logger.error(f"Error checking cache for streams: {str(e)}", exc_info=True)
 
         item.set("streams", {})
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
@@ -184,10 +184,14 @@ class Debrid:
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
                     return True
         elif isinstance(item, Season):
-            other_containers = [s for s in item.parent.seasons if s != item and len(s.active_stream) > 0]
+            other_containers = [
+                s for s in item.parent.seasons 
+                if s != item and s.active_stream
+                and s.state not in (States.Indexed, States.Unknown)
+            ]
             for c in other_containers:
-                if self._is_wanted_season(c.active_stream.files, item):
-                    item.set("active_stream", {"hash": c.active_stream.hash, "files": c.active_stream.files, "id": None})
+                if self._is_wanted_season(c.active_stream["files"], item):
+                    item.set("active_stream", {"hash": c.active_stream["hash"], "files": c.active_stream["files"], "id": None})
                     return True
             for container in sorted_containers:
                 if self._is_wanted_season(container, item):
