@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
+from requests import RequestException
 from program.content.overseerr import Overseerr
 from program.indexers.trakt import (
     TraktIndexer,
@@ -41,7 +42,11 @@ async def overseerr(request: Request) -> Dict[str, Any]:
 
     imdb_id = req.media.imdbId
     if not imdb_id:
-        imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
+        try:
+            imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
+        except RequestException as e:
+            logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
+            return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
         if not imdb_id:
             logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
             return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}

@@ -84,7 +84,6 @@ class Program(threading.Thread):
             **self.requesting_services,
             **self.processing_services,
             **self.downloader_services,
-            **self.updating_services,
         }
 
     def validate(self) -> bool:
@@ -132,9 +131,6 @@ class Program(threading.Thread):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
-            self.media_items.save(str(data_dir_path / "media.pkl"))
-
-        self.media_items.load(log_items=True)
 
         unfinished_items = self.media_items.get_incomplete_items()
         logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
@@ -172,7 +168,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now(),
-                misfire_grace_time=30,
+                misfire_grace_time=10,
             )
             logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
@@ -194,6 +190,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
+                misfire_grace_time=10,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 

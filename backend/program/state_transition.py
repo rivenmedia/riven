@@ -46,12 +46,14 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 items_to_submit = [item]
             elif isinstance(item, Show):
                 if settings_manager.settings.scraping.jackett.enabled: # currently only jackett supports Show scraping
-                    items_to_submit = [item] if item.scraped_times < 3 else []
+                    if item.scraped_times < 3 and item.state not in (States.Completed, States.Downloaded, States.Scraped):
+                        items_to_submit = [item]
+                    else:
+                        items_to_submit = []
                 else:
                     items_to_submit = [
                         season for season in item.seasons 
-                        if season.state == States.Indexed
-                        and Scraping.should_submit(season)
+                        if season.state not in (States.Completed, States.Downloaded, States.Scraped)
                     ]
             elif isinstance(item, Season):
                 if item.parent.scraped_times < 3 or item.scraped_times < 3:
@@ -59,8 +61,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 else:
                     items_to_submit = [
                         e for e in item.episodes 
-                        if e.state == States.Indexed
-                        and Scraping.should_submit(e)
+                        if e.state not in (States.Completed, States.Downloaded, States.Scraped)
                     ]
             else:
                 if item.parent:

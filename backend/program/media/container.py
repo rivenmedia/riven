@@ -166,8 +166,6 @@ class MediaItemContainer:
 
     def upsert(self, item: MediaItem) -> None:
         """Iterate through the input item and upsert all parents and children."""
-        # Use deepcopy so that further modifications made to the input item
-        # will not affect the container state
         self._items[item.item_id] = item
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
@@ -271,7 +269,7 @@ class MediaItemContainer:
                 except OSError as remove_error:
                     logger.error(f"Failed to remove temporary file: {remove_error}")
 
-    def load(self, filename: str = "media.pkl", log_items: bool = False) -> None:
+    def load(self, filename: str = "media.pkl") -> None:
         """Load the container from a file."""
         try:
             with open(filename, "rb") as file:
@@ -292,20 +290,5 @@ class MediaItemContainer:
             self._seasons = {}
             self._episodes = {}
 
-        if self._items and log_items:
-            self.log_items()
-
         if self._items:
             logger.success(f"Loaded {len(self._items)} items from {filename}")
-
-    def log_items(self):
-        """Log the items in the container."""
-        all_movies = self._movies.values()
-        all_shows = self._shows.values()
-        all_seasons = self._seasons.values()
-        all_episodes = self._episodes.values()
-
-        logger.log("ITEM", f"Movies: {len(all_movies)}")
-        logger.log("ITEM", f"Shows: {len(all_shows)}")
-        logger.log("ITEM", f"Seasons: {len(all_seasons)}")
-        logger.log("ITEM", f"Episodes: {len(all_episodes)}")

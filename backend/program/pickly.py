@@ -14,6 +14,7 @@ class Pickly(threading.Thread):
         self._stop_event = threading.Event()
 
     def start(self) -> None:
+        self.load()
         self.running = True
         super().start()
 

@@ -59,7 +59,7 @@ class Scraping:
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
-        scrape_time = 1
+        scrape_time = 5 * 60  # 5 minutes by default
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = settings.after_2 * 60 * 60
