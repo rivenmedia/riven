@@ -1,4 +1,4 @@
-.PHONY: help install run start start-dev stop restart logs logs-dev shell build push clean format check lint sort test coverage pr-ready
+.PHONY: help install run start start-dev stop restart logs logs-dev shell build push push-dev clean format check lint sort test coverage pr-ready
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -10,15 +10,15 @@ else
 endif
 
 help:
-	@echo "Iceberg Local Development Environment"
+	@echo "Riven Local Development Environment"
 	@echo "-------------------------------------------------------------------------"
 	@echo "install   : Install the required packages"
-	@echo "run       : Run the Iceberg backend"
-	@echo "start     : Build and run the Iceberg container (requires Docker)"
-	@echo "start-dev : Build and run the Iceberg container in development mode (requires Docker)"
-	@echo "stop      : Stop and remove the Iceberg container (requires Docker)"
-	@echo "logs      : Show the logs of the Iceberg container (requires Docker)"
-	@echo "logs-dev  : Show the logs of the Iceberg container in development mode (requires Docker)"
+	@echo "run       : Run the Riven backend"
+	@echo "start     : Build and run the Riven container (requires Docker)"
+	@echo "start-dev : Build and run the Riven container in development mode (requires Docker)"
+	@echo "stop      : Stop and remove the Riven container (requires Docker)"
+	@echo "logs      : Show the logs of the Riven container (requires Docker)"
+	@echo "logs-dev  : Show the logs of the Riven container in development mode (requires Docker)"
 	@echo "clean     : Remove all the temporary files"
 	@echo "format    : Format the code using isort"
 	@echo "lint      : Lint the code using ruff and isort"
@@ -41,27 +41,31 @@ stop:
 	@docker compose -f docker-compose-dev.yml down
 
 restart:
-	@docker restart iceberg
-	@docker logs -f iceberg
+	@docker restart riven
+	@docker logs -f riven
 
 logs:
-	@docker logs -f iceberg
+	@docker logs -f riven
 
 logs-dev:
 	@docker compose -f docker-compose-dev.yml logs -f
 
 shell:
-	@docker exec -it iceberg fish
+	@docker exec -it riven fish
 
 build:
-	@docker build -t iceberg .
+	@docker build -t riven .
 
 push: build
-	@docker tag iceberg:latest spoked/iceberg:latest
-	@docker push spoked/iceberg:latest
+	@docker tag riven:latest spoked/riven:latest
+	@docker push spoked/riven:latest
+
+push-dev: build
+	@docker tag riven:latest spoked/riven:dev
+	@docker push spoked/riven:dev
 
 tidy:
-	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "iceberg" {print $3}') -f
+	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "riven" {print $3}') -f
 
 
 # Poetry related commands

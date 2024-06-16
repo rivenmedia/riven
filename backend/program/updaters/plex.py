@@ -49,6 +49,8 @@ class PlexUpdater:
             return True
         except Unauthorized:
             logger.error("Plex is not authorized!")
+        except TimeoutError as e:
+            logger.error(f"Plex timeout error: {e}")
         except BadRequest:
             logger.error("Plex is not configured correctly!")
         except MaxRetryError:
@@ -60,7 +62,7 @@ class PlexUpdater:
         except RequestError as e:
             logger.error(f"Plex request error: {e}")
         except Exception as e:
-            logger.exception(f"Plex exception thrown: {e}")
+            logger.error(f"Plex exception thrown: {e}")
         return False
 
     def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:

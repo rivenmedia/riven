@@ -3,7 +3,6 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
-from requests import RequestException
 from program.content.overseerr import Overseerr
 from program.indexers.trakt import (
     TraktIndexer,
@@ -11,6 +10,7 @@ from program.indexers.trakt import (
     get_imdbid_from_tmdb,
 )
 from program.media.item import MediaItem, Show
+from requests import RequestException
 from utils.logger import logger
 from utils.request import get
 
