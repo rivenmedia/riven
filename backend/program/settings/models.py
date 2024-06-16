@@ -29,6 +29,8 @@ class Observable(BaseModel):
 class DebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
+    proxy_enabled: bool = False 
+    proxy_url: str = "" 
 
 
 class TorboxModel(Observable):
