@@ -282,7 +282,7 @@ class Show(MediaItem):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
-        if all(season.state == States.Indexed for season in self.seasons):
+        if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested

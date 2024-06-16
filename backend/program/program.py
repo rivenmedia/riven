@@ -118,6 +118,12 @@ class Program(threading.Thread):
         while not self.validate():
             time.sleep(1)
 
+        max_worker_env_vars = [var for var in os.environ if var.endswith('_MAX_WORKERS')]
+        if max_worker_env_vars:
+            logger.log("PROGRAM", "Using the following _MAX_WORKERS environment variables:")
+            for var in max_worker_env_vars:
+                logger.log("PROGRAM", f"  - {var} is set to {os.environ[var]} workers")
+
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
 
@@ -149,7 +155,11 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
+        items_to_submit = [
+            item for item in self.media_items.get_incomplete_items().values()
+            if not (isinstance(item, Season) and item.scraped_times > 1) 
+            and not (isinstance(item, Show) and item.scraped_times > 0)
+        ]
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
@@ -270,7 +280,9 @@ class Program(threading.Thread):
             try:
                 event: Event = self.event_queue.get(timeout=10)
                 with self.mutex:
-                    self.running_items.append(self.media_items.get(event.item.item_id, None))
+                    orig_item = self.media_items.get(event.item.item_id, None)
+                    if orig_item and orig_item not in self.running_items:
+                        self.running_items.append(orig_item)
                 self._pop_event_queue(event)
             except Empty:
                 continue
@@ -286,8 +298,14 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
 
+            with self.mutex:
+                if orig_item in self.running_items:
+                    self.running_items.remove(orig_item)
+
             if items_to_submit:
                 for item_to_submit in items_to_submit:
+                    if item_to_submit not in self.running_items:
+                        self.running_items.append(item_to_submit)
                     if isinstance(item_to_submit, Season) and next_service == Scraping:
                         if item_to_submit.scraped_times >= 3:
                             continue
