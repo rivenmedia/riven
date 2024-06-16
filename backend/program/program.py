@@ -111,18 +111,17 @@ class Program(threading.Thread):
         except Exception as e:
             logger.exception(f"Failed to initialize services: {e}")
 
+        max_worker_env_vars = [var for var in os.environ if var.endswith('_MAX_WORKERS')]
+        if max_worker_env_vars:
+            for var in max_worker_env_vars:
+                logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
+
         logger.log("PROGRAM", "----------------------------------------------")
         logger.log("PROGRAM", "Riven is waiting for configuration to start!")
         logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
-
-        max_worker_env_vars = [var for var in os.environ if var.endswith('_MAX_WORKERS')]
-        if max_worker_env_vars:
-            logger.log("PROGRAM", "Using the following _MAX_WORKERS environment variables:")
-            for var in max_worker_env_vars:
-                logger.log("PROGRAM", f"  - {var} is set to {os.environ[var]} workers")
 
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
