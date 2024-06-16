@@ -256,6 +256,7 @@ class Program(threading.Thread):
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def run(self):
+        orig_item = None
         while self.running:
             if not self.validate():
                 time.sleep(1)
@@ -264,7 +265,9 @@ class Program(threading.Thread):
             try:
                 event: Event = self.event_queue.get(timeout=10)
                 with self.mutex:
-                    self.running_items.append(self.media_items.get(event.item.item_id, None))
+                    orig_item = self.media_items.get(event.item.item_id, None)
+                    if orig_item and orig_item not in self.running_items:
+                        self.running_items.append(orig_item)
                 self._pop_event_queue(event)
             except Empty:
                 continue
@@ -279,14 +282,18 @@ class Program(threading.Thread):
 
             if updated_item:
                 self.media_items.upsert(updated_item)
+
             with self.mutex:
-                self.running_items.remove(self.media_items.get(event.item.item_id, None))
+                if orig_item in self.running_items:
+                    self.running_items.remove(orig_item)
+
             if items_to_submit:
                 for item_to_submit in items_to_submit:
-                    self.running_items.append(item_to_submit)
                     if isinstance(item_to_submit, Season) and next_service == Scraping:
                         if item_to_submit.scraped_times >= 3:
                             continue
+                    if item_to_submit not in self.running_items:
+                        self.running_items.append(item_to_submit)
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
