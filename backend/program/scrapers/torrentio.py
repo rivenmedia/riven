@@ -20,13 +20,11 @@ class Torrentio:
         self.settings = settings_manager.settings.scraping.torrentio
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
+        self.timeout =self.settings.timeout
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.minute_limiter = RateLimiter(
-            max_calls=300, period=3600, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.hour_limiter = RateLimiter(max_calls=300, period=3600) if self.settings.ratelimit else None
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
         self.running = True
@@ -39,6 +37,12 @@ class Torrentio:
             return False
         if not self.settings.url:
             logger.error("Torrentio URL is not configured and will not be used.")
+            return False
+        if not isinstance(self.timeout, int) or self.timeout <= 0:
+            logger.error("Torrentio timeout is not set or invalid.")
+            return False
+        if not isinstance(self.settings.ratelimit, bool):
+            logger.error("Torrentio ratelimit must be a valid boolean.")
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
@@ -60,7 +64,10 @@ class Torrentio:
         try:
             yield self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded for item: {item.log_string}")
+            if self.hour_limiter:
+                self.hour_limiter.limit_hit()
+            else:
+                logger.warning(f"Torrentio rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Torrentio connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -68,9 +75,7 @@ class Torrentio:
         except RequestException as e:
             logger.error(f"Torrentio request exception: {e}")
         except Exception as e:
-            logger.exception(f"Torrentio exception thrown: {e}")
-        self.minute_limiter.limit_hit()
-        self.second_limiter.limit_hit()
+            logger.error(f"Torrentio exception thrown: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
@@ -87,42 +92,46 @@ class Torrentio:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Torrentio` scrape method"""
-        with self.minute_limiter:
-            identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-            if isinstance(item, Season):
-                identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-            elif isinstance(item, Episode):
-                identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+        if isinstance(item, Season):
+            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+        elif isinstance(item, Episode):
+            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
 
-            url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
-            if identifier:
-                url += identifier
-            with self.second_limiter:
-                response = get(f"{url}.json", retry_if_failed=True, timeout=30)
-            if not response.is_ok or len(response.data.streams) <= 0:
-                return {}, 0
+        url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
+        if identifier:
+            url += identifier
+        if self.hour_limiter:
+            with self.hour_limiter:
+                response = get(f"{url}.json", timeout=self.timeout)
+        else:
+            response = get(f"{url}.json", timeout=self.timeout)
+        if not response.is_ok or len(response.data.streams) <= 0:
+            return {}, 0
 
-            torrents = set()
-            correct_title = item.get_top_title()
-            if not correct_title:
-                logger.scraper(f"Correct title not found for {item.log_string}")
-                return {}, 0
+        torrents = set()
+        all_torrents = set()
+        correct_title = item.get_top_title()
+        if not correct_title:
+            logger.scraper(f"Correct title not found for {item.log_string}")
+            return {}, 0
 
-            for stream in response.data.streams:
-                raw_title = stream.title.split("\n👤")[0].split("\n")[0]
-                if not stream.infoHash or not raw_title:
-                    continue
-                if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
-                    continue
-                try:
-                    torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
-                except GarbageTorrent:
-                    continue
-                if torrent and torrent.fetch:
-                    torrents.add(torrent)
-            scraped_torrents = sort_torrents(torrents)
-            # For debug purposes:
-            # if scraped_torrents:
-            #     for _, torrent in scraped_torrents.items():
-            #         logger.debug(f"Parsed {torrent.data.parsed_title} with rank {torrent.rank} and ratio {torrent.lev_ratio}: {raw_title}")
-            return scraped_torrents, len(response.data.streams)
+        for stream in response.data.streams:
+            raw_title = stream.title.split("\n👤")[0].split("\n")[0]
+            if not stream.infoHash or not raw_title:
+                continue
+            if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
+                continue
+            try:
+                torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
+                all_torrents.add(torrent)
+            except GarbageTorrent:
+                continue
+            if torrent and torrent.fetch:
+                torrents.add(torrent)
+        scraped_torrents = sort_torrents(torrents)
+        # For debug purposes:
+        # if scraped_torrents:
+        #     for _, sorted_tor in scraped_torrents.items():
+        #         logger.debug(f"Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+        return scraped_torrents, len(response.data.streams)

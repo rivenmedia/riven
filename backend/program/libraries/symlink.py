@@ -64,6 +64,7 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
             item.set("symlinked", True)
             item.set("update_folder", path)
         else:
+            item.set("symlinked", True)
             item.set("update_folder", "updated")
         if is_anime:
             item.is_anime = True
@@ -97,6 +98,7 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                     episode_item.set("symlinked", True)
                     episode_item.set("update_folder", f"{directory}/{show}/{season}/{episode}")
                 else:
+                    episode_item.set("symlinked", True)
                     episode_item.set("update_folder", "updated")
                 if is_anime:
                     episode_item.is_anime = True

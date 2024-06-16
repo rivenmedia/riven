@@ -30,7 +30,7 @@ class TraktIndexer:
             logger.error(f"Item {item.log_string} does not have an imdb_id, cannot index it")
             return
         item = create_item_from_imdb_id(imdb_id)
-        if not item:
+        if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
         if isinstance(item, Show):
@@ -113,6 +113,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
             item["number"] = data.number
             return Episode(item)
         case _:
+            logger.error(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
             return None
 
 
@@ -137,15 +138,20 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
-        logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
+        logger.error(f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
         return None
 
-    media_type = response.data[0].type
-    data = response.data[0]
-    return _map_item_from_data(data.movie, media_type) if media_type == "movie" else \
-           _map_item_from_data(data.show, media_type) if media_type == "show" else \
-           _map_item_from_data(data.season, media_type) if media_type == "season" else \
-           _map_item_from_data(data.episode, media_type) if media_type == "episode" else None
+    def find_first(preferred_types, data):
+        for type in preferred_types:
+            for d in data:
+                if d.type == type:
+                    return d
+        return None
+
+    data = find_first(["movie", "show", "season", "episode"], response.data)
+    if data:
+        return _map_item_from_data(getattr(data, data.type), data.type)
+    return None
 
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""

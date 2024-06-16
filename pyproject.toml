@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "iceberg"
+name = "riven"
 version = "0.0.1"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
-authors = ["Iceberg Developers"]
+authors = ["Riven Developers"]
 license = "GPL-3.0"
 readme = "README.md"
 
