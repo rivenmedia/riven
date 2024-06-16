@@ -133,3 +133,42 @@ class TMDB:
                 f"An error occurred while getting top rated TV shows: {str(e)}"
             )
             return None
+
+    def getFromExternalID(self, params: str, external_id: str):
+        url = f"{self.API_URL}/find/{external_id}?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to get from external ID: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while getting from external ID: {str(e)}")
+            return None
+
+    def getMovieDetails(self, params: str, movie_id: str):
+        url = f"{self.API_URL}/movie/{movie_id}?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to get movie details: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while getting movie details: {str(e)}")
+            return None
+
+    def getTVDetails(self, params: str, series_id: str):
+        url = f"{self.API_URL}/tv/{series_id}?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to get TV details: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while getting TV details: {str(e)}")
+            return None
