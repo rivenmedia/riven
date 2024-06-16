@@ -172,3 +172,87 @@ class TMDB:
         except Exception as e:
             logger.error(f"An error occurred while getting TV details: {str(e)}")
             return None
+
+    def getCollectionSearch(self, params: str):
+        url = f"{self.API_URL}/search/collection?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to search collections: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while searching collections: {str(e)}")
+            return None
+
+    def getMovieSearch(self, params: str):
+        url = f"{self.API_URL}/search/movie?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to search movies: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while searching movies: {str(e)}")
+            return None
+
+    def getMultiSearch(self, params: str):
+        url = f"{self.API_URL}/search/multi?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to search multi: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while searching multi: {str(e)}")
+            return None
+
+    def getTVSearch(self, params: str):
+        url = f"{self.API_URL}/search/tv?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to search TV shows: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while searching TV shows: {str(e)}")
+            return None
+
+    def getTVSeasonDetails(self, params: str, series_id: int, season_number: int):
+        url = f"{self.API_URL}/tv/{series_id}/season/{season_number}?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(f"Failed to get TV season details: {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while getting TV season details: {str(e)}")
+            return None
+
+    def getTVSeasonEpisodeDetails(
+        self, params: str, series_id: int, season_number: int, episode_number: int
+    ):
+        url = f"{self.API_URL}/tv/{series_id}/season/{season_number}/episode/{episode_number}?{params}"
+        try:
+            response = get(url, additional_headers=self.HEADERS)
+            if response.is_ok and response.data:
+                return response.data
+            else:
+                logger.error(
+                    f"Failed to get TV season episode details: {response.text}"
+                )
+                return None
+        except Exception as e:
+            logger.error(
+                f"An error occurred while getting TV season episode details: {str(e)}"
+            )
+            return None

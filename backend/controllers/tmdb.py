@@ -68,6 +68,102 @@ class DetailsParams:
         self.append_to_response = append_to_response
 
 
+class IncludeAdult(str, Enum):
+    true = "true"
+    false = "false"
+
+
+class CollectionSearchParams:
+    def __init__(
+        self,
+        query: str,
+        include_adult: IncludeAdult = IncludeAdult.false,
+        language: str = "en-US",
+        page: int = 1,
+        region: str = None,
+    ):
+        self.query = query
+        self.include_adult = include_adult.value
+        self.language = language
+        self.page = page
+        self.region = region
+
+
+class MovieSearchParams:
+    def __init__(
+        self,
+        query: str,
+        include_adult: IncludeAdult = IncludeAdult.false,
+        language: str = "en-US",
+        primary_release_year: int = None,
+        page: int = 1,
+        region: str = None,
+        year: int = None,
+    ):
+        self.query = query
+        self.include_adult = include_adult.value
+        self.language = language
+        self.primary_release_year = primary_release_year
+        self.page = page
+        self.region = region
+        self.year = year
+
+
+class MultiSearchParams:
+    def __init__(
+        self,
+        query: str,
+        include_adult: IncludeAdult = IncludeAdult.false,
+        language: str = "en-US",
+        page: int = 1,
+    ):
+        self.query = query
+        self.include_adult = include_adult.value
+        self.language = language
+        self.page = page
+
+
+class TVSearchParams:
+    def __init__(
+        self,
+        query: str,
+        first_air_date_year: int = None,
+        include_adult: IncludeAdult = IncludeAdult.false,
+        language: str = "en-US",
+        page: int = 1,
+        year: int = None,
+    ):
+        self.query = query
+        self.first_air_date_year = first_air_date_year
+        self.include_adult = include_adult.value
+        self.language = language
+        self.page = page
+        self.year = year
+
+
+@router.get("/trending/{type}/{window}")
+async def get_trending(
+    params: Annotated[TrendingParams, Depends()],
+    type: TrendingType,
+    window: TrendingWindow,
+):
+    trending = tmdb.getTrending(
+        params=dict_to_query_string(params.__dict__),
+        type=type.value,
+        window=window.value,
+    )
+    if trending:
+        return {
+            "success": True,
+            "data": trending,
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Failed to get trending {type}!",
+        }
+
+
 @router.get("/movie/now_playing")
 async def get_movies_now_playing(params: Annotated[CommonListParams, Depends()]):
     movies = tmdb.getMoviesNowPlaying(params=dict_to_query_string(params.__dict__))
@@ -128,26 +224,27 @@ async def get_movies_upcoming(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/trending/{type}/{window}")
-async def get_trending(
-    params: Annotated[TrendingParams, Depends()],
-    type: TrendingType,
-    window: TrendingWindow,
+# FastAPI has router preference, so /movie/now_playing, /movie/popular, /movie/top_rated and /movie/upcoming will be matched first before /movie/{movie_id}, same for /tv/{tv_id}
+
+
+@router.get("/movie/{movie_id}")
+async def get_movie_details(
+    movie_id: str,
+    params: Annotated[DetailsParams, Depends()],
 ):
-    trending = tmdb.getTrending(
+    data = tmdb.getMovieDetails(
         params=dict_to_query_string(params.__dict__),
-        type=type.value,
-        window=window.value,
+        movie_id=movie_id,
     )
-    if trending:
+    if data:
         return {
             "success": True,
-            "data": trending,
+            "data": data,
         }
     else:
         return {
             "success": False,
-            "message": f"Failed to get trending {type}!",
+            "message": f"Failed to get movie details for ID {movie_id}!",
         }
 
 
@@ -211,51 +308,6 @@ async def get_tv_top_rated(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/external_id/{external_id}")
-async def get_from_external_id(
-    external_id: str,
-    params: Annotated[ExternalIDParams, Depends()],
-):
-    data = tmdb.getFromExternalID(
-        params=dict_to_query_string(params.__dict__),
-        external_id=external_id,
-    )
-    if data:
-        return {
-            "success": True,
-            "data": data,
-        }
-    else:
-        return {
-            "success": False,
-            "message": f"Failed to get data for external ID {external_id}!",
-        }
-
-
-# FastAPI has router preference, so /movie/now_playing, /movie/popular, /movie/top_rated and /movie/upcoming will be matched first before /movie/{movie_id}, same for /tv/{tv_id}
-
-
-@router.get("/movie/{movie_id}")
-async def get_movie_details(
-    movie_id: str,
-    params: Annotated[DetailsParams, Depends()],
-):
-    data = tmdb.getMovieDetails(
-        params=dict_to_query_string(params.__dict__),
-        movie_id=movie_id,
-    )
-    if data:
-        return {
-            "success": True,
-            "data": data,
-        }
-    else:
-        return {
-            "success": False,
-            "message": f"Failed to get movie details for ID {movie_id}!",
-        }
-
-
 @router.get("/tv/{series_id}")
 async def get_tv_details(
     series_id: str,
@@ -274,4 +326,133 @@ async def get_tv_details(
         return {
             "success": False,
             "message": f"Failed to get TV details for ID {series_id}!",
+        }
+
+
+@router.get("/tv/{series_id}/season/{season_number}")
+async def get_tv_season_details(
+    series_id: int,
+    season_number: int,
+    params: Annotated[DetailsParams, Depends()],
+):
+    data = tmdb.getTVSeasonDetails(
+        params=dict_to_query_string(params.__dict__),
+        series_id=series_id,
+        season_number=season_number,
+    )
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Failed to get TV season details for ID {series_id}!",
+        }
+
+
+@router.get("/tv/{series_id}/season/{season_number}/episode/{episode_number}")
+async def get_tv_episode_details(
+    series_id: int,
+    season_number: int,
+    episode_number: int,
+    params: Annotated[DetailsParams, Depends()],
+):
+    data = tmdb.getTVSeasonEpisodeDetails(
+        params=dict_to_query_string(params.__dict__),
+        series_id=series_id,
+        season_number=season_number,
+        episode_number=episode_number,
+    )
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Failed to get TV episode details for ID {series_id}!",
+        }
+
+
+@router.get("/search/collection")
+async def search_collection(params: Annotated[CollectionSearchParams, Depends()]):
+    data = tmdb.getCollectionSearch(params=dict_to_query_string(params.__dict__))
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to search for collection!",
+        }
+
+
+@router.get("/search/movie")
+async def search_movie(params: Annotated[MovieSearchParams, Depends()]):
+    data = tmdb.getMovieSearch(params=dict_to_query_string(params.__dict__))
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to search for movies!",
+        }
+
+
+@router.get("/search/multi")
+async def search_multi(params: Annotated[MultiSearchParams, Depends()]):
+    data = tmdb.getMultiSearch(params=dict_to_query_string(params.__dict__))
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to search for multi!",
+        }
+
+
+@router.get("/search/tv")
+async def search_tv(params: Annotated[TVSearchParams, Depends()]):
+    data = tmdb.getTVSearch(params=dict_to_query_string(params.__dict__))
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to search for TV shows!",
+        }
+
+
+@router.get("/external_id/{external_id}")
+async def get_from_external_id(
+    external_id: str,
+    params: Annotated[ExternalIDParams, Depends()],
+):
+    data = tmdb.getFromExternalID(
+        params=dict_to_query_string(params.__dict__),
+        external_id=external_id,
+    )
+    if data:
+        return {
+            "success": True,
+            "data": data,
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Failed to get data for external ID {external_id}!",
         }
