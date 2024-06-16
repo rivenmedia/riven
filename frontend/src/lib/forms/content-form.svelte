@@ -120,7 +120,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add MDB Lists</p>
+					<p class="text-sm text-muted-foreground">Add MDB Lists</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -173,7 +173,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add Plex Watchlist RSS</p>
+					<p class="text-sm text-muted-foreground">Add Plex Watchlist RSS</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -234,7 +234,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add Listrr movie lists</p>
+					<p class="text-sm text-muted-foreground">Add Listrr movie lists</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -281,7 +281,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add Listrr shows lists</p>
+					<p class="text-sm text-muted-foreground">Add Listrr shows lists</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -338,7 +338,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add Trakt watchlist</p>
+					<p class="text-sm text-muted-foreground">Add Trakt watchlist</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -385,7 +385,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add Trakt user watchlists</p>
+					<p class="text-sm text-muted-foreground">Add Trakt user watchlists</p>
 					<Form.Button
 						type="button"
 						size="sm"

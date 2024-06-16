@@ -47,7 +47,7 @@ export const actions: Actions = {
 
 		try {
 			const data = await setSettings(event.fetch, toSet);
-			console.log(data)
+			console.log(data);
 			if (!data.data.success) {
 				return message(form, `Service(s) failed to initialize. Please check your settings.`, {
 					status: 400
