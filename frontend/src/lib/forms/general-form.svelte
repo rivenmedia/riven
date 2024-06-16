@@ -9,6 +9,7 @@
 	import { generalSettingsSchema, type GeneralSettingsSchema } from '$lib/forms/helpers';
 	import { toast } from 'svelte-sonner';
 	import TextField from './components/text-field.svelte';
+	import NumberField from './components/number-field.svelte';
 	import CheckboxField from './components/checkbox-field.svelte';
 	import GroupCheckboxField from './components/group-checkbox-field.svelte';
 	import { Loader2 } from 'lucide-svelte';
@@ -37,6 +38,40 @@
 	<CheckboxField {form} name="log" {formData} fieldDescription="Requires restart" />
 	<TextField {form} name="rclone_path" {formData} />
 	<TextField {form} name="library_path" {formData} />
+
+	<!-- movie_filesize_min, movie_filesize_max, episode_filesize_min, episode_filesize_max -->
+	<NumberField
+		{form}
+		name="movie_filesize_min"
+		label="Minimum Movie Filesize"
+		{formData}
+		stepValue={0.1}
+		fieldDescription="Filesize in MB"
+	/>
+	<NumberField
+		{form}
+		name="movie_filesize_max"
+		label="Maximum Movie Filesize"
+		{formData}
+		stepValue={0.1}
+		fieldDescription="Filesize in MB. Set to -1 for no limit"
+	/>
+	<NumberField
+		{form}
+		name="episode_filesize_min"
+		label="Minimum Episode Filesize"
+		{formData}
+		stepValue={0.1}
+		fieldDescription="Filesize in MB"
+	/>
+	<NumberField
+		{form}
+		name="episode_filesize_max"
+		label="Maximum Episode Filesize"
+		{formData}
+		stepValue={0.1}
+		fieldDescription="Filesize in MB. Set to -1 for no limit"
+	/>
 
 	<GroupCheckboxField
 		fieldTitle="Downloaders"

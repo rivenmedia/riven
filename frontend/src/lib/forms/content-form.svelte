@@ -77,6 +77,10 @@
 		<div transition:slide>
 			<NumberField {form} name="overseerr_update_interval" {formData} stepValue={1} />
 		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="overseerr_use_webhook" {formData} />
+		</div>
 	{/if}
 
 	{#if $formData.mdblist_enabled}
@@ -138,7 +142,50 @@
 
 	{#if $formData.plex_watchlist_enabled}
 		<div transition:slide>
-			<TextField {form} name="plex_watchlist_rss" {formData} />
+			<ArrayField {form} name="plex_watchlist_rss" {formData}>
+				{#each $formData.plex_watchlist_rss as _, i}
+					<Form.ElementField {form} name="plex_watchlist_rss[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.plex_watchlist_rss[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('plex_watchlist_rss', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-sm text-muted-foreground">Add Plex Watchlist RSS</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('plex_watchlist_rss');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
 		</div>
 
 		<div transition:slide>
