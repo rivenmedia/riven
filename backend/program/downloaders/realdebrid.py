@@ -7,14 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List, Union
 
-import regex
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
-from RTN import extract_episodes, parsett
 from RTN.exceptions import GarbageTorrent
-from RTN.parser import parse, title_match
+from RTN.parser import parse
+from RTN.patterns import extract_episodes
 from utils.logger import logger
 from utils.request import get, ping, post
 
