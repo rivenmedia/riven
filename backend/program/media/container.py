@@ -121,7 +121,8 @@ class MediaItemContainer:
         self.lock.acquire_read()
         try:
             incomplete_items = {}
-            for item_id, item in self._items.items():
+            items_copy = list(self._items.items())  # Create a copy of the dictionary items
+            for item_id, item in items_copy:
                 if isinstance(item, Season):
                     incomplete_episodes = [
                         episode for episode in item.episodes

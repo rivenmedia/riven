@@ -42,8 +42,13 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         if Scraping.should_submit(item):
-            if isinstance(item, (Movie, Show, Episode)):
+            if isinstance(item, (Movie, Episode)):
                 items_to_submit = [item]
+            elif isinstance(item, Show):
+                if settings_manager.settings.scraping.jackett.enabled:
+                    items_to_submit = [item]
+                else:
+                    items_to_submit = [s for s in item.seasons if s.scraped_times > 0]
             elif isinstance(item, Season):
                 items_to_submit = [item] if item.parent.scraped_times > 0 or item.scraped_times < 2 else []
             else:
