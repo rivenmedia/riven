@@ -10,6 +10,7 @@ from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.settings import router as settings_router
 from controllers.webhooks import router as webhooks_router
+from controllers.tmdb import router as tmdb_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
@@ -58,6 +59,7 @@ app.include_router(default_router)
 app.include_router(settings_router)
 app.include_router(items_router)
 app.include_router(webhooks_router)
+app.include_router(tmdb_router)
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
