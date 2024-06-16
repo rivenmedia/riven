@@ -134,15 +134,15 @@ class Debrid:
         logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
 
         processed_stream_hashes = set()
-        filtered_streams are [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
+        filtered_streams = [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
         if not filtered_streams:
             logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
             return False
 
         for stream_chunk in _chunked(filtered_streams, 5):
-            streams are "/".join(stream_chunk)
+            streams = "/".join(stream_chunk)
             try:
-                response are get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
             except Exception as e:
