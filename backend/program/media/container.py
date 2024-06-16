@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import threading
 from copy import deepcopy
+from pathlib import Path
 from pickle import UnpicklingError
 from typing import Dict, Generator, List, Optional
 
@@ -120,7 +121,8 @@ class MediaItemContainer:
         self.lock.acquire_read()
         try:
             incomplete_items = {}
-            for item_id, item in self._items.items():
+            items_copy = list(self._items.items())  # Create a copy of the dictionary items
+            for item_id, item in items_copy:
                 if isinstance(item, Season):
                     incomplete_episodes = [
                         episode for episode in item.episodes
@@ -143,14 +145,15 @@ class MediaItemContainer:
         finally:
             self.lock.release_read()
 
-    def get_item(self, identifier: str) -> Optional[MediaItem]:
+    def get_item(self, identifier: str | ItemId) -> Optional[MediaItem]:
         """Retrieve an item by its IMDb ID or item ID from the container."""
         self.lock.acquire_read()
         try:
-            if identifier.startswith("tt"):
-                return self._imdb_index.get(identifier)
-            item_id = ItemId(identifier)
-            return self._items.get(item_id)
+            if isinstance(identifier, str) and identifier.startswith("tt"):
+                return self._items.get(ItemId(identifier))
+            if isinstance(identifier, ItemId):
+                return self._items.get(identifier)
+            return None
         finally:
             self.lock.release_read()
 
@@ -164,8 +167,6 @@ class MediaItemContainer:
 
     def upsert(self, item: MediaItem) -> None:
         """Iterate through the input item and upsert all parents and children."""
-        # Use deepcopy so that further modifications made to the input item
-        # will not affect the container state
         self._items[item.item_id] = item
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
@@ -221,38 +222,21 @@ class MediaItemContainer:
                 episode.item_id.parent_id = item.item_id
                 self._index_item(episode)
 
-    def remove(self, item: MediaItem) -> None:
-        """Remove an item, which could be a movie, show, season, or episode."""
-        if not item:
-            logger.error("Attempted to remove a None item.")
-            return
-
-        log_title = item.log_string
-        imdb_id = item.imdb_id
-
+    def remove(self, items):
+        """Remove a list of items, which could be movies, shows, seasons, or episodes."""
         self.lock.acquire_write()
         try:
-            def remove_children(item):
-                if isinstance(item, Show):
-                    for season in item.seasons:
-                        remove_children(season)
-                elif isinstance(item, Season):
-                    for episode in item.episodes:
-                        self._remove_item(episode)
+            for item in items:
                 self._remove_item(item)
-
-            remove_children(item)
-            logger.debug(f"Removed item: {log_title} (IMDb ID: {imdb_id})")
-        except KeyError as e:
-            logger.error(f"Failed to remove item: {log_title} (IMDb ID: {imdb_id}). KeyError: {e}")
+            logger.debug(f"Removed items: {[item.log_string for item in items]}")
         except Exception as e:
-            logger.error(f"Unexpected error occurred while removing item: {log_title} (IMDb ID: {imdb_id}). Exception: {e}")
+            logger.error(f"Unexpected error occurred while removing items: {e}")
         finally:
             self.lock.release_write()
 
-    def _remove_item(self, item: MediaItem) -> None:
+    def _remove_item(self, item):
         """Helper method to remove an item from the container."""
-        item_id: ItemId = item.item_id
+        item_id = item.item_id
         if item_id in self._items:
             del self._items[item_id]
             logger.debug(f"Successfully removed item with ID: {item_id}")
@@ -307,5 +291,18 @@ class MediaItemContainer:
             self._seasons = {}
             self._episodes = {}
 
-        if self._items:
-            logger.success(f"Loaded {len(self._items)} items from {filename}")
+    def log(self):
+        """Log the items in the container."""
+        movies_symlinks = self._count_symlinks(self._movies)
+        episodes_symlinks = self._count_symlinks(self._episodes)
+        total_symlinks = movies_symlinks + episodes_symlinks
+
+        logger.log("ITEM", f"Movies: {len(self._movies)} (Symlinks: {movies_symlinks})")
+        logger.log("ITEM", f"Shows: {len(self._shows)}")
+        logger.log("ITEM", f"Seasons: {len(self._seasons)}")
+        logger.log("ITEM", f"Episodes: {len(self._episodes)} (Symlinks: {episodes_symlinks})")
+        logger.log("ITEM", f"Total Items: {len(self._items)} (Symlinks: {total_symlinks})")
+
+    def _count_symlinks(self, items):
+        """Count the number of symlinks in the given items."""
+        return sum(1 for item in items.values() if item.symlinked)

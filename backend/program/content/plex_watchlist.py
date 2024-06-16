@@ -1,8 +1,8 @@
 """Plex Watchlist Module"""
 
 from typing import Generator, Union
-from program.indexers.trakt import create_item_from_imdb_id
 
+from program.indexers.trakt import create_item_from_imdb_id
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import HTTPError
@@ -29,22 +29,23 @@ class PlexWatchlist:
             logger.warning("Plex Watchlists is set to disabled.")
             return False
         if self.settings.rss:
-            try:
-                response = ping(self.settings.rss)
-                response.raise_for_status()
-                self.rss_enabled = True
-                return True
-            except HTTPError as e:
-                if e.response.status_code == 404:
-                    logger.warning("Plex RSS URL is Not Found. Please check your RSS URL in settings.")
-                else:
-                    logger.warning(
-                        f"Plex RSS URL is not reachable (HTTP status code: {e.response.status_code}). Falling back to using user Watchlist."
-                    )
-                return True
-            except Exception as e:
-                logger.exception(f"Failed to validate Plex RSS URL: {e}")
-                return True
+            for rss_url in self.settings.rss:
+                try:
+                    response = ping(rss_url)
+                    response.raise_for_status()
+                    self.rss_enabled = True
+                    return True
+                except HTTPError as e:
+                    if e.response.status_code == 404:
+                        logger.warning(f"Plex RSS URL {rss_url} is Not Found. Please check your RSS URL in settings.")
+                    else:
+                        logger.warning(
+                            f"Plex RSS URL {rss_url} is not reachable (HTTP status code: {e.response.status_code})."
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to validate Plex RSS URL {rss_url}: {e}", exc_info=True)
+            logger.warning("None of the provided RSS URLs are reachable. Falling back to using user Watchlist.")
+            return False
         return True
 
     def run(self) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
@@ -64,25 +65,26 @@ class PlexWatchlist:
             self.recurring_items.add(imdb_id)
             try:
                 media_item: MediaItem = create_item_from_imdb_id(imdb_id)
-                if not media_item:
+                if media_item:
+                    yield media_item
+                else:
                     logger.error(f"Failed to create media item from IMDb ID: {imdb_id}")
-                    continue
-                yield media_item
             except Exception as e:
                 logger.error(f"Error processing IMDb ID {imdb_id}: {e}")
-                continue
+            continue
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
-        """Fetch media from Plex RSS Feed."""
-        try:
-            response = get(self.settings.rss, timeout=60)
-            if not response.is_ok:
-                logger.error(f"Failed to fetch Plex RSS feed: HTTP {response.status_code}")
-                return
-            for item in response.data.items:
-                yield from self._extract_imdb_ids(item.guids)
-        except Exception as e:
-            logger.error(f"An unexpected error occurred while fetching Plex RSS feed: {e}")
+        """Fetch media from Plex RSS Feeds."""
+        for rss_url in self.settings.rss:
+            try:
+                response = get(rss_url, timeout=60)
+                if not response.is_ok:
+                    logger.error(f"Failed to fetch Plex RSS feed from {rss_url}: HTTP {response.status_code}")
+                    continue
+                for item in response.data.items:
+                    yield from self._extract_imdb_ids(item.guids)
+            except Exception as e:
+                logger.error(f"An unexpected error occurred while fetching Plex RSS feed from {rss_url}: {e}")
 
     def _get_items_from_watchlist(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex watchlist"""

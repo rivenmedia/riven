@@ -34,9 +34,9 @@ RUN pnpm run build && pnpm prune --prod
 
 # Final Image
 FROM python:3.11-alpine
-LABEL name="Iceberg" \
-      description="Iceberg Debrid Downloader" \
-      url="https://github.com/dreulavelle/iceberg"
+LABEL name="Riven" \
+      description="Riven Media Server" \
+      url="https://github.com/rivenmedia/riven"
 
 # Install system dependencies and Node.js
 ENV PYTHONUNBUFFERED=1
@@ -67,18 +67,23 @@ RUN mkdir -p /usr/share/fonts/nerd-fonts && \
 RUN pip install poetry==1.8.3
 
 # Create user and group
-RUN addgroup -g 1000 iceberg && \
-    adduser -u 1000 -G iceberg -h /home/iceberg -s /usr/bin/fish -D iceberg
+RUN addgroup -g 1000 riven && \
+    adduser -u 1000 -G riven -h /home/riven -s /usr/bin/fish -D riven
 
 # Create fish config directory
-RUN mkdir -p /home/iceberg/.config/fish
+RUN mkdir -p /home/riven/.config/fish
 
 # Set environment variable to force color output
 ENV FORCE_COLOR=1
 ENV TERM=xterm-256color
 
 # Set working directory
-WORKDIR /iceberg
+WORKDIR /riven
+
+# Copy frontend build from the previous stage
+COPY --from=frontend --chown=riven:riven /app/build /riven/frontend/build
+COPY --from=frontend --chown=riven:riven /app/node_modules /riven/frontend/node_modules
+COPY --from=frontend --chown=riven:riven /app/package.json /riven/frontend/package.json
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /app/.venv /app/.venv
@@ -86,22 +91,17 @@ ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy the rest of the application code
-COPY backend/ /iceberg/backend
-COPY pyproject.toml poetry.lock /iceberg/backend/
-COPY VERSION entrypoint.sh /iceberg/
-
-# Copy frontend build from the previous stage
-COPY --from=frontend --chown=iceberg:iceberg /app/build /iceberg/frontend/build
-COPY --from=frontend --chown=iceberg:iceberg /app/node_modules /iceberg/frontend/node_modules
-COPY --from=frontend --chown=iceberg:iceberg /app/package.json /iceberg/frontend/package.json
+COPY backend/ /riven/backend
+COPY pyproject.toml poetry.lock /riven/backend/
+COPY VERSION entrypoint.sh /riven/
 
 # Ensure entrypoint script is executable
-RUN chmod +x /iceberg/entrypoint.sh
+RUN chmod +x /riven/entrypoint.sh
 
-# Set correct permissions for the iceberg user
-RUN chown -R iceberg:iceberg /home/iceberg/.config /iceberg
+# Set correct permissions for the riven user
+RUN chown -R riven:riven /home/riven/.config /riven
 
 # Switch to fish shell
 SHELL ["fish", "--login"]
 
-ENTRYPOINT ["fish", "/iceberg/entrypoint.sh"]
+ENTRYPOINT ["fish", "/riven/entrypoint.sh"]

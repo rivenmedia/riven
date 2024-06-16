@@ -276,11 +276,11 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
+        if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
+        if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
-        if any(season.state == States.Scraped for season in self.seasons):
+        if self.is_scraped():
             return States.Scraped
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
