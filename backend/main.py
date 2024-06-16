@@ -30,9 +30,11 @@ class LoguruMiddleware(BaseHTTPMiddleware):
         finally:
             process_time = time.time() - start_time
             logger.log(
-                "API", f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s"
+                "API",
+                f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s",
             )
         return response
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -43,7 +45,16 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-app = FastAPI()
+app = FastAPI(
+    title="Riven",
+    summary="A media management system.",
+    version="0.7.x",
+    redoc_url=None,
+    license_info={
+        "name": "GPL-3.0",
+        "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
+    },
+)
 app.program = Program(args)
 
 app.add_middleware(LoguruMiddleware)
@@ -60,6 +71,7 @@ app.include_router(settings_router)
 app.include_router(items_router)
 app.include_router(webhooks_router)
 app.include_router(tmdb_router)
+
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -79,6 +91,7 @@ class Server(uvicorn.Server):
             raise e
         finally:
             self.should_exit = True
+
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
 server = Server(config=config)
