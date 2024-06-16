@@ -1208,13 +1208,13 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "0.2.19"
+version = "0.2.20"
 description = "Parse Torrents using PTN and Rank them according to your preferences!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-0.2.19-py3-none-any.whl", hash = "sha256:0a233a80ed6003a121d66db369d34e35e2559ca6b58792e7ad115098c00a4614"},
-    {file = "rank_torrent_name-0.2.19.tar.gz", hash = "sha256:d0e5fd6dcd535d48daff10a3ca2d2d7c2db03a2ec787e95e0712c1a66b48a496"},
+    {file = "rank_torrent_name-0.2.20-py3-none-any.whl", hash = "sha256:0b7900af8bed6b697232a9a22b37c1588979dfef851ccd6cf60d707fdce2be51"},
+    {file = "rank_torrent_name-0.2.20.tar.gz", hash = "sha256:e17d7eadb050d53c68d568fd8a15853d5fc2acdee06f7bad20148f9cbb774640"},
 ]
 
 [package.dependencies]
