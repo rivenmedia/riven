@@ -279,9 +279,11 @@ class Program(threading.Thread):
 
             if updated_item:
                 self.media_items.upsert(updated_item)
-
+            with self.mutex:
+                self.running_items.remove(self.media_items.get(event.item.item_id, None))
             if items_to_submit:
                 for item_to_submit in items_to_submit:
+                    self.running_items.append(item_to_submit)
                     if isinstance(item_to_submit, Season) and next_service == Scraping:
                         if item_to_submit.scraped_times >= 3:
                             continue
