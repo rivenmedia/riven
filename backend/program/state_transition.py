@@ -6,6 +6,7 @@ from program.indexers.trakt import TraktIndexer
 from program.libraries import PlexLibrary, SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.scrapers import Scraping
+from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters.plex import PlexUpdater
@@ -40,11 +41,14 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.can_we_scrape(item):
-            if isinstance(item, Movie):
+        if Scraping.should_submit(item):
+            if isinstance(item, (Movie, Episode)):
                 items_to_submit = [item]
             elif isinstance(item, Show):
-                items_to_submit = [item] if item.scraped_times < 1 else []
+                if settings_manager.settings.scraping.jackett.enabled:
+                    items_to_submit = [item]
+                else:
+                    items_to_submit = [s for s in item.seasons if s.scraped_times > 0]
             elif isinstance(item, Season):
                 items_to_submit = [item] if item.parent.scraped_times > 0 or item.scraped_times < 2 else []
             else:
@@ -59,13 +63,13 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             items_to_submit = [
                 s for s in item.seasons 
                 if s.state not in (States.Completed, States.PartiallyCompleted)
-                and Scraping.can_we_scrape(s)
+                and Scraping.should_submit(s)
             ]
         elif isinstance(item, Season):
             items_to_submit = [
                 e for e in item.episodes 
                 if e.state == States.Indexed
-                and Scraping.can_we_scrape(e)
+                and Scraping.should_submit(e)
             ]
 
     elif item.state == States.Scraped:
@@ -76,17 +80,18 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         next_service = Symlinker
         proposed_submissions = []
         if isinstance(item, Show):
-            all_found = True
-            for season in item.seasons:
-                if all(e.file and e.folder for e in season.episodes if not e.symlinked):
-                    pass
-                else:
-                    all_found = False
+            all_found = all(
+                all(e.file and e.folder for e in season.episodes if not e.symlinked)
+                for season in item.seasons
+            )
             if all_found:
                 proposed_submissions = [item]
             else:
-                for season in item.seasons:
-                    proposed_submissions += [e for e in season.episodes if not e.symlinked and e.file and e.folder]
+                proposed_submissions = [
+                    e for season in item.seasons
+                    for e in season.episodes
+                    if not e.symlinked and e.file and e.folder
+                ]
         elif isinstance(item, Season):
             if all(e.file and e.folder for e in item.episodes if not e.symlinked):
                 proposed_submissions = [item]
@@ -100,14 +105,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 items_to_submit.append(sub_item)
             else:
                 logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
-
-    elif item.state == States.Downloaded:
-        next_service = Symlinker
-        if Symlinker.should_submit(item):
-            items_to_submit = [item]
-        else:
-            items_to_submit = []
-            logger.debug(f"{item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Symlinked:
         next_service = PlexUpdater

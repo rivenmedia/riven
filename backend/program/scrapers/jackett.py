@@ -40,11 +40,13 @@ class Jackett:
         self.settings = settings_manager.settings.scraping.jackett
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
+        self.timeout = self.settings.timeout
+        self.second_limiter = None
+        self.rate_limit = self.settings.ratelimit
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_seconds)
         logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -55,11 +57,19 @@ class Jackett:
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
+                if not isinstance(self.timeout, int) or self.timeout <= 0:
+                    logger.error("Jackett timeout is not set or invalid.")
+                    return False
+                if not isinstance(self.settings.ratelimit, bool):
+                    logger.error("Jackett ratelimit must be a valid boolean.")
+                    return False
                 indexers = self._get_indexers()
                 if not indexers:
                     logger.error("No Jackett indexers configured.")
                     return False
                 self.indexers = indexers
+                if self.rate_limit:
+                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_second)
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -82,7 +92,6 @@ class Jackett:
             yield self.scrape(item)
         except RateLimitExceeded:
             self.second_limiter.limit_hit()
-            logger.warning(f"Jackett rate limit hit for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:
@@ -134,7 +143,7 @@ class Jackett:
         """Search for the given item on the given indexer"""
         if isinstance(item, Movie):
             return self._search_movie_indexer(item, indexer)
-        elif isinstance(item, (Season, Episode, Show)):
+        elif isinstance(item, (Show, Season, Episode)):
             return self._search_series_indexer(item, indexer)
         else:
             raise TypeError("Only Movie and Series is allowed!")
@@ -188,6 +197,10 @@ class Jackett:
         """Search for series on the given indexer"""
         q, season, ep = self._get_series_search_params(item)
 
+        if not q:
+            logger.debug(f"No search query found for {item.log_string}")
+            return []
+
         params = {
             "apikey": self.api_key,
             "t": "tvsearch",
@@ -205,7 +218,9 @@ class Jackett:
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
-        if isinstance(item, Season):
+        if isinstance(item, Show):
+            return item.get_top_title(), None, None
+        elif isinstance(item, Season):
             return item.get_top_title(), item.number, None
         elif isinstance(item, Episode):
             return item.get_top_title(), item.parent.number, item.number
@@ -251,19 +266,22 @@ class Jackett:
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
-        with self.second_limiter:
-            try:
-                response = requests.get(url, params=params)
-                response.raise_for_status()
-                return self._parse_xml(response.text)
-            except (HTTPError, ConnectionError, Timeout) as e:
-                logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
-            except Exception as e:
-                if "Jackett.Common.IndexerException" in str(e):
-                    logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
-                else:
-                    logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
-            return []
+        try:
+            if self.second_limiter:
+                with self.second_limiter:
+                    response = requests.get(url, params=params, timeout=self.timeout)
+            else:
+                response = requests.get(url, params=params, timeout=self.timeout)
+            response.raise_for_status()
+            return self._parse_xml(response.text)
+        except (HTTPError, ConnectionError, Timeout):
+            logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
+        except Exception as e:
+            if "Jackett.Common.IndexerException" in str(e):
+                logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
+            else:
+                logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
+        return []
 
     def _parse_xml(self, xml_content: str) -> list[tuple[str, str]]:
         """Parse the torrents from the XML content"""

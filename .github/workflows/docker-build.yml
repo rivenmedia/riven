@@ -54,5 +54,5 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         tags: |
-          docker.io/spoked/iceberg:latest
-          docker.io/spoked/iceberg:${{ steps.version.outputs.VERSION }}
+          docker.io/spoked/riven:latest
+          docker.io/spoked/riven:${{ steps.version.outputs.VERSION }}

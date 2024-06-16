@@ -34,7 +34,7 @@ class Program(threading.Thread):
     """Program class"""
 
     def __init__(self, args):
-        super().__init__(name="Iceberg")
+        super().__init__(name="Riven")
         self.running = False
         self.startup_args = args
         self.initialized = False
@@ -97,7 +97,7 @@ class Program(threading.Thread):
         )
 
     def start(self):
-        logger.log("PROGRAM", f"Iceberg v{settings_manager.settings.version} starting!")
+        logger.log("PROGRAM", f"Riven v{settings_manager.settings.version} starting!")
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
@@ -111,15 +111,20 @@ class Program(threading.Thread):
         except Exception as e:
             logger.exception(f"Failed to initialize services: {e}")
 
+        max_worker_env_vars = [var for var in os.environ if var.endswith('_MAX_WORKERS')]
+        if max_worker_env_vars:
+            for var in max_worker_env_vars:
+                logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
+
         logger.log("PROGRAM", "----------------------------------------------")
-        logger.log("PROGRAM", "Iceberg is waiting for configuration to start!")
+        logger.log("PROGRAM", "Riven is waiting for configuration to start!")
         logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
 
         self.initialized = True
-        logger.log("PROGRAM", "Iceberg started!")
+        logger.log("PROGRAM", "Riven started!")
 
         if not self.startup_args.ignore_cache:
             self.pickly = Pickly(self.media_items, data_dir_path)
@@ -129,6 +134,10 @@ class Program(threading.Thread):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
                 self.media_items.upsert(item)
+            self.media_items.save(str(data_dir_path / "media.pkl"))
+
+        if len(self.media_items):
+            self.media_items.log()
 
         unfinished_items = self.media_items.get_incomplete_items()
         logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
@@ -141,18 +150,22 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         self.running = True
-        logger.success("Iceberg is running!")
+        logger.success("Riven is running!")
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = [item for item in self.media_items.get_incomplete_items().values()]
+        items_to_submit = [
+            item for item in self.media_items.get_incomplete_items().values()
+            if not (isinstance(item, Season) and item.scraped_times > 1) 
+            and not (isinstance(item, Show) and item.scraped_times > 0)
+        ]
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 10},
+            self._retry_library: {"interval": 60 * 3},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -187,6 +200,7 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
@@ -200,6 +214,7 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+
     def _pop_event_queue(self, event):
         with self.mutex:
             self.queued_items.remove(event.item)
@@ -224,8 +239,8 @@ class Program(threading.Thread):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
                 with self.mutex:
-                        if orig_item in self.running_items:
-                            self.running_items.remove(orig_item)
+                    if orig_item in self.running_items:
+                        self.running_items.remove(orig_item)
                 self._push_event_queue(Event(emitted_by=service, item=item))
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
@@ -289,6 +304,8 @@ class Program(threading.Thread):
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
+                    if item_to_submit not in self.running_items:
+                        self.running_items.append(item_to_submit)
                     if isinstance(item_to_submit, Season) and next_service == Scraping:
                         if item_to_submit.scraped_times >= 3:
                             continue
@@ -307,7 +324,7 @@ class Program(threading.Thread):
             self.scheduler.shutdown(wait=False)
         if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
             self.pickly.stop()
-        logger.log("PROGRAM", "Iceberg has been stopped.")
+        logger.log("PROGRAM", "Riven has been stopped.")
 
     def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""

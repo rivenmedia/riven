@@ -1,7 +1,7 @@
 services:
-  iceberg:
-    image: spoked/iceberg:latest
-    container_name: iceberg
+  riven:
+    image: spoked/riven:latest
+    container_name: riven
     restart: unless-stopped
     tty: true
     environment:
@@ -10,7 +10,7 @@ services:
       - ORIGIN=http://localhost:3000
       - TZ=America/New_York
     volumes:
-      - ./data:/iceberg/data
+      - ./data:/riven/data
       - /mnt:/mnt
     ports:
       - "3000:3000"

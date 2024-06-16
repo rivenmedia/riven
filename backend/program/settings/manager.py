@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 
 from program.settings.models import AppModel, Observable
 from pydantic import ValidationError
@@ -20,8 +19,9 @@ class SettingsManager:
 
         if not self.settings_file.exists():
             self.settings = AppModel()
-            self.settings = AppModel.model_validate(self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN"))
-            
+            self.settings = AppModel.model_validate(
+                self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
+            )
             self.notify_observers()
         else:
             self.load()
@@ -42,11 +42,8 @@ class SettingsManager:
             else:
                 environment_variable = f"{prefix}_{key}".upper()
                 if os.getenv(environment_variable, None):
-                    logger.debug(f"Found the following environment variable: {environment_variable}")
                     new_value = os.getenv(environment_variable)
-                    if isinstance(value, Path):
-                        checked_settings[key] = Path(new_value)  
-                    elif isinstance(value, bool):
+                    if isinstance(value, bool):
                         checked_settings[key] = new_value.lower() == "true" or new_value == "1"
                     elif isinstance(value, int):
                         checked_settings[key] = int(new_value)
@@ -66,18 +63,14 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    if "RIVEN_FORCE_ENV" in os.environ and os.environ["RIVEN_FORCE_ENV"].lower() in ["true","1"]:
+                    if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
         except ValidationError as e:
-            logger.error(
-                f"Error validating settings: {e}"
-            )
+            logger.error(f"Error validating settings: {e}")
             raise
         except json.JSONDecodeError as e:
-            logger.error(
-                f"Error parsing settings file: {e}"
-            )
+            logger.error(f"Error parsing settings file: {e}")
             raise
         except FileNotFoundError:
             logger.warning(f"Error loading settings: {self.settings_file} does not exist")

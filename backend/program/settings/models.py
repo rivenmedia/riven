@@ -1,4 +1,4 @@
-"""Iceberg settings models"""
+"""Riven settings models"""
 from pathlib import Path
 from typing import Callable, Dict, List
 
@@ -30,13 +30,20 @@ class DebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+
 class TorboxModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+
 class DownloadersModel(Observable):
+    movie_filesize_min: int = 200   # MB
+    movie_filesize_max: int = -1    # MB (-1 is no limit)
+    episode_filesize_min: int = 40  # MB
+    episode_filesize_max: int = -1  # MB (-1 is no limit)
     real_debrid: DebridModel = DebridModel()
     torbox: TorboxModel = TorboxModel()
+
 
 # Symlink Service
 
@@ -67,8 +74,8 @@ class PlexLibraryModel(Updatable):
 
 class ListrrModel(Updatable):
     enabled: bool = False
-    movie_lists: list[str] = []
-    show_lists: list[str] = []
+    movie_lists: List[str] = []
+    show_lists: List[str] = []
     api_key: str = ""
     update_interval: int = 300
 
@@ -76,7 +83,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    lists: list[int | str] = []
+    lists: List[int] = []
     update_interval: int = 300
 
 
@@ -90,15 +97,16 @@ class OverseerrModel(Updatable):
 
 class PlexWatchlistModel(Updatable):
     enabled: bool = False
-    rss: str = ""
+    rss: List[str] = []
     update_interval: int = 60
 
 
 class TraktModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    watchlist: list[str] = []
-    user_lists: list[str] = []
+    watchlist: List[str] = []
+    user_lists: List[str] = []
+    collection: List[str] = []
     fetch_trending: bool = False
     trending_count: int = 10
     fetch_popular: bool = False
@@ -130,17 +138,23 @@ class TorrentioConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class KnightcrawlerConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://knightcrawler.elfhosted.com"
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
     enabled: bool = False
     url: str = "https://mediafusion.elfhosted.com"
+    timeout: int = 30
+    ratelimit: bool = True
     catalogs: List[str] = [
         "prowlarr_streams",
         "torrentio_streams"
@@ -151,12 +165,16 @@ class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
     limitcount: int = 5
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
+    timeout: int = 30
+    ratelimit: bool = True
     limiter_seconds: int = 60
 
 
@@ -164,17 +182,22 @@ class ProwlarrConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9696"
     api_key: str = ""
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "http://annatar.elfhosted.com"
     limit: int = 2000
-    timeout: int = 10 # cant be higher than 10 # TODO: remove
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class TorBoxScraperConfig(Observable):
     enabled: bool = False
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class ScraperModel(Observable):
@@ -239,7 +262,9 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
+    symlink_monitor: bool = True
     force_refresh: bool = False
+    local_only: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()
     symlink: SymlinkModel = SymlinkModel()
     downloaders: DownloadersModel = DownloadersModel()

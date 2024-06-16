@@ -16,7 +16,7 @@ def setup_logger(level):
     logs_dir_path = data_dir_path / "logs"
     os.makedirs(logs_dir_path, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
-    log_filename = logs_dir_path / f"iceberg-{timestamp}.log"
+    log_filename = logs_dir_path / f"riven-{timestamp}.log"
 
     # Core
     logger.level("PROGRAM", no=36, color="<blue>", icon="🤖")
@@ -29,6 +29,7 @@ def setup_logger(level):
     logger.level("NEW", no=44, color="<fg #e63946>", icon="✨")
     logger.level("FILES", no=45, color="<light-yellow>", icon="🗃️ ")
     logger.level("ITEM", no=46, color="<fg #92a1cf>", icon="🗃️ ")
+    logger.level("DISCOVERY", no=47, color="<fg #e56c49>", icon="🔍")
 
     # API Logging
     logger.level("API", no=47, color="<fg #006989>", icon="👾")
@@ -63,9 +64,9 @@ def setup_logger(level):
             "sink": log_filename, 
             "level": level, 
             "format": log_format, 
-            "rotation": "2 hours", 
-            "retention": "1 days", 
-            "compression": "zip", 
+            "rotation": "50 MB", 
+            "retention": "8 hours", 
+            "compression": None, 
             "backtrace": False, 
             "diagnose": True,
             "enqueue": True,
@@ -77,9 +78,9 @@ def scrub_logs():
     """Remove old log files based on retention settings."""
     try:
         logs_dir_path = data_dir_path / "logs"
-        for log_file in logs_dir_path.glob("iceberg-*.log"):
-            # remove files older than 4 hours
-            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 4:
+        for log_file in logs_dir_path.glob("riven-*.log"):
+            # remove files older than 8 hours
+            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 8:
                 log_file.unlink()
                 logger.log("COMPLETED", f"Old log file {log_file.name} removed.")
     except Exception as e:
