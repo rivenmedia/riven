@@ -62,7 +62,8 @@ class ResponseObject:
                 return parse_xml(response.content)
             else:
                 return {}
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to parse response content: {e}", exc_info=True)
             return {}
 
 
@@ -94,7 +95,8 @@ def _make_request(
         response = session.request(
             method, url, headers=headers, data=data, params=params, timeout=timeout
         )
-    except Exception:
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request failed: {e}", exc_info=True)
         response = _handle_request_exception()
     finally:
         session.close()
@@ -191,7 +193,6 @@ def xml_to_simplenamespace(xml_string):
         return SimpleNamespace(**attributes, text=element.text)
 
     return element_to_simplenamespace(root)
-
 
 class RateLimitExceeded(Exception):
     pass

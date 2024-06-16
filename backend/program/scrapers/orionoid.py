@@ -23,6 +23,7 @@ class Orionoid:
         self.settings = settings_manager.settings.scraping.orionoid
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
+        self.timeout = self.settings.timeout
         self.is_premium = False
         self.is_unlimited = False
         self.initialized = False
@@ -33,11 +34,7 @@ class Orionoid:
             return
         self.orionoid_limit = 0
         self.orionoid_expiration = datetime.now()
-        self.parse_logging = False
-        self.max_calls = 100 if not self.is_premium else 2500
-        self.period = 86400 if not self.is_premium else 3600
-        self.minute_limiter = RateLimiter(max_calls=self.max_calls, period=self.period)
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
         logger.success("Orionoid initialized!")
@@ -50,9 +47,15 @@ class Orionoid:
         if len(self.settings.api_key) != 32 or self.settings.api_key == "":
             logger.error("Orionoid API Key is not valid or not set. Please check your settings.")
             return False
+        if not isinstance(self.timeout, int) or self.timeout <= 0:
+            logger.error("Orionoid timeout is not set or invalid.")
+            return False
+        if not isinstance(self.settings.ratelimit, bool):
+            logger.error("Orionoid ratelimit must be a valid boolean.")
+            return False
         try:
             url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-            response = get(url, retry_if_failed=True, timeout=30)
+            response = get(url, retry_if_failed=True, timeout=self.timeout)
             if response.is_ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
                     logger.error(
@@ -87,25 +90,26 @@ class Orionoid:
         return False
 
     def run(self, item: MediaItem):
-        """Scrape the orionoid site for the given media items
-        and update the object with scraped streams"""
+        """Scrape the orionoid site for the given media items and update the object with scraped streams."""
         if not item or isinstance(item, Show):
             yield item
+            return
+
         try:
             yield self.scrape(item)
-        except (ConnectTimeout, RateLimitExceeded, ReadTimeout, RequestException, Exception) as e:
-            self.minute_limiter.limit_hit()
-            self.second_limiter.limit_hit()
-            if isinstance(e, ConnectTimeout):
-                logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
-            elif isinstance(e, RateLimitExceeded):
-                logger.warning(f"Orionoid rate limit hit for item: {item.log_string}")
-            elif isinstance(e, ReadTimeout):
-                logger.error(f"Orionoid read timeout for item: {item.log_string}")
-            elif isinstance(e, RequestException):
-                logger.error(f"Orionoid request exception: {e}")
+        except RateLimitExceeded:
+            if self.second_limiter:
+                self.second_limiter.limit_hit()
             else:
-                logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+                logger.warning(f"Orionoid rate limit exceeded for item: {item.log_string}")
+        except ConnectTimeout:
+            logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
+        except ReadTimeout:
+            logger.error(f"Orionoid read timeout for item: {item.log_string}")
+        except RequestException as e:
+            logger.error(f"Orionoid request exception: {e}")
+        except Exception as e:
+            logger.error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
@@ -158,45 +162,53 @@ class Orionoid:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
         """Wrapper for `Orionoid` scrape method"""
-        with self.minute_limiter:
-            if isinstance(item, Season):
-                imdb_id = item.parent.imdb_id
-                url = self.construct_url("show", imdb_id, season=item.number)
-            elif isinstance(item, Episode):
-                imdb_id = item.parent.parent.imdb_id
-                url = self.construct_url(
-                    "show", imdb_id, season=item.parent.number, episode=item.number
-                )
-            else:
-                imdb_id = item.imdb_id
-                url = self.construct_url("movie", imdb_id)
+        if isinstance(item, Season):
+            imdb_id = item.parent.imdb_id
+            url = self.construct_url("show", imdb_id, season=item.number)
+        elif isinstance(item, Episode):
+            imdb_id = item.parent.parent.imdb_id
+            url = self.construct_url(
+                "show", imdb_id, season=item.parent.number, episode=item.number
+            )
+        else:
+            imdb_id = item.imdb_id
+            url = self.construct_url("movie", imdb_id)
 
+        if self.second_limiter:
             with self.second_limiter:
-                try:
-                    response = get(url, retry_if_failed=False, timeout=60)
-                except Exception:
-                    raise
-            if not response.is_ok or not hasattr(response.data, "data"):
-                return {}, 0
-            torrents = set()
-            correct_title = item.get_top_title()
-            if not correct_title:
-                logger.log("SCRAPER", f"Correct title not found for {item.log_string}")
-                return {}, 0
-            for stream in response.data.data.streams:
-                if (
-                    not stream.file.hash or 
-                    not stream.file.name or 
-                    self.hash_cache.is_blacklisted(stream.file.hash)
-                ):
-                    continue
-                try:
-                    torrent: Torrent = self.rtn.rank(
-                        raw_title=stream.file.name, infohash=stream.file.hash, correct_title=correct_title, remove_trash=True
-                    )
-                except GarbageTorrent:
-                    continue
-                if torrent and torrent.fetch:
-                    torrents.add(torrent)
-            scraped_torrents = sort_torrents(torrents)
-            return scraped_torrents, len(response.data.data.streams)
+                response = get(url, timeout=self.timeout)
+        else:
+            response = get(url, timeout=self.timeout)
+
+        if not response.is_ok or not hasattr(response.data, "data"):
+            return {}, 0
+
+        torrents = set()
+        correct_title = item.get_top_title()
+
+        if not correct_title:
+            logger.log("SCRAPER", f"Correct title not found for {item.log_string}")
+            return {}, 0
+
+        for stream in response.data.data.streams:
+            if (
+                not stream.file.hash or 
+                not stream.file.name or 
+                self.hash_cache.is_blacklisted(stream.file.hash)
+            ):
+                continue
+            try:
+                torrent: Torrent = self.rtn.rank(
+                    raw_title=stream.file.name,
+                    infohash=stream.file.hash,
+                    correct_title=correct_title,
+                    remove_trash=True
+                )
+            except GarbageTorrent:
+                continue
+
+            if torrent and torrent.fetch:
+                torrents.add(torrent)
+
+        scraped_torrents = sort_torrents(torrents)
+        return scraped_torrents, len(response.data.data.streams)

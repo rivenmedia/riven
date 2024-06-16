@@ -37,7 +37,7 @@ class PlexLibrary:
     def validate(self):
         """Validate Plex library"""
         if not self.settings.token:
-            logger.error("Plex Library token is not set. This is required!")
+            logger.warning("Plex Library is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set. This is required!")
@@ -66,7 +66,7 @@ class PlexLibrary:
         except RequestError:
             logger.error("Plex request error!")
         except Exception as e:
-            logger.exception(f"Plex exception thrown: {e}")
+            logger.error(f"Plex exception thrown: {e}")
         return False
 
     def run(self):
@@ -93,12 +93,12 @@ class PlexLibrary:
                     # Process in chunks to manage memory and rate limit
                     for chunk in self._chunked(items_to_process, 50):
                         try:
-                            future = executor.submit(self._process_chunk, chunk)
+                            future = executor.submit(self._process_chunk_with_retry, chunk)
                             futures.append(future)
                         except (RuntimeError, KeyboardInterrupt):
                             break
                         except Exception as e:
-                            logger.exception(f"Failed to process chunk: {e}")
+                            logger.error(f"Failed to submit chunk for processing: {e}")
                         
                         if len(futures) % rate_limit == 0:
                             # Rate limit: process 5 chunks per minute
@@ -114,16 +114,41 @@ class PlexLibrary:
                         processed_sections.add(section.key)
                     except concurrent.futures.TimeoutError:
                         logger.warning("Timeout while waiting for chunk processing result.")
+                        self._handle_failed_chunk(future)
                     except Exception as e:
-                        logger.exception(f"Failed to get chunk result: {e}")
+                        logger.error(f"Failed to get chunk result: {e}")
+                        self._handle_failed_chunk(future)
 
             if not processed_sections:
                 return []
 
             return items
         except Exception as e:
-            logger.exception(f"Unexpected error occurred: {e}")
+            logger.error(f"Unexpected error occurred: {e}")
             return []
+
+    def _process_chunk_with_retry(self, chunk, retries=3):
+        """Process a chunk of items with retry logic."""
+        for attempt in range(retries):
+            try:
+                return self._process_chunk(chunk)
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1} failed to process chunk: {e}")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+        logger.error("All retry attempts failed for chunk.")
+        return []
+
+    def _handle_failed_chunk(self, future):
+        """Handle a failed chunk processing."""
+        try:
+            chunk_results = future.result()
+            if chunk_results:
+                logger.warning("Recovered chunk results after initial failure.")
+                return chunk_results
+        except Exception as e:
+            logger.error(f"Failed to recover chunk results: {e}")
+        return []
 
     def _process_chunk(self, chunk):
         """Process a chunk of items and create MediaItems."""
@@ -213,4 +238,3 @@ def _map_item_from_data(item):
         # Specials may end up here..
         logger.error(f"Unknown Item: {item.title} with type {item.type}")
         return None
-

@@ -44,14 +44,22 @@ class Mdblist:
 
         try:
             with self.rate_limiter:
-                for list_id in self.settings.lists:
-                    if not list_id:
+                for list in self.settings.lists:
+                    if not list:
                         continue
-                    for item in list_items(list_id, self.settings.api_key):
+
+                    if isinstance(list, int):
+                        items = list_items_by_id(list, self.settings.api_key)
+                    else:
+                        items = list_items_by_url(list, self.settings.api_key)
+                    for item in items:
                         # Check if the item is already completed in the media container
                         if item.imdb_id and item.imdb_id not in self.recurring_items:
                             self.recurring_items.add(item.imdb_id)
-                            yield MediaItem({"imdb_id": item.imdb_id, "requested_by": self.key})
+                            yield MediaItem(
+                                {"imdb_id": item.imdb_id, "requested_by": self.key}
+                            )
+
         except RateLimitExceeded:
             pass
         return
@@ -71,7 +79,16 @@ def my_limits(api_key: str):
     return response.data
 
 
-def list_items(list_id: int, api_key: str):
+def list_items_by_id(list_id: int, api_key: str):
     """Wrapper for mdblist api method 'List items'"""
-    response = get(f"http://www.mdblist.com/api/lists/{str(list_id)}/items?apikey={api_key}")
+    response = get(
+        f"http://www.mdblist.com/api/lists/{str(list_id)}/items?apikey={api_key}"
+    )
+    return response.data
+
+
+def list_items_by_url(url: str, api_key: str):
+    url = url if url.endswith("/") else f"{url}/"
+    url = url if url.endswith("json/") else f"{url}json/"
+    response = get(url, params={"apikey": api_key})
     return response.data

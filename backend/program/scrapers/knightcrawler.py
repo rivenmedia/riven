@@ -20,16 +20,13 @@ class Knightcrawler:
         self.settings = settings_manager.settings.scraping.knightcrawler
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
+        self.timeout = self.settings.timeout
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.minute_limiter = RateLimiter(
-            max_calls=300, period=3600, raise_on_limit=True
-        )
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.second_limiter = RateLimiter(max_calls=1, period=2) if self.settings.ratelimit else None
         self.rtn = RTN(self.settings_model, self.ranking_model)
         self.hash_cache = hash_cache
-        self.running = True
         logger.success("Knightcrawler initialized!")
 
     def validate(self) -> bool:
@@ -40,9 +37,15 @@ class Knightcrawler:
         if not self.settings.url:
             logger.error("Knightcrawler URL is not configured and will not be used.")
             return False
+        if not isinstance(self.timeout, int) or self.timeout <= 0:
+            logger.error("Knightcrawler timeout is not set or invalid.")
+            return False
+        if not isinstance(self.settings.ratelimit, bool):
+            logger.error("Knightcrawler ratelimit must be a valid boolean.")
+            return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = ping(url=url, timeout=10)
+            response = ping(url=url, timeout=self.timeout)
             if response.ok:
                 return True
         except Exception as e:
@@ -60,7 +63,10 @@ class Knightcrawler:
         try:
             yield self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded for item: {item.log_string}")
+            if self.second_limiter:
+                self.second_limiter.limit_hit()
+            else:
+                logger.warning(f"Knightcrawler ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Knightcrawler connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -68,9 +74,7 @@ class Knightcrawler:
         except RequestException as e:
             logger.error(f"Knightcrawler request exception: {e}")
         except Exception as e:
-            logger.exception(f"Knightcrawler exception thrown: {e}")
-        self.minute_limiter.limit_hit()
-        self.second_limiter.limit_hit()
+            logger.error(f"Knightcrawler exception thrown: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
@@ -87,38 +91,42 @@ class Knightcrawler:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Knightcrawler` scrape method"""
-        with self.minute_limiter:
-            identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-            if isinstance(item, Season):
-                identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-            elif isinstance(item, Episode):
-                identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+        if isinstance(item, Season):
+            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+        elif isinstance(item, Episode):
+            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
 
-            url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
-            if identifier:
-                url += identifier
+        url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
+        if identifier:
+            url += identifier
+
+        if self.second_limiter:
             with self.second_limiter:
-                response = get(f"{url}.json", retry_if_failed=True, timeout=30)
-            if not response.is_ok or len(response.data.streams) <= 0:
-                return {}, 0
+                response = get(f"{url}.json", timeout=self.timeout)
+        else:
+            response = get(f"{url}.json", timeout=self.timeout)
 
-            torrents = set()
-            correct_title = item.get_top_title()
-            if not correct_title:
-                logger.scraper(f"Correct title not found for {item.log_string}")
-                return {}, 0
+        if not response.is_ok or len(response.data.streams) <= 0:
+            return {}, 0
 
-            for stream in response.data.streams:
-                raw_title = stream.title.split("\n👤")[0].split("\n")[0]
-                if not stream.infoHash or not raw_title:
-                    continue
-                if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
-                    continue
-                try:
-                    torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
-                except GarbageTorrent:
-                    continue
-                if torrent and torrent.fetch:
-                    torrents.add(torrent)
-            scraped_torrents = sort_torrents(torrents)
-            return scraped_torrents, len(response.data.streams)
+        torrents = set()
+        correct_title = item.get_top_title()
+        if not correct_title:
+            logger.scraper(f"Correct title not found for {item.log_string}")
+            return {}, 0
+
+        for stream in response.data.streams:
+            raw_title = stream.title.split("\n👤")[0].split("\n")[0]
+            if not stream.infoHash or not raw_title:
+                continue
+            if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
+                continue
+            try:
+                torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
+            except GarbageTorrent:
+                continue
+            if torrent and torrent.fetch:
+                torrents.add(torrent)
+        scraped_torrents = sort_torrents(torrents)
+        return scraped_torrents, len(response.data.streams)
