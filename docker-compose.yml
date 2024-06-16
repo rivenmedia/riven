@@ -1,6 +1,6 @@
 services:
   riven:
-    image: spoked/iceberg:latest
+    image: spoked/riven:latest
     container_name: riven
     restart: unless-stopped
     tty: true
