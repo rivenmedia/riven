@@ -77,19 +77,19 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
         imdb_id = re.search(r'(tt\d+)', show)
         title = re.search(r'(.+)?( \()', show)
         if not imdb_id or not title:
-            logger.error(f"Can't extract {item_type} imdb_id or title at path {directory / show}")
+            logger.log("NOT_FOUND", f"Can't extract {item_type} imdb_id or title at path {directory / show}")
             continue
         show_item = Show({'imdb_id': imdb_id.group(), 'title': title.group(1)})
         if is_anime:
             show_item.is_anime = True
         for season in os.listdir(directory / show):
             if not (season_number := re.search(r'(\d+)', season)):
-                logger.error(f"Can't extract season number at path {directory / show / season}")
+                logger.log("NOT_FOUND", f"Can't extract season number at path {directory / show / season}")
                 continue
             season_item = Season({'number': int(season_number.group())})
             for episode in os.listdir(directory / show / season):
                 if not (episode_number := re.search(r's\d+e(\d+)', episode)):
-                    logger.error(f"Can't extract episode number at path {directory / show / season / episode}")
+                    logger.log("NOT_FOUND", f"Can't extract episode number at path {directory / show / season / episode}")
                     # Delete the episode since it can't be indexed
                     os.remove(directory / show / season / episode)
                     continue

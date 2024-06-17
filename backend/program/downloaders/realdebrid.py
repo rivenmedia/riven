@@ -360,8 +360,8 @@ class Debrid:
         acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed]
 
         for season in item.seasons:
-            if season.state in acceptable_states and season.is_released:
-                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released}
+            if season.state in acceptable_states and season.is_released_nolog:
+                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released_nolog}
                 if needed_episode_numbers:
                     needed_episodes[season.number] = needed_episode_numbers
         if not needed_episodes:

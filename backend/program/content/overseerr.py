@@ -90,7 +90,11 @@ class Overseerr:
                 if not imdb_id or imdb_id in self.recurring_items:
                     continue
                 self.recurring_items.add(imdb_id)
-                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+                if media_item:
+                    yield media_item
+                else:
+                    logger.log("NOT_FOUND", f"Failed to create media item for {imdb_id}")
             except Exception as e:
                 logger.error(f"Error processing item {item}: {str(e)}")
                 continue

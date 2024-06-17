@@ -89,6 +89,13 @@ class MediaItem:
             logger.log("ITEM", time_message)
             return False
         return True
+    
+    @property
+    def is_released_nolog(self):
+        """Check if an item has been released."""
+        if not self.aired_at:
+            return False
+        return True
 
     @property
     def state(self):
