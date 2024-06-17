@@ -12,8 +12,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
-from program.indexers.trakt import TraktIndexer, create_item_from_imdb_id
-from program.libraries import PlexLibrary, SymlinkLibrary
+from program.indexers.trakt import TraktIndexer
+from program.libraries import SymlinkLibrary
 from program.media.container import MediaItemContainer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -67,7 +67,6 @@ class Program(threading.Thread):
         # to run after it
         self.library_services = {
             SymlinkLibrary: SymlinkLibrary(),
-            PlexLibrary: PlexLibrary(),
         }
         if not any(s.initialized for s in self.requesting_services.values()):
             logger.error("No Requesting service initialized, you must select at least one.")
@@ -165,7 +164,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 3},
+            self._retry_library: {"interval": 60 * 10},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -174,9 +173,10 @@ class Program(threading.Thread):
                 seconds=config["interval"],
                 args=config.get("args"),
                 id=f"{func.__name__}",
-                max_instances=1,
+                max_instances=config.get("max_instances", 1),
                 replace_existing=True,
                 next_run_time=datetime.now(),
+                misfire_grace_time=30
             )
             logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
@@ -198,6 +198,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
+                coalesce=True,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
@@ -222,14 +223,17 @@ class Program(threading.Thread):
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            for item in future.result():
+            timeout_seconds = int(
+                os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]
+            ) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60 * 3
+            for item in future.result(timeout=timeout_seconds):
                 if isinstance(item, list):
                     all_media_items = True
                     for i in item:
                         if not isinstance(i, MediaItem):
                             all_media_items = False
                     if all_media_items == False:
-                         continue
+                        continue
                     with self.mutex:
                         self.running_items.remove(orig_item)
                     for i in item:
@@ -242,6 +246,10 @@ class Program(threading.Thread):
                     if orig_item in self.running_items:
                         self.running_items.remove(orig_item)
                 self._push_event_queue(Event(emitted_by=service, item=item))
+        except TimeoutError:
+            logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
+            if orig_item in self.running_items:
+                self.running_items.remove(orig_item)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
 
@@ -327,10 +335,8 @@ class Program(threading.Thread):
         """Add item to the queue for processing."""
         if isinstance(item, Union[Movie, Show, Season, Episode]):
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
-            logger.log("PROGRAM", f"Added {item.log_string} to the queue")
+            logger.log("NEW", f"Added {item.log_string} to the queue")
             return True
-        else:
-            logger.error(f"Failed to add item with type {type(item)} to the queue")
         return False
 
     def clear_queue(self):

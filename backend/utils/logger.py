@@ -18,27 +18,36 @@ def setup_logger(level):
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     log_filename = logs_dir_path / f"riven-{timestamp}.log"
 
-    # Core
-    logger.level("PROGRAM", no=36, color="<blue>", icon="🤖")
-    logger.level("DEBRID", no=38, color="<yellow>", icon="🔗")
-    logger.level("SYMLINKER", no=39, color="<fg 249,231,159>", icon="🔗")
-    logger.level("SCRAPER", no=40, color="<magenta>", icon="👻")
-    logger.level("COMPLETED", no=41, color="<white>", icon="🟢")
-    logger.level("CACHE", no=42, color="<green>", icon="📜")
-    logger.level("NOT_FOUND", no=43, color="<fg 129,133,137>", icon="🤷‍")
-    logger.level("NEW", no=44, color="<fg #e63946>", icon="✨")
-    logger.level("FILES", no=45, color="<light-yellow>", icon="🗃️ ")
-    logger.level("ITEM", no=46, color="<fg #92a1cf>", icon="🗃️ ")
-    logger.level("DISCOVERY", no=47, color="<fg #e56c49>", icon="🔍")
+    # Helper function to get log settings from environment or use default
+    def get_log_settings(name, default_color, default_icon):
+        color = os.getenv(f"RIVEN_LOGGER_{name}_FG", default_color)
+        icon = os.getenv(f"RIVEN_LOGGER_{name}_ICON", default_icon)
+        return f"<fg #{color}>", icon
 
-    # API Logging
-    logger.level("API", no=47, color="<fg #006989>", icon="👾")
+    # Define log levels and their default settings
+    log_levels = {
+        "PROGRAM": (36, "3E201D", "🤖"),
+        "DEBRID": (38, "FE6F47", "🔗"),
+        "SYMLINKER": (39, "F9E79F", "🔗"),
+        "SCRAPER": (40, "D299EA", "👻"),
+        "COMPLETED": (41, "FFFFFF", "🟢"),
+        "CACHE": (42, "527826", "📜"),
+        "NOT_FOUND": (43, "818589", "🤷‍"),
+        "NEW": (44, "e63946", "✨"),
+        "FILES": (45, "FFFFE0", "🗃️ "),
+        "ITEM": (46, "92a1cf", "🗃️ "),
+        "DISCOVERY": (47, "e56c49", "🔍"),
+        "API": (47, "006989", "👾"),
+        "PLEX": (47, "DAD3BE", "📽️ "),
+        "TRAKT": (48, "1DB954", "🎵"),
+    }
 
-    # Extras
-    logger.level("PLEX", no=47, color="<fg #DAD3BE>", icon="📽️ ")
-    logger.level("TRAKT", no=48, color="<fg #1DB954>", icon="🎵")
+    # Set log levels
+    for name, (no, default_color, default_icon) in log_levels.items():
+        color, icon = get_log_settings(name, default_color, default_icon)
+        logger.level(name, no=no, color=color, icon=icon)
 
-    # Default
+    # Default log levels
     logger.level("INFO", icon="📰")
     logger.level("DEBUG", icon="🤖")
     logger.level("WARNING", icon="⚠️ ")
@@ -46,7 +55,7 @@ def setup_logger(level):
 
     # Log format to match the old log format, but with color
     log_format = (
-        "<red>{time:YYYY-MM-DD}</red> <red>{time:HH:mm:ss}</red> | "
+        "<fg #818589>{time:YYMMDD} {time:HH:mm:ss}</fg #818589> | "
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
         "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
     )
