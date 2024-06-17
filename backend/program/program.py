@@ -164,7 +164,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 3},
+            self._retry_library: {"interval": 60 * 10},
         }
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -173,9 +173,10 @@ class Program(threading.Thread):
                 seconds=config["interval"],
                 args=config.get("args"),
                 id=f"{func.__name__}",
-                max_instances=1,
+                max_instances=config.get("max_instances", 1),
                 replace_existing=True,
                 next_run_time=datetime.now(),
+                misfire_grace_time=30
             )
             logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
