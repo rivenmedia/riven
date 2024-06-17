@@ -45,7 +45,7 @@
 		"clsx": "^2.1.1",
 		"cmdk-sv": "^0.0.17",
 		"embla-carousel-svelte": "^8.1.3",
-		"formsnap": "^1.0.0",
+		"formsnap": "^1.0.1",
 		"lucide-svelte": "^0.390.0",
 		"luxon": "^3.4.4",
 		"mode-watcher": "^0.3.0",
