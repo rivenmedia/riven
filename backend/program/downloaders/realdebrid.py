@@ -29,6 +29,7 @@ class Debrid:
         self.settings = settings_manager.settings.downloaders.real_debrid
         self.download_settings = settings_manager.settings.downloaders
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.proxy = self.settings.proxy_url if self.settings.proxy_enabled else None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -55,8 +56,11 @@ class Debrid:
         if not isinstance(self.download_settings.episode_filesize_max, int) or self.download_settings.episode_filesize_max < -1:
             logger.error("Real-Debrid episode filesize max is not set or invalid.")
             return False
+        if self.settings.proxy_enabled and not self.settings.proxy_url:
+            logger.error("Proxy is enabled but no proxy URL is provided.")
+            return False
         try:
-            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers)
+            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
             if response.ok:
                 user_info = response.json()
                 return user_info.get("premium", 0) > 0
@@ -65,6 +69,7 @@ class Debrid:
         except Exception as e:
             logger.exception(f"Failed to validate Real-Debrid settings: {e}")
         return False
+
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
@@ -137,7 +142,7 @@ class Debrid:
         for stream_chunk in _chunked(filtered_streams, 5):
             streams = "/".join(stream_chunk)
             try:
-                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
             except Exception as e:
@@ -360,8 +365,8 @@ class Debrid:
         acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed]
 
         for season in item.seasons:
-            if season.state in acceptable_states and season.is_released:
-                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released}
+            if season.state in acceptable_states and season.is_released_nolog:
+                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released_nolog}
                 if needed_episode_numbers:
                     needed_episodes[season.number] = needed_episode_numbers
         if not needed_episodes:
@@ -522,6 +527,7 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/addMagnet",
                 {"magnet": f"magnet:?xt=urn:btih:{hash}&dn=&tr="},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data.id
@@ -539,7 +545,8 @@ class Debrid:
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents/info/{request_id}", 
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data
@@ -562,18 +569,21 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
                 {"files": ",".join(files.keys())},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             return response.is_ok
         except Exception as e:
             logger.error(f"Error selecting files for {item.log_string}: {e}")
             return False
 
+
     def get_torrents(self, limit: int) -> dict[str, SimpleNamespace]:
         """Get torrents from real-debrid.com"""
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents?limit={str(limit)}",
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok and response.data:
                 # Example response.data: 

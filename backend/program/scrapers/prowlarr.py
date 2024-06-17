@@ -1,5 +1,6 @@
-""" Jackett scraper module """
+""" Prowlarr scraper module """
 
+import json
 import queue
 import threading
 import time
@@ -18,8 +19,8 @@ from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded
 
 
-class JackettIndexer(BaseModel):
-    """Indexer model for Jackett"""
+class ProwlarrIndexer(BaseModel):
+    """Indexer model for Prowlarr"""
     title: Optional[str] = None
     id: Optional[str] = None
     link: Optional[str] = None
@@ -29,15 +30,15 @@ class JackettIndexer(BaseModel):
     movie_search_capabilities: Optional[List[str]] = None
 
 
-class Jackett:
-    """Scraper for `Jackett`"""
+class Prowlarr:
+    """Scraper for `Prowlarr`"""
 
     def __init__(self, hash_cache):
-        self.key = "jackett"
+        self.key = "Prowlarr"
         self.api_key = None
         self.indexers = None
         self.hash_cache = hash_cache
-        self.settings = settings_manager.settings.scraping.jackett
+        self.settings = settings_manager.settings.scraping.prowlarr
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
@@ -47,42 +48,42 @@ class Jackett:
         if not self.initialized and not self.api_key:
             return
         self.rtn = RTN(self.settings_model, self.ranking_model)
-        logger.success("Jackett initialized!")
+        logger.success("Prowlarr initialized!")
 
     def validate(self) -> bool:
-        """Validate Jackett settings."""
+        """Validate Prowlarr settings."""
         if not self.settings.enabled:
-            logger.warning("Jackett is set to disabled.")
+            logger.warning("Prowlarr is set to disabled.")
             return False
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
                 if not isinstance(self.timeout, int) or self.timeout <= 0:
-                    logger.error("Jackett timeout is not set or invalid.")
+                    logger.error("Prowlarr timeout is not set or invalid.")
                     return False
                 if not isinstance(self.settings.ratelimit, bool):
-                    logger.error("Jackett ratelimit must be a valid boolean.")
+                    logger.error("Prowlarr ratelimit must be a valid boolean.")
                     return False
                 indexers = self._get_indexers()
                 if not indexers:
-                    logger.error("No Jackett indexers configured.")
+                    logger.error("No Prowlarr indexers configured.")
                     return False
                 self.indexers = indexers
                 if self.rate_limit:
-                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_second)
+                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_seconds)
                 self._log_indexers()
                 return True
             except ReadTimeout:
-                logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+                logger.error("Prowlarr request timed out. Check your indexers, they may be too slow to respond.")
                 return False
             except Exception as e:
-                logger.error(f"Jackett failed to initialize with API Key: {e}")
+                logger.error(f"Prowlarr failed to initialize with API Key: {e}")
                 return False
-        logger.info("Jackett is not configured and will not be used.")
+        logger.info("Prowlarr is not configured and will not be used.")
         return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Scrape the Jackett site for the given media items
+        """Scrape the Prowlarr site for the given media items
         and update the object with scraped streams"""
         if not item:
             yield item
@@ -93,9 +94,9 @@ class Jackett:
         except RateLimitExceeded:
             self.second_limiter.limit_hit()
         except RequestException as e:
-            logger.error(f"Jackett request exception: {e}")
+            logger.error(f"Prowlarr request exception: {e}")
         except Exception as e:
-            logger.error(f"Jackett failed to scrape item with error: {e}")
+            logger.error(f"Prowlarr failed to scrape item with error: {e}")
         yield item
 
     def scrape(self, item: MediaItem) -> MediaItem:
@@ -111,7 +112,7 @@ class Jackett:
         return item
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
-        """Wrapper for `Jackett` scrape method"""
+        """Wrapper for `Prowlarr` scrape method"""
         results_queue = queue.Queue()
         threads = [
             threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
@@ -126,7 +127,7 @@ class Jackett:
         results = self._collect_results(results_queue)
         return self._process_results(item, results)
 
-    def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
+    def _thread_target(self, item: MediaItem, indexer: ProwlarrIndexer, results_queue: queue.Queue):
         try:
             start_time = time.perf_counter()
             result = self._search_indexer(item, indexer)
@@ -139,7 +140,7 @@ class Jackett:
         logger.debug(f"Scraped {item_title} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
         results_queue.put(result)
 
-    def _search_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
+    def _search_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for the given item on the given indexer"""
         if isinstance(item, Movie):
             return self._search_movie_indexer(item, indexer)
@@ -177,23 +178,21 @@ class Jackett:
         scraped_torrents = sort_torrents(torrents)
         return scraped_torrents, len(scraped_torrents)
 
-    def _search_movie_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
+    def _search_movie_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
         params = {
             "apikey": self.api_key,
             "t": "movie",
             "cat": "2000",
             "q": item.title,
-            "year": item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
-
-        if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
+        if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
+        if indexer.movie_search_capabilities and "imdbId" in indexer.movie_search_capabilities:
             params["imdbid"] = item.imdb_id
-
-        url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
+        url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "movie")
 
-    def _search_series_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
+    def _search_series_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for series on the given indexer"""
         q, season, ep = self._get_series_search_params(item)
 
@@ -205,15 +204,14 @@ class Jackett:
             "apikey": self.api_key,
             "t": "tvsearch",
             "cat": "5000",
-            "q": q,
-            "season": season,
-            "ep": ep
+            "q": q
         }
+        if ep: params["ep"] = ep
+        if season: params["season"] = season
+        if indexer.tv_search_capabilities and "imdbId" in indexer.tv_search_capabilities:
+            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
 
-        if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id
-
-        url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
+        url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "series")
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
@@ -228,40 +226,31 @@ class Jackett:
             return item.get_top_title(), None, None
         return "", 0, None
 
-    def _get_indexers(self) -> List[JackettIndexer]:
-        """Get the indexers from Jackett"""
-        url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
+    def _get_indexers(self) -> List[ProwlarrIndexer]:
+        """Get the indexers from Prowlarr"""
+        url = f"{self.settings.url}/api/v1/indexer?apikey={self.api_key}"
         try:
             response = requests.get(url)
             response.raise_for_status()
-            return self._get_indexer_from_xml(response.text)
+            return self._get_indexer_from_json(response.text)
         except Exception as e:
-            logger.error(f"Exception while getting indexers from Jackett: {e}")
+            logger.error(f"Exception while getting indexers from Prowlarr: {e}")
             return []
 
-    def _get_indexer_from_xml(self, xml_content: str) -> list[JackettIndexer]:
+    def _get_indexer_from_json(self, json_content: str) -> list[ProwlarrIndexer]:
         """Parse the indexers from the XML content"""
-        xml_root = ET.fromstring(xml_content)
-
         indexer_list = []
-        for item in xml_root.findall(".//indexer"):
-            indexer_data = {
-                "title": item.find("title").text,
-                "id": item.attrib["id"],
-                "link": item.find("link").text,
-                "type": item.find("type").text,
-                "language": item.find("language").text.split("-")[0],
-                "movie_search_capabilities": None,
-                "tv_search_capabilities": None
-            }
-            movie_search = item.find(".//searching/movie-search[@available='yes']")
-            tv_search = item.find(".//searching/tv-search[@available='yes']")
-            if movie_search is not None:
-                indexer_data["movie_search_capabilities"] = movie_search.attrib["supportedParams"].split(",")
-            if tv_search is not None:
-                indexer_data["tv_search_capabilities"] = tv_search.attrib["supportedParams"].split(",")
-            indexer = JackettIndexer(**indexer_data)
-            indexer_list.append(indexer)
+        for indexer in json.loads(json_content):
+            indexer_list.append(ProwlarrIndexer(**{
+                "title": indexer["name"],
+                "id": str(indexer["id"]),
+                "link": indexer["infoLink"],
+                "type": indexer["protocol"],
+                "language": indexer["language"],
+                "movie_search_capabilities": (s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None,
+                "tv_search_capabilities":  (s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None
+            }))
+            
         return indexer_list
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
@@ -273,34 +262,40 @@ class Jackett:
             else:
                 response = requests.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
-            return self._parse_xml(response.text)
+            return self._parse_xml(response.text, indexer_title)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:
-            if "Jackett.Common.IndexerException" in str(e):
+            if "Prowlarr.Common.IndexerException" in str(e):
                 logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
             else:
                 logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
         return []
 
-    def _parse_xml(self, xml_content: str) -> list[tuple[str, str]]:
+    def _parse_xml(self, xml_content: str, indexer_title: str) -> list[tuple[str, str]]:
         """Parse the torrents from the XML content"""
         xml_root = ET.fromstring(xml_content)
         result_list = []
-        for item in xml_root.findall(".//item"):
+        infohashes_found = False
+        data = xml_root.findall(".//item")
+        for item in data:
             infoHash = item.find(
                 ".//torznab:attr[@name='infohash']",
                 namespaces={"torznab": "http://torznab.com/schemas/2015/feed"}
             )
             if infoHash is None or len(infoHash.attrib["value"]) != 40:
                 continue
+            infohashes_found = True
             result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
+        len_data = len(data)
+        if infohashes_found == False and len_data > 0:
+            logger.debug(f"{self.key} Tracker {indexer_title} may never return infohashes, consider disabling: {len_data} items found, None contain infohash. ")
         return result_list
 
     def _log_indexers(self) -> None:
         """Log the indexers information"""
         for indexer in self.indexers:
-            # logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
+            logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
             if not indexer.movie_search_capabilities:
                 logger.debug(f"Movie search not available for {indexer.title}")
             if not indexer.tv_search_capabilities:
