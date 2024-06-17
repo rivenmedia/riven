@@ -35,9 +35,9 @@
 </div> -->
 
 <div class="bg-background font-primary font-medium">
-	{#if !$page.url.pathname.startsWith('/onboarding')}
+	<!-- {#if !$page.url.pathname.startsWith('/onboarding')}
 		<Header />
-	{/if}
+	{/if} -->
 
 	<slot />
 </div>
