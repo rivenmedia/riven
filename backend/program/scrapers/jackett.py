@@ -298,7 +298,7 @@ class Jackett:
     def _log_indexers(self) -> None:
         """Log the indexers information"""
         for indexer in self.indexers:
-            logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
+            # logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
             if not indexer.movie_search_capabilities:
                 logger.debug(f"Movie search not available for {indexer.title}")
             if not indexer.tv_search_capabilities:

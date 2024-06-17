@@ -3,7 +3,7 @@ from program.content.trakt import TraktContent
 from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
-from program.libraries import PlexLibrary, SymlinkLibrary
+from program.libraries import SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -20,7 +20,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     no_further_processing: ProcessedEvent = (None, None, [])
     items_to_submit = []
 
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)  # PlexLibrary is a special case
+    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
     if emitted_by in source_services or item.state == States.Unknown:
         next_service = TraktIndexer
         if isinstance(item, Season):

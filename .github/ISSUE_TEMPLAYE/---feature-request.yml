@@ -11,7 +11,7 @@ body:
       value: |
         Thank you for taking the time to file a complete bug report.
 
-        Before submitting your issue, please search [issues](https://github.com/dreulavelle/iceberg/issues) to ensure this is not a duplicate.
+        Before submitting your issue, please search [issues](https://github.com/rivenmedia/riven/issues) to ensure this is not a duplicate.
 
         If the issue is trivial, why not submit a pull request instead?
 
@@ -40,7 +40,7 @@ body:
     attributes:
       label: Impact
       description: |
-        Please describe the motivation for this issue. Describe, as best you can, how this improves or impacts the users of Iceberg and why this is important.
+        Please describe the motivation for this issue. Describe, as best you can, how this improves or impacts the users of Riven and why this is important.
     validations:
       required: true
 

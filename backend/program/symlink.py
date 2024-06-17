@@ -440,7 +440,7 @@ class Symlinker:
         elif isinstance(item, Episode):
             episode_string = ""
             episode_number = item.get_file_episodes()
-            if episode_number[0] == item.number:
+            if episode_number and episode_number[0] == item.number:
                 if len(episode_number) > 1:
                     episode_string = f"e{str(episode_number[0]).zfill(2)}-e{str(episode_number[-1]).zfill(2)}"
                 else:
