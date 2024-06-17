@@ -1,14 +1,12 @@
 stages:
   - build_container
+  - build_slim
 
 build_container:
   rules:
-    - if: $UNINSTALL != null
-      when: never
-    - if: $project_name != null
-      when: never
-    - if: $DESTROY == null
-      when: always
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: always  # Run only on push events
+    - when: never # never otherswise
   image: docker:26.1.1
   
   stage: build_container
@@ -23,6 +21,20 @@ build_container:
     - docker push $CI_REGISTRY_IMAGE:latest
     - docker build --output type=docker -t $CI_REGISTRY_IMAGE:latest-dbg -f Dockerfile.debug .
     - docker push $CI_REGISTRY_IMAGE:latest-dbg
-    # build -t iceberg:latest -f Dockerfile .
-    #- docker system prune -a -f || true
-    #- docker builder prune -a -f || true
+ 
+build_slim:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never  # Prevent pipeline run for push event
+    - when: always # Run pipeline for all other cases
+  image: docker:26.1.1
+  
+  stage: build_container
+  tags:
+    - Build
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - echo "The current project id number is $CI_PROJECT_ID"
+    - docker build --output type=docker -t $CI_REGISTRY_IMAGE:slim -f Dockerfile.slim .
+    - docker push $CI_REGISTRY_IMAGE:slim

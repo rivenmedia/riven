@@ -69,7 +69,7 @@ class Jackett:
                     return False
                 self.indexers = indexers
                 if self.rate_limit:
-                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_second)
+                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_seconds)
                 self._log_indexers()
                 return True
             except ReadTimeout:

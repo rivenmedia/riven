@@ -1,18 +1,4 @@
 #!/bin/bash
-: ${PUID:=1000}
-: ${PGID:=1000}
-
-echo "Starting Container with ${PUID:-1000}:${PGID:-1000} permissions..."
-
-if ! [ "$PUID" -eq "$PUID" ] 2> /dev/null; then
-    echo "PUID is not a valid integer. Exiting..."
-    exit 1
-fi
-
-if ! [ "$PGID" -eq "$PGID" ] 2> /dev/null; then
-    echo "PGID is not a valid integer. Exiting..."
-    exit 1
-fi
 
 : ${USERNAME:=iceberg}
 : ${GROUPNAME:=iceberg}
