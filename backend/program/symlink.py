@@ -295,16 +295,17 @@ class Symlinker:
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
         """Create necessary folders and determine the destination path for symlinks."""
-        is_anime = hasattr(item, 'is_anime') and item.is_anime
+        is_anime: bool = hasattr(item, 'is_anime') and item.is_anime
 
-        movie_path = self.library_path_movies
-        show_path = self.library_path_shows
+        movie_path: Path = self.library_path_movies
+        show_path: Path = self.library_path_shows
 
-        if is_anime:
-            if isinstance(item, Movie):
-                movie_path = self.library_path_anime_movies
-            elif isinstance(item, (Show, Season, Episode)):
-                show_path = self.library_path_anime_shows
+        if self.settings.separate_anime_dirs:
+            if is_anime:
+                if isinstance(item, Movie):
+                    movie_path = self.library_path_anime_movies
+                elif isinstance(item, (Show, Season, Episode)):
+                    show_path = self.library_path_anime_shows
 
         def create_folder_path(base_path, *subfolders):
             path = os.path.join(base_path, *subfolders)
