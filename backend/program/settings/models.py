@@ -29,6 +29,8 @@ class Observable(BaseModel):
 class DebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
+    proxy_enabled: bool = False 
+    proxy_url: str = "" 
 
 
 class TorboxModel(Observable):
@@ -184,6 +186,7 @@ class ProwlarrConfig(Observable):
     api_key: str = ""
     timeout: int = 30
     ratelimit: bool = True
+    limiter_seconds: int = 60
 
 
 class AnnatarConfig(Observable):
