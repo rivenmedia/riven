@@ -1,5 +1,6 @@
 """ Prowlarr scraper module """
 
+import json
 import queue
 import threading
 import time
@@ -37,7 +38,7 @@ class Prowlarr:
         self.api_key = None
         self.indexers = None
         self.hash_cache = hash_cache
-        self.settings = settings_manager.settings.scraping.Prowlarr
+        self.settings = settings_manager.settings.scraping.prowlarr
         self.settings_model = settings_manager.settings.ranking
         self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
@@ -239,16 +240,17 @@ class Prowlarr:
     def _get_indexer_from_json(self, json_content: str) -> list[ProwlarrIndexer]:
         """Parse the indexers from the XML content"""
         indexer_list = []
-        for indexer in json.loads(json_content)
-            indexer_list.append({
-                "title": indexer.name,
-                "id": indexer.id,
-                "link": indexer.infoLink,
-                "type": indexer.protocol,
-                "language": indexer.language,
-                "movie_search_capabilities": indexer.movieSearchParams if  len([s for s in indexer.capabilities.categories if s.name == "Movies"]) > 0 else None
-                "tv_search_capabilities": indexer.tvSearchParams if  len([s for s in indexer.capabilities.categories if s.name == "TV"]) > 0 else None
-            })
+        for indexer in json.loads(json_content):
+            indexer_list.append(ProwlarrIndexer(**{
+                "title": indexer["name"],
+                "id": str(indexer["id"]),
+                "link": indexer["infoLink"],
+                "type": indexer["protocol"],
+                "language": indexer["language"],
+                "movie_search_capabilities": (s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None,
+                "tv_search_capabilities":  (s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None
+            }))
+            
         return indexer_list
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
