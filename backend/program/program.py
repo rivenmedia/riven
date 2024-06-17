@@ -243,7 +243,7 @@ class Program(threading.Thread):
                         self.running_items.remove(orig_item)
                 self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
-            print('Service {service.__name__} ime out waiting for result on {orig_item.log_string}')
+            print('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             if orig_item in self.running_items:
                         self.running_items.remove(orig_item)
         except Exception:
@@ -267,7 +267,7 @@ class Program(threading.Thread):
                 break
         if not found:
             max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
-            timeout_seconds = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 60*3
+            timeout_seconds = int(os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60*3
             new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers, timeout=timeout_seconds )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
