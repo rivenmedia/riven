@@ -222,7 +222,8 @@ class Program(threading.Thread):
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            for item in future.result():
+            timeout_seconds = int(os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60*3
+            for item in future.result(timeout=timeout_seconds):
                 if isinstance(item, list):
                     all_media_items = True
                     for i in item:
@@ -242,6 +243,10 @@ class Program(threading.Thread):
                     if orig_item in self.running_items:
                         self.running_items.remove(orig_item)
                 self._push_event_queue(Event(emitted_by=service, item=item))
+        except TimeoutError:
+            print('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
+            if orig_item in self.running_items:
+                        self.running_items.remove(orig_item)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
 
