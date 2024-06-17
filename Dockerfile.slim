@@ -45,10 +45,10 @@ run cd /riven/backend && poetry add nuitka && \
 
 from scratch
 
-COPY --from=Base /riven/backend/main.bin /main.bin
+COPY --from=Base /riven/backend/main.bin /riven
 copy VERSION /
 volume /data
 copy --from=Base /lib/ /lib/
 # Ensure entrypoint script is executable
 
-ENTRYPOINT ["/main.bin"]
+ENTRYPOINT ["/riven"]
