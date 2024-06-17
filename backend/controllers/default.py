@@ -29,9 +29,16 @@ async def health(request: Request):
 async def get_rd_user():
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
+
+    proxy = settings_manager.settings.downloaders.real_debrid.proxy_url if settings_manager.settings.downloaders.real_debrid.proxy_enabled else None
+
     response = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user", headers=headers, timeout=10
+        "https://api.real-debrid.com/rest/1.0/user",
+        headers=headers,
+        proxies=proxy if proxy else None,
+        timeout=10
     )
+
     if response.status_code != 200:
         return {"success": False, "message": response.json()}
 
