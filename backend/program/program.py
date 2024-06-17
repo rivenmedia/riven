@@ -222,7 +222,8 @@ class Program(threading.Thread):
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            for item in future.result():
+            timeout_seconds = int(os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60*3
+            for item in future.result(timeout=timeout_seconds):
                 if isinstance(item, list):
                     all_media_items = True
                     for i in item:
@@ -267,8 +268,7 @@ class Program(threading.Thread):
                 break
         if not found:
             max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
-            timeout_seconds = int(os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60*3
-            new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers, timeout=timeout_seconds )
+            new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
         func = self.services[service].run
