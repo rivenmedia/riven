@@ -55,7 +55,7 @@ def setup_logger(level):
 
     # Log format to match the old log format, but with color
     log_format = (
-        "<red>{time:YYMMDD}</red> <red>{time:HH:mm:ss}</red> | "
+        "<fg #818589>{time:YYMMDD} {time:HH:mm:ss}</fg #818589> | "
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
         "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
     )
