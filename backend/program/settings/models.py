@@ -183,6 +183,7 @@ class ProwlarrConfig(Observable):
     api_key: str = ""
     timeout: int = 30
     ratelimit: bool = True
+    limiter_seconds = 60
 
 
 class AnnatarConfig(Observable):
