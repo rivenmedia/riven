@@ -1,10 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { Separator } from '$lib/components/ui/separator';
-	import { Loader2, Check, X, CircleDot, Download, Mail, Calendar } from 'lucide-svelte';
-	import ServiceStatus from '$lib/components/service-status.svelte';
-	import { formatDate, formatRDDate } from '$lib/helpers';
-	import * as Card from '$lib/components/ui/card';
+	import * as Carousel from '$lib/components/ui/carousel/index.js';
 
 	export let data: PageData;
 </script>
@@ -13,7 +9,22 @@
 	<title>Iceberg | Home</title>
 </svelte:head>
 
-<div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32">
+<div class="flex w-full flex-col">
+	<Carousel.Root class="w-full h-[50vh] md:h-[100vh]">
+		<Carousel.Content>
+			<!-- <Carousel.Item>...</Carousel.Item>
+			<Carousel.Item>...</Carousel.Item>
+			<Carousel.Item>...</Carousel.Item> -->
+			{#each data.nowPlaying.data.results as nowPlaying}
+				<Carousel.Item class="w-full">
+					<img class="w-full" src="https://www.themoviedb.org/t/p/w1280{nowPlaying.backdrop_path}" alt="{nowPlaying.title}" />
+				</Carousel.Item>
+			{/each}
+		</Carousel.Content>
+	</Carousel.Root>
+</div>
+
+<!-- <div class="flex w-full flex-col p-8 font-medium md:px-24 lg:px-32 pt-16">
 	{#if data.appData.user.success}
 		<div class="grid grid-flow-row gap-4 lg:grid-flow-col">
 			<Card.Root class="min-h-96">
@@ -91,4 +102,4 @@
 			</Card.Root>
 		</div>
 	{/if}
-</div>
+</div> -->
