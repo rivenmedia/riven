@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import os
+import signal
 import sys
 import threading
 import time
@@ -92,6 +93,14 @@ class Server(uvicorn.Server):
             raise e
         finally:
             self.should_exit = True
+
+def signal_handler(sig, frame):
+    logger.log('PROGRAM','Exiting Gracefully.')
+    app.program.stop()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
