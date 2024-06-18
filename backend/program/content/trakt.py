@@ -263,7 +263,7 @@ def _fetch_data(url, headers, params):
                 if not data:
                     break
                 all_data.extend(data)
-                if params.get("limit") and len(data) <= params["limit"]:
+                if params.get("limit") and len(all_data) >= params["limit"]:
                     break
                 page += 1
             elif response.status_code == 429:
