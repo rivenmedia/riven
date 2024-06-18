@@ -95,7 +95,6 @@ def _make_request(
     try:
         response = session.request(
             method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies
-            method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies
         )
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {e}", exc_info=True)
@@ -106,8 +105,6 @@ def _make_request(
     return ResponseObject(response, response_type)
 
 
-def ping(url: str, timeout=10, additional_headers=None, proxies=None):
-    return requests.Session().get(url, headers=additional_headers, timeout=timeout, proxies=proxies)
 def ping(url: str, timeout=10, additional_headers=None, proxies=None):
     return requests.Session().get(url, headers=additional_headers, timeout=timeout, proxies=proxies)
 
