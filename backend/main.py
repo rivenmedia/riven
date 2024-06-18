@@ -87,8 +87,8 @@ class Server(uvicorn.Server):
                 time.sleep(1e-3)
             yield
         except Exception as e:
-            logger.exception(traceback.format_exc())
             logger.exception(f"Error in server thread: {e}")
+            logger.exception(traceback.format_exc())
             raise e
         finally:
             self.should_exit = True
@@ -107,6 +107,7 @@ with server.run_in_thread():
         pass
     except Exception as e:
         logger.exception(f"Error in main thread: {e}")
+        logger.exception(traceback.format_exc())
     finally:
         app.program.stop()
         logger.critical("Server has been stopped")
