@@ -138,9 +138,6 @@ class Program(threading.Thread):
         if len(self.media_items):
             self.media_items.log()
 
-        unfinished_items = self.media_items.get_incomplete_items()
-        logger.log("PROGRAM", f"Found {len(unfinished_items)} unfinished items")
-        
         self.executors = []
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
@@ -158,6 +155,7 @@ class Program(threading.Thread):
             if not (isinstance(item, Season) and item.scraped_times > 1) 
             and not (isinstance(item, Show) and item.scraped_times > 0)
         ]
+        logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 

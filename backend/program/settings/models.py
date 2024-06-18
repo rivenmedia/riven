@@ -265,7 +265,6 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
-    symlink_monitor: bool = True
     force_refresh: bool = False
     local_only: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()

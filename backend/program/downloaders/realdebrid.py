@@ -2,6 +2,7 @@
 
 import contextlib
 import time
+from datetime import datetime
 from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,6 +64,30 @@ class Debrid:
             response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
             if response.ok:
                 user_info = response.json()
+                username = user_info.get("username", "")
+                premium_status = "Premium" if user_info.get("premium", 0) > 0 else "Not Premium"
+                expiration = user_info.get("expiration", "")
+                expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
+                time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
+                days_left = time_left.days
+                hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
+                expiration_message = ""
+
+                if days_left > 0:
+                    expiration_message = f"Your account expires in {days_left} days."
+                elif hours_left > 0:
+                    expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+                else:
+                    expiration_message = "Your account expires soon."
+
+                if user_info.get("type", "") != "premium":
+                    logger.log("DEBRID", "You are not a premium member.")
+                    return False
+                else:
+                    logger.log("DEBRID", f"Hello {username}, your account is {premium_status}.")
+                    logger.log("DEBRID", f"Expiration: {expiration_datetime}")
+                    logger.log("DEBRID", expiration_message)
+
                 return user_info.get("premium", 0) > 0
         except ConnectTimeout:
             logger.error("Connection to Real-Debrid timed out.")
@@ -330,7 +355,7 @@ class Debrid:
             return False
 
         # Check if all needed episodes are captured (or atleast half)
-        if (needed_episodes.keys() == matched_files.keys()) or (len(matched_files) >= len(needed_episodes) // 2):
+        if (needed_episodes.keys() == matched_files.keys()):
             # Set the necessary attributes for each episode
             for ep_num, filename in matched_files.items():
                 ep = needed_episodes[ep_num]
