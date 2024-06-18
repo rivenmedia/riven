@@ -214,9 +214,9 @@ class Program(threading.Thread):
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
                 if not isinstance(item, (Show, Movie, Episode, Season)):
-                    logger.log("NEW", f"Added {item.log_string} to the queue")
+                    logger.log("NEW", f"Added {event.item.log_string} to the queue")
                 else:
-                    logger.log("DISCOVERY", f"Re-added {item.log_string} to the queue" )
+                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
                 return True
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
