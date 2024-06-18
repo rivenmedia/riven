@@ -123,10 +123,10 @@ class MediaItemContainer:
             items_copy = list(self._items.items())  # Create a copy of the dictionary items
             for item_id, item in items_copy:
                 if isinstance(item, Show):
-                    if item.state not in (States.Completed):
+                    if item.state not in [States.Completed]:
                         incomplete_items[item_id] = item
                 elif isinstance(item, Movie):
-                    if item.state not in (States.Completed, States.PartiallyCompleted):
+                    if item.state not in [States.Completed, States.PartiallyCompleted]:
                         incomplete_items[item_id] = item
             return incomplete_items
         finally:
