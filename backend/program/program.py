@@ -196,7 +196,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
-                coalesce=True,
+                coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
@@ -240,7 +240,8 @@ class Program(threading.Thread):
                     if all_media_items == False:
                         continue
                     with self.mutex:
-                        self.running_items.remove(orig_item)
+                        if orig_item in self.running_items:
+                            self.running_items.remove(orig_item)
                     for i in item:
                         self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
