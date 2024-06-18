@@ -196,23 +196,31 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
-                coalesce=True,
+                misfire_grace_time=30,
+                coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
-                if( event.item.parent and event.item.parent in self.queued_items ):
+                if event.item.parent and event.item.parent in self.queued_items:
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
+                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items:
                     return
-                if( event.item.parent and event.item.parent in self.running_items ):
+                if event.item.parent and event.item.parent in self.running_items:
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items ):
+                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items:
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+                if not isinstance(event.item, (Show, Movie, Episode, Season)):
+                    logger.log("NEW", f"Added to the queue: {event.item.log_string}")
+                else:
+                    logger.log("DISCOVERY", f"Re-added to the queue: {event.item.log_string}" )
+                return True
+            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+            return False
 
     def _pop_event_queue(self, event):
         with self.mutex:
@@ -233,7 +241,8 @@ class Program(threading.Thread):
                     if all_media_items == False:
                         continue
                     with self.mutex:
-                        self.running_items.remove(orig_item)
+                        if orig_item in self.running_items:
+                            self.running_items.remove(orig_item)
                     for i in item:
                         self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
@@ -317,6 +326,9 @@ class Program(threading.Thread):
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
+        if not self.running:
+            return
+
         self.running = False
         self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
@@ -331,11 +343,7 @@ class Program(threading.Thread):
 
     def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
         """Add item to the queue for processing."""
-        if isinstance(item, Union[Movie, Show, Season, Episode]):
-            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
-            logger.log("NEW", f"Added {item.log_string} to the queue")
-            return True
-        return False
+        return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def clear_queue(self):
         """Clear the event queue."""

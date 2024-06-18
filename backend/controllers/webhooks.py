@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Dict
 
 import pydantic
@@ -6,13 +5,11 @@ from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
 from program.indexers.trakt import (
     TraktIndexer,
-    create_item_from_imdb_id,
     get_imdbid_from_tmdb,
 )
 from program.media.item import MediaItem, Show
 from requests import RequestException
 from utils.logger import logger
-from utils.request import get
 
 from .models.overseerr import OverseerrWebhook
 
@@ -56,8 +53,6 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized", "title": req.subject}
 
-    trakt: TraktIndexer = request.app.program.services[TraktIndexer]
-
     if imdb_id in overseerr.recurring_items:
         logger.log("API", "Request already in queue", {"imdb_id": imdb_id})
         return {"success": False, "message": "Request already in queue", "title": req.subject}
@@ -66,12 +61,9 @@ async def overseerr(request: Request) -> Dict[str, Any]:
 
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
-        item = create_item_from_imdb_id(new_item.imdb_id)
-        if isinstance(item, Show):
-            trakt._add_seasons_to_show(item, imdb_id)
-        request.app.program.add_to_queue(item)
+        request.app.program.add_to_queue(new_item)
     except Exception as e:
         logger.error(f"Failed to create item from imdb_id: {imdb_id}")
         return {"success": False, "message": "Failed to create item from imdb_id", "title": req.subject}
 
-    return {"success": True}
+    return {"success": True, "message": f"Added {imdb_id} to queue"}
