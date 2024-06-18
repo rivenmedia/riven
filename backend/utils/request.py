@@ -82,7 +82,6 @@ def _make_request(
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
-    proxies=None
     proxies=None,
 ) -> ResponseObject:
     session = requests.Session()
