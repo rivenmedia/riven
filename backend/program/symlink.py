@@ -274,7 +274,7 @@ class Symlinker:
 
         try:
             if os.path.exists(destination):
-                os.remove(destination)
+                return True
             os.symlink(source, destination)
             item.set("symlinked", True)
             item.set("symlinked_at", datetime.now())
