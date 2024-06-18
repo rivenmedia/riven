@@ -213,6 +213,10 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+                if not isinstance(item, (Show, Movie, Episode, Season)):
+                    logger.log("NEW", f"Added {item.log_string} to the queue")
+                else:
+                    logger.log("DISCOVERY", f"Re-added {item.log_string} to the queue" )
                 return True
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
@@ -333,13 +337,9 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def add_to_queue(self, MediaItem) -> bool:
+    def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
-        if isinstance(item, Union[Movie, Show, Season, Episode]):
-            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
-            logger.log("NEW", f"Added {item.log_string} to the queue")
-            return True
-        return False
+        return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def clear_queue(self):
         """Clear the event queue."""
