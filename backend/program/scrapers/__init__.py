@@ -41,10 +41,10 @@ class Scraping:
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
             if isinstance(item, Season):
-                res = [e for e in item.episodes if e.state not States.Completed]
+                res = [e for e in item.episodes if e.state not in (States.Completed) ]
                 yield res
             if isinstance(item, Show):
-                res = [s for s in item.seasons if s.state not States.Completed]
+                res = [s for s in item.seasons if s.state not in (States.Completed)]
                 yield res
             return
 
