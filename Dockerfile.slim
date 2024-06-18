@@ -39,7 +39,7 @@ COPY backend/ /riven/backend
 COPY VERSION entrypoint.sh /riven/
 
 run cd /riven/backend && poetry add nuitka 
-run cd /rive/backend && poetry run python3 -m nuitka --standalone --onefile --onefile-tempdir-spec=/onefile_%PID%_%TIME% --python-flag=nosite,-O --nofollow-import-to=pytest --clang --warn-implicit-exceptions --warn-unusual-code --prefer-source-code main.py
+run cd /riven/backend && poetry run python3 -m nuitka --standalone --onefile --onefile-tempdir-spec=/onefile_%PID%_%TIME% --python-flag=nosite,-O --nofollow-import-to=pytest --clang --warn-implicit-exceptions --warn-unusual-code --prefer-source-code main.py
 
 from scratch
 
