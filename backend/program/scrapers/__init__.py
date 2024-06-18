@@ -10,6 +10,7 @@ from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.settings.manager import settings_manager
+from program.media.state import States
 from utils.logger import logger
 
 
@@ -38,6 +39,12 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
+            if isinstance(item, Season) and item.scraped_times > 1:
+                res = [e for e in item.episodes if e.state not States.Completed]
+                yield res
+            if isinstance(item, Show) and item.scraped_times > 0:
+                res = [s for s in item.seasons if s.state not States.Completed]
+                yield res
             return
 
         for service_name, service in self.services.items():
@@ -48,8 +55,18 @@ class Scraping:
                     logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
                 except Exception as e:
                     logger.error(f"{service_name} failed to scrape {item.log_string}: {e}")
+        
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
+        if not item.get("streams", {}):
+            logger.debug(f"{service_name} Scraped zero items for {item.log_string}")
+            if isinstance(item, Season) and item.scraped_times > 1:
+                res = [e for e in item.episodes if e.state not States.Completed]
+                yield res
+            if isinstance(item, Show) and item.scraped_times > 0:
+                res = [s for s in item.seasons if s.state not States.Completed]
+                yield res
+            return False
         yield item
 
     @classmethod

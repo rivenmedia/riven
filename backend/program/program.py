@@ -152,8 +152,6 @@ class Program(threading.Thread):
         """Retry any items that are in an incomplete state."""
         items_to_submit = [
             item for item in self.media_items.get_incomplete_items().values()
-            if not (isinstance(item, Season) and item.scraped_times > 1) 
-            and not (isinstance(item, Show) and item.scraped_times > 0)
         ]
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
