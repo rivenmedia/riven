@@ -2,8 +2,7 @@ import os
 import shutil
 import tempfile
 import threading
-from copy import deepcopy
-from pathlib import Path
+from copy import copy
 from pickle import UnpicklingError
 from typing import Dict, Generator, List, Optional
 
@@ -94,19 +93,19 @@ class MediaItemContainer:
 
     @property
     def seasons(self) -> dict[ItemId, Season]:
-        return deepcopy(self._seasons)
+        return copy(self._seasons)
 
     @property
     def episodes(self) -> dict[ItemId, Episode]:
-        return deepcopy(self._episodes)
+        return copy(self._episodes)
 
     @property
     def shows(self) -> dict[ItemId, Show]:
-        return deepcopy(self._shows)
+        return copy(self._shows)
 
     @property
     def movies(self) -> dict[ItemId, Movie]:
-        return deepcopy(self._movies)
+        return copy(self._movies)
 
     def get_items_with_state(self, state) -> dict[ItemId, MediaItem]:
         """Get items with the specified state"""
@@ -167,15 +166,23 @@ class MediaItemContainer:
 
     def upsert(self, item: MediaItem) -> None:
         """Iterate through the input item and upsert all parents and children."""
+        if not item:
+            logger.error(f"Item is None: {item}")
+            return
+
         self._items[item.item_id] = item
         detatched = item.item_id.parent_id is None or item.parent is None
         if isinstance(item, (Season, Episode)) and detatched:
-            logger.error(
-                f"{item.__class__.__name__} item {item.log_string} is detatched " +
-                "and not associated with a parent, and thus" +
-                " it cannot be upserted into the database"
-            )
-            raise ValueError("Item detached from parent")
+            if not item or not getattr(item, 'log_string', None):
+                logger.error(f"Detached item cannot be upserted into the database")
+            else:
+                logger.error(
+                    f"{item.__class__.__name__} item {item.log_string} is detatched " +
+                    "and not associated with a parent, and thus" +
+                    " it cannot be upserted into the database"
+                )
+            del self._items[item.item_id]
+            return
         if isinstance(item, Show):
             self._shows[item.item_id] = item
             for season in item.seasons:

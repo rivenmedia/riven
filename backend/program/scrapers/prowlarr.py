@@ -264,7 +264,7 @@ class Prowlarr:
             response.raise_for_status()
             return self._parse_xml(response.text, indexer_title)
         except (HTTPError, ConnectionError, Timeout):
-            logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
+            logger.debug(f"Indexer failed to fetch results for {search_type.title()} with indexer {indexer_title}")
         except Exception as e:
             if "Prowlarr.Common.IndexerException" in str(e):
                 logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
@@ -289,13 +289,12 @@ class Prowlarr:
             result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
         len_data = len(data)
         if infohashes_found == False and len_data > 0:
-            logger.debug(f"{self.key} Tracker {indexer_title} may never return infohashes, consider disabling: {len_data} items found, None contain infohash. ")
+            logger.warning(f"{self.key} Tracker {indexer_title} may never return infohashes, consider disabling: {len_data} items found, None contain infohash.")
         return result_list
 
     def _log_indexers(self) -> None:
         """Log the indexers information"""
         for indexer in self.indexers:
-            logger.debug(f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}")
             if not indexer.movie_search_capabilities:
                 logger.debug(f"Movie search not available for {indexer.title}")
             if not indexer.tv_search_capabilities:

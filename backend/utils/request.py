@@ -82,6 +82,7 @@ def _make_request(
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
+    proxies=None
     proxies=None,
 ) -> ResponseObject:
     session = requests.Session()
@@ -95,6 +96,7 @@ def _make_request(
     try:
         response = session.request(
             method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies
+            method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies
         )
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {e}", exc_info=True)
@@ -105,6 +107,8 @@ def _make_request(
     return ResponseObject(response, response_type)
 
 
+def ping(url: str, timeout=10, additional_headers=None, proxies=None):
+    return requests.Session().get(url, headers=additional_headers, timeout=timeout, proxies=proxies)
 def ping(url: str, timeout=10, additional_headers=None, proxies=None):
     return requests.Session().get(url, headers=additional_headers, timeout=timeout, proxies=proxies)
 
@@ -134,7 +138,13 @@ def get(
 
 
 def post(
-    url: str, data: dict, params: dict = None, timeout=10, additional_headers=None, retry_if_failed=False, proxies=None
+    url: str,
+    data: dict,
+    params: dict = None,
+    timeout=10,
+    additional_headers=None,
+    retry_if_failed=False,
+    proxies=None
 ) -> ResponseObject:
     """Requests post wrapper"""
     return _make_request(

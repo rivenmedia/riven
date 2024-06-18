@@ -26,7 +26,7 @@ def setup_logger(level):
 
     # Define log levels and their default settings
     log_levels = {
-        "PROGRAM": (36, "3E201D", "🤖"),
+        "PROGRAM": (36, "d49e78", "🤖"),
         "DEBRID": (38, "FE6F47", "🔗"),
         "SYMLINKER": (39, "F9E79F", "🔗"),
         "SCRAPER": (40, "D299EA", "👻"),
@@ -55,7 +55,7 @@ def setup_logger(level):
 
     # Log format to match the old log format, but with color
     log_format = (
-        "<fg #818589>{time:YYMMDD} {time:HH:mm:ss}</fg #818589> | "
+        "<fg #818589>{time:YY-MM-DD} {time:HH:mm:ss}</fg #818589> | "
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
         "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
     )

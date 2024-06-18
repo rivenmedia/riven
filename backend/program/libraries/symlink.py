@@ -23,11 +23,13 @@ class SymlinkLibrary:
             logger.error("Library path not set or set to the current directory in SymlinkLibrary settings.")
             return False
 
-        required_dirs = ["shows", "movies", "anime_shows", "anime_movies"]
-        missing_dirs = [d for d in required_dirs if not (library_path / d).exists()]
+        required_dirs: list[str] = ["shows", "movies"]
+        if self.settings.separate_anime_dirs:
+            required_dirs.extend(["anime_shows", "anime_movies"])
+        missing_dirs: list[str] = [d for d in required_dirs if not (library_path / d).exists()]
 
         if missing_dirs:
-            available_dirs = ", ".join(os.listdir(library_path))
+            available_dirs: str = ", ".join(os.listdir(library_path))
             logger.error(f"Missing required directories in the library path: {', '.join(missing_dirs)}.")
             logger.debug(f"Library directory contains: {available_dirs}")
             return False
@@ -39,9 +41,13 @@ class SymlinkLibrary:
         be fed into an Indexer to have the rest of the metadata filled in.
         """
         for directory, item_type, is_anime in [("movies", "movie", False), ("anime_movies", "anime movie", True)]:
+            if not self.settings.separate_anime_dirs and is_anime:
+                continue
             yield from process_items(self.settings.library_path / directory, Movie, item_type, is_anime)
 
         for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
+            if not self.settings.separate_anime_dirs and is_anime:
+                continue
             yield from process_shows(self.settings.library_path / directory, item_type, is_anime)
 
 

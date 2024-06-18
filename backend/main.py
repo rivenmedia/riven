@@ -87,8 +87,8 @@ class Server(uvicorn.Server):
                 time.sleep(1e-3)
             yield
         except Exception as e:
+            logger.error(f"Error in server thread: {e}")
             logger.exception(traceback.format_exc())
-            logger.exception(f"Error in server thread: {e}")
             raise e
         finally:
             self.should_exit = True
@@ -101,12 +101,11 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-    except AttributeError as e:
-        logger.error(f"Program failed to initialize: {e}")
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        logger.exception(f"Error in main thread: {e}")
+        logger.error(f"Error in main thread: {e}")
+        logger.exception(traceback.format_exc())
     finally:
         app.program.stop()
         logger.critical("Server has been stopped")
