@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import os
+import signal
 import sys
 import threading
 import time
