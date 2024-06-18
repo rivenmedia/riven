@@ -213,6 +213,9 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+                return True
+            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+            return False
 
     def _pop_event_queue(self, event):
         with self.mutex:
@@ -330,7 +333,7 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
+    def add_to_queue(self, MediaItem) -> bool:
         """Add item to the queue for processing."""
         if isinstance(item, Union[Movie, Show, Season, Episode]):
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
