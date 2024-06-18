@@ -39,10 +39,10 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
-            if isinstance(item, Season) and item.scraped_times > 1:
+            if isinstance(item, Season):
                 res = [e for e in item.episodes if e.state not States.Completed]
                 yield res
-            if isinstance(item, Show) and item.scraped_times > 0:
+            if isinstance(item, Show):
                 res = [s for s in item.seasons if s.state not States.Completed]
                 yield res
             return
@@ -60,10 +60,10 @@ class Scraping:
         item.set("scraped_times", item.scraped_times + 1)
         if not item.get("streams", {}):
             logger.debug(f"{service_name} Scraped zero items for {item.log_string}")
-            if isinstance(item, Season) and item.scraped_times > 1:
+            if isinstance(item, Season):
                 res = [e for e in item.episodes if e.state not States.Completed]
                 yield res
-            if isinstance(item, Show) and item.scraped_times > 0:
+            if isinstance(item, Show):
                 res = [s for s in item.seasons if s.state not States.Completed]
                 yield res
             return False
