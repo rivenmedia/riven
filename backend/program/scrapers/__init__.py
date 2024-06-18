@@ -6,9 +6,9 @@ from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler
 from program.scrapers.mediafusion import Mediafusion
 from program.scrapers.orionoid import Orionoid
+from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
-from program.scrapers.prowlarr import Prowlarr
 from program.settings.manager import settings_manager
 from utils.logger import logger
 

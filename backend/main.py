@@ -101,9 +101,6 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-    except AttributeError as e:
-        logger.error(f"Program failed to initialize: {e}")
-        logger.exception(traceback.format_exc())
     except KeyboardInterrupt:
         pass
     except Exception as e:
