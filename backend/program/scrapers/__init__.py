@@ -10,6 +10,7 @@ from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.settings.manager import settings_manager
+from program.media.item import Season, Show
 from program.media.state import States
 from utils.logger import logger
 
