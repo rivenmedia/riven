@@ -6,7 +6,6 @@ from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
 from program.indexers.trakt import (
     TraktIndexer,
-    create_item_from_imdb_id,
     get_imdbid_from_tmdb,
 )
 from program.media.item import MediaItem, Show

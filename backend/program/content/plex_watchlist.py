@@ -2,7 +2,6 @@
 
 from typing import Generator, Union
 
-from program.indexers.trakt import create_item_from_imdb_id
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import HTTPError
@@ -64,9 +63,9 @@ class PlexWatchlist:
                 continue
             self.recurring_items.add(imdb_id)
             try:
-                media_item: MediaItem = create_item_from_imdb_id(imdb_id)
-                if media_item:
-                    yield media_item
+                yield MediaItem(
+                                {"imdb_id": item.imdb_id, "requested_by": self.key}
+                            )
                 else:
                     logger.error(f"Failed to create media item from IMDb ID: {imdb_id}")
             except Exception as e:
