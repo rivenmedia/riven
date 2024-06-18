@@ -309,9 +309,6 @@ class Program(threading.Thread):
                 for item_to_submit in items_to_submit:
                     if item_to_submit not in self.running_items:
                         self.running_items.append(item_to_submit)
-                    if isinstance(item_to_submit, Season) and next_service == Scraping:
-                        if item_to_submit.scraped_times >= 3:
-                            continue
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
