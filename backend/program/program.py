@@ -213,7 +213,7 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
-                if not isinstance(item, (Show, Movie, Episode, Season)):
+                if not isinstance(event.item, (Show, Movie, Episode, Season)):
                     logger.log("NEW", f"Added {event.item.log_string} to the queue")
                 else:
                     logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
