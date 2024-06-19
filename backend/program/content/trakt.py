@@ -173,20 +173,28 @@ class TraktContent:
 
     def _extract_user_list_from_url(self, url) -> tuple:
         """Extract user and list name from Trakt URL"""
-        # Match full URL format
-        match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
-        if match:
-            return match.groups()
-        
-        # Match short URL format and resolve to full URL if necessary
+
+        def match_full_url(url: str) -> tuple:
+            """Helper function to match full URL format"""
+            match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
+            if match:
+                return match.groups()
+            return None, None
+
+        # First try to match the original URL
+        user, list_name = match_full_url(url)
+        if user and list_name:
+            return user, list_name
+
+        # If it's a short URL, resolve it and try to match again
         match = regex.match(r'https://trakt.tv/lists/\d+', url)
         if match:
             full_url = self._resolve_short_url(url)
             if full_url:
-                match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', full_url)
-                if match:
-                    return match.groups()
-        
+                user, list_name = match_full_url(full_url)
+                if user and list_name:
+                    return user, list_name
+
         return None, None
         
     def _resolve_short_url(self, short_url) -> str or None:
