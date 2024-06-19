@@ -201,17 +201,20 @@ class Program(threading.Thread):
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
-                if( isinstance(event.item, Show) and any( [s for s in event.item.seasons if s in self.queued_items or s in self.running_items] | [e for e in [s.episodes for s in event.item.seasons] if e in self.queued_items or e in self.running_items]) ):
+                if ( isinstance(event.item, Show) 
+                        and (any( [s for s in event.item.seasons if s in self.queued_items or s in self.running_items]) 
+                        or any([e for e in [s.episodes for s in event.item.seasons] if e in self.queued_items or e in self.running_items]) ) 
+                        ):
                     return 
                 if isinstance(event.item, Season) and any( [e for e in event.item.episodes if e in self.queued_items or e in self.running_items] ):
                     return
-                if( event.item.parent and event.item.parent in self.queued_items ):
+                if event.item.parent and event.item.parent in self.queued_items :
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
+                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items :
                     return
-                if( event.item.parent and event.item.parent in self.running_items ):
+                if event.item.parent and event.item.parent in self.running_items :
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items ):
+                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items :
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
