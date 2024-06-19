@@ -100,15 +100,18 @@ class Debrid:
         """Download media item from real-debrid.com"""
         if (item.file and item.folder):
             yield None
+            return
         if not self.is_cached(item):
             if isinstance(item, Season):
                 res = [e for e in item.episodes]
                 yield res
-
+                return
             if isinstance(item, Show):
                 res = [s for s in item.seasons]
                 yield res
+                return
             yield None
+            return
         if not self._is_downloaded(item):
             self._download_item(item)
         self.log_item(item)
