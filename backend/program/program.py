@@ -208,13 +208,13 @@ class Program(threading.Thread):
                     return 
                 if isinstance(event.item, Season) and any( [e for e in event.item.episodes if e in self.queued_items or e in self.running_items] ):
                     return
-                if event.item.parent and event.item.parent in self.queued_items :
+                if hasattr(event.item, "parent") and event.item.parent in self.queued_items :
                     return
-                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items :
+                if hasattr(event.item, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
                     return
-                if event.item.parent and event.item.parent in self.running_items :
+                if hasattr(event.item, "parent") and event.item.parent in self.running_items :
                     return
-                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items :
+                if hasattr(event.item, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
