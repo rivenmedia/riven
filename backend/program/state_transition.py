@@ -41,8 +41,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.should_submit(item):
-            items_to_submit = [item]
+        items_to_submit = [item]
 
     elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader
