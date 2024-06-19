@@ -210,11 +210,11 @@ class Program(threading.Thread):
                     return
                 if hasattr(event.item, "parent") and event.item.parent in self.queued_items :
                     return
-                if hasattr(event.item, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
                     return
                 if hasattr(event.item, "parent") and event.item.parent in self.running_items :
                     return
-                if hasattr(event.item, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
