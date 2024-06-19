@@ -133,7 +133,7 @@
 									<div class="z-0">
 										<span
 											><img
-												src="https://image.tmdb.org/t/p/w780/{trendingAll.backdrop_path}"
+												src="https://image.tmdb.org/t/p/w342/{trendingAll.backdrop_path}"
 												alt={trendingAll.name}
 												class="size-full object-cover object-center duration-300 ease-in-out group-hover:scale-105"
 											/></span
@@ -152,10 +152,10 @@
 												<Star class="size-4" />
 												<p>{trendingAll.vote_average}</p>
 											</div>
-											<!-- <div class="flex items-center gap-2">
+											<div class="flex items-center gap-2">
 												<CalendarDays class="size-4" />
-												<p>{trendingAll.release_date}</p>
-											</div> -->
+												<p>{trendingAll.release_date || trendingAll.first_air_date}</p>
+											</div>
 											<div class="flex items-center gap-2 uppercase">
 												<Languages class="size-4" />
 												<p>{trendingAll.original_language}</p>
