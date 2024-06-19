@@ -91,6 +91,22 @@
 		<div transition:slide>
 			<TextField {form} name="realdebrid_api_key" {formData} isProtected={true} />
 		</div>
+
+		<div transition:slide>
+			<CheckboxField
+				{form}
+				name="realdebrid_proxy_enabled"
+				label="Real-Debrid Proxy"
+				{formData}
+				fieldDescription="Use proxy for Real-Debrid API"
+			/>
+		</div>
+
+		{#if $formData.realdebrid_proxy_enabled}
+			<div transition:slide>
+				<TextField {form} name="realdebrid_proxy_url" {formData} />
+			</div>
+		{/if}
 	{/if}
 
 	{#if $formData.torbox_enabled}

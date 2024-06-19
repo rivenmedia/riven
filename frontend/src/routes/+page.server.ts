@@ -74,9 +74,9 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	async function getTrendingMovies() {
+	async function getTrendingMoviesWeek() {
 		try {
-			const res = await fetch('http://127.0.0.1:8080/tmdb/trending/movie/day');
+			const res = await fetch('http://127.0.0.1:8080/tmdb/trending/movie/week');
 			if (res.ok) {
 				return await res.json();
 			}
@@ -87,9 +87,9 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		}
 	}
 
-	async function getTrendingShows() {
+	async function getTrendingShowsWeek() {
 		try {
-			const res = await fetch('http://127.0.0.1:8080/tmdb/trending/tv/day');
+			const res = await fetch('http://127.0.0.1:8080/tmdb/trending/tv/week');
 			if (res.ok) {
 				return await res.json();
 			}
@@ -155,8 +155,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	return {
 		nowPlaying: await getNowPlaying(),
 		trendingAll: await getTrendingAll(),
-		trendingMovies: await getTrendingMovies(),
-		trendingShows: await getTrendingShows(),
+		trendingMovies: await getTrendingMoviesWeek(),
+		trendingShows: await getTrendingShowsWeek(),
 		moviesPopular: await getMoviesPopular(),
 		moviesTopRated: await getMoviesTopRated(),
 		showsPopular: await getShowsPopular(),

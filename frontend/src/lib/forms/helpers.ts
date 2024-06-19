@@ -54,6 +54,8 @@ export const generalSettingsSchema = z.object({
 	episode_filesize_max: z.coerce.number().gte(-1).int().optional().default(-1),
 	realdebrid_enabled: z.boolean().default(false),
 	realdebrid_api_key: z.string().optional().default(''),
+	realdebrid_proxy_enabled: z.boolean().default(false),
+	realdebrid_proxy_url: z.string().optional().default(''),
 	torbox_enabled: z.boolean().default(false),
 	torbox_api_key: z.string().optional().default('')
 });
@@ -71,6 +73,8 @@ export function generalSettingsToPass(data: any) {
 		episode_filesize_max: data.data.episode_filesize_max,
 		realdebrid_enabled: data.data.downloaders.real_debrid.enabled,
 		realdebrid_api_key: data.data.downloaders.real_debrid?.api_key || '',
+		realdebrid_proxy_enabled: data.data.downloaders.real_debrid?.proxy_enabled || false,
+		realdebrid_proxy_url: data.data.downloaders.real_debrid?.proxy_url || '',
 		torbox_enabled: data.data.downloaders.torbox.enabled,
 		torbox_api_key: data.data.downloaders.torbox?.api_key || ''
 	};
@@ -102,7 +106,9 @@ export function generalSettingsToSet(form: SuperValidated<Infer<GeneralSettingsS
 				episode_filesize_max: form.data.episode_filesize_max,
 				real_debrid: {
 					enabled: form.data.realdebrid_enabled,
-					api_key: form.data.realdebrid_api_key
+					api_key: form.data.realdebrid_api_key,
+					proxy_enabled: form.data.realdebrid_proxy_enabled,
+					proxy_url: form.data.realdebrid_proxy_url
 				},
 				torbox: {
 					enabled: form.data.torbox_enabled,
@@ -300,6 +306,7 @@ export const contentSettingsSchema = z.object({
 	trakt_update_interval: z.coerce.number().gte(0).int().optional().default(300),
 	trakt_watchlist: z.array(z.string()).optional().default([]),
 	trakt_user_lists: z.array(z.string()).optional().default([]),
+	trakt_collection: z.array(z.string()).optional().default([]),
 	trakt_fetch_trending: z.boolean().default(false),
 	trakt_fetch_popular: z.boolean().default(false),
 	trakt_trending_count: z.coerce.number().gte(0).int().optional().default(10),
@@ -331,6 +338,7 @@ export function contentSettingsToPass(data: any) {
 		trakt_update_interval: data.data.content.trakt?.update_interval || 300,
 		trakt_watchlist: data.data.content.trakt?.watchlist || [],
 		trakt_user_lists: data.data.content.trakt?.user_lists || [],
+		trakt_collection: data.data.content.trakt?.collection || [],
 		trakt_fetch_trending: data.data.content.trakt?.fetch_trending || false,
 		trakt_fetch_popular: data.data.content.trakt?.fetch_popular || false,
 		trakt_trending_count: data.data.content.trakt?.fetch_trending_count || 10,
@@ -374,6 +382,7 @@ export function contentSettingsToSet(form: SuperValidated<Infer<ContentSettingsS
 					update_interval: form.data.trakt_update_interval,
 					watchlist: form.data.trakt_watchlist,
 					user_lists: form.data.trakt_user_lists,
+					collection: form.data.trakt_collection,
 					fetch_trending: form.data.trakt_fetch_trending,
 					fetch_popular: form.data.trakt_fetch_popular,
 					trending_count: form.data.trakt_trending_count,

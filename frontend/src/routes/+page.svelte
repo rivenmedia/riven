@@ -12,7 +12,8 @@
 		Flame,
 		Clapperboard,
 		Tv,
-		Sparkle
+		Sparkle,
+		MoveUpRight
 	} from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
 
@@ -46,7 +47,7 @@
 							loading="lazy"
 						/>
 						<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-60"></div>
-						<div class="absolute inset-0 z-[2] mt-16 flex flex-col gap-4">
+						<div class="absolute inset-0 z-[2] mt-16 flex flex-col gap-4 md:mb-56">
 							<!-- TODO: Maybe change m-4 to padding? -->
 							<div class="ml-4 flex h-full w-full flex-col justify-end gap-2 p-8 md:px-24 lg:px-32">
 								<div class="w-full max-w-2xl select-none">
@@ -100,74 +101,124 @@
 	</Carousel.Content>
 </Carousel.Root>
 
-<div class="flex h-full w-full flex-col p-8 md:px-24 lg:px-32">
-	<div class="flex flex-col items-start gap-4">
-		<div class="flex items-center gap-4">
-			<div class="bg-primary rounded-md p-2">
-				<Flame class="size-4" />
-			</div>
-			<h2 class="text-xl font-semibold md:text-2xl">What's Trending Today</h2>
+<div class="flex w-full flex-col items-start gap-4 p-8 md:-mt-56">
+	<div class="z-50 flex w-full items-center gap-4 md:px-16 lg:px-24">
+		<div class="rounded-md bg-red-400 p-2 text-white">
+			<Flame class="size-4" />
 		</div>
-		<Carousel.Root
-			opts={{
-				dragFree: true
-			}}
-			plugins={[
-				Autoplay({
-					delay: 5000
-				})
-			]}
-			class="w-full overflow-hidden"
-		>
-			<Carousel.Content class="w-full">
-				{#each data.trendingAll.data.results as trendingAll, i}
-					{#if trendingAll.media_type !== 'person'}
-						<Carousel.Item class="basis-auto text-slate-50">
-							<div
-								class="hover:border-primary aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2"
+		<h2 class="text-xl font-semibold md:text-2xl">What's Trending Today</h2>
+	</div>
+	<Carousel.Root
+		opts={{
+			dragFree: true
+		}}
+		plugins={[
+			Autoplay({
+				delay: 5000
+			})
+		]}
+		class="w-full overflow-hidden"
+	>
+		<Carousel.Content class="w-full">
+			{#each data.trendingAll.data.results as trendingAll, i}
+				{#if trendingAll.media_type !== 'person'}
+					<Carousel.Item class="basis-auto text-slate-50">
+						<div
+							class="hover:border-primary aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2"
+						>
+							<a
+								href={`/movie/${trendingAll.id}`}
+								class="group relative flex h-full w-full flex-shrink-0 flex-col"
 							>
-								<a
-									href={`/movie/${trendingAll.id}`}
-									class="group relative flex h-full w-full flex-shrink-0 flex-col"
-								>
-									<div class="z-0">
-										<span
-											><img
-												src="https://image.tmdb.org/t/p/w342/{trendingAll.backdrop_path}"
-												alt={trendingAll.name}
-												class="size-full object-cover object-center duration-300 ease-in-out group-hover:scale-105"
-											/></span
-										>
+								<div class="z-0">
+									<span
+										><img
+											src="https://image.tmdb.org/t/p/w342/{trendingAll.backdrop_path}"
+											alt={trendingAll.name}
+											class="size-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
+										/></span
+									>
+								</div>
+								<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-20"></div>
+								<div class="absolute inset-0 z-[2] flex flex-col justify-end gap-2 p-4">
+									<div class="flex items-center gap-2">
+										<Clapperboard class="size-4" />
+										<p class="line-clamp-1">{trendingAll.name || trendingAll.original_title}</p>
 									</div>
-									<div
-										class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-20"
-									></div>
-									<div class="absolute inset-0 z-[2] flex flex-col justify-end gap-2 p-4">
+									<div class="text-primary-foreground flex items-center gap-2 text-xs">
 										<div class="flex items-center gap-2">
-											<Clapperboard class="size-4" />
-											<p class="line-clamp-1">{trendingAll.name || trendingAll.original_title}</p>
+											<Star class="size-4" />
+											<p>{trendingAll.vote_average}</p>
 										</div>
-										<div class="text-primary-foreground flex items-center gap-2 text-xs">
-											<div class="flex items-center gap-2">
-												<Star class="size-4" />
-												<p>{trendingAll.vote_average}</p>
-											</div>
-											<div class="flex items-center gap-2">
-												<CalendarDays class="size-4" />
-												<p>{trendingAll.release_date || trendingAll.first_air_date}</p>
-											</div>
-											<div class="flex items-center gap-2 uppercase">
-												<Languages class="size-4" />
-												<p>{trendingAll.original_language}</p>
-											</div>
+										<div class="flex items-center gap-2">
+											<CalendarDays class="size-4" />
+											<p>{trendingAll.release_date || trendingAll.first_air_date}</p>
+										</div>
+										<div class="flex items-center gap-2 uppercase">
+											<Languages class="size-4" />
+											<p>{trendingAll.original_language}</p>
 										</div>
 									</div>
-								</a>
+								</div>
+							</a>
+						</div>
+					</Carousel.Item>
+				{/if}
+			{/each}
+		</Carousel.Content>
+	</Carousel.Root>
+</div>
+
+<div class="flex h-full w-full flex-col p-8 md:px-24 lg:px-32">
+	<div class="mx-auto flex w-full flex-col gap-4 xl:flex-row">
+		<div class="my-2 flex flex-col gap-3 md:my-0 md:gap-4 xl:w-[70%]">
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<div class="bg-primary rounded-md p-2 text-white">
+						<Clapperboard class="size-4" />
+					</div>
+					<h2 class="text-xl font-semibold md:text-2xl">Movies</h2>
+				</div>
+				<a href="/movies" class="text-primary-foreground flex items-center gap-2">
+					<span>View All</span>
+					<MoveUpRight class="size-4" />
+				</a>
+			</div>
+
+			<div class="no-scrollbar flex flex-wrap overflow-x-auto px-1 lg:p-0">
+				{#each data.trendingMovies.data.results as trendingMovies, i}
+					{#if i <= 17}
+						<a
+							href={`/movie/${trendingMovies.id}`}
+							class="group relative mb-2 flex w-1/2 flex-shrink-0 flex-col gap-2 rounded-lg p-2 sm:w-1/4 lg:w-1/6 xl:p-[.4rem]"
+						>
+							<div class="relative aspect-[1/1.5] w-full overflow-hidden rounded-lg">
+								<img
+									src="https://image.tmdb.org/t/p/w342/{trendingMovies.poster_path}"
+									alt={trendingMovies.title}
+									class="h-full w-full object-cover object-center group-hover:scale-105"
+								/>
+								<div
+									class="absolute right-0 top-1 flex items-center justify-center gap-1 rounded-l-md bg-slate-900/70 px-[5px] py-1"
+								>
+									<Star class="size-3 text-yellow-400" />
+									<span class="text-xs font-light">
+										{trendingMovies.vote_average}
+									</span>
+								</div>
 							</div>
-						</Carousel.Item>
+						</a>
 					{/if}
 				{/each}
-			</Carousel.Content>
-		</Carousel.Root>
+			</div>
+		</div>
+
+		<div class="mt-0 hidden h-full flex-col gap-3 px-1 md:gap-4 lg:w-[30%] xl:flex"></div>
 	</div>
 </div>
+
+<style>
+	.no-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+</style>
