@@ -2,6 +2,7 @@
 
 import contextlib
 import time
+from datetime import datetime
 from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ class Debrid:
         self.settings = settings_manager.settings.downloaders.real_debrid
         self.download_settings = settings_manager.settings.downloaders
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.proxy = self.settings.proxy_url if self.settings.proxy_enabled else None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -55,16 +57,44 @@ class Debrid:
         if not isinstance(self.download_settings.episode_filesize_max, int) or self.download_settings.episode_filesize_max < -1:
             logger.error("Real-Debrid episode filesize max is not set or invalid.")
             return False
+        if self.settings.proxy_enabled and not self.settings.proxy_url:
+            logger.error("Proxy is enabled but no proxy URL is provided.")
+            return False
         try:
-            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers)
+            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
             if response.ok:
                 user_info = response.json()
+                username = user_info.get("username", "")
+                premium_status = "Premium" if user_info.get("premium", 0) > 0 else "Not Premium"
+                expiration = user_info.get("expiration", "")
+                expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
+                time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
+                days_left = time_left.days
+                hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
+                expiration_message = ""
+
+                if days_left > 0:
+                    expiration_message = f"Your account expires in {days_left} days."
+                elif hours_left > 0:
+                    expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+                else:
+                    expiration_message = "Your account expires soon."
+
+                if user_info.get("type", "") != "premium":
+                    logger.log("DEBRID", "You are not a premium member.")
+                    return False
+                else:
+                    logger.log("DEBRID", f"Hello {username}, your account is {premium_status}.")
+                    logger.log("DEBRID", f"Expiration: {expiration_datetime}")
+                    logger.log("DEBRID", expiration_message)
+
                 return user_info.get("premium", 0) > 0
         except ConnectTimeout:
             logger.error("Connection to Real-Debrid timed out.")
         except Exception as e:
             logger.exception(f"Failed to validate Real-Debrid settings: {e}")
         return False
+
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
@@ -137,7 +167,7 @@ class Debrid:
         for stream_chunk in _chunked(filtered_streams, 5):
             streams = "/".join(stream_chunk)
             try:
-                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
             except Exception as e:
@@ -325,7 +355,7 @@ class Debrid:
             return False
 
         # Check if all needed episodes are captured (or atleast half)
-        if (needed_episodes.keys() == matched_files.keys()) or (len(matched_files) >= len(needed_episodes) // 2):
+        if (needed_episodes.keys() == matched_files.keys()):
             # Set the necessary attributes for each episode
             for ep_num, filename in matched_files.items():
                 ep = needed_episodes[ep_num]
@@ -522,6 +552,7 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/addMagnet",
                 {"magnet": f"magnet:?xt=urn:btih:{hash}&dn=&tr="},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data.id
@@ -539,7 +570,8 @@ class Debrid:
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents/info/{request_id}", 
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data
@@ -562,18 +594,21 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
                 {"files": ",".join(files.keys())},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             return response.is_ok
         except Exception as e:
             logger.error(f"Error selecting files for {item.log_string}: {e}")
             return False
 
+
     def get_torrents(self, limit: int) -> dict[str, SimpleNamespace]:
         """Get torrents from real-debrid.com"""
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents?limit={str(limit)}",
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok and response.data:
                 # Example response.data: 

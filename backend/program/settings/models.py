@@ -29,6 +29,8 @@ class Observable(BaseModel):
 class DebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
+    proxy_enabled: bool = False 
+    proxy_url: str = "" 
 
 
 class TorboxModel(Observable):
@@ -51,6 +53,7 @@ class DownloadersModel(Observable):
 class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
+    separate_anime_dirs: bool = False
 
 
 # Content Services
@@ -183,6 +186,7 @@ class ProwlarrConfig(Observable):
     api_key: str = ""
     timeout: int = 30
     ratelimit: bool = True
+    limiter_seconds: int = 60
 
 
 class AnnatarConfig(Observable):
@@ -261,7 +265,6 @@ class AppModel(Observable):
     version: str = get_version()
     debug: bool = True
     log: bool = True
-    symlink_monitor: bool = True
     force_refresh: bool = False
     local_only: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()
