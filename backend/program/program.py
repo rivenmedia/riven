@@ -254,7 +254,8 @@ class Program(threading.Thread):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
                 self._remove_from_running_items(orig_item, service.__name__)
-                self._push_event_queue(Event(emitted_by=service, item=item))
+                if item is not None:
+                    self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
