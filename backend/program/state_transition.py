@@ -21,7 +21,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     items_to_submit = []
 
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
-    if emitted_by in source_services or item.state == States.Unknown:
+    if emitted_by in source_services or item.state in [States.Requested, States.Unknown]:
         next_service = TraktIndexer
         if isinstance(item, Season):
             item = item.parent
