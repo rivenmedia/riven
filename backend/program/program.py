@@ -245,25 +245,22 @@ class Program(threading.Thread):
             timeout_seconds = int(
                 os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]
             ) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60 * 3
-            for item in future.result(timeout=timeout_seconds):
-                if isinstance(item, list):
-                    all_media_items = True
-                    for i in item:
-                        if not isinstance(i, MediaItem):
-                            all_media_items = False
-                    if all_media_items == False:
-                        continue
-                    self._remove_from_running_items(orig_item, service.__name__)
-                    for i in item:
-                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
-                    continue
-                elif not isinstance(item, MediaItem):
-                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
-                    self._remove_from_running_items(orig_item, service.__name__)
-                    continue
+            item = future.result(timeout=timeout_seconds):
+            if isinstance(item, list):
+                all_media_items = True
+                for i in item:
+                    if not isinstance(i, MediaItem):
+                        all_media_items = False
                 self._remove_from_running_items(orig_item, service.__name__)
-                if item is not None:
-                    self._push_event_queue(Event(emitted_by=service, item=item))
+                if all_media_items == True:
+                    for i in item:
+                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))    
+                return
+            elif not isinstance(item, MediaItem):
+                logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+            self._remove_from_running_items(orig_item, service.__name__)
+            if item is not None:
+                self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
