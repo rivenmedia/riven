@@ -220,7 +220,7 @@ class Program(threading.Thread):
             if item in self.running_items:
                 self.running_items.remove(item)
                 logger.log("DISCOVERY", f"Item {item.log_string} finished running section {service_name}" )
-    def add_to_running(self, item, section_name):
+    def add_to_running(self, item, service_name):
         if item not in self.running_items:
             self.running_items.append(item)
             logger.log("DISCOVERY", f"Item {item.log_string} started running section {service_name}" )
