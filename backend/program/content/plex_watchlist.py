@@ -2,7 +2,6 @@
 
 from typing import Generator, Union
 
-from program.indexers.trakt import create_item_from_imdb_id
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import HTTPError
@@ -61,8 +60,7 @@ class PlexWatchlist:
 
         items = [
             MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
-            for imdb_id in new_items
-            if imdb_id and imdb_id not in self.recurring_items
+            for imdb_id in new_items if imdb_id not in self.recurring_items
         ]
         for imdb_id in new_items:
             if imdb_id in self.recurring_items:
@@ -70,7 +68,6 @@ class PlexWatchlist:
             self.recurring_items.add(imdb_id)
 
         yield items
-
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feeds."""
         for rss_url in self.settings.rss:

@@ -4,7 +4,7 @@ import tempfile
 import threading
 from copy import copy
 from pickle import UnpicklingError
-from typing import Dict, Generator, List, Optional, Union
+from typing import Dict, Generator, List, Optional
 
 import dill
 from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
@@ -183,17 +183,16 @@ class MediaItemContainer:
                     self._episodes[episode.item_id] = episode
         if isinstance(item, Season):
             self._seasons[item.item_id] = item
-            # Update children and ensure parent Show is updated in the container
+            # update children
             for episode in item.episodes:
                 episode.parent = item
                 self._items[episode.item_id] = episode
                 self._episodes[episode.item_id] = episode
-
-            if isinstance(item, Season):
-                container_show: Show = self._items[item.item_id.parent_id]
-                parent_index = container_show.get_season_index_by_id(item.item_id)
-                if parent_index is not None:
-                    container_show.seasons[parent_index] = item
+            # Ensure the parent Show is updated in the container
+            container_show: Show = self._items[item.item_id.parent_id]
+            parent_index = container_show.get_season_index_by_id(item.item_id)
+            if parent_index is not None:
+                container_show.seasons[parent_index] = item
         elif isinstance(item, Episode):
             self._episodes[item.item_id] = item
             # Ensure the parent Season is updated in the container

@@ -1,7 +1,9 @@
 from datetime import datetime
+from typing import Dict
 
-from program.media.item import MediaItem, Season, Show
-from program.media.state import States
+from RTN import Torrent, sort_torrents
+
+from program.media.item import MediaItem
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler
@@ -11,6 +13,8 @@ from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.settings.manager import settings_manager
+from program.media.item import Season, Show
+from program.media.state import States
 from utils.logger import logger
 
 
@@ -39,6 +43,15 @@ class Scraping:
 
     def run(self, item: MediaItem):
         if not self.can_we_scrape(item):
+            if isinstance(item, Season):
+                res = [e for e in item.episodes if e.state not in [States.Completed]]
+                yield res
+                return
+            if isinstance(item, Show):
+                res = [s for s in item.seasons if s.state not in [States.Completed]]
+                yield res
+                return
+            yield None
             return
 
         for service_name, service in self.services.items():
@@ -49,16 +62,25 @@ class Scraping:
                     logger.debug(f"{service_name} finished scraping for item: {item.log_string}")
                 except Exception as e:
                     logger.error(f"{service_name} failed to scrape {item.log_string}: {e}")
+        
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
         if not item.get("streams", {}):
-            if isinstance(item, Show):
-                res = [s for s in item.seasons if s.state not in [States.Completed]]
-                yield res
+            logger.debug(f"Scraped zero items for {item.log_string}")
             if isinstance(item, Season):
                 res = [e for e in item.episodes if e.state not in [States.Completed]]
                 yield res
-            return False
+                return
+            if isinstance(item, Show):
+                res = [s for s in item.seasons if s.state not in [States.Completed]]
+                yield res
+                return
+            yield None
+            return
+
+        unsorted_streams: Dict[str, Torrent] = item.get("streams")
+        sorted_streams: Dict[str, Torrent] = sort_torrents(set(unsorted_streams.values()))
+        item.set("streams", sorted_streams)
         yield item
 
     @classmethod

@@ -207,13 +207,6 @@ class Torrentio:
 
         scraped_torrents = sort_torrents(torrents)
 
-         # For debug purposes:
-        multi_season_rtn = []
-        for _, sorted_tor in scraped_torrents.items():
-            if hasattr(sorted_tor.data, 'season') and isinstance(sorted_tor.data.season, list) and len(sorted_tor.data.season) > 1:
-                multi_season_rtn.append(sorted_tor)
-                logger.debug(f"Found multi-season torrent (RTN): {sorted_tor.raw_title}")
-
         # For debug purposes:
         if scraped_torrents:
             for _, sorted_tor in scraped_torrents.items():

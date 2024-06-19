@@ -194,7 +194,7 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
-                coalesce=True,
+                coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
@@ -218,10 +218,28 @@ class Program(threading.Thread):
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+                if not isinstance(event.item, (Show, Movie, Episode, Season)):
+                    logger.log("NEW", f"Added {event.item.log_string} to the queue")
+                else:
+                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
+                return True
+            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+            return False
 
     def _pop_event_queue(self, event):
         with self.mutex:
             self.queued_items.remove(event.item)
+
+    def _remove_from_running_items(self, item, service_name=""):
+        with self.mutex:
+            if item in self.running_items:
+                self.running_items.remove(item)
+                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
+
+    def add_to_running(self, item, service_name):
+        if item not in self.running_items:
+            self.running_items.append(item)
+            logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -285,10 +303,7 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                with self.mutex:
-                    orig_item = self.media_items.get(event.item.item_id, None)
-                    if orig_item and orig_item not in self.running_items:
-                        self.running_items.append(orig_item)
+                self.add_to_running(event.item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
                 continue
@@ -304,14 +319,11 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
 
-            with self.mutex:
-                if orig_item in self.running_items:
-                    self.running_items.remove(orig_item)
+            self._remove_from_running_items(event.item, "program.run")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
-                    if item_to_submit not in self.running_items:
-                        self.running_items.append(item_to_submit)
+                    self.add_to_running(item_to_submit, next_service.__name__)
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
@@ -330,7 +342,7 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
+    def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
         return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
