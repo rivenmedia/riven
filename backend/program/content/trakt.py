@@ -148,19 +148,17 @@ class TraktContent:
             imdb_ids.extend(self._extract_imdb_ids(items))
         return imdb_ids
 
-
     def _get_list(self, list_items: list) -> list:
         """Get IMDb IDs from Trakt user list"""
         if not list_items or not any(list_items):
             return []
         imdb_ids = []
         for url in list_items:
-            match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
-            if not match:
+            user, list_name = self._extract_user_list_from_url(url)
+            if not user or not list_name:
                 logger.error(f"Invalid list URL: {url}")
                 continue
-            user, list_name = match.groups()
-            list_name = urlparse(url).path.split('/')[-1]
+            
             items = get_user_list(self.api_url, self.headers, user, list_name)
             for item in items:
                 if hasattr(item, "movie"):
@@ -172,6 +170,37 @@ class TraktContent:
                     if imdb_id:
                         imdb_ids.append((imdb_id, "show"))
         return imdb_ids
+
+    def _extract_user_list_from_url(self, url) -> tuple:
+        """Extract user and list name from Trakt URL"""
+        # Match full URL format
+        match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
+        if match:
+            return match.groups()
+        
+        # Match short URL format and resolve to full URL if necessary
+        match = regex.match(r'https://trakt.tv/lists/\d+', url)
+        if match:
+            full_url = self._resolve_short_url(url)
+            if full_url:
+                match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', full_url)
+                if match:
+                    return match.groups()
+        
+        return None, None
+        
+    def _resolve_short_url(self, short_url) -> str or None:
+        """Resolve short URL to full URL"""
+        try:
+            response = get(short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
+            if response.is_ok:
+                return response.response.url
+            else:
+                logger.error(f"Failed to resolve short URL: {short_url} (with status code: {response.status_code})")
+                return None
+        except RequestException as e:
+            logger.error(f"Error resolving short URL: {str(e)}")
+            return None
 
     def _get_trending_items(self) -> list:
         """Get IMDb IDs from Trakt trending items"""
