@@ -233,11 +233,11 @@ class Program(threading.Thread):
         with self.mutex:
             if item in self.running_items:
                 self.running_items.remove(item)
-                logger.log("DISCOVERY", f"Item {item.log_string} finished running section {service_name}" )
+                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
     def add_to_running(self, item, service_name):
         if item not in self.running_items:
             self.running_items.append(item)
-            logger.log("DISCOVERY", f"Item {item.log_string} started running section {service_name}" )
+            logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -258,7 +258,8 @@ class Program(threading.Thread):
                         self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
                 elif not isinstance(item, MediaItem):
-                    logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+                    self._remove_from_running_items(orig_item, service.__name__)
                     continue
                 self._remove_from_running_items(orig_item, service.__name__)
                 if item is not None:
