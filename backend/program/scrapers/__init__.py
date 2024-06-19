@@ -67,12 +67,12 @@ class Scraping:
         item.set("scraped_times", item.scraped_times + 1)
         if not item.get("streams", {}):
             logger.debug(f"Scraped zero items for {item.log_string}")
-            if isinstance(item, Season):
-                res = [e for e in item.episodes if e.state not in [States.Completed]]
-                yield res
-                return
             if isinstance(item, Show):
                 res = [s for s in item.seasons if s.state not in [States.Completed]]
+                yield res
+                return
+            if isinstance(item, Season):
+                res = [e for e in item.episodes if e.state not in [States.Completed]]
                 yield res
                 return
             yield None
