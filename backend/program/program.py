@@ -132,6 +132,8 @@ class Program(threading.Thread):
         if not len(self.media_items):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
+                if isinstance(item, Show):
+                    item = next(self.services[TraktIndexer].run(item))
                 self.media_items.upsert(item)
             self.media_items.save(str(data_dir_path / "media.pkl"))
 
