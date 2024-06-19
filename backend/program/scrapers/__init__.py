@@ -43,10 +43,13 @@ class Scraping:
             if isinstance(item, Season):
                 res = [e for e in item.episodes if e.state not in [States.Completed]]
                 yield res
+                return
             if isinstance(item, Show):
                 res = [s for s in item.seasons if s.state not in [States.Completed]]
                 yield res
+                return
             yield None
+            return
 
         for service_name, service in self.services.items():
             if service.initialized:
@@ -64,10 +67,13 @@ class Scraping:
             if isinstance(item, Season):
                 res = [e for e in item.episodes if e.state not in [States.Completed]]
                 yield res
+                return
             if isinstance(item, Show):
                 res = [s for s in item.seasons if s.state not in [States.Completed]]
                 yield res
+                return
             yield None
+            return
         yield item
 
     @classmethod
