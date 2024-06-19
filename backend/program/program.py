@@ -215,6 +215,15 @@ class Program(threading.Thread):
     def _pop_event_queue(self, event):
         with self.mutex:
             self.queued_items.remove(event.item)
+    def _remove_from_running_items(self, item, service_name=""):
+        with self.mutex:
+            if item in self.running_items:
+                self.running_items.remove(item)
+                logger.log("DISCOVERY", f"Item {event.item.log_string} finished running section {service_name}" )
+    def add_to_running(self, item, section_name):
+        if item not in self.running_items:
+            self.running_items.append(item)
+            logger.log("DISCOVERY", f"Item {event.item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -230,24 +239,21 @@ class Program(threading.Thread):
                             all_media_items = False
                     if all_media_items == False:
                         continue
-                    with self.mutex:
-                        self.running_items.remove(orig_item)
+                    self._remove_from_running_items(orig_item, service.__name__)
                     for i in item:
                         self._push_event_queue(Event(emitted_by=self.__class__, item=i))
                     continue
                 elif not isinstance(item, MediaItem):
                     logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
                     continue
-                with self.mutex:
-                    if orig_item in self.running_items:
-                        self.running_items.remove(orig_item)
+                self._remove_from_running_items(orig_item, service.__name__)
                 self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
-            if orig_item in self.running_items:
-                self.running_items.remove(orig_item)
+            self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
+            self._remove_from_running_items(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -282,10 +288,8 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                with self.mutex:
-                    orig_item = self.media_items.get(event.item.item_id, None)
-                    if orig_item and orig_item not in self.running_items:
-                        self.running_items.append(orig_item)
+                orig_item = self.media_items.get(event.item.item_id, None)
+                self.add_to_running(orig_item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
                 continue
@@ -301,14 +305,11 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
 
-            with self.mutex:
-                if orig_item in self.running_items:
-                    self.running_items.remove(orig_item)
+            self._remove_from_running_items(orig_item, "program.run")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
-                    if item_to_submit not in self.running_items:
-                        self.running_items.append(item_to_submit)
+                    self.add_to_running(item_to_submit, next_service.__name__)
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
