@@ -1,13 +1,14 @@
 """ Torrentio scraper module """
-from typing import Dict, Generator, Union
+from typing import Dict, Generator, List, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-from RTN import RTN, Torrent, sort_torrents
+from RTN import RTN, Torrent, sort_torrents, title_match
 from RTN.exceptions import GarbageTorrent
+from RTN.parser import parsett
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -91,22 +92,26 @@ class Torrentio:
 
     def _determine_scrape(self, item: Union[Show, Season, Episode, Movie]) -> tuple[str, str, str]:
         """Determine the scrape type and identifier for the given media item"""
-        if isinstance(item, Show):
-            identifier, scrape_type, imdb_id = f":{item.seasons[0].number}:1", "series", item.imdb_id
-        elif isinstance(item, Season):
-            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-        elif isinstance(item, Episode):
-            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
-        elif isinstance(item, Movie):
-            identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-        else:
+        try:
+            if isinstance(item, Show):
+                identifier, scrape_type, imdb_id = f":{item.seasons[0].number}:1", "series", item.imdb_id
+            elif isinstance(item, Season):
+                identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+            elif isinstance(item, Episode):
+                identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+            elif isinstance(item, Movie):
+                identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+            else:
+                return None, None, None
+            return identifier, scrape_type, imdb_id
+        except Exception as e:
+            logger.warning(f"Failed to determine scrape type or identifier for {item.log_string}: {e}")
             return None, None, None
-        return identifier, scrape_type, imdb_id
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
         """Wrapper for `Torrentio` scrape method"""
         identifier, scrape_type, imdb_id = self._determine_scrape(item)
-        if not any(identifier, scrape_type, imdb_id):
+        if not all((identifier, scrape_type, imdb_id)):
             return {}, 0
 
         url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
@@ -127,33 +132,94 @@ class Torrentio:
             return {}, 0
 
         for stream in response.data.streams:
-            raw_title = stream.title.split("\n👤")[0].split("\n")[0]
-            if not stream.infoHash or not raw_title:
-                continue
-            if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
+            if not stream.infoHash or self.hash_cache.is_blacklisted(stream.infoHash):
                 continue
 
-            if isinstance(item, (Movie, Episode)):
-                try:
-                    torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
-                    if torrent and torrent.fetch:
-                        torrents.add(torrent)
-                except GarbageTorrent:
+            try:
+                raw_string = stream.title.split("\n👤")[0]
+                raw_title = raw_string.split("\n")[-1] if isinstance(item, (Movie, Episode)) else raw_string.split("\n")[0]
+            except Exception as e:
+                logger.error(f"Failed to parse {raw_title}: {e}")
+                continue
+
+            try:
+                torrent: Torrent = self.rtn.rank(
+                    raw_title=raw_title,
+                    infohash=stream.infoHash,
+                    correct_title=correct_title,
+                    remove_trash=True
+                )
+                if not torrent or not torrent.fetch:
                     continue
 
-            elif isinstance(item, (Show, Season)):
-                try:
-                    torrent: Torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
+                if isinstance(item, Movie):
                     if torrent and torrent.fetch:
                         torrents.add(torrent)
-                except GarbageTorrent:
-                    continue
+
+                elif isinstance(item, Show):
+                    needed_seasons: List[int] = [season.number for season in item.seasons]
+                    if not needed_seasons:
+                        logger.error(f"No seasons found for {item.log_string}")
+                        continue
+                    if (
+                        torrent
+                        and torrent.fetch
+                        and hasattr(torrent.data, 'season')
+                        and len(torrent.data.season) >= (len(needed_seasons) - 1)
+                        and (
+                            not hasattr(torrent.data, 'episode')
+                            or len(torrent.data.episode) == 0
+                        )
+                        or torrent.data.is_complete
+                    ):
+                        torrents.add(torrent)
+
+                elif isinstance(item, Season):
+                    if (
+                        torrent
+                        and torrent.fetch
+                        and len(getattr(torrent.data, 'season', [])) == 1
+                        and item.number in torrent.data.season
+                        and (
+                            not hasattr(torrent.data, 'episode')
+                            or len(torrent.data.episode) == 0
+                        )
+                        or torrent.data.is_complete
+                    ):
+                        torrents.add(torrent)
+
+                elif isinstance(item, (Episode)):
+                    if (
+                        torrent and torrent.fetch
+                        and item.number in torrent.data.episode
+                        and (
+                            not hasattr(torrent.data, 'season')
+                            or item.parent.number in torrent.data.season
+                        )
+                        or torrent.data.is_complete
+                    ):
+                        torrents.add(torrent)
+            except (ValueError, AttributeError) as e:
+                logger.error(f"Failed to parse {raw_title}: {e}")
+                continue
+            except GarbageTorrent:
+                continue
 
         scraped_torrents = sort_torrents(torrents)
+
+         # For debug purposes:
+        multi_season_rtn = []
+        for _, sorted_tor in scraped_torrents.items():
+            if hasattr(sorted_tor.data, 'season') and isinstance(sorted_tor.data.season, list) and len(sorted_tor.data.season) > 1:
+                multi_season_rtn.append(sorted_tor)
+                logger.debug(f"Found multi-season torrent (RTN): {sorted_tor.raw_title}")
 
         # For debug purposes:
         if scraped_torrents:
             for _, sorted_tor in scraped_torrents.items():
-                logger.debug(f"Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                if isinstance(item, (Season, Episode)):
+                    logger.debug(f"[{item.type.title()} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                else:
+                    logger.debug(f"[{item.type.title()}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
 
         return scraped_torrents, len(response.data.streams)

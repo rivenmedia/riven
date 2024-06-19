@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Season, Show
+from program.media.state import States
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler
@@ -50,6 +51,14 @@ class Scraping:
                     logger.error(f"{service_name} failed to scrape {item.log_string}: {e}")
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
+        if not item.get("streams", {}):
+            if isinstance(item, Show):
+                res = [s for s in item.seasons if s.state not in [States.Completed]]
+                yield res
+            if isinstance(item, Season):
+                res = [e for e in item.episodes if e.state not in [States.Completed]]
+                yield res
+            return False
         yield item
 
     @classmethod

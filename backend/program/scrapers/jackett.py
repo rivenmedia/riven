@@ -78,7 +78,7 @@ class Jackett:
             except Exception as e:
                 logger.error(f"Jackett failed to initialize with API Key: {e}")
                 return False
-        logger.info("Jackett is not configured and will not be used.")
+        logger.warning("Jackett is not configured and will not be used.")
         return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:

@@ -152,8 +152,6 @@ class Program(threading.Thread):
         """Retry any items that are in an incomplete state."""
         items_to_submit = [
             item for item in self.media_items.get_incomplete_items().values()
-            if not (isinstance(item, Season) and item.scraped_times > 1) 
-            and not (isinstance(item, Show) and item.scraped_times > 0)
         ]
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
@@ -196,31 +194,30 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
-                misfire_grace_time=30,
-                coalesce=False,
+                coalesce=True,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
-                if event.item.parent and event.item.parent in self.queued_items:
+                if ( isinstance(event.item, Show) 
+                        and (any( [s for s in event.item.seasons if s in self.queued_items or s in self.running_items]) 
+                        or any([e for e in [s.episodes for s in event.item.seasons] if e in self.queued_items or e in self.running_items]) ) 
+                        ):
+                    return 
+                if isinstance(event.item, Season) and any( [e for e in event.item.episodes if e in self.queued_items or e in self.running_items] ):
                     return
-                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items:
+                if hasattr(event.item, "parent") and event.item.parent in self.queued_items :
                     return
-                if event.item.parent and event.item.parent in self.running_items:
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
                     return
-                if event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items:
+                if hasattr(event.item, "parent") and event.item.parent in self.running_items :
+                    return
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
-                if not isinstance(event.item, (Show, Movie, Episode, Season)):
-                    logger.log("NEW", f"Added to the queue: {event.item.log_string}")
-                else:
-                    logger.log("DISCOVERY", f"Re-added to the queue: {event.item.log_string}" )
-                return True
-            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
-            return False
 
     def _pop_event_queue(self, event):
         with self.mutex:
@@ -238,27 +235,22 @@ class Program(threading.Thread):
                     for i in item:
                         if not isinstance(i, MediaItem):
                             all_media_items = False
-                    if all_media_items == False:
-                        continue
-                    with self.mutex:
-                        if orig_item in self.running_items:
-                            self.running_items.remove(orig_item)
-                    for i in item:
-                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
-                    continue
+                    self._remove_from_running_items(orig_item, service.__name__)
+                    if all_media_items == True:
+                        for i in item:
+                            self._push_event_queue(Event(emitted_by=self.__class__, item=i))    
+                    return
                 elif not isinstance(item, MediaItem):
-                    logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
-                    continue
-                with self.mutex:
-                    if orig_item in self.running_items:
-                        self.running_items.remove(orig_item)
-                self._push_event_queue(Event(emitted_by=service, item=item))
+                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+                self._remove_from_running_items(orig_item, service.__name__)
+                if item is not None and isinstance(item, MediaItem):
+                    self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
-            if orig_item in self.running_items:
-                self.running_items.remove(orig_item)
+            self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
+            self._remove_from_running_items(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -320,9 +312,6 @@ class Program(threading.Thread):
                 for item_to_submit in items_to_submit:
                     if item_to_submit not in self.running_items:
                         self.running_items.append(item_to_submit)
-                    if isinstance(item_to_submit, Season) and next_service == Scraping:
-                        if item_to_submit.scraped_times >= 3:
-                            continue
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
