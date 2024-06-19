@@ -296,8 +296,7 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                orig_item = self.media_items.get(event.item.item_id, None)
-                self.add_to_running(orig_item, "program.run")
+                self.add_to_running(event.item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
                 continue
@@ -313,7 +312,7 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
 
-            self._remove_from_running_items(orig_item, "program.run")
+            self._remove_from_running_items(event.item, "program.run")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
