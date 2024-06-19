@@ -238,7 +238,7 @@ class Program(threading.Thread):
             timeout_seconds = int(
                 os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]
             ) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60 * 3
-            item = future.result(timeout=timeout_seconds):
+            item = future.result(timeout=timeout_seconds)
             if isinstance(item, list):
                 all_media_items = True
                 for i in item:
