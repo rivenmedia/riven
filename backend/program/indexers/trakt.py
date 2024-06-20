@@ -34,7 +34,7 @@ class TraktIndexer:
             itemb.set("is_anime", itema.is_anime)
         return itemb
             
-    def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Episode, Season], None, None]:
+    def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
