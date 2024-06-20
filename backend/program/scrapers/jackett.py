@@ -187,8 +187,8 @@ class Jackett:
             "year": item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
 
-        if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
-            params["imdbid"] = item.imdb_id
+        if indexer.movie_search_capabilities and "imdbId" in indexer.movie_search_capabilities:
+            params["imdbId"] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "movie")
@@ -210,8 +210,8 @@ class Jackett:
             "ep": ep
         }
 
-        if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id
+        if indexer.tv_search_capabilities and "imdbId" in indexer.tv_search_capabilities:
+            params["imdbId"] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "series")
