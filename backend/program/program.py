@@ -1,7 +1,9 @@
+import linecache
 import os
 import threading
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Lock
@@ -27,10 +29,6 @@ from .pickly import Pickly
 from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
-
-from collections import Counter
-import linecache
-import os
 
 if settings_manager.settings.tracemalloc:
     import tracemalloc
@@ -148,7 +146,7 @@ class Program(threading.Thread):
                 if settings_manager.settings.map_metadata:
                     if isinstance(item, (Movie, Show)):
                         item = next(self.services[TraktIndexer].run(item))
-                        logger.debug(f"Mapped metadata to Show: {item.log_string}")
+                        logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 self.media_items.upsert(item)
             self.media_items.save(str(data_dir_path / "media.pkl"))
 
