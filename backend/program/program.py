@@ -3,7 +3,6 @@ import os
 import threading
 import time
 import traceback
-import tracemalloc
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -31,6 +30,8 @@ from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+if settings_manager.settings.tracemalloc:
+    import tracemalloc
 
 class Program(threading.Thread):
     """Program class"""
