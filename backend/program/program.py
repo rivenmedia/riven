@@ -49,7 +49,6 @@ class Program(threading.Thread):
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
         if self.enable_trace:
-            import tracemalloc
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
             self.last_snapshot = None
@@ -92,7 +91,8 @@ class Program(threading.Thread):
             **self.downloader_services,
         }
 
-        self.last_snapshot = tracemalloc.take_snapshot()
+        if self.enable_trace:
+            self.last_snapshot = tracemalloc.take_snapshot()
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
