@@ -134,7 +134,7 @@ class Program(threading.Thread):
             for item in self.services[SymlinkLibrary].run():
                 if isinstance(item, Show):
                     item = next(self.services[TraktIndexer].run(item))
-                    logger.debug(f"Enriched: {item.log_string}")
+                    logger.debug(f"Mapped metadata to Show: {item.log_string}")
                 self.media_items.upsert(item)
             self.media_items.save(str(data_dir_path / "media.pkl"))
 
