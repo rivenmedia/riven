@@ -1,6 +1,8 @@
 from types import SimpleNamespace
-from program.media.item import Movie, Show, Season, Episode
+
 from program.downloaders.realdebrid import _matches_item
+from program.media.item import Episode, Movie, Season, Show
+
 
 def test_matches_item_movie():
     torrent_info = SimpleNamespace(

@@ -6,7 +6,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Lock
 from queue import Empty, Queue
-from typing import Union
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent

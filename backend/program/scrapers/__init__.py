@@ -1,9 +1,8 @@
 from datetime import datetime
 from typing import Dict
 
-from RTN import Torrent, sort_torrents
-
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Season, Show
+from program.media.state import States
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler
@@ -13,8 +12,7 @@ from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.settings.manager import settings_manager
-from program.media.item import Season, Show
-from program.media.state import States
+from RTN import Torrent, sort_torrents
 from utils.logger import logger
 
 
