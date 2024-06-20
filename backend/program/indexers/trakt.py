@@ -21,15 +21,29 @@ class TraktIndexer:
         self.initialized = True
         self.settings = settings_manager.settings.indexer
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def copy_items(self, itema: MediaItem, itemb: MediaItem):
+        if isinstance(itema, Show) and isinstance(itemb, Show):
+            for (seasona, seasonb) in zip(itema.seasons, itemb.seasons):
+                for (episodea, episodeb) in zip(seasona.episodes, seasonb.episodes):
+                    episodeb.set("update_folder", episodea.update_folder)
+                    episodeb.set("symlinked", episodea.symlinked)
+                    episodeb.set("is_anime", episodea.is_anime)
+        elif isinstance(itema, Movie) and isinstance(itemb, Movie):
+            itemb.set("update_folder", itema.update_folder)
+            itemb.set("symlinked", itema.symlinked)
+            itemb.set("is_anime", itema.is_anime)
+        return itemb
+            
+    def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Episode, Season], None, None]:
         """Run the Trakt indexer for the given item."""
-        if not item:
+        if not in_item:
             logger.error("Item is None")
             return
-        if (imdb_id := item.imdb_id) is None:
+        if (imdb_id := in_item.imdb_id) is None:
             logger.error(f"Item {item.log_string} does not have an imdb_id, cannot index it")
             return
-        item = create_item_from_imdb_id(imdb_id)
+        item = self.copy_items(in_item, create_item_from_imdb_id(imdb_id))
+
         if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
@@ -94,12 +108,17 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "tvdb_id": getattr(data.ids, "tvdb", None),
         "tmdb_id": getattr(data.ids, "tmdb", None),
         "genres": genres,
-        "is_anime": "anime" in genres if genres else False,
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
     }
+
+    item["is_anime"] = (
+        ("anime" in genres or "animation" in genres) if genres
+        and item["country"] in ("jp", "kr")
+        else False
+    )
 
     match item_type:
         case "movie":
