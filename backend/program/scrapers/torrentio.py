@@ -205,14 +205,4 @@ class Torrentio:
             except GarbageTorrent:
                 continue
 
-        scraped_torrents = sort_torrents(torrents)
-
-        # For debug purposes:
-        if scraped_torrents:
-            for _, sorted_tor in scraped_torrents.items():
-                if isinstance(item, (Season, Episode)):
-                    logger.debug(f"[{item.type.title()} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
-                else:
-                    logger.debug(f"[{item.type.title()}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
-
-        return scraped_torrents, len(response.data.streams)
+        return sort_torrents(torrents), len(response.data.streams)

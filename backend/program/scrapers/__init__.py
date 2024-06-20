@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict
 
-from program.media.item import MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.media.state import States
 from program.scrapers.annatar import Annatar
 from program.scrapers.jackett import Jackett
@@ -78,6 +78,16 @@ class Scraping:
 
         unsorted_streams: Dict[str, Torrent] = item.get("streams")
         sorted_streams: Dict[str, Torrent] = sort_torrents(set(unsorted_streams.values()))
+
+        # For debug purposes:
+        if sorted_streams and settings_manager.settings.debug:
+            item_type = item.type.title()
+            for _, sorted_tor in sorted_streams.items():
+                if isinstance(item, (Season, Episode)):
+                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                else:
+                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+
         item.set("streams", sorted_streams)
         yield item
 

@@ -3,7 +3,6 @@ import os
 import threading
 import time
 import traceback
-from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Lock
@@ -20,6 +19,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
+from program.settings.models import get_version
 from program.updaters.plex import PlexUpdater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
@@ -107,7 +107,13 @@ class Program(threading.Thread):
         )
 
     def start(self):
-        logger.log("PROGRAM", f"Riven v{settings_manager.settings.version} starting!")
+        latest_version = get_version()
+        user_version = settings_manager.settings.version
+        
+        if latest_version != user_version:
+            logger.warning("PROGRAM", f"Riven v{user_version} is out of date, please update to v{latest_version}")
+        logger.log("PROGRAM", f"Riven v{user_version} starting!")
+
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
