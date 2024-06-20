@@ -64,8 +64,6 @@ class Debrid:
             response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
             if response.ok:
                 user_info = response.json()
-                username = user_info.get("username", "")
-                premium_status = "Premium" if user_info.get("premium", 0) > 0 else "Not Premium"
                 expiration = user_info.get("expiration", "")
                 expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
                 time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
@@ -81,11 +79,9 @@ class Debrid:
                     expiration_message = "Your account expires soon."
 
                 if user_info.get("type", "") != "premium":
-                    logger.log("DEBRID", "You are not a premium member.")
+                    logger.error("You are not a premium member.")
                     return False
                 else:
-                    logger.log("DEBRID", f"Hello {username}, your account is {premium_status}.")
-                    logger.log("DEBRID", f"Expiration: {expiration_datetime}")
                     logger.log("DEBRID", expiration_message)
 
                 return user_info.get("premium", 0) > 0
@@ -99,14 +95,18 @@ class Debrid:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
         if (item.file and item.folder):
+            yield None
             return
         if not self.is_cached(item):
-            if isinstance(item, Season) and item.scraped_times > 1:
+            if isinstance(item, Season):
                 res = [e for e in item.episodes]
                 yield res
-            if isinstance(item, Show) and item.scraped_times > 0:
+                return
+            if isinstance(item, Show):
                 res = [s for s in item.seasons]
                 yield res
+                return
+            yield None
             return
         if not self._is_downloaded(item):
             self._download_item(item)

@@ -79,7 +79,7 @@ class Prowlarr:
             except Exception as e:
                 logger.error(f"Prowlarr failed to initialize with API Key: {e}")
                 return False
-        logger.info("Prowlarr is not configured and will not be used.")
+        logger.warning("Prowlarr is not configured and will not be used.")
         return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
@@ -188,7 +188,7 @@ class Prowlarr:
         }
         if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
         if indexer.movie_search_capabilities and "imdbId" in indexer.movie_search_capabilities:
-            params["imdbid"] = item.imdb_id
+            params["imdbId"] = item.imdb_id
         url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "movie")
 
@@ -209,7 +209,7 @@ class Prowlarr:
         if ep: params["ep"] = ep
         if season: params["season"] = season
         if indexer.tv_search_capabilities and "imdbId" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
+            params["imdbId"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
 
         url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "series")

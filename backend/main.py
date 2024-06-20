@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import os
+import signal
 import sys
 import threading
 import time
@@ -92,7 +93,15 @@ class Server(uvicorn.Server):
             raise e
         finally:
             self.should_exit = True
+            sys.exit(0)
 
+def signal_handler(sig, frame):
+    logger.log('PROGRAM','Exiting Gracefully.')
+    app.program.stop()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
 server = Server(config=config)
@@ -101,12 +110,9 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-    except KeyboardInterrupt:
-        pass
     except Exception as e:
         logger.error(f"Error in main thread: {e}")
         logger.exception(traceback.format_exc())
     finally:
-        app.program.stop()
         logger.critical("Server has been stopped")
         sys.exit(0)

@@ -83,10 +83,7 @@ class Orionoid:
             premium = response.data.data.subscription.package.premium
             debrid = response.data.data.service.realdebrid
             if active and premium and debrid:
-                logger.info("Orionoid Premium Account Detected.")
                 return True
-            else:
-                logger.warning("Orionoid Free Account Detected.")
         return False
 
     def run(self, item: MediaItem):

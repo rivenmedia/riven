@@ -122,23 +122,11 @@ class MediaItemContainer:
             incomplete_items = {}
             items_copy = list(self._items.items())  # Create a copy of the dictionary items
             for item_id, item in items_copy:
-                if isinstance(item, Season):
-                    incomplete_episodes = [
-                        episode for episode in item.episodes
-                        if episode.state not in (States.Completed, States.PartiallyCompleted)
-                    ]
-                    if incomplete_episodes:
+                if isinstance(item, Show):
+                    if item.state not in [States.Completed]:
                         incomplete_items[item_id] = item
-                        # Ensure episodes of this season are not added individually
-                        for episode in incomplete_episodes:
-                            incomplete_items.pop(episode.item_id, None)
-                elif isinstance(item, Episode):
-                    if item.state not in (States.Completed, States.PartiallyCompleted):
-                        # Only add episode if its season is not already in the list
-                        if item.parent.item_id not in incomplete_items:
-                            incomplete_items[item_id] = item
                 elif isinstance(item, Movie):
-                    if item.state not in (States.Completed, States.PartiallyCompleted):
+                    if item.state not in [States.Completed, States.PartiallyCompleted]:
                         incomplete_items[item_id] = item
             return incomplete_items
         finally:

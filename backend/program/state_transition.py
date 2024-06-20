@@ -21,7 +21,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     items_to_submit = []
 
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
-    if emitted_by in source_services or item.state == States.Unknown:
+    if emitted_by in source_services or item.state in [States.Requested, States.Unknown]:
         next_service = TraktIndexer
         if isinstance(item, Season):
             item = item.parent
@@ -30,7 +30,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             return no_further_processing
         return None, next_service, [item]
 
-    elif emitted_by == TraktIndexer or item.state == States.Indexed:
+    elif emitted_by == TraktIndexer or item.state == States.Indexed or item.state == States.PartiallyCompleted:
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:
@@ -41,36 +41,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-        if Scraping.should_submit(item):
-            if isinstance(item, (Movie, Episode)):
-                items_to_submit = [item]
-            elif isinstance(item, Show):
-                if settings_manager.settings.scraping.jackett.enabled:
-                    items_to_submit = [item]
-                else:
-                    items_to_submit = [s for s in item.seasons if s.scraped_times > 0]
-            elif isinstance(item, Season):
-                items_to_submit = [item] if item.parent.scraped_times > 0 or item.scraped_times < 2 else []
-            else:
-                if item.parent:
-                    items_to_submit = [item] if item.parent.scraped_times > 1 else []
-                else:
-                    items_to_submit = [item]
-
-    elif item.state == States.PartiallyCompleted:
-        next_service = Scraping
-        if isinstance(item, Show):
-            items_to_submit = [
-                s for s in item.seasons 
-                if s.state not in (States.Completed, States.PartiallyCompleted)
-                and Scraping.should_submit(s)
-            ]
-        elif isinstance(item, Season):
-            items_to_submit = [
-                e for e in item.episodes 
-                if e.state == States.Indexed
-                and Scraping.should_submit(e)
-            ]
+        items_to_submit = [item]
 
     elif item.state == States.Scraped:
         next_service = Debrid or TorBoxDownloader

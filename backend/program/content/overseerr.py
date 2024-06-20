@@ -54,10 +54,11 @@ class Overseerr:
     def run(self):
         """Fetch new media from `Overseerr`"""
         if self.settings.use_webhook and not self.run_once:
-            if not hasattr(self, '_logged_webhook_message'):
-                logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
-                self._logged_webhook_message = True
+            logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
             self.run_once = True
+        
+        if self.run_once:
+            return
 
         try:
             response = get(
@@ -139,7 +140,6 @@ class Overseerr:
                 except Exception as e:
                     logger.error(f"Error fetching alternate ID: {str(e)}")
                     continue
-        return
 
     @staticmethod
     def delete_request(mediaId: int) -> bool:

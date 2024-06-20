@@ -256,3 +256,6 @@ class TMDB:
                 f"An error occurred while getting TV season episode details: {str(e)}"
             )
             return None
+
+
+tmdb = TMDB()

@@ -3,15 +3,13 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends
-from program.indexers.tmdb import TMDB
+from program.indexers.tmdb import tmdb
 
 router = APIRouter(
     prefix="/tmdb",
     tags=["tmdb"],
     responses={404: {"description": "Not found"}},
 )
-
-tmdb = TMDB()
 
 
 def dict_to_query_string(params: dict):
