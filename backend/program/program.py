@@ -29,6 +29,12 @@ from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+from collections import Counter
+import linecache
+import os
+
+if settings_manager.settings.tracemalloc:
+    import tracemalloc
 
 class Program(threading.Thread):
     """Program class"""
@@ -44,6 +50,12 @@ class Program(threading.Thread):
         self.queued_items = []
         self.running_items = []
         self.mutex = Lock()
+        self.enable_trace = settings_manager.settings.tracemalloc
+        if(self.enable_trace):
+            import tracemalloc
+            tracemalloc.start()
+            self.malloc_time = time.monotonic()-50
+            self.last_snapshot = None
 
     def initialize_services(self):
         self.requesting_services = {
@@ -82,6 +94,7 @@ class Program(threading.Thread):
             **self.processing_services,
             **self.downloader_services,
         }
+        self.last_snapshot = tracemalloc.take_snapshot()
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
@@ -276,6 +289,34 @@ class Program(threading.Thread):
         future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
+    def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
+        top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
+
+        logger.debug("Top %s lines" % limit)
+        for index, stat in enumerate(top_stats[:limit], 1):
+            frame = stat.traceback[0]
+            # replace "/path/to/module/file.py" with "module/file.py"
+            filename = os.sep.join(frame.filename.split(os.sep)[-2:])
+            logger.debug("#%s: %s:%s: %.1f KiB"
+                % (index, filename, frame.lineno, stat.size / 1024))
+            line = linecache.getline(frame.filename, frame.lineno).strip()
+            if line:
+                logger.debug('    %s' % line)
+
+        other = top_stats[limit:]
+        if other:
+            size = sum(stat.size for stat in other)
+            logger.debug("%s other: %.1f KiB" % (len(other), size / 1024))
+        total = sum(stat.size for stat in top_stats)
+        logger.debug("Total allocated size: %.1f KiB" % (total / 1024))
+
+    def dump_tracemalloc(self):
+        if self.enable_trace and time.monotonic() - self.malloc_time > 60:
+            print("Taking Snapshot " + str(time.monotonic() - self.malloc_time) )
+            self.malloc_time = time.monotonic()
+            snapshot = tracemalloc.take_snapshot()
+            self.display_top_allocators(snapshot)
+
     def run(self):
         while self.running:
             if not self.validate():
@@ -284,12 +325,11 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                with self.mutex:
-                    orig_item = self.media_items.get(event.item.item_id, None)
-                    if orig_item and orig_item not in self.running_items:
-                        self.running_items.append(orig_item)
+                self.dump_tracemalloc()
+                self.add_to_running(event.item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
+                self.dump_tracemalloc()
                 continue
 
             existing_item = self.media_items.get(event.item.item_id, None)

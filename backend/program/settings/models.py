@@ -267,6 +267,7 @@ class AppModel(Observable):
     log: bool = True
     force_refresh: bool = False
     local_only: bool = False
+    tracemalloc: bool = False
     plex: PlexLibraryModel = PlexLibraryModel()
     symlink: SymlinkModel = SymlinkModel()
     downloaders: DownloadersModel = DownloadersModel()
