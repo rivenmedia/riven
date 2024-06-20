@@ -52,7 +52,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
 
     if imdb_id in overseerr.recurring_items:
         logger.log("API", "Request already in queue", {"imdb_id": imdb_id})
-        return {"success": False, "message": "Request already in queue", "title": req.subject}
+        return {"success": True, "message": "Request already in queue", "title": req.subject}
     else:
         overseerr.recurring_items.add(imdb_id)
 

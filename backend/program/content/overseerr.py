@@ -140,7 +140,6 @@ class Overseerr:
                 except Exception as e:
                     logger.error(f"Error fetching alternate ID: {str(e)}")
                     continue
-        return
 
     @staticmethod
     def delete_request(mediaId: int) -> bool:

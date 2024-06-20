@@ -94,12 +94,17 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "tvdb_id": getattr(data.ids, "tvdb", None),
         "tmdb_id": getattr(data.ids, "tmdb", None),
         "genres": genres,
-        "is_anime": "anime" in genres if genres else False,
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
     }
+
+    item["is_anime"] = (
+        ("anime" in genres or "animation" in genres) if genres
+        and item["country"] in ("jp", "kr")
+        else False
+    )
 
     match item_type:
         case "movie":
