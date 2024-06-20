@@ -1,12 +1,13 @@
+import linecache
 import os
 import threading
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Lock
 from queue import Empty, Queue
-from typing import Union
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -29,6 +30,8 @@ from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+if settings_manager.settings.tracemalloc:
+    import tracemalloc
 
 class Program(threading.Thread):
     """Program class"""
@@ -44,6 +47,11 @@ class Program(threading.Thread):
         self.queued_items = []
         self.running_items = []
         self.mutex = Lock()
+        self.enable_trace = settings_manager.settings.tracemalloc
+        if self.enable_trace:
+            tracemalloc.start()
+            self.malloc_time = time.monotonic()-50
+            self.last_snapshot = None
 
     def initialize_services(self):
         self.requesting_services = {
@@ -82,6 +90,9 @@ class Program(threading.Thread):
             **self.processing_services,
             **self.downloader_services,
         }
+
+        if self.enable_trace:
+            self.last_snapshot = tracemalloc.take_snapshot()
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
@@ -132,6 +143,10 @@ class Program(threading.Thread):
         if not len(self.media_items):
             # Seed initial MIC with Library State
             for item in self.services[SymlinkLibrary].run():
+                if settings_manager.settings.map_metadata:
+                    if isinstance(item, (Movie, Show)):
+                        item = next(self.services[TraktIndexer].run(item))
+                        logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 self.media_items.upsert(item)
             self.media_items.save(str(data_dir_path / "media.pkl"))
 
@@ -152,8 +167,6 @@ class Program(threading.Thread):
         """Retry any items that are in an incomplete state."""
         items_to_submit = [
             item for item in self.media_items.get_incomplete_items().values()
-            if not (isinstance(item, Season) and item.scraped_times > 1) 
-            and not (isinstance(item, Show) and item.scraped_times > 0)
         ]
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
@@ -196,27 +209,52 @@ class Program(threading.Thread):
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
-                coalesce=True,
+                coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
-                if( event.item.parent and event.item.parent in self.queued_items ):
+                if ( isinstance(event.item, Show) 
+                        and (any( [s for s in event.item.seasons if s in self.queued_items or s in self.running_items]) 
+                        or any([e for e in [s.episodes for s in event.item.seasons] if e in self.queued_items or e in self.running_items]) ) 
+                        ):
+                    return 
+                if isinstance(event.item, Season) and any( [e for e in event.item.episodes if e in self.queued_items or e in self.running_items] ):
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.queued_items ):
+                if hasattr(event.item, "parent") and event.item.parent in self.queued_items :
                     return
-                if( event.item.parent and event.item.parent in self.running_items ):
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
                     return
-                if( event.item.parent and event.item.parent.parent and event.item.parent.parent in self.running_items ):
+                if hasattr(event.item, "parent") and event.item.parent in self.running_items :
+                    return
+                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
                     return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+                if not isinstance(event.item, (Show, Movie, Episode, Season)):
+                    logger.log("NEW", f"Added {event.item.log_string} to the queue")
+                else:
+                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
+                return True
+            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+            return False
 
     def _pop_event_queue(self, event):
         with self.mutex:
             self.queued_items.remove(event.item)
+
+    def _remove_from_running_items(self, item, service_name=""):
+        with self.mutex:
+            if item in self.running_items:
+                self.running_items.remove(item)
+                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
+
+    def add_to_running(self, item, service_name):
+        if item not in self.running_items:
+            self.running_items.append(item)
+            logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -230,26 +268,22 @@ class Program(threading.Thread):
                     for i in item:
                         if not isinstance(i, MediaItem):
                             all_media_items = False
-                    if all_media_items == False:
-                        continue
-                    with self.mutex:
-                        self.running_items.remove(orig_item)
-                    for i in item:
-                        self._push_event_queue(Event(emitted_by=self.__class__, item=i))
-                    continue
+                    self._remove_from_running_items(orig_item, service.__name__)
+                    if all_media_items == True:
+                        for i in item:
+                            self._push_event_queue(Event(emitted_by=self.__class__, item=i))    
+                    return
                 elif not isinstance(item, MediaItem):
-                    logger.error(f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
-                    continue
-                with self.mutex:
-                    if orig_item in self.running_items:
-                        self.running_items.remove(orig_item)
-                self._push_event_queue(Event(emitted_by=service, item=item))
+                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+                self._remove_from_running_items(orig_item, service.__name__)
+                if item is not None and isinstance(item, MediaItem):
+                    self._push_event_queue(Event(emitted_by=service, item=item))
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
-            if orig_item in self.running_items:
-                self.running_items.remove(orig_item)
+            self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
+            self._remove_from_running_items(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -276,6 +310,34 @@ class Program(threading.Thread):
         future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
+    def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
+        top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
+
+        logger.debug("Top %s lines" % limit)
+        for index, stat in enumerate(top_stats[:limit], 1):
+            frame = stat.traceback[0]
+            # replace "/path/to/module/file.py" with "module/file.py"
+            filename = os.sep.join(frame.filename.split(os.sep)[-2:])
+            logger.debug("#%s: %s:%s: %.1f KiB"
+                % (index, filename, frame.lineno, stat.size / 1024))
+            line = linecache.getline(frame.filename, frame.lineno).strip()
+            if line:
+                logger.debug('    %s' % line)
+
+        other = top_stats[limit:]
+        if other:
+            size = sum(stat.size for stat in other)
+            logger.debug("%s other: %.1f KiB" % (len(other), size / 1024))
+        total = sum(stat.size for stat in top_stats)
+        logger.debug("Total allocated size: %.1f KiB" % (total / 1024))
+
+    def dump_tracemalloc(self):
+        if self.enable_trace and time.monotonic() - self.malloc_time > 60:
+            print("Taking Snapshot " + str(time.monotonic() - self.malloc_time) )
+            self.malloc_time = time.monotonic()
+            snapshot = tracemalloc.take_snapshot()
+            self.display_top_allocators(snapshot)
+
     def run(self):
         while self.running:
             if not self.validate():
@@ -284,12 +346,11 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                with self.mutex:
-                    orig_item = self.media_items.get(event.item.item_id, None)
-                    if orig_item and orig_item not in self.running_items:
-                        self.running_items.append(orig_item)
+                self.dump_tracemalloc()
+                self.add_to_running(event.item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
+                self.dump_tracemalloc()
                 continue
 
             existing_item = self.media_items.get(event.item.item_id, None)
@@ -303,20 +364,17 @@ class Program(threading.Thread):
             if updated_item:
                 self.media_items.upsert(updated_item)
 
-            with self.mutex:
-                if orig_item in self.running_items:
-                    self.running_items.remove(orig_item)
+            self._remove_from_running_items(event.item, "program.run")
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
-                    if item_to_submit not in self.running_items:
-                        self.running_items.append(item_to_submit)
-                    if isinstance(item_to_submit, Season) and next_service == Scraping:
-                        if item_to_submit.scraped_times >= 3:
-                            continue
+                    self.add_to_running(item_to_submit, next_service.__name__)
                     self._submit_job(next_service, item_to_submit)
 
     def stop(self):
+        if not self.running:
+            return
+
         self.running = False
         self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
@@ -329,13 +387,9 @@ class Program(threading.Thread):
             self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def add_to_queue(self, item: Union[Movie, Show, Season, Episode]) -> bool:
+    def add_to_queue(self, item: MediaItem) -> bool:
         """Add item to the queue for processing."""
-        if isinstance(item, Union[Movie, Show, Season, Episode]):
-            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
-            logger.log("NEW", f"Added {item.log_string} to the queue")
-            return True
-        return False
+        return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def clear_queue(self):
         """Clear the event queue."""

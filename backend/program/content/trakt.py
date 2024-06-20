@@ -1,4 +1,5 @@
 """Trakt content module"""
+import re
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
@@ -155,12 +156,11 @@ class TraktContent:
             return []
         imdb_ids = []
         for url in list_items:
-            match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
-            if not match:
+            user, list_name = _extract_user_list_from_url(url)
+            if not user or not list_name:
                 logger.error(f"Invalid list URL: {url}")
                 continue
-            user, list_name = match.groups()
-            list_name = urlparse(url).path.split('/')[-1]
+            
             items = get_user_list(self.api_url, self.headers, user, list_name)
             for item in items:
                 if hasattr(item, "movie"):
@@ -313,3 +313,48 @@ def get_favorited_items(api_url, headers, user, limit=10):
     """Get favorited items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/favorites"
     return _fetch_data(url, headers, {"limit": limit})
+
+
+def _extract_user_list_from_url(url) -> tuple:
+    """Extract user and list name from Trakt URL"""
+
+    def match_full_url(url: str) -> tuple:
+        """Helper function to match full URL format"""
+        match = patterns["user_list"].match(url)
+        if match:
+            return match.groups()
+        return None, None
+
+    # First try to match the original URL
+    user, list_name = match_full_url(url)
+    if user and list_name:
+        return user, list_name
+
+    # If it's a short URL, resolve it and try to match again
+    match = patterns["short_list"].match(url)
+    if match:
+        full_url = _resolve_short_url(url)
+        if full_url:
+            user, list_name = match_full_url(full_url)
+            if user and list_name:
+                return user, list_name
+
+    return None, None
+
+def _resolve_short_url(short_url) -> str or None:
+    """Resolve short URL to full URL"""
+    try:
+        response = get(short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
+        if response.is_ok:
+            return response.response.url
+        else:
+            logger.error(f"Failed to resolve short URL: {short_url} (with status code: {response.status_code})")
+            return None
+    except RequestException as e:
+        logger.error(f"Error resolving short URL: {str(e)}")
+        return None
+
+patterns: dict[str, re.Pattern] = {
+    "user_list": re.compile(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)'),
+    "short_list": re.compile(r'https://trakt.tv/lists/\d+')
+}
