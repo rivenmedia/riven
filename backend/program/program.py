@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import traceback
+import tracemalloc
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -30,8 +31,6 @@ from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
-if settings_manager.settings.tracemalloc:
-    import tracemalloc
 
 class Program(threading.Thread):
     """Program class"""
@@ -49,7 +48,6 @@ class Program(threading.Thread):
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
         if self.enable_trace:
-            import tracemalloc
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
             self.last_snapshot = None
