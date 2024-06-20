@@ -260,10 +260,17 @@ class Symlinker:
             item.set("symlinked_at", datetime.now())
             item.set("symlinked_times", item.symlinked_times + 1)
         except PermissionError as e:
+            # This still creates the symlinks, however they will have wrong perms. User needs to fix their permissions.
+            # TODO: Maybe we validate symlink class by symlinking a test file, then try removing it and see if it still exists
             logger.error(f"Permission denied when creating symlink for {item.log_string}: {e}")
-            return False
+            return True
         except OSError as e:
-            logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
+            if e.errno == 36:
+                # This will cause a loop if it hits this.. users will need to fix their paths
+                # TODO: Maybe create an alternative naming scheme to cover this?
+                logger.error(f"Filename too long when creating symlink for {item.log_string}: {e}")
+            else:
+                logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
             return False
 
         # Validate the symlink
