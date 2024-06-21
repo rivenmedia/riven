@@ -48,7 +48,6 @@ class Program(threading.Thread):
         self.running_items = []
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
-        self.futures = []
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
@@ -273,9 +272,7 @@ class Program(threading.Thread):
             if fut_except != None:
                 logger.error(f"{fut_except}")
                 self._remove_from_running_items(item)
-            was_item = False
             for item in future.result(timeout=timeout_seconds):
-                was_item = True
                 if isinstance(item, list):
                     all_media_items = True
                     for i in item:
@@ -291,9 +288,6 @@ class Program(threading.Thread):
                 self._remove_from_running_items(orig_item, service.__name__)
                 if item is not None and isinstance(item, MediaItem):
                     self._push_event_queue(Event(emitted_by=service, item=item))
-            if was_item == False:
-                #logger.log("VERBOSE", f"{service.__name__} yielded no results. Removing {orig_item.log_string} from running items.")
-                self._remove_from_running_items(orig_item, service.__name__)
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
@@ -325,8 +319,7 @@ class Program(threading.Thread):
         func = self.services[service].run
         future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
-        with self.mutex:
-            self.futures.append([item,future])
+        
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
