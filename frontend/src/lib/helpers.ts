@@ -83,6 +83,10 @@ export function formatWords(words: string) {
 		.join(' ');
 }
 
+export function roundOff(num: number, decimalPlaces: number = 1) {
+	return Math.round(num * 10 ** decimalPlaces) / 10 ** decimalPlaces;
+}
+
 export function convertIcebergItemsToObject(items: RivenItem[]) {
 	const result: { [key: string]: RivenItem[] } = {};
 

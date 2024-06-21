@@ -16,6 +16,7 @@
 		MoveUpRight
 	} from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { roundOff } from '$lib/helpers';
 
 	export let data: PageData;
 </script>
@@ -58,7 +59,7 @@
 								<div class="flex flex-wrap items-center gap-2 text-xs text-zinc-200">
 									<div class="flex items-center gap-2">
 										<Star class="size-4" />
-										<p>{nowPlaying.vote_average}</p>
+										<p>{roundOff(nowPlaying.vote_average)}</p>
 									</div>
 									<div class="flex items-center gap-2">
 										<CalendarDays class="size-4" />
@@ -148,7 +149,7 @@
 									<div class="text-primary-foreground flex items-center gap-2 text-xs">
 										<div class="flex items-center gap-2">
 											<Star class="size-4" />
-											<p>{trendingAll.vote_average}</p>
+											<p>{roundOff(trendingAll.vote_average)}</p>
 										</div>
 										<div class="flex items-center gap-2">
 											<CalendarDays class="size-4" />
@@ -187,33 +188,33 @@
 
 			<div class="no-scrollbar flex flex-wrap overflow-x-auto px-1 lg:p-0">
 				{#each data.trendingMovies.data.results as trendingMovies, i}
-					{#if i <= 17}
-						<a
-							href={`/movie/${trendingMovies.id}`}
-							class="group relative mb-2 flex w-1/2 flex-shrink-0 flex-col gap-2 rounded-lg p-2 sm:w-1/4 lg:w-1/6 xl:p-[.4rem]"
-						>
-							<div class="relative aspect-[1/1.5] w-full overflow-hidden rounded-lg">
-								<img
-									src="https://image.tmdb.org/t/p/w342{trendingMovies.poster_path}"
-									alt={trendingMovies.title}
-									class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
-								/>
-								<div
-									class="absolute right-0 top-1 flex items-center justify-center gap-1 rounded-l-md bg-slate-900/70 px-[5px] py-1"
-								>
-									<Star class="size-3 text-yellow-400" />
-									<span class="text-xs font-light">
-										{trendingMovies.vote_average}
-									</span>
-								</div>
+					<!-- {#if i <= 17} -->
+					<a
+						href={`/movie/${trendingMovies.id}`}
+						class="group relative mb-2 flex w-1/2 flex-shrink-0 flex-col gap-2 rounded-lg p-2 sm:w-1/4 lg:w-1/6 xl:p-[.4rem]"
+					>
+						<div class="relative aspect-[1/1.5] w-full overflow-hidden rounded-lg">
+							<img
+								src="https://image.tmdb.org/t/p/w342{trendingMovies.poster_path}"
+								alt={trendingMovies.title}
+								class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
+							/>
+							<div
+								class="absolute right-0 top-1 flex items-center justify-center gap-1 rounded-l-md bg-slate-900/70 px-[5px] py-1"
+							>
+								<Star class="size-3 text-yellow-400" />
+								<span class="text-xs font-light">
+									{roundOff(trendingMovies.vote_average)}
+								</span>
 							</div>
-						</a>
-					{/if}
+						</div>
+					</a>
+					<!-- {/if} -->
 				{/each}
 			</div>
 		</div>
 
-		<div class="mt-0 hidden h-full flex-col gap-3 px-1 md:gap-4 lg:w-[30%] xl:flex">
+		<div class="mt-0 hidden h-full flex-col gap-3 px-1 md:gap-4 lg:w-[30%] xl:flex overflow-y-hidden w-full">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2">
 					<div class="bg-primary rounded-md p-2 text-white">
@@ -228,25 +229,33 @@
 			</div>
 			<div class="flex flex-col gap-2 overflow-hidden">
 				{#each data.moviesPopular.data.results as moviesPopular, i}
-					<a
-						class="group flex aspect-[4.3/1] w-full gap-1 overflow-hidden rounded-lg 2xl:aspect-[5.33/1]"
-						href={`/movie/${moviesPopular.id}`}
-					>
-						<div class="aspect-[1/1.2] h-full overflow-hidden rounded-md">
-							<img
-								src={`https://image.tmdb.org/t/p/w342${moviesPopular.poster_path}`}
-								alt={moviesPopular.title}
-								class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
-							/>
-						</div>
-						<div class="flex h-full w-full flex-col gap-1 p-2">
-							<h3 class="w-full line-clamp-2 text-base leading-snug">{moviesPopular.title}</h3>
-							<div class="flex items-center gap-2 text-xs font-light">
-								<Star class="size-4" />
-								<p>{moviesPopular.vote_average}</p>
+					{#if i <= 9}
+						<a
+							class="group flex aspect-[4.3/1] w-full gap-1 overflow-hidden rounded-lg 2xl:aspect-[5.33/1]"
+							href={`/movie/${moviesPopular.id}`}
+						>
+							<div class="aspect-[1/1.2] h-full overflow-hidden rounded-md">
+								<img
+									src={`https://image.tmdb.org/t/p/w342${moviesPopular.poster_path}`}
+									alt={moviesPopular.title}
+									class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
+								/>
 							</div>
-						</div>
-					</a>
+							<div class="flex h-full w-full flex-col gap-1 p-2">
+								<h3 class="line-clamp-2 w-full text-base leading-snug">{moviesPopular.title}</h3>
+								<div class="flex items-center gap-2 text-xs font-normal">
+									<div class="flex items-center gap-1">
+										<CalendarDays class="size-4 text-muted-foreground" />
+										<p>{moviesPopular.release_date}</p>
+									</div>
+									<div class="flex items-center gap-1">
+										<Star class="size-4 text-muted-foreground" />
+										<p>{roundOff(moviesPopular.vote_average)}</p>
+									</div>
+								</div>
+							</div>
+						</a>
+					{/if}
 				{/each}
 			</div>
 		</div>
