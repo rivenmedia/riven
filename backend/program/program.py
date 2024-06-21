@@ -356,34 +356,12 @@ class Program(threading.Thread):
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    def verify_futures(self):
-        for future_iter in self.futures:
-            item = future_iter[0]
-            future = future_iter[1]
-            try:
-                future_except = future.exception(timeout=0.001)
-                if( future_except == None):
-                    with self.mutex:
-                        self.futures.remove(future_iter)
-                        self._remove_from_running_items(item)
-                    self.verify_futures()
-                    return
-                self._remove_from_running_items(item)
-                logger.error(str(future_except))
-            except TimeoutError as E:
-                pass
-            except concurrent.futures.CancelledError as E:
-                self._remove_from_running_items(item)
-
-                pass
-
     def run(self):
         while self.running:
             if not self.validate():
                 time.sleep(1)
                 continue
 
-            #self.verify_futures()
             try:
                 event: Event = self.event_queue.get(timeout=10)
                 self.dump_tracemalloc()
