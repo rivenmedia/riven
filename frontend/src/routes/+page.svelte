@@ -133,7 +133,7 @@
 								<div class="z-0">
 									<span
 										><img
-											src="https://image.tmdb.org/t/p/w342/{trendingAll.backdrop_path}"
+											src="https://image.tmdb.org/t/p/w342{trendingAll.backdrop_path}"
 											alt={trendingAll.name}
 											class="size-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 										/></span
@@ -194,9 +194,9 @@
 						>
 							<div class="relative aspect-[1/1.5] w-full overflow-hidden rounded-lg">
 								<img
-									src="https://image.tmdb.org/t/p/w342/{trendingMovies.poster_path}"
+									src="https://image.tmdb.org/t/p/w342{trendingMovies.poster_path}"
 									alt={trendingMovies.title}
-									class="h-full w-full object-cover object-center group-hover:scale-105"
+									class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 								/>
 								<div
 									class="absolute right-0 top-1 flex items-center justify-center gap-1 rounded-l-md bg-slate-900/70 px-[5px] py-1"
@@ -213,7 +213,43 @@
 			</div>
 		</div>
 
-		<div class="mt-0 hidden h-full flex-col gap-3 px-1 md:gap-4 lg:w-[30%] xl:flex"></div>
+		<div class="mt-0 hidden h-full flex-col gap-3 px-1 md:gap-4 lg:w-[30%] xl:flex">
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<div class="bg-primary rounded-md p-2 text-white">
+						<Star class="size-4" />
+					</div>
+					<h2 class="text-xl font-semibold md:text-2xl">Top Movies</h2>
+				</div>
+				<a href="/movies" class="text-primary-foreground flex items-center gap-2">
+					<span>View All</span>
+					<MoveUpRight class="size-4" />
+				</a>
+			</div>
+			<div class="flex flex-col gap-2 overflow-hidden">
+				{#each data.moviesPopular.data.results as moviesPopular, i}
+					<a
+						class="group flex aspect-[4.3/1] w-full gap-1 overflow-hidden rounded-lg 2xl:aspect-[5.33/1]"
+						href={`/movie/${moviesPopular.id}`}
+					>
+						<div class="aspect-[1/1.2] h-full overflow-hidden rounded-md">
+							<img
+								src={`https://image.tmdb.org/t/p/w342${moviesPopular.poster_path}`}
+								alt={moviesPopular.title}
+								class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
+							/>
+						</div>
+						<div class="flex h-full w-full flex-col gap-1 p-2">
+							<h3 class="w-full line-clamp-2 text-base leading-snug">{moviesPopular.title}</h3>
+							<div class="flex items-center gap-2 text-xs font-light">
+								<Star class="size-4" />
+								<p>{moviesPopular.vote_average}</p>
+							</div>
+						</div>
+					</a>
+				{/each}
+			</div>
+		</div>
 	</div>
 </div>
 
