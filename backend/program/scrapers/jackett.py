@@ -179,22 +179,26 @@ class Jackett:
 
     def _search_movie_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
+        if indexer.movie_search_capabilities == None:
+            return []
         params = {
             "apikey": self.api_key,
             "t": "movie",
             "cat": "2000",
             "q": item.title,
-            "year": item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
-
-        if indexer.movie_search_capabilities and "imdbId" in indexer.movie_search_capabilities:
-            params["imdbId"] = item.imdb_id
+        if indexer.movie_search_capabilities and "year" in indexer.movie_search_capabilities:
+            if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
+        if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
+            params["imdbid"] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "movie")
 
     def _search_series_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for series on the given indexer"""
+        if indexer.tv_search_capabilities == None:
+            return []
         q, season, ep = self._get_series_search_params(item)
 
         if not q:
@@ -205,13 +209,12 @@ class Jackett:
             "apikey": self.api_key,
             "t": "tvsearch",
             "cat": "5000",
-            "q": q,
-            "season": season,
-            "ep": ep
+            "q": q
         }
-
-        if indexer.tv_search_capabilities and "imdbId" in indexer.tv_search_capabilities:
-            params["imdbId"] = item.imdb_id
+        if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
+        if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
+        if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
+            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "series")
