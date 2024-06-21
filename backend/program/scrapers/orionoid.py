@@ -4,11 +4,8 @@ from typing import Dict
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
-from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-from RTN import RTN, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get
 
@@ -18,11 +15,9 @@ KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 class Orionoid:
     """Scraper for `Orionoid`"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "orionoid"
         self.settings = settings_manager.settings.scraping.orionoid
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
         self.is_premium = False
         self.is_unlimited = False
@@ -35,8 +30,6 @@ class Orionoid:
         self.orionoid_limit = 0
         self.orionoid_expiration = datetime.now()
         self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
-        self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
         logger.success("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -86,14 +79,13 @@ class Orionoid:
                 return True
         return False
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
             if self.second_limiter:
                 self.second_limiter.limit_hit()
@@ -107,23 +99,20 @@ class Orionoid:
             logger.error(f"Orionoid request exception: {e}")
         except Exception as e:
             logger.error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
         try:
             data, stream_count = self.api_scrape(item)
-        except Exception as e:
-            raise e  # Raise the exception to be handled by the run method
+        except:
+            raise
 
         if len(data) > 0:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""
@@ -180,32 +169,11 @@ class Orionoid:
         if not response.is_ok or not hasattr(response.data, "data"):
             return {}, 0
 
-        torrents = set()
-        correct_title = item.get_top_title()
-
-        if not correct_title:
-            logger.log("SCRAPER", f"Correct title not found for {item.log_string}")
-            return {}, 0
-
+        torrents = {}
         for stream in response.data.data.streams:
-            if (
-                not stream.file.hash or 
-                not stream.file.name or 
-                self.hash_cache.is_blacklisted(stream.file.hash)
-            ):
+            if not stream.file.hash or not stream.file.name:
                 continue
-            try:
-                torrent: Torrent = self.rtn.rank(
-                    raw_title=stream.file.name,
-                    infohash=stream.file.hash,
-                    correct_title=correct_title,
-                    remove_trash=True
-                )
-            except GarbageTorrent:
-                continue
+            
+            torrents[stream.file.hash] = stream.file.name
 
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(response.data.data.streams)
+        return torrents, len(response.data.data.streams)

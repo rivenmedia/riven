@@ -5,16 +5,13 @@ import queue
 import threading
 import time
 import xml.etree.ElementTree as ET
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.settings.versions import models
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
-from RTN import RTN, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded
 
@@ -33,21 +30,17 @@ class ProwlarrIndexer(BaseModel):
 class Prowlarr:
     """Scraper for `Prowlarr`"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "Prowlarr"
         self.api_key = None
         self.indexers = None
-        self.hash_cache = hash_cache
         self.settings = settings_manager.settings.scraping.prowlarr
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
         self.second_limiter = None
         self.rate_limit = self.settings.ratelimit
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
-        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.success("Prowlarr initialized!")
 
     def validate(self) -> bool:
@@ -82,36 +75,35 @@ class Prowlarr:
         logger.warning("Prowlarr is not configured and will not be used.")
         return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Prowlarr site for the given media items
         and update the object with scraped streams"""
         if not item:
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
-            self.second_limiter.limit_hit()
+            if self.second_limiter:
+                self.second_limiter.limit_hit()
+            else:
+                logger.warning(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Prowlarr request exception: {e}")
         except Exception as e:
             logger.error(f"Prowlarr failed to scrape item with error: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Prowlarr` scrape method"""
         results_queue = queue.Queue()
         threads = [
@@ -125,7 +117,7 @@ class Prowlarr:
             thread.join()
 
         results = self._collect_results(results_queue)
-        return self._process_results(item, results)
+        return self._process_results(results)
 
     def _thread_target(self, item: MediaItem, indexer: ProwlarrIndexer, results_queue: queue.Queue):
         try:
@@ -156,27 +148,18 @@ class Prowlarr:
             results.extend(results_queue.get())
         return results
 
-    def _process_results(self, item: MediaItem, results: List[Tuple[str, str]]) -> Tuple[Dict[str, Torrent], int]:
+    def _process_results(self, results: List[Tuple[str, str]]) -> Tuple[Dict[str, str], int]:
         """Process the results and return the torrents"""
-        torrents = set()
-        correct_title = item.get_top_title()
-        if not correct_title:
-            logger.debug(f"Correct title not found for {item.log_string}")
-            return {}, 0
+        torrents: Dict[str, str] = {}
 
         for result in results:
-            if result[1] is None or self.hash_cache.is_blacklisted(result[1]):
+            if result[1] is None:
                 continue
-            try:
-                torrent: Torrent = self.rtn.rank(
-                    raw_title=result[0], infohash=result[1], correct_title=correct_title, remove_trash=True
-                )
-            except GarbageTorrent:
-                continue
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(scraped_torrents)
+
+            # infohash: raw_title
+            torrents[result[1]] = result[0]
+
+        return torrents, len(results)
 
     def _search_movie_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
@@ -227,8 +210,6 @@ class Prowlarr:
             return item.get_top_title(), item.number, None
         elif isinstance(item, Episode):
             return item.get_top_title(), item.parent.number, item.number
-        elif isinstance(item, Show):
-            return item.get_top_title(), None, None
         return "", 0, None
 
     def _get_indexers(self) -> List[ProwlarrIndexer]:

@@ -1,13 +1,10 @@
 """ Knightcrawler scraper module """
-from typing import Dict, Generator
+from typing import Dict
 
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-from RTN import RTN, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -15,18 +12,14 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Knightcrawler:
     """Scraper for `Knightcrawler`"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "knightcrawler"
         self.settings = settings_manager.settings.scraping.knightcrawler
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
         self.initialized = self.validate()
         if not self.initialized:
             return
         self.second_limiter = RateLimiter(max_calls=1, period=2) if self.settings.ratelimit else None
-        self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
         logger.success("Knightcrawler initialized!")
 
     def validate(self) -> bool:
@@ -53,43 +46,43 @@ class Knightcrawler:
             return False
         return True
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the knightcrawler site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
             if self.second_limiter:
                 self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"Knightcrawler ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Knightcrawler connection timeout for item: {item.log_string}")
         except ReadTimeout:
             logger.warning(f"Knightcrawler read timeout for item: {item.log_string}")
         except RequestException as e:
-            logger.error(f"Knightcrawler request exception: {e}")
+            if e.status_code == 429:
+                if self.second_limiter:
+                    self.second_limiter.limit_hit()
+                else:
+                    logger.warning(f"Knightcrawler ratelimit exceeded for item: {item.log_string}")
+            else:
+                logger.error(f"Knightcrawler request exception: {e}")
         except Exception as e:
             logger.error(f"Knightcrawler exception thrown: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Knightcrawler` scrape method"""
         identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
         if isinstance(item, Season):
@@ -110,23 +103,18 @@ class Knightcrawler:
         if not response.is_ok or len(response.data.streams) <= 0:
             return {}, 0
 
-        torrents = set()
-        correct_title = item.get_top_title()
-        if not correct_title:
-            logger.scraper(f"Correct title not found for {item.log_string}")
-            return {}, 0
+        torrents: Dict[str, str] = {}
 
         for stream in response.data.streams:
-            raw_title = stream.title.split("\n👤")[0].split("\n")[0]
-            if not stream.infoHash or not raw_title:
+            if not stream.infoHash:
                 continue
-            if self.hash_cache and self.hash_cache.is_blacklisted(stream.infoHash):
-                continue
-            try:
-                torrent = self.rtn.rank(raw_title=raw_title, infohash=stream.infoHash, correct_title=correct_title, remove_trash=True)
-            except GarbageTorrent:
-                continue
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(response.data.streams)
+
+            # For Movies and Episodes, we want the file name instead of the torrent title
+            # This should help with Special episodes and other misc. names
+            stream_title = stream.title.split("\n")[:-1]
+            joined_title = "\n".join(stream_title)
+            raw_title = joined_title.split("/")[-1] if isinstance(item, Episode) else joined_title.split("\n")[0]
+
+            torrents[stream.infoHash] = raw_title
+
+        return torrents, len(response.data.streams)

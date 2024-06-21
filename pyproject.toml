@@ -23,6 +23,10 @@ rank-torrent-name = "^0.2.13"
 cachetools = "^5.3.3"
 loguru = "^0.7.2"
 rich = "^13.7.1"
+opentelemetry-api = "^1.25.0"
+opentelemetry-sdk = "^1.25.0"
+opentelemetry-exporter-prometheus = "^0.46b0"
+prometheus-client = "^0.20.0"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
