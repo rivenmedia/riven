@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Lock
@@ -319,7 +320,6 @@ class Program(threading.Thread):
         func = self.services[service].run
         future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
-        
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
