@@ -85,7 +85,8 @@ class Scraping:
         item.set("scraped_times", item.scraped_times + 1)
         if not item.get("streams", {}):
             logger.debug(f"Scraped zero items for {item.log_string}")
-            return self.yield_incomplete_children(item)
+            yield self.yield_incomplete_children(item)
+            return
 
         unsorted_streams: Dict[str, Torrent] = item.get("streams")
         sorted_streams: Dict[str, Torrent] = sort_torrents(set(unsorted_streams.values()))
