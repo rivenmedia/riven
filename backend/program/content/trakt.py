@@ -253,7 +253,6 @@ def _fetch_data(url, headers, params):
     """Fetch paginated data from Trakt API with rate limiting."""
     all_data = []
     page = 1
-    previous_data = None
 
     while True:
         try:
@@ -261,11 +260,8 @@ def _fetch_data(url, headers, params):
                 response = get(url, params={**params, "page": page}, additional_headers=headers)
             if response.is_ok:
                 data = response.data
-                if data == previous_data:
-                    break
                 if not data:
                     break
-                previous_data = data
                 all_data.extend(data)
                 if params.get("limit") and len(all_data) >= params["limit"]:
                     break
