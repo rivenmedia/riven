@@ -263,6 +263,8 @@ def _fetch_data(url, headers, params):
                 if not data:
                     break
                 all_data.extend(data)
+                if "X-Pagination-Page-Count" not in response.response.headers:
+                    break
                 if params.get("limit") and len(all_data) >= params["limit"]:
                     break
                 page += 1
