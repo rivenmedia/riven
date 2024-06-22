@@ -9,11 +9,8 @@ from typing import Dict, Generator, List, Optional, Tuple
 import requests
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.settings.versions import models
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
-from RTN import RTN, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded
 
@@ -32,21 +29,17 @@ class JackettIndexer(BaseModel):
 class Jackett:
     """Scraper for `Jackett`"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "jackett"
         self.api_key = None
         self.indexers = None
-        self.hash_cache = hash_cache
         self.settings = settings_manager.settings.scraping.jackett
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.timeout = self.settings.timeout
         self.second_limiter = None
         self.rate_limit = self.settings.ratelimit
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
-        self.rtn = RTN(self.settings_model, self.ranking_model)
         logger.success("Jackett initialized!")
 
     def validate(self) -> bool:
@@ -84,33 +77,27 @@ class Jackett:
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
-        if not item:
-            yield item
-            return
-
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
-            self.second_limiter.limit_hit()
+            if self.second_limiter:
+                self.second_limiter.limit_hit()
         except RequestException as e:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:
             logger.error(f"Jackett failed to scrape item with error: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Jackett` scrape method"""
         results_queue = queue.Queue()
         threads = [
@@ -124,9 +111,10 @@ class Jackett:
             thread.join()
 
         results = self._collect_results(results_queue)
-        return self._process_results(item, results)
+        return self._process_results(results)
 
     def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
+        """Thread target for searching indexers"""
         try:
             start_time = time.perf_counter()
             result = self._search_indexer(item, indexer)
@@ -135,7 +123,7 @@ class Jackett:
             logger.error(f"Invalid Type for {item.log_string}: {e}")
             result = []
             search_duration = 0
-        item_title = item.log_string # probably not needed, but since its concurrent, it's better to be safe
+        item_title = item.log_string
         logger.debug(f"Scraped {item_title} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
         results_queue.put(result)
 
@@ -155,46 +143,38 @@ class Jackett:
             results.extend(results_queue.get())
         return results
 
-    def _process_results(self, item: MediaItem, results: List[Tuple[str, str]]) -> Tuple[Dict[str, Torrent], int]:
+    def _process_results(self, results: List[Tuple[str, str]]) -> Tuple[Dict[str, str], int]:
         """Process the results and return the torrents"""
-        torrents = set()
-        correct_title = item.get_top_title()
-        if not correct_title:
-            logger.debug(f"Correct title not found for {item.log_string}")
-            return {}, 0
-
+        torrents: Dict[str, str] = {}
         for result in results:
-            if result[1] is None or self.hash_cache.is_blacklisted(result[1]):
+            if result[1] is None:
                 continue
-            try:
-                torrent: Torrent = self.rtn.rank(
-                    raw_title=result[0], infohash=result[1], correct_title=correct_title, remove_trash=True
-                )
-            except GarbageTorrent:
-                continue
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(scraped_torrents)
+            # infohash: raw_title
+            torrents[result[1]] = result[0]
+        return torrents, len(results)
 
     def _search_movie_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
+        if indexer.movie_search_capabilities == None:
+            return []
         params = {
             "apikey": self.api_key,
             "t": "movie",
             "cat": "2000",
             "q": item.title,
-            "year": item.aired_at.year if hasattr(item.aired_at, "year") and item.aired_at.year else None
         }
-
-        if indexer.movie_search_capabilities and "imdbId" in indexer.movie_search_capabilities:
-            params["imdbId"] = item.imdb_id
+        if indexer.movie_search_capabilities and "year" in indexer.movie_search_capabilities:
+            if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
+        if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
+            params["imdbid"] = item.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "movie")
 
     def _search_series_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for series on the given indexer"""
+        if indexer.tv_search_capabilities == None:
+            return []
         q, season, ep = self._get_series_search_params(item)
 
         if not q:
@@ -205,13 +185,12 @@ class Jackett:
             "apikey": self.api_key,
             "t": "tvsearch",
             "cat": "5000",
-            "q": q,
-            "season": season,
-            "ep": ep
+            "q": q
         }
-
-        if indexer.tv_search_capabilities and "imdbId" in indexer.tv_search_capabilities:
-            params["imdbId"] = item.imdb_id
+        if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
+        if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
+        if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
+            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "series")

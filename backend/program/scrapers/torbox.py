@@ -12,11 +12,9 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
 class TorBoxScraper:
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "torbox"
         self.settings = settings_manager.settings.scraping.torbox_scraper
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.base_url = "http://search-api.torbox.app"
         self.user_plan = None
         self.timeout = self.settings.timeout
@@ -24,8 +22,6 @@ class TorBoxScraper:
         if not self.initialized:
             return
         self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
-        self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:
@@ -47,15 +43,14 @@ class TorBoxScraper:
             logger.exception(f"Error validating TorBox Scraper: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the TorBox site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
             if self.second_limiter:
                 self.second_limiter.limit_hit()
@@ -76,9 +71,9 @@ class TorBoxScraper:
                 logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except Exception as e:
             logger.error(f"TorBox exception thrown: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given item"""
         try:
             data, stream_count = self.api_scrape(item)
@@ -86,15 +81,12 @@ class TorBoxScraper:
             raise
 
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Torbox` scrape method using Torbox API"""
         # Example URLs:
         # https://search-api.torbox.app/torrents/imdb:tt0080684?metadata=false
@@ -117,29 +109,13 @@ class TorBoxScraper:
         if not response.is_ok or not response.data.data.torrents:
             return {}, 0
 
-        correct_title = item.get_top_title()
-        torrents = set()
-        
+        torrents = {}
         for torrent_data in response.data.data.torrents:
             raw_title = torrent_data.raw_title
             info_hash = torrent_data.hash
             if not info_hash or not raw_title:
                 continue
-            if self.hash_cache.is_blacklisted(info_hash):
-                continue
-            try:
-                torrent = self.rtn.rank(
-                    raw_title=raw_title,
-                    infohash=info_hash,
-                    correct_title=correct_title,
-                    remove_trash=True
-                )
-            except GarbageTorrent:
-                continue
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-        if not torrents:
-            return {}, 0
 
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(response.data.data.torrents)
+            torrents[info_hash] = raw_title
+
+        return torrents, len(response.data.data.torrents)
