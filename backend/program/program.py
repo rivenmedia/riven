@@ -109,10 +109,11 @@ class Program(threading.Thread):
     def start(self):
         latest_version = get_version()
         user_version = settings_manager.settings.version
-        
+
         if latest_version != user_version:
-            logger.warning("PROGRAM", f"Riven v{user_version} is out of date, please update to v{latest_version}")
-        logger.log("PROGRAM", f"Riven v{user_version} starting!")
+            logger.log("PROGRAM", f"Riven v{user_version} starting! (Update Available: v{latest_version})")
+        else:
+            logger.log("PROGRAM", f"Riven v{user_version} starting!")
 
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)

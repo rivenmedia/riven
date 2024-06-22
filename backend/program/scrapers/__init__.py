@@ -1,3 +1,4 @@
+from copy import copy
 import threading
 from datetime import datetime
 from typing import Dict, Generator, List, Set, Union
@@ -47,10 +48,10 @@ class Scraping:
 
     def yield_incomplete_children(self, item: MediaItem) -> Union[List[Season], List[Episode]]:
         if isinstance(item, Season):
-            res = [e for e in item.episodes if e.state not in [States.Completed] and e.is_released]
+            res = [e for e in item.episodes if e.state != States.Completed and e.is_released]
             return res
         if isinstance(item, Show):
-            res = [s for s in item.seasons if s.state not in [States.Completed] and s.is_released]
+            res = [s for s in item.seasons if s.state != States.Completed and s.is_released]
             return res
         return None
 
@@ -58,7 +59,7 @@ class Scraping:
         if item.state != States.PartiallyCompleted:
             return False
         if isinstance(item, Show):
-            sres = [s for s in item.seasons if s.state not in [States.Completed] and s.is_released ]
+            sres = [s for s in item.seasons if s.state != States.Completed and s.is_released]
             res = []
             for s in sres:
                 if all(episode.is_released == True and episode.state != States.Completed for episode in s.episodes):
@@ -83,16 +84,19 @@ class Scraping:
 
         threads: List[threading.Thread] = []
         results: Dict[str, str] = {}
-        results_lock = threading.Lock()  # Add a lock for thread-safe updates
+        results_lock = threading.Lock()
 
-        def run_service(service, item):
-            service_results = service.run(item)
+        # Wondering if we do this, or just create a dict with some attrs instead
+        item_copy = copy(item)
+
+        def run_service(service, item_copy):
+            service_results = service.run(item_copy)
             with results_lock:
                 results.update(service_results)
 
         for service_name, service in self.services.items():
             if service.initialized:
-                thread = threading.Thread(target=run_service, args=(service, item), name=service_name.__name__)
+                thread = threading.Thread(target=run_service, args=(service, item_copy), name=service_name.__name__)
                 threads.append(thread)
                 thread.start()
 
@@ -100,7 +104,7 @@ class Scraping:
             thread.join()
 
         # Parse the results into Torrent objects
-        sorted_streams: Dict[str, Torrent] = self._parse_results(item, results)
+        sorted_streams: Dict[str, Torrent] = self._parse_results(item_copy, results)
 
         # For debug purposes:
         if sorted_streams and settings_manager.settings.debug:
