@@ -1,16 +1,13 @@
 """ Mediafusion scraper module """
 import json
-from typing import Dict, Generator
+from typing import Dict
 
 import requests
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from program.settings.versions import models
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
-from RTN import RTN, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -18,17 +15,13 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 class Mediafusion:
     """Scraper for `Mediafusion`"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "mediafusion"
         self.api_key = None
         self.downloader = None
         self.app_settings: AppModel = settings_manager.settings
         self.settings = self.app_settings.scraping.mediafusion
-        self.settings_model = self.app_settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
-        self.rtn = RTN(self.settings_model, self.ranking_model)
         self.timeout = self.settings.timeout
-        self.hash_cache = hash_cache
         self.encrypted_string = None
         self.initialized = self.validate()
         if not self.initialized:
@@ -98,15 +91,14 @@ class Mediafusion:
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the mediafusion site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
+            return self.scrape(item)
         except RateLimitExceeded:
             if self.second_limiter:
                 self.second_limiter.limit_hit()
@@ -120,21 +112,18 @@ class Mediafusion:
             logger.error(f"Mediafusion request exception: {e}")
         except Exception as e:
             logger.error(f"Mediafusion exception thrown: {e}")
-        yield item
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
         data, stream_count = self.api_scrape(item)
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
         if isinstance(item, Season):
@@ -155,24 +144,14 @@ class Mediafusion:
         if not response.is_ok or len(response.data.streams) <= 0:
             return {}, 0
 
-        torrents = set()
-        correct_title = item.get_top_title()
-        if not correct_title:
-            logger.scraper(f"Correct title not found for {item.log_string}")
-            return {}, 0
+        torrents: Dict[str, str] = {}
 
         for stream in response.data.streams:
             raw_title = stream.description.split("\n💾")[0].replace("📂 ", "")
             info_hash = stream.url.split("?info_hash=")[1]
             if not info_hash or not raw_title:
                 continue
-            if self.hash_cache and self.hash_cache.is_blacklisted(info_hash):
-                continue
-            try:
-                torrent = self.rtn.rank(raw_title=raw_title, infohash=info_hash, correct_title=correct_title, remove_trash=True)
-            except GarbageTorrent:
-                continue
-            if torrent and torrent.fetch:
-                torrents.add(torrent)
-        scraped_torrents = sort_torrents(torrents)
-        return scraped_torrents, len(response.data.streams)
+
+            torrents[info_hash] = raw_title
+
+        return torrents, len(response.data.streams)

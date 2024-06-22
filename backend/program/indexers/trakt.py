@@ -169,7 +169,7 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
                     return d
         return None
 
-    data = find_first(["movie", "show", "season", "episode"], response.data)
+    data = find_first(["show", "movie", "season", "episode"], response.data)
     if data:
         return _map_item_from_data(getattr(data, data.type), data.type)
     return None

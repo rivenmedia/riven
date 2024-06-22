@@ -91,7 +91,7 @@ class PlexWatchlist:
             return
         media_container = getattr(response.data, "MediaContainer", None)
         if not media_container or not hasattr(media_container, "Metadata"):
-            logger.error("MediaContainer is missing Metadata attribute.")
+            logger.log("NOT_FOUND", "MediaContainer is missing Metadata attribute.")
             return
         for item in media_container.Metadata:
             if hasattr(item, "ratingKey") and item.ratingKey:

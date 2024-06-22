@@ -55,8 +55,7 @@ class Overseerr:
         """Fetch new media from `Overseerr`"""
         if self.settings.use_webhook and not self.run_once:
             logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
-            self.run_once = True
-        
+
         if self.run_once:
             return
 
@@ -99,6 +98,9 @@ class Overseerr:
             except Exception as e:
                 logger.error(f"Error processing item {item}: {str(e)}")
                 continue
+
+        if self.settings.use_webhook:
+            self.run_once = True
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
