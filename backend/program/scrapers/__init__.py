@@ -97,7 +97,7 @@ class Scraping:
                 thread.start()
 
         for thread in threads:
-            thread.join(timeout=60)
+            thread.join()
 
         # Parse the results into Torrent objects
         sorted_streams: Dict[str, Torrent] = self._parse_results(item, results)
