@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
+	import Header from '$lib/components/header.svelte';
 
 	const settingsItems: NavItem[] = [
 		{
@@ -33,6 +34,8 @@
 <svelte:head>
 	<title>Settings | General</title>
 </svelte:head>
+
+<Header />
 
 <div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<Select.Root

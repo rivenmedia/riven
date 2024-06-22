@@ -4,6 +4,7 @@
 	import NavigationItem from '$lib/components/header-item.svelte';
 	import { Mountain, MoreHorizontal, X, Command } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
+	import clsx from 'clsx';
 
 	const navItems: NavItem[] = [
 		{
@@ -25,12 +26,22 @@
 	function toggleNavbar() {
 		showMenu = !showMenu;
 	}
+
+	export let darkWhiteText: boolean = false;
 </script>
 
 <!-- made change to bg-transparent -->
 <!-- made change to white fixed text -->
 <header
-	class="flex w-full items-center justify-between bg-transparent p-8 text-background dark:text-foreground md:px-24 lg:px-32"
+	class={clsx(
+		'flex w-full items-center justify-between bg-transparent p-8 md:px-24 lg:px-32',
+		{
+			'text-background dark:text-foreground': darkWhiteText
+		},
+		{
+			'text-foreground': !darkWhiteText
+		}
+	)}
 >
 	<div class="flex items-center gap-2">
 		<a href="/" class="flex items-center gap-2">
@@ -59,7 +70,7 @@
 	class:h-0={!showMenu}
 	class:h-screen={showMenu}
 	class:h-[100dvh]={showMenu}
-	class="fixed left-0 top-0 z-[99] flex h-0 w-screen flex-col items-center overflow-x-hidden bg-background md:hidden"
+	class="bg-background fixed left-0 top-0 z-[99] flex h-0 w-screen flex-col items-center overflow-x-hidden md:hidden"
 >
 	<div class="flex w-full items-end justify-end p-8 transition-all duration-300 ease-in-out">
 		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
