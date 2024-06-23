@@ -53,6 +53,8 @@ jobs:
         push: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags: |
+        tags: |            
+          ghcr.io/${{ github.event.repository.name }}:latest
+          ghcr.io/${{ github.event.repository.name }}:${{ steps.version.outputs.VERSION }}
           docker.io/spoked/riven:latest
           docker.io/spoked/riven:${{ steps.version.outputs.VERSION }}
