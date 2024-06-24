@@ -6,7 +6,8 @@ from program.media.state import States
 from RTN import Torrent
 from RTN.patterns import extract_episodes
 from utils.logger import logger
-
+import re
+from unidecode import unidecode
 
 @dataclass
 class ItemId:
@@ -51,7 +52,7 @@ class MediaItem:
         self.parent: Optional[Self] = None
 
         # Media related
-        self.title: Optional[str] = item.get("title", None)
+        self.title: Optional[str] = self.clean_title(item.get("title", None))
         self.imdb_id: Optional[str] = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
@@ -116,6 +117,18 @@ class MediaItem:
         elif self.imdb_id and self.requested_by:
             return States.Requested
         return States.Unknown
+
+    def clean_title(self, title: Optional[str]) -> Optional[str]:
+        """Clean the title by removing non-alphanumeric characters and mapping special characters."""
+        if title is None:
+            return None
+        # Convert special characters to closest ASCII equivalents
+        title = unidecode(title)
+        # Replace non-alphanumeric characters with spaces
+        title = re.sub(r'[^a-zA-Z0-9]', ' ', title)
+        # Remove extra spaces
+        title = re.sub(r'\s+', ' ', title).strip()
+        return title
 
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""
@@ -270,6 +283,7 @@ class Show(MediaItem):
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.item_id = ItemId(self.imdb_id)
+        self.propagate_attributes_to_childs()
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its item_id."""
@@ -324,6 +338,22 @@ class Show(MediaItem):
             season.item_id.parent_id = self.item_id
             self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
+    def propagate_attributes_to_childs(self):
+        """Propagate show attributes to seasons and episodes if they are empty or do not match."""
+        # Important attributes that need to be connected.
+        attributes = ["genres", "country", "network", "language", "is_anime"]
+
+        def propagate(target, source):
+            for attr in attributes:
+                source_value = getattr(source, attr, None)
+                target_value = getattr(target, attr, None)
+                if target_value in (None, []) and source_value not in (None, []):
+                    setattr(target, attr, source_value)
+
+        for season in self.seasons:
+            propagate(season, self)
+            for episode in season.episodes:
+                propagate(episode, self)
 
 class Season(MediaItem):
     """Season class"""
