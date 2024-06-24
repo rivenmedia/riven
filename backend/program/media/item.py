@@ -63,6 +63,7 @@ class MediaItem:
         self.country: Optional[str] = item.get("country", None)
         self.language: Optional[str] = item.get("language", None)
         self.aired_at: Optional[datetime] = item.get("aired_at", None)
+        self.year: Optional[str] = item.get("year" , None)
         self.genres: Optional[List[str]] = item.get("genres", [])
 
         # Plex related
@@ -125,6 +126,7 @@ class MediaItem:
         self.country = getattr(other, "country", None)
         self.language = getattr(other, "language", None)
         self.aired_at = getattr(other, "aired_at", None)
+        self.year = getattr(other, "year", None)
         self.genres = getattr(other, "genres", [])
         self.is_anime = getattr(other, "is_anime", False)
         self.overseerr_id = getattr(other, "overseerr_id", None)
@@ -157,6 +159,7 @@ class MediaItem:
             "state": self.state.value,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
+            "year": self.year if hasattr(self, "year") else None,
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,

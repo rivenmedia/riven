@@ -99,12 +99,19 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None, sho
         return None
 
     formatted_aired_at = _get_formatted_date(data, item_type)
+    
+    # Set the genre to that of the show
     genres = getattr(data, "genres", None) or show_genres
     country = getattr(data, "country", None) or show_country
     
+    # Set year to aired_date year if year is None
+    year = getattr(data, "year", None)
+    if year is None and formatted_aired_at is not None:
+        year = formatted_aired_at.year
+
     item = {
         "title": getattr(data, "title", None),
-        "year": getattr(data, "year", None),
+        "year": year,
         "status": getattr(data, "status", None),
         "aired_at": formatted_aired_at,
         "imdb_id": getattr(data.ids, "imdb", None),
