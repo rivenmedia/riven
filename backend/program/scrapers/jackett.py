@@ -127,7 +127,7 @@ class Jackett:
         
         item_year =  ''
         if hasattr(item, "year") and item.year:
-            item_year = item_year
+            item_year = item.year
         logger.debug(f"Scraped {item_title} {item_year} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
         results_queue.put(result)
 
