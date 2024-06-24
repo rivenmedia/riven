@@ -347,8 +347,11 @@ class Show(MediaItem):
             for attr in attributes:
                 source_value = getattr(source, attr, None)
                 target_value = getattr(target, attr, None)
-                if target_value in (None, []) and source_value not in (None, []):
+                #check if the attribute source is not falsy (none, false, 0, [])
+                #and if the target is not None we merge
+                if (not target_value) and source_value is not None:
                     setattr(target, attr, source_value)
+                    logger.debug(f"target {target} set {attr} to {source_value}")
 
         for season in self.seasons:
             propagate(season, self)
