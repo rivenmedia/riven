@@ -83,16 +83,16 @@ class TraktIndexer:
         for season in seasons:
             if season.number == 0:
                 continue
-            season_item = _map_item_from_data(season, "season", show.genres)
+            season_item = _map_item_from_data(season, "season", show.genres, show.country)
             if season_item:
                 for episode in season.episodes:
-                    episode_item = _map_item_from_data(episode, "episode", show.genres)
+                    episode_item = _map_item_from_data(episode, "episode", show.genres, show.country)
                     if episode_item:
                         season_item.add_episode(episode_item)
                 show.add_season(season_item)
 
 
-def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
+def _map_item_from_data(data, item_type: str, show_genres: List[str] = None, show_country: List[str] = None) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
@@ -100,7 +100,8 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
 
     formatted_aired_at = _get_formatted_date(data, item_type)
     genres = getattr(data, "genres", None) or show_genres
-
+    country = getattr(data, "country", None) or show_country
+    
     item = {
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
@@ -111,16 +112,17 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "tmdb_id": getattr(data.ids, "tmdb", None),
         "genres": genres,
         "network": getattr(data, "network", None),
-        "country": getattr(data, "country", None),
+        "country": country,
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
     }
-
+    
     item["is_anime"] = (
         ("anime" in genres or "animation" in genres) if genres
         and item["country"] in ("jp", "kr")
         else False
     )
+    
 
     match item_type:
         case "movie":
