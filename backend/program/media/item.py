@@ -64,7 +64,7 @@ class MediaItem:
         self.country: Optional[str] = item.get("country", None)
         self.language: Optional[str] = item.get("language", None)
         self.aired_at: Optional[datetime] = item.get("aired_at", None)
-        self.year: Optional[str] = item.get("year" , None)
+        self.year: Optional[int] = item.get("year" , None)
         self.genres: Optional[List[str]] = item.get("genres", [])
 
         # Plex related

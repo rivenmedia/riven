@@ -93,7 +93,6 @@ class TraktIndexer:
 
         # Propagate important global attributes to seasons and episodes
         show.propagate_attributes_to_childs()
-        logger.debug(f"Is the show: {show.title} anime: {show.is_anime} ")
 
 
 def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
