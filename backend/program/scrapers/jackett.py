@@ -126,8 +126,10 @@ class Jackett:
             search_duration = 0
         item_title = item.log_string
         
-        item_year =  ''
-        if hasattr(item, "year") and item.year:
+        item_year =  item.get_top_year()
+
+        if not item_year and hasattr(item, "year") and item.year:
+            # haven't seen anything without a year but fallback ?
             item_year = item.year
         logger.debug(f"Scraped {item_title} {item_year} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
         results_queue.put(result)
@@ -182,7 +184,7 @@ class Jackett:
         """Search for series on the given indexer"""
         if indexer.tv_search_capabilities == None:
             return []
-        q, season, ep = self._get_series_search_params(item)
+        q, year, season, ep = self._get_series_search_params(item)
 
         if not q:
             logger.debug(f"No search query found for {item.log_string}")
@@ -197,8 +199,8 @@ class Jackett:
         if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
         if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
         
-        year = None
-        if hasattr(item, "year") and item.year: 
+        if not year and hasattr(item, "year") and item.year:
+            # haven't seen anything without a year but fallback ?
             year = item.year
         
         if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
@@ -210,11 +212,11 @@ class Jackett:
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
         if isinstance(item, Show):
-            return item.get_top_title(), None, None
+            return item.get_top_title(), item.get_top_year(), None, None
         elif isinstance(item, Season):
-            return item.get_top_title(), item.number, None
+            return item.get_top_title(), item.get_top_year(), item.number, None
         elif isinstance(item, Episode):
-            return item.get_top_title(), item.parent.number, item.number
+            return item.get_top_title(), item.get_top_year(), item.parent.number, item.number
         return "", 0, None
 
     def _get_indexers(self) -> List[JackettIndexer]:
@@ -280,8 +282,8 @@ class Jackett:
         """
         xml_root = ET.fromstring(xml_content)
         result_list = []
-        year_pattern = re.compile(r'\b(19\d{2}|20\d{2})(?![pP]|\d)')
-
+        #  regex to match years and avoid resolutions like 1080x1920 or 1920 x 1080
+        year_pattern = re.compile(r'\b(19\d{2}|20\d{2})(?![pP]|\d|x\s*\d{3,4}|\s*x\s*\d{3,4})\b')
         for item in xml_root.findall(".//item"):
             infoHash = item.find(
                 ".//torznab:attr[@name='infohash']",
