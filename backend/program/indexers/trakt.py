@@ -79,6 +79,15 @@ class TraktIndexer:
     @staticmethod
     def _add_seasons_to_show(show: Show, imdb_id: str):
         """Add seasons to the given show using Trakt API."""
+        if not isinstance(show, Show):
+            logger.error(f"Item {show.log_string} is not a show")
+            return
+
+        if not imdb_id or not imdb_id.startswith("tt"):
+            logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
+            return
+        
+        
         seasons = get_show(imdb_id)
         for season in seasons:
             if season.number == 0:
@@ -138,7 +147,7 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
             item["number"] = data.number
             return Episode(item)
         case _:
-            logger.error(f"Unknown item type {item_type} for {data.title}  not found in list of acceptable items")
+            logger.error(f"Failed to create item using imdb id: {imdb_id}") # This returns an empty list for response.data
             return None
 
 
