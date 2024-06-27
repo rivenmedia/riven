@@ -260,6 +260,7 @@ class MediaItem:
 
     def get_season_year(self) -> Optional[int]:
         """Get the season title of the item if show return nothing"""
+        match self.__class__.__name__:
             case "Season":
                 return self.year
             case "Episode":

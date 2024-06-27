@@ -184,7 +184,8 @@ class Jackett:
         """Search for series on the given indexer"""
         if indexer.tv_search_capabilities == None:
             return []
-        q, item_year, season_year season, ep = self._get_series_search_params(item)
+        
+        q, item_year, season_year, season, ep = self._get_series_search_params(item)
 
         if not q:
             logger.debug(f"No search query found for {item.log_string}")
