@@ -253,11 +253,20 @@ class MediaItem:
             case "Season":
                 return self.parent.year
             case "Episode":
-                return self.parent.year
+                return self.parent.parent.year
             case _:
                 return self.year
 
 
+    def get_season_year(self) -> Optional[int]:
+        """Get the season title of the item if show return nothing"""
+            case "Season":
+                return self.year
+            case "Episode":
+                return self.parent.year
+            case _:
+                return None
+                
     def __hash__(self):
         return hash(self.item_id)
 
@@ -448,6 +457,9 @@ class Season(MediaItem):
     def get_top_year(self) -> Optional[int]:
         return self.parent.year
 
+    def get_season_year(self) -> Optional[int]:
+        return self.year
+
 
 class Episode(MediaItem):
     """Episode class"""
@@ -488,6 +500,9 @@ class Episode(MediaItem):
 
     def get_top_year(self) -> Optional[int]:
         return self.parent.parent.year
+
+    def get_season_year(self) -> Optional[int]:
+        return self.parent.year
 
 
 def _set_nested_attr(obj, key, value):

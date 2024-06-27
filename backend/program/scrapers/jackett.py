@@ -184,7 +184,7 @@ class Jackett:
         """Search for series on the given indexer"""
         if indexer.tv_search_capabilities == None:
             return []
-        q, year, season, ep = self._get_series_search_params(item)
+        q, item_year, season_year season, ep = self._get_series_search_params(item)
 
         if not q:
             logger.debug(f"No search query found for {item.log_string}")
@@ -196,28 +196,27 @@ class Jackett:
             "cat": "5000",
             "q": q
         }
+
         if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
         if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
         
-        if not year and hasattr(item, "year") and item.year:
-            # haven't seen anything without a year but fallback ?
-            year = item.year
+        
         
         if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
             params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
-        return self._fetch_results(url, params, indexer.title, "series", year)
+        return self._fetch_results(url, params, indexer.title, "series", item_year, season_year)
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
         if isinstance(item, Show):
-            return item.get_top_title(), item.get_top_year(), None, None
+            return item.get_top_title(), item.get_top_year(), None, None, None
         elif isinstance(item, Season):
-            return item.get_top_title(), item.get_top_year(), item.number, None
+            return item.get_top_title(), item.get_top_year(), item.get_season_year(), item.number, None
         elif isinstance(item, Episode):
-            return item.get_top_title(), item.get_top_year(), item.parent.number, item.number
-        return "", 0, None
+            return item.get_top_title(), item.get_top_year(), item.get_season_year(), item.parent.number, item.number
+        return "", None, None, 0, None
 
     def _get_indexers(self) -> List[JackettIndexer]:
         """Get the indexers from Jackett"""
@@ -255,7 +254,7 @@ class Jackett:
             indexer_list.append(indexer)
         return indexer_list
 
-    def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str, item_year: int = None) -> List[Tuple[str, str]]:
+    def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str, item_year: int = None, season_year: int = None ) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
             if self.second_limiter:
@@ -264,7 +263,7 @@ class Jackett:
             else:
                 response = requests.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
-            return self._parse_xml(response.text, item_year)
+            return self._parse_xml(response.text, item_year, season_year)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:
@@ -274,11 +273,11 @@ class Jackett:
                 logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
         return []
 
-    def _parse_xml(self, xml_content: str, item_year: int = None) -> list[tuple[str, str]]:
+    def _parse_xml(self, xml_content: str, item_year: int = None, season_year: int = None) -> list[tuple[str, str]]:
         """
         Parse the torrents from the XML content, 
         ensuring the year in the publication date is equal to or after the specified item year,
-        or the title contains a year within a range of item_year ±1 year of the item searched.
+        or the title contains an exact match of item_year or season_year.
         """
         xml_root = ET.fromstring(xml_content)
         result_list = []
@@ -301,12 +300,16 @@ class Jackett:
                 logger.debug(f"Invalid pubDate format: {pubDate_text}")
                 continue  # Skip if the date format is incorrect or missing
 
-            if item_year is not None:
+            if item_year is not None or season_year is not None:
                 title_years = year_pattern.findall(title)
-                title_year_valid = any(item_year - 1 <= int(year) <= item_year + 1 for year in title_years)
+                title_year_valid = any(
+                    (item_year is not None and int(year) == item_year) or
+                    (season_year is not None and int(year) == season_year)
+                    for year in title_years
+                )
                 if not (title_year_valid or (pubDate_year >= item_year and not any(year for year in title_years if year != str(item_year)))):
                     logger.debug(f"Removing invalid torrent name: {title}, Publish Date: {pubDate} Publish Year: {pubDate_year} Title years matched {title_years}")
-                    continue  # Skip the entry if conditions based on item_year are not met
+                    continue  # Skip the entry if conditions based on item_year or season_year are not met
 
             result_list.append((title, infoHash.attrib["value"]))
 
