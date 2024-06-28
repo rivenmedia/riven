@@ -156,6 +156,8 @@ class Scraping:
         processed_infohashes: Set[str] = set()
         correct_title: str = item.get_top_title()
 
+        logger.log("SCRAPER", f"Processing {len(results)} results for {item.log_string}")
+
         if isinstance(item, Show):
             needed_seasons = [season.number for season in item.seasons]
 
