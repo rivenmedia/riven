@@ -152,6 +152,12 @@ class KnightcrawlerConfig(Observable):
     timeout: int = 30
     ratelimit: bool = True
 
+class ZileanConfig(Observable):
+    enabled: bool = False
+    url: str = "http://localhost:8181"
+    timeout: int = 30
+    ratelimit: bool = True
+
 
 class MediafusionConfig(Observable):
     enabled: bool = False
@@ -215,6 +221,7 @@ class ScraperModel(Observable):
     annatar: AnnatarConfig = AnnatarConfig()
     torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
+    zilean: ZileanConfig = ZileanConfig()
 
 
 # Version Ranking Model (set application defaults here!)
