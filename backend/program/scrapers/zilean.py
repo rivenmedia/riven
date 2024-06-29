@@ -95,23 +95,15 @@ class Zilean:
         else:
             response = post(url, json=payload, timeout=self.timeout)
 
-        if not response.ok:
-            return {}, 0
-
-        try:
-            data = response.json()
-        except ValueError:
-            logger.error("Zilean response is not valid JSON")
+        if not response.is_ok or not response.data:
             return {}, 0
 
         torrents: Dict[str, str] = {}
         
-        for result in data:
-            filename = result.get("filename")
-            infoHash = result.get("infoHash")
-            if not filename or not infoHash:
+        for result in response.data:
+            if not result.filename or not result.infoHash:
                 continue
 
-            torrents[infoHash] = filename
+            torrents[result.infoHash] = result.filename
 
-        return torrents, len(data)
+        return torrents, len(response.data)
