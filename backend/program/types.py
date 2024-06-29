@@ -13,12 +13,13 @@ from program.scrapers import (
     Orionoid,
     Scraping,
     Torrentio,
+    Zilean
 )
 from program.scrapers.torbox import TorBoxScraper
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Annatar, TorBoxScraper]
+Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Annatar, TorBoxScraper, Zilean]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[Debrid, TorBoxDownloader]
 Service = Union[Content, SymlinkLibrary, Scraper, Downloader, Symlinker]

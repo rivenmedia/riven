@@ -13,6 +13,7 @@ from program.scrapers.orionoid import Orionoid
 from program.scrapers.prowlarr import Prowlarr
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
+from program.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from RTN import RTN, Torrent, sort_torrents
@@ -37,7 +38,8 @@ class Scraping:
             Jackett: Jackett(),
             TorBoxScraper: TorBoxScraper(),
             Mediafusion: Mediafusion(),
-            Prowlarr: Prowlarr()
+            Prowlarr: Prowlarr(),
+            Zilean: Zilean()
         }
         self.initialized = self.validate()
         if not self.initialized:
