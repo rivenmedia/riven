@@ -82,7 +82,7 @@ class Zilean:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Zilean` scrape method"""
-        query_text = item.title if isinstance(item, (Movie, Show, Season, Episode)) else ""
+        query_text = item.get_top_title() if isinstance(item, (Movie, Show, Season, Episode)) else ""
         if not query_text:
             return {}, 0
 
