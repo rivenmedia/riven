@@ -44,7 +44,7 @@
 		"bits-ui": "^0.21.10",
 		"clsx": "^2.1.1",
 		"cmdk-sv": "^0.0.17",
-		"embla-carousel-svelte": "^8.1.5",
+		"embla-carousel-svelte": "^8.1.6",
 		"formsnap": "^1.0.0",
 		"lucide-svelte": "^0.390.0",
 		"luxon": "^3.4.4",
