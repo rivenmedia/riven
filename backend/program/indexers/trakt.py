@@ -145,7 +145,7 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
             item["number"] = data.number
             return Episode(item)
         case _:
-            logger.error(f"Failed to create item from title: {getattr(data, "title", None)}")
+            logger.error(f"Failed to create item from data: {data}")
             return None
 
 def _get_formatted_date(data, item_type: str) -> Optional[datetime]:

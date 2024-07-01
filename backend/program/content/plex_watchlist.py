@@ -71,6 +71,7 @@ class PlexWatchlist:
             self.recurring_items.add(imdb_id)
 
         yield items
+
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feeds."""
         for rss_url in self.settings.rss:
@@ -79,8 +80,7 @@ class PlexWatchlist:
                 if not response.is_ok:
                     logger.error(f"Failed to fetch Plex RSS feed from {rss_url}: HTTP {response.status_code}")
                     continue
-                for item in response.data.items:
-                    yield from self._extract_imdb_ids(item.guids)
+                yield self._extract_imdb_ids(response.data.channel.item.guid)
             except Exception as e:
                 logger.error(f"An unexpected error occurred while fetching Plex RSS feed from {rss_url}: {e}")
 
