@@ -52,7 +52,7 @@
 		"motion": "^10.18.0",
 		"nprogress": "^0.2.0",
 		"svelte-sonner": "^0.3.24",
-		"sveltekit-superforms": "^2.14.0",
+		"sveltekit-superforms": "^2.15.2",
 		"tailwind-merge": "^2.3.0",
 		"tailwind-variants": "^0.2.1",
 		"uuid": "^9.0.1",
