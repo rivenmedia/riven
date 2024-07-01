@@ -6,10 +6,8 @@ from program.media.state import States
 from RTN import Torrent
 from RTN.patterns import extract_episodes
 from utils.logger import logger
-
 import re
 from unidecode import unidecode
-
 
 @dataclass
 class ItemId:
@@ -378,7 +376,6 @@ class Show(MediaItem):
             propagate(season, self)
             for episode in season.episodes:
                 propagate(episode, self)
-
 
 class Season(MediaItem):
     """Season class"""

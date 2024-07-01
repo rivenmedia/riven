@@ -17,7 +17,6 @@ class TraktIndexer:
 
     def __init__(self):
         self.key = "traktindexer"
-        self.ids = []
         self.initialized = True
         self.settings = settings_manager.settings.indexer
 
@@ -41,7 +40,7 @@ class TraktIndexer:
         target.update_folder = source.update_folder
         target.symlinked = source.symlinked
         target.is_anime = source.is_anime
-            
+
     def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
         if not in_item:
@@ -50,14 +49,15 @@ class TraktIndexer:
         if not (imdb_id := in_item.imdb_id):
             logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
-        
-        item = create_item_from_imdb_id(imdb_id)
 
+        item = create_item_from_imdb_id(imdb_id)
         if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
+
         if isinstance(item, Show):
             self._add_seasons_to_show(item, imdb_id)
+
         item = self.copy_items(in_item, item)
         item.indexed_at = datetime.now()
         yield item
@@ -86,7 +86,8 @@ class TraktIndexer:
         if not imdb_id or not imdb_id.startswith("tt"):
             logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
             return
-
+        
+        
         seasons = get_show(imdb_id)
         for season in seasons:
             if season.number == 0:
@@ -102,8 +103,7 @@ class TraktIndexer:
         # Propagate important global attributes to seasons and episodes
         show.propagate_attributes_to_childs()
 
-
-def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
+def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
         logger.debug(f"Unknown item type {item_type} for {data.title}")
@@ -124,9 +124,9 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
-        "requested_at": datetime.now(),
+        "requested_at": datetime.now(),    
     }
-
+        
     item["is_anime"] = (
         ("anime" in item['genres'] or "animation" in item['genres']) if item['genres']
         and item["country"] in ("jp", "kr")
@@ -145,7 +145,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
             item["number"] = data.number
             return Episode(item)
         case _:
-            logger.error(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
+            logger.error(f"Failed to create item using imdb id: {imdb_id}") # This returns an empty list for response.data
             return None
 
 
