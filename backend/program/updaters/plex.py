@@ -19,7 +19,7 @@ class PlexUpdater:
         self.library_path = os.path.abspath(
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
-        self.settings = settings_manager.settings.plex
+        self.settings = settings_manager.settings.updaters.plex
         self.plex: PlexServer = None
         self.sections: Dict[LibrarySection, List[str]] = {}
         self.initialized = self.validate()
@@ -29,8 +29,11 @@ class PlexUpdater:
 
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
-        if not self.settings.token:
+        if not self.settings.enabled:
             logger.warning("Plex Updater is set to disabled.")
+            return False
+        if not self.settings.token:
+            logger.error("Plex token is not set!")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set!")

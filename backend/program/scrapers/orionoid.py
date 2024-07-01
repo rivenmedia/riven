@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Dict
 
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
@@ -17,6 +17,7 @@ class Orionoid:
 
     def __init__(self):
         self.key = "orionoid"
+        self.base_url = "https://api.orionoid.com"
         self.settings = settings_manager.settings.scraping.orionoid
         self.timeout = self.settings.timeout
         self.is_premium = False
@@ -27,8 +28,6 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.orionoid_limit = 0
-        self.orionoid_expiration = datetime.now()
         self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("Orionoid initialized!")
 
@@ -47,7 +46,7 @@ class Orionoid:
             logger.error("Orionoid ratelimit must be a valid boolean.")
             return False
         try:
-            url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+            url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = get(url, retry_if_failed=True, timeout=self.timeout)
             if response.is_ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
@@ -69,7 +68,7 @@ class Orionoid:
 
     def check_premium(self) -> bool:
         """Check if the user is active, has a premium account, and has RealDebrid service enabled."""
-        url = f"https://api.orionoid.com?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+        url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         response = get(url, retry_if_failed=False)
         if response.is_ok and hasattr(response.data, "data"):
             active = response.data.data.status == "active"
@@ -79,10 +78,31 @@ class Orionoid:
                 return True
         return False
 
+    def check_limit(self) -> bool:
+        """Check if the user has exceeded the rate limit for the Orionoid API."""
+        url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+        try:
+            response = get(url)
+            if response.is_ok and hasattr(response.data, "data"):
+                remaining = response.data.data.requests.streams.daily.remaining
+                if remaining is None:
+                    return False
+                elif remaining and remaining <= 0:
+                    return True
+        except Exception as e:
+            logger.error(f"Orionoid failed to check limit: {e}")
+            return False
+
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
-        if not item or isinstance(item, Show):
+        if not item:
             return {}
+
+        if not self.is_unlimited:
+            limit_hit = self.check_limit()
+            if limit_hit:
+                logger.debug("Orionoid daily limits have been reached")
+                return {}
 
         try:
             return self.scrape(item)
@@ -103,11 +123,7 @@ class Orionoid:
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given media item"""
-        try:
-            data, stream_count = self.api_scrape(item)
-        except:
-            raise
-
+        data, stream_count = self.api_scrape(item)
         if len(data) > 0:
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
         else:
@@ -116,7 +132,6 @@ class Orionoid:
 
     def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
         """Construct the URL for the Orionoid API."""
-        base_url = "https://api.orionoid.com"
         params = {
             "keyapp": KEY_APP,
             "keyuser": self.settings.api_key,
@@ -125,40 +140,37 @@ class Orionoid:
             "type": media_type,
             "idimdb": imdb_id[2:],
             "streamtype": "torrent",
-            "filename": "true",
-            "limitcount": self.settings.limitcount if self.settings.limitcount else 5,
+            "protocoltorrent": "magnet",
             "video3d": "false",
-            "sortorder": "descending",
-            "sortvalue": "best" if self.is_premium else "popularity",
+            "videoquality": "sd_hd8k"
         }
 
-        if self.is_unlimited:
-            # This can use 2x towards your Orionoid limits. Only use if user is unlimited.
-            params["debridlookup"] = "realdebrid"
+        if not self.is_unlimited:
+            params["limitcount"] = 5
+        else:
+            params["limitcount"] = 5000
 
-        # There are 200 results per page. We probably don't need to go over 200.
-        if self.settings.limitcount > 200:
-            params["limitcount"] = 200
-
-        if media_type == "show":
+        if season:
             params["numberseason"] = season
-            params["numberepisode"] = episode if episode else 1
+        if episode:
+            params["numberepisode"] = episode
 
-        return f"{base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
+        return f"{self.base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
         """Wrapper for `Orionoid` scrape method"""
-        if isinstance(item, Season):
+        if isinstance(item, Movie):
+            imdb_id = item.imdb_id
+            url = self.construct_url("movie", imdb_id)
+        elif isinstance(item, Show):
+            imdb_id = item.imdb_id
+            url = self.construct_url("show", imdb_id, season=1)
+        elif isinstance(item, Season):
             imdb_id = item.parent.imdb_id
             url = self.construct_url("show", imdb_id, season=item.number)
         elif isinstance(item, Episode):
             imdb_id = item.parent.parent.imdb_id
-            url = self.construct_url(
-                "show", imdb_id, season=item.parent.number, episode=item.number
-            )
-        else:
-            imdb_id = item.imdb_id
-            url = self.construct_url("movie", imdb_id)
+            url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
 
         if self.second_limiter:
             with self.second_limiter:

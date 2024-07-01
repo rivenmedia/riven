@@ -9,6 +9,7 @@ import traceback
 import uvicorn
 from controllers.default import router as default_router
 from controllers.items import router as items_router
+
 # from controllers.metrics import router as metrics_router
 from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
