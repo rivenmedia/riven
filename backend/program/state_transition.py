@@ -6,10 +6,9 @@ from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.scrapers import Scraping
-from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
-from program.updaters.plex import PlexUpdater
+from program.updaters import Updater
 from utils.logger import logger
 
 
@@ -78,7 +77,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
 
     elif item.state == States.Symlinked:
-        next_service = PlexUpdater
+        next_service = Updater
         items_to_submit = [item]
 
     elif item.state == States.Completed:

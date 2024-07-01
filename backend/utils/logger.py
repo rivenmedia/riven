@@ -26,8 +26,8 @@ def setup_logger(level):
 
     # Define log levels and their default settings
     log_levels = {
-        "PROGRAM": (36, "d49e78", "🤖"),
-        "DEBRID": (38, "FE6F47", "🔗"),
+        "PROGRAM": (36, "cc6600", "🤖"),
+        "DEBRID": (38, "cc3333", "🔗"),
         "SYMLINKER": (39, "F9E79F", "🔗"),
         "SCRAPER": (40, "D299EA", "👻"),
         "COMPLETED": (41, "FFFFFF", "🟢"),
@@ -39,6 +39,9 @@ def setup_logger(level):
         "DISCOVERY": (47, "e56c49", "🔍"),
         "API": (47, "006989", "👾"),
         "PLEX": (47, "DAD3BE", "📽️ "),
+        "LOCAL": (48, "DAD3BE", "📽️ "),
+        "JELLYFIN": (48, "DAD3BE", "📽️ "),
+        "EMBY": (48, "DAD3BE", "📽️ "),
         "TRAKT": (48, "1DB954", "🎵"),
     }
 
@@ -52,12 +55,13 @@ def setup_logger(level):
     logger.level("DEBUG", icon="🤖")
     logger.level("WARNING", icon="⚠️ ")
     logger.level("CRITICAL", icon="")
+    logger.level("SUCCESS", icon="✔️ ")
 
     # Log format to match the old log format, but with color
     log_format = (
         "<fg #818589>{time:YY-MM-DD} {time:HH:mm:ss}</fg #818589> | "
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
-        "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
+        "<fg #990066>{module}</fg #990066>.<fg #990066>{function}</fg #990066> - <level>{message}</level>"
     )
 
     logger.configure(handlers=[

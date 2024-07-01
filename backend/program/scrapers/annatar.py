@@ -1,7 +1,7 @@
 """ Annatar scraper module """
 from typing import Dict
 
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
@@ -91,7 +91,11 @@ class Annatar:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Annatar` scrape method"""
-        if isinstance(item, Season):
+        if isinstance(item, Show):
+            scrape_type = "series"
+            imdb_id = item.imdb_id
+            identifier = f"season=1"
+        elif isinstance(item, Season):
             scrape_type = "series"
             imdb_id = item.parent.imdb_id
             identifier = f"season={item.number}"
@@ -99,7 +103,7 @@ class Annatar:
             scrape_type = "series"
             imdb_id = item.parent.parent.imdb_id
             identifier = f"season={item.parent.number}&episode={item.number}"
-        else:
+        elif isinstance(item, Movie):
             identifier = None
             scrape_type = "movie"
             imdb_id = item.imdb_id

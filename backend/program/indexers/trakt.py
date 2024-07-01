@@ -47,7 +47,7 @@ class TraktIndexer:
             logger.error("Item is None")
             return
         if not (imdb_id := in_item.imdb_id):
-            logger.error(f"Item {in_item.title} does not have an imdb_id, cannot index it")
+            logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
 
         item = create_item_from_imdb_id(imdb_id)
@@ -103,7 +103,6 @@ class TraktIndexer:
         # Propagate important global attributes to seasons and episodes
         show.propagate_attributes_to_childs()
 
-
 def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
@@ -111,7 +110,6 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
         return None
 
     formatted_aired_at = _get_formatted_date(data, item_type)
-    
     year = getattr(data, "year", None) or (formatted_aired_at.year if formatted_aired_at else None)
 
     item = {
@@ -175,7 +173,6 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
 
     data = next((d for d in response.data if d.type in ["show", "movie", "season", "episode"]), None)
     return _map_item_from_data(getattr(data, data.type), data.type) if data else None
-
 
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""

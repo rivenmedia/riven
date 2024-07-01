@@ -1,6 +1,10 @@
+import time
+
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from program.content.trakt import TraktContent
+from program.media.state import States
+from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 
 router = APIRouter(
@@ -90,3 +94,60 @@ async def trakt_oauth_callback(code: str, request: Request):
         return {"success": True, "message": "OAuth token obtained successfully"}
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
+
+
+@router.get("/stats")
+async def get_stats(request: Request):
+    payload = {}
+
+    total_items = len(request.app.program.media_items._items)
+    total_movies = len(request.app.program.media_items._movies)
+    total_shows = len(request.app.program.media_items._shows)
+    total_seasons = len(request.app.program.media_items._seasons)
+    total_episodes = len(request.app.program.media_items._episodes)
+
+    _incomplete_items = request.app.program.media_items.get_incomplete_items()
+
+    incomplete_retries = {}
+    for _, item in _incomplete_items.items():
+        incomplete_retries[item.log_string] = item.scraped_times
+
+    states = {}
+    for state in States:
+        states[state] = request.app.program.media_items.count(state)
+
+    payload["total_items"] = total_items
+    payload["total_movies"] = total_movies
+    payload["total_shows"] = total_shows
+    payload["total_seasons"] = total_seasons
+    payload["total_episodes"] = total_episodes
+    payload["incomplete_items"] = len(_incomplete_items)
+    payload["incomplete_retries"] = incomplete_retries
+    payload["states"] = states
+
+    return {"success": True, "data": payload}
+
+@router.get("/scrape/{item_id:path}")
+async def scrape_item(item_id: str, request: Request):
+    item = request.app.program.media_items.get_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    scraper = request.app.program.services.get(Scraping)
+    if scraper is None:
+        raise HTTPException(status_code=404, detail="Scraping service not found")
+
+    time_now = time.time()
+    scraped_results = scraper.scrape(item, log=False)
+    time_end = time.time()
+    duration = time_end - time_now
+
+    results = {}
+    for hash, torrent in scraped_results.items():
+        results[hash] = {
+            "title": torrent.data.parsed_title,
+            "raw_title": torrent.raw_title,
+            "rank": torrent.rank,
+        }
+
+    return {"success": True, "total": len(results), "duration": round(duration, 3), "results": results}

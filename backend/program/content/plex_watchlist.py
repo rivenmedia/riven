@@ -16,16 +16,19 @@ class PlexWatchlist:
         self.key = "plex_watchlist"
         self.rss_enabled = False
         self.settings = settings_manager.settings.content.plex_watchlist
+        self.token = settings_manager.settings.updaters.plex.token
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.token = settings_manager.settings.plex.token
         self.recurring_items = set()
         logger.success("Plex Watchlist initialized!")
 
     def validate(self):
         if not self.settings.enabled:
             logger.warning("Plex Watchlists is set to disabled.")
+            return False
+        if not self.token:
+            logger.error("Plex token is not set!")
             return False
         if self.settings.rss:
             for rss_url in self.settings.rss:
@@ -102,7 +105,7 @@ class PlexWatchlist:
     @staticmethod
     def _ratingkey_to_imdbid(ratingKey: str) -> str:
         """Convert Plex rating key to IMDb ID"""
-        token = settings_manager.settings.plex.token
+        token = settings_manager.settings.updaters.plex.token
         filter_params = "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
         response = get(url)

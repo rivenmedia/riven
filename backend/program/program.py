@@ -20,7 +20,7 @@ from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
-from program.updaters.plex import PlexUpdater
+from program.updaters import Updater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
@@ -63,9 +63,9 @@ class Program(threading.Thread):
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
-            Scraping: Scraping(hash_cache),
+            Scraping: Scraping(),
             Symlinker: Symlinker(self.media_items),
-            PlexUpdater: PlexUpdater(),
+            Updater: Updater(),
         }
         self.downloader_services = {
             Debrid: Debrid(hash_cache),

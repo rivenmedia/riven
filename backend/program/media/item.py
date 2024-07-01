@@ -257,7 +257,6 @@ class MediaItem:
             case _:
                 return self.year
 
-
     def get_season_year(self) -> Optional[int]:
         """Get the season title of the item if show return nothing"""
         match self.__class__.__name__:
@@ -267,7 +266,7 @@ class MediaItem:
                 return self.parent.year
             case _:
                 return None
-                
+
     def __hash__(self):
         return hash(self.item_id)
 

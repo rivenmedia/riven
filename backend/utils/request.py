@@ -4,6 +4,7 @@ import logging
 import time
 from multiprocessing import Lock
 from types import SimpleNamespace
+from typing import Optional
 
 import requests
 from lxml import etree
@@ -82,7 +83,8 @@ def _make_request(
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
-    proxies=None
+    proxies=None,
+    json=None
 ) -> ResponseObject:
     session = requests.Session()
     if retry_if_failed:
@@ -94,7 +96,7 @@ def _make_request(
 
     try:
         response = session.request(
-            method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies
+            method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies, json=json
         )
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {e}", exc_info=True)
@@ -117,7 +119,8 @@ def get(
     additional_headers=None,
     retry_if_failed=True,
     response_type=SimpleNamespace,
-    proxies=None
+    proxies=None,
+    json=None
 ) -> ResponseObject:
     """Requests get wrapper"""
     return _make_request(
@@ -129,18 +132,20 @@ def get(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
         response_type=response_type,
-        proxies=proxies
+        proxies=proxies,
+        json=json
     )
 
 
 def post(
     url: str,
-    data: dict,
+    data: Optional[dict] = None,
     params: dict = None,
     timeout=10,
     additional_headers=None,
     retry_if_failed=False,
-    proxies=None
+    proxies=None,
+    json: Optional[dict] = None
 ) -> ResponseObject:
     """Requests post wrapper"""
     return _make_request(
@@ -151,7 +156,8 @@ def post(
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
-        proxies=proxies
+        proxies=proxies,
+        json=json
     )
 
 
@@ -161,7 +167,8 @@ def put(
     timeout=10,
     additional_headers=None,
     retry_if_failed=False,
-    proxies=None
+    proxies=None,
+    json=None
 ) -> ResponseObject:
     """Requests put wrapper"""
     return _make_request(
@@ -171,7 +178,8 @@ def put(
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
-        proxies=proxies
+        proxies=proxies,
+        json=json
     )
 
 
@@ -181,7 +189,8 @@ def delete(
     data=None,
     additional_headers=None,
     retry_if_failed=False,
-    proxies=None
+    proxies=None,
+    json=None
 ) -> ResponseObject:
     """Requests delete wrapper"""
     return _make_request(
@@ -191,7 +200,8 @@ def delete(
         timeout=timeout,
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
-        proxies=proxies
+        proxies=proxies,
+        json=json
     )
 
 
