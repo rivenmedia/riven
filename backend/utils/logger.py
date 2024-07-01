@@ -39,6 +39,9 @@ def setup_logger(level):
         "DISCOVERY": (47, "e56c49", "🔍"),
         "API": (47, "006989", "👾"),
         "PLEX": (47, "DAD3BE", "📽️ "),
+        "LOCAL": (48, "DAD3BE", "📽️ "),
+        "JELLYFIN": (48, "DAD3BE", "📽️ "),
+        "EMBY": (48, "DAD3BE", "📽️ "),
         "TRAKT": (48, "1DB954", "🎵"),
     }
 

@@ -69,10 +69,26 @@ class Updatable(Observable):
         return v
 
 
-class PlexLibraryModel(Updatable):
-    update_interval: int = 120
+# Updaters
+
+
+class LocalLibraryModel(Observable):
+    enabled: bool = False
+
+
+class PlexLibraryModel(Observable):
+    enabled: bool = False
     token: str = ""
     url: str = "http://localhost:32400"
+
+
+class UpdatersModel(Observable):
+    updater_interval: int = 120
+    local: LocalLibraryModel = LocalLibraryModel()
+    plex: PlexLibraryModel = PlexLibraryModel()
+
+
+# Content Services
 
 
 class ListrrModel(Updatable):
@@ -104,6 +120,14 @@ class PlexWatchlistModel(Updatable):
     update_interval: int = 60
 
 
+class TraktOauthModel(BaseModel):
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_redirect_uri: str = ""
+    access_token: str = ""
+    refresh_token: str = ""
+
+
 class TraktModel(Updatable):
     enabled: bool = False
     api_key: str = ""
@@ -115,15 +139,7 @@ class TraktModel(Updatable):
     fetch_popular: bool = False
     popular_count: int = 10
     update_interval: int = 300
-
-
-class TraktOauthModel(BaseModel):
-    # This is for app settings to handle oauth with trakt
-    oauth_client_id: str = ""
-    oauth_client_secret: str = ""
-    oauth_redirect_uri: str = ""
-    access_token: str = ""
-    refresh_token: str = ""
+    # oauth: TraktOauthModel = TraktOauthModel()
 
 
 class ContentModel(Observable):
@@ -253,6 +269,14 @@ class RTNSettingsModel(SettingsModel, Observable):
         "dubbed": CustomRank(fetch=True, rank=1),
         "subbed": CustomRank(fetch=True, rank=4),
         "av1": CustomRank(fetch=False, rank=0),
+        "h264": CustomRank(fetch=True, rank=0),
+        "h265": CustomRank(fetch=True, rank=0),
+        "hevc": CustomRank(fetch=True, rank=0),
+        "avc": CustomRank(fetch=True, rank=0),
+        "dvdrip": CustomRank(fetch=True, rank=5),
+        "bdrip": CustomRank(fetch=True, rank=5),
+        "brrip": CustomRank(fetch=True, rank=0),
+        "hdtv": CustomRank(fetch=True, rank=0),
     }
 
 
@@ -273,11 +297,10 @@ class AppModel(Observable):
     debug: bool = True
     log: bool = True
     force_refresh: bool = False
-    local_only: bool = False
     map_metadata: bool = True
     tracemalloc: bool = False
-    plex: PlexLibraryModel = PlexLibraryModel()
     symlink: SymlinkModel = SymlinkModel()
+    updaters: UpdatersModel = UpdatersModel()
     downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()

@@ -1,13 +1,14 @@
 """ Zilean scraper module """
 
 from typing import Dict
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, post, ping
+from utils.request import RateLimiter, RateLimitExceeded, ping, post
 
 
 class Zilean:
@@ -51,7 +52,7 @@ class Zilean:
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
-        if not item or isinstance(item, Show):
+        if not item:
             return {}
 
         try:
@@ -82,12 +83,12 @@ class Zilean:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Zilean` scrape method"""
-        query_text = item.get_top_title() if isinstance(item, (Movie, Show, Season, Episode)) else ""
-        if not query_text:
+        title = item.get_top_title()
+        if not title:
             return {}, 0
 
         url = f"{self.settings.url}/dmm/search"
-        payload = {"queryText": query_text}
+        payload = {"queryText": title}
 
         if self.second_limiter:
             with self.second_limiter:

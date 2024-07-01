@@ -1,7 +1,8 @@
 """ Knightcrawler scraper module """
 from typing import Dict
+from program.scrapers.shared import _get_stremio_identifier
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
@@ -19,7 +20,7 @@ class Knightcrawler:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=2) if self.settings.ratelimit else None
+        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("Knightcrawler initialized!")
 
     def validate(self) -> bool:
@@ -49,7 +50,7 @@ class Knightcrawler:
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the knightcrawler site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             return {}
 
         try:
@@ -62,7 +63,7 @@ class Knightcrawler:
         except ReadTimeout:
             logger.warning(f"Knightcrawler read timeout for item: {item.log_string}")
         except RequestException as e:
-            if e.status_code == 429:
+            if e.response.status_code == 429:
                 if self.second_limiter:
                     self.second_limiter.limit_hit()
                 else:
@@ -84,11 +85,7 @@ class Knightcrawler:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Knightcrawler` scrape method"""
-        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-        if isinstance(item, Season):
-            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-        elif isinstance(item, Episode):
-            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
         url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
         if identifier:

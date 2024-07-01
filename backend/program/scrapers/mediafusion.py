@@ -3,7 +3,8 @@ import json
 from typing import Dict
 
 import requests
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
 from requests import ConnectTimeout, ReadTimeout
@@ -94,7 +95,7 @@ class Mediafusion:
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the mediafusion site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
+        if not item:
             return {}
 
         try:
@@ -125,11 +126,7 @@ class Mediafusion:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Mediafusion` scrape method"""
-        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-        if isinstance(item, Season):
-            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-        elif isinstance(item, Episode):
-            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
         url = f"{self.settings.url}/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:
