@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional, Self
@@ -6,7 +5,6 @@ from typing import List, Optional, Self
 from program.media.state import States
 from RTN import Torrent
 from RTN.patterns import extract_episodes
-from unidecode import unidecode
 from utils.logger import logger
 
 
@@ -53,7 +51,7 @@ class MediaItem:
         self.parent: Optional[Self] = None
 
         # Media related
-        self.title: Optional[str] = self.clean_title(item.get("title", None))
+        self.title: Optional[str] = item.get("title", None)
         self.imdb_id: Optional[str] = item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
@@ -65,7 +63,6 @@ class MediaItem:
         self.country: Optional[str] = item.get("country", None)
         self.language: Optional[str] = item.get("language", None)
         self.aired_at: Optional[datetime] = item.get("aired_at", None)
-        self.year: Optional[int] = item.get("year" , None)
         self.genres: Optional[List[str]] = item.get("genres", [])
 
         # Plex related
@@ -119,18 +116,6 @@ class MediaItem:
             return States.Requested
         return States.Unknown
 
-    def clean_title(self, title: Optional[str]) -> Optional[str]:
-        """Clean the title by removing non-alphanumeric characters and mapping special characters."""
-        if title is None:
-            return None
-        # Convert special characters to closest ASCII equivalents
-        title = unidecode(title)
-        # Replace non-alphanumeric characters with spaces
-        title = re.sub(r'[^a-zA-Z0-9]', ' ', title)
-        # Remove extra spaces
-        title = re.sub(r'\s+', ' ', title).strip()
-        return title
-
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""
         self.title = getattr(other, "title", None)
@@ -140,7 +125,6 @@ class MediaItem:
         self.country = getattr(other, "country", None)
         self.language = getattr(other, "language", None)
         self.aired_at = getattr(other, "aired_at", None)
-        self.year = getattr(other, "year", None)
         self.genres = getattr(other, "genres", [])
         self.is_anime = getattr(other, "is_anime", False)
         self.overseerr_id = getattr(other, "overseerr_id", None)
@@ -173,7 +157,6 @@ class MediaItem:
             "state": self.state.value,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": self.aired_at,
-            "year": self.year if hasattr(self, "year") else None,
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
@@ -248,26 +231,6 @@ class MediaItem:
             case _:
                 return self.title
 
-    def get_top_year(self) -> Optional[int]:
-        """Get the top year of the item."""
-        match self.__class__.__name__:
-            case "Season":
-                return self.parent.year
-            case "Episode":
-                return self.parent.parent.year
-            case _:
-                return self.year
-
-    def get_season_year(self) -> Optional[int]:
-        """Get the season title of the item if show return nothing"""
-        match self.__class__.__name__:
-            case "Season":
-                return self.year
-            case "Episode":
-                return self.parent.year
-            case _:
-                return None
-
     def __hash__(self):
         return hash(self.item_id)
 
@@ -304,7 +267,6 @@ class Show(MediaItem):
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.item_id = ItemId(self.imdb_id)
-        self.propagate_attributes_to_childs()
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its item_id."""
@@ -359,24 +321,6 @@ class Show(MediaItem):
             season.item_id.parent_id = self.item_id
             self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
-    def propagate_attributes_to_childs(self):
-        """Propagate show attributes to seasons and episodes if they are empty or do not match."""
-        # Important attributes that need to be connected.
-        attributes = ["genres", "country", "network", "language", "is_anime"]
-
-        def propagate(target, source):
-            for attr in attributes:
-                source_value = getattr(source, attr, None)
-                target_value = getattr(target, attr, None)
-                # Check if the attribute source is not falsy (none, false, 0, [])
-                # and if the target is not None we set the source to the target
-                if (not target_value) and source_value is not None:
-                    setattr(target, attr, source_value)
-
-        for season in self.seasons:
-            propagate(season, self)
-            for episode in season.episodes:
-                propagate(episode, self)
 
 class Season(MediaItem):
     """Season class"""
@@ -455,13 +399,6 @@ class Season(MediaItem):
     def get_top_title(self) -> str:
         return self.parent.title
 
-    def get_top_year(self) -> Optional[int]:
-        return self.parent.year
-
-    def get_season_year(self) -> Optional[int]:
-        return self.year
-
-
 class Episode(MediaItem):
     """Episode class"""
 
@@ -498,12 +435,6 @@ class Episode(MediaItem):
 
     def get_top_title(self) -> str:
         return self.parent.parent.title
-
-    def get_top_year(self) -> Optional[int]:
-        return self.parent.parent.year
-
-    def get_season_year(self) -> Optional[int]:
-        return self.parent.year
 
 
 def _set_nested_attr(obj, key, value):
