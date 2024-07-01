@@ -1,7 +1,7 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
-from typing import Generator, List, Optional, Union
+from typing import Generator, Optional, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -145,9 +145,8 @@ def _map_item_from_data(data, item_type: str) -> Optional[MediaItem]:
             item["number"] = data.number
             return Episode(item)
         case _:
-            logger.error(f"Failed to create item using imdb id: {imdb_id}") # This returns an empty list for response.data
+            logger.error(f"Failed to create item from title: {getattr(data, "title", None)}")
             return None
-
 
 def _get_formatted_date(data, item_type: str) -> Optional[datetime]:
     """Get the formatted aired date from the data."""

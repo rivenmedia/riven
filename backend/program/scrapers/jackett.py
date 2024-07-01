@@ -1,12 +1,13 @@
 """ Jackett scraper module """
 
 import queue
+import re
 import threading
 import time
 import xml.etree.ElementTree as ET
-from typing import Dict, Generator, List, Optional, Tuple
-import re
 from datetime import datetime
+from typing import Dict, Generator, List, Optional, Tuple
+
 import requests
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager

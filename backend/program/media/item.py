@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional, Self
@@ -5,9 +6,9 @@ from typing import List, Optional, Self
 from program.media.state import States
 from RTN import Torrent
 from RTN.patterns import extract_episodes
-from utils.logger import logger
-import re
 from unidecode import unidecode
+from utils.logger import logger
+
 
 @dataclass
 class ItemId:
