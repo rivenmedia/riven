@@ -297,8 +297,12 @@ class Program(threading.Thread):
             self._remove_from_running_items(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool" + (f" with {getattr(item, 'log_string', None) or item.item_id}" if item else ""))
-    
+        if item and service:
+            if service.__name__ == "TraktIndexer":
+                logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+            else:
+                logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+
         # Check if the executor has been shut down
         if not self.running:
             logger.error("Cannot submit job, executor is shut down.")
