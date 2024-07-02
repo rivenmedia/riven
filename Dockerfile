@@ -66,10 +66,6 @@ RUN mkdir -p /usr/share/fonts/nerd-fonts && \
 # Install Poetry
 RUN pip install poetry==1.8.3
 
-# Create user and group
-RUN addgroup -g 1000 riven && \
-    adduser -u 1000 -G riven -h /home/riven -s /usr/bin/fish -D riven
-
 # Create fish config directory
 RUN mkdir -p /home/riven/.config/fish
 
@@ -81,9 +77,9 @@ ENV TERM=xterm-256color
 WORKDIR /riven
 
 # Copy frontend build from the previous stage
-COPY --from=frontend --chown=riven:riven /app/build /riven/frontend/build
-COPY --from=frontend --chown=riven:riven /app/node_modules /riven/frontend/node_modules
-COPY --from=frontend --chown=riven:riven /app/package.json /riven/frontend/package.json
+COPY --from=frontend  /app/build /riven/frontend/build
+COPY --from=frontend  /app/node_modules /riven/frontend/node_modules
+COPY --from=frontend  /app/package.json /riven/frontend/package.json
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /app/.venv /app/.venv
@@ -97,9 +93,6 @@ COPY VERSION entrypoint.sh /riven/
 
 # Ensure entrypoint script is executable
 RUN chmod +x /riven/entrypoint.sh
-
-# Set correct permissions for the riven user
-RUN chown -R riven:riven /home/riven/.config /riven
 
 # Switch to fish shell
 SHELL ["fish", "--login"]
