@@ -352,6 +352,10 @@ class Season(MediaItem):
                 return States.Requested
         return States.Unknown
 
+    @property
+    def is_released(self) -> bool:
+        return any(episode.is_released for episode in self.episodes)
+
     def __eq__(self, other):
         if (
             type(self) == type(other)
