@@ -13,6 +13,8 @@ class DefaultRanking(BaseRankingModel):
     remux: int = -1000
     webdl: int = 90
     bluray: int = 80
+    dvdrip: int = -100
+    hdtv: int = -100
 
 
 class BestRemuxRanking(BaseRankingModel):
