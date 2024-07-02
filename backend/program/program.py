@@ -297,11 +297,13 @@ class Program(threading.Thread):
             self._remove_from_running_items(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        if item and service:
-            if service.__name__ == "TraktIndexer":
-                logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
-            else:
-                logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+        logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool" + (f" with {getattr(item, 'log_string', None) or item.item_id}" if item else ""))
+    
+        # Check if the executor has been shut down
+        if not self.running:
+            logger.error("Cannot submit job, executor is shut down.")
+            return
+    
         # Instead of using the one executor, loop over the list of self.executors, if one is found with the service.__name__ then use that one
         # If one is not found with the service.__name__ then create a new one and append it to the list
         # This will allow for multiple services to run at the same time
@@ -312,14 +314,19 @@ class Program(threading.Thread):
                 found = True
                 cur_executor = executor["_executor"]
                 break
+
         if not found:
             max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
             new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
-        func = self.services[service].run
-        future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
-        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        
+        try:
+            func = self.services[service].run
+            future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
+            future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        except RuntimeError as e:
+            logger.error(f"Failed to submit job: {e}")
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
