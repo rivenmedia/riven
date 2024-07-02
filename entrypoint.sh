@@ -8,8 +8,6 @@ if [ "$PUID" = "0" ]
     echo running as root user
     set USER_HOME "/home/$USERNAME"
     mkdir -p $USER_HOME
-    chown -R $PUID:$PGID $USER_HOME
-    chown -R $PUID:$PGID /riven
 else
     if not echo $PUID | grep -qE '^[0-9]+$'
         echo "PUID is not a valid integer. Exiting..."
@@ -55,7 +53,7 @@ else
     set USER_HOME "/home/$USERNAME"
     mkdir -p $USER_HOME
     chown -R $PUID:$PGID $USER_HOME
-    chown -R $PUID:$PGID /riven
+    chown -R $PUID:$PGID /riven/data
 end
 
 umask 002
