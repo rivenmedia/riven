@@ -4,7 +4,6 @@ from typing import List, Optional
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.content.overseerr import Overseerr
-from program.media.container import MediaItemContainer
 from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.symlink import Symlinker

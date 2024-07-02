@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
-from program.media.container import MediaItemContainer
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils import data_dir_path
@@ -25,10 +24,9 @@ class Symlinker:
         library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
 
-    def __init__(self, media_items: MediaItemContainer):
+    def __init__(self, media_items=None):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
-        self.media_items = media_items
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
@@ -327,21 +325,11 @@ class Symlinker:
         return destination_path
 
     @classmethod
-    def save_and_reload_media_items(cls, media_items: MediaItemContainer):
+    def save_and_reload_media_items(cls, media_items):
         """Save and reload the media items to ensure consistency."""
         # Acquire write lock for the duration of save and reload to ensure consistency
-        media_items.lock.acquire_write()
-        try:
-            media_file_path = str(data_dir_path / "media.pkl")
-            media_items.save(media_file_path)
-            logger.log("FILES", "Successfully saved updated media items to disk")
-            media_items.load(media_file_path)
-            logger.log("FILES", "Successfully reloaded media items from disk")
-        except Exception as e:
-            logger.error(f"Failed to save or reload media items: {e}")
-            # Consider what rollback or recovery actions might be appropriate here
-        finally:
-            media_items.lock.release_write()
+        logger.error("Deprecated function called save_and_reload_media_items")
+        pass
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""

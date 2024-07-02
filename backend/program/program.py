@@ -25,13 +25,15 @@ from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
 from .cache import hash_cache
-from .pickly import Pickly
 from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+
 if settings_manager.settings.tracemalloc:
     import tracemalloc
+
+from sqlalchemy import create_engine
 
 class Program(threading.Thread):
     """Program class"""
@@ -42,7 +44,7 @@ class Program(threading.Thread):
         self.startup_args = args
         self.initialized = False
         self.event_queue = Queue()
-        self.media_items = MediaItemContainer()
+        self.media_engine = create_engine(settings_manager.settings.database.host)
         self.services = {}
         self.queued_items = []
         self.running_items = []
@@ -64,7 +66,7 @@ class Program(threading.Thread):
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
             Scraping: Scraping(),
-            Symlinker: Symlinker(self.media_items),
+            Symlinker: Symlinker(),
             Updater: Updater(),
         }
         self.downloader_services = {
@@ -143,19 +145,15 @@ class Program(threading.Thread):
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
 
-        if not self.startup_args.ignore_cache:
-            self.pickly = Pickly(self.media_items, data_dir_path)
-            self.pickly.start()
-
-        if not len(self.media_items):
-            # Seed initial MIC with Library State
-            for item in self.services[SymlinkLibrary].run():
-                if settings_manager.settings.map_metadata:
-                    if isinstance(item, (Movie, Show)):
-                        item = next(self.services[TraktIndexer].run(item))
-                        logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
-                self.media_items.upsert(item)
-            self.media_items.save(str(data_dir_path / "media.pkl"))
+        # if not len(self.media_items):
+        #     # Seed initial MIC with Library State
+        #     for item in self.services[SymlinkLibrary].run():
+        #         if settings_manager.settings.map_metadata:
+        #             if isinstance(item, (Movie, Show)):
+        #                 item = next(self.services[TraktIndexer].run(item))
+        #                 logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+        #         self.media_items.upsert(item)
+        #     self.media_items.save(str(data_dir_path / "media.pkl"))
 
         if len(self.media_items):
             self.media_items.log()
@@ -405,8 +403,6 @@ class Program(threading.Thread):
                     executor["_executor"].shutdown(wait=False)
         if hasattr(self, "scheduler") and getattr(self.scheduler, 'running', False):
             self.scheduler.shutdown(wait=False)
-        if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
-            self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def add_to_queue(self, item: MediaItem) -> bool:
