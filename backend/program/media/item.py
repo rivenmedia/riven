@@ -258,6 +258,10 @@ class Movie(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
+    def fill_in_missing_children(self, other: Self):
+        # Since a movie typically does not have children, this method can be used to update missing attributes instead.
+        self.copy_other_media_attr(other)
+
 class Show(MediaItem):
     """Show class"""
 
