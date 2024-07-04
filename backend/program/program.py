@@ -14,7 +14,6 @@ from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media.container import MediaItemContainer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
@@ -34,6 +33,7 @@ if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 class Program(threading.Thread):
     """Program class"""
@@ -45,11 +45,13 @@ class Program(threading.Thread):
         self.initialized = False
         self.event_queue = Queue()
         self.media_engine = create_engine(settings_manager.settings.database.host)
+        logger.log("PROGRAM", "Database Connected!")
         self.services = {}
         self.queued_items = []
         self.running_items = []
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
+        self.sql_Session = sessionmaker(self.media_engine)
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
@@ -144,7 +146,20 @@ class Program(threading.Thread):
 
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
-
+        #Always assert
+        assert False, "Riven needs more work to be done before it can be used with the new changes"
+        ## Replace all this 
+        # from sqlalchemy import select
+        # stmt = select(User).where(User.name == "spongebob")
+        # with self.sql_Session.begin() as session:
+        #     user = session.execute(stmt).scalar_one()
+        #     user.name = "spongebob squarepants"
+        #     session.add(user)
+        #     session.commit()
+        
+        #@with self.sql_Session.begin() as session:
+        #    for item in session.query(MediaItem).all():
+                
         # if not len(self.media_items):
         #     # Seed initial MIC with Library State
         #     for item in self.services[SymlinkLibrary].run():
@@ -155,8 +170,8 @@ class Program(threading.Thread):
         #         self.media_items.upsert(item)
         #     self.media_items.save(str(data_dir_path / "media.pkl"))
 
-        if len(self.media_items):
-            self.media_items.log()
+        #if len(self.media_items):
+        #    self.media_items.log()
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
@@ -246,6 +261,11 @@ class Program(threading.Thread):
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
 
+    def store_item(self, item):
+        with self.sql_Session.begin() as session:
+            session.add(item)
+            
+
     def _pop_event_queue(self, event):
         with self.mutex:
             self.queued_items.remove(event.item)
@@ -277,6 +297,10 @@ class Program(threading.Thread):
                     for i in item:
                         if not isinstance(i, MediaItem):
                             all_media_items = False
+                    if( isinstance(orig_item, MediaItem)):
+                        with self.sql_Session.begin() as session:
+                            session.add(orig_item)
+
                     self._remove_from_running_items(orig_item, service.__name__)
                     if all_media_items == True:
                         for i in item:
