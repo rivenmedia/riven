@@ -15,8 +15,7 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 import sqlalchemy
 
-class Base(DeclarativeBase):
-    pass
+from program.db.db import db
 
 @dataclass
 class ItemId:
@@ -37,7 +36,7 @@ class ItemId:
         return False
 
 
-class MediaItem(Base):
+class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
     _id: Mapped[int] = mapped_column(primary_key=True)

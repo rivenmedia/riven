@@ -32,8 +32,8 @@ from .types import Event, Service
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from program.db.db import db, alembic
+from sqlalchemy import select, func
 
 class Program(threading.Thread):
     """Program class"""
@@ -44,14 +44,13 @@ class Program(threading.Thread):
         self.startup_args = args
         self.initialized = False
         self.event_queue = Queue()
-        self.media_engine = create_engine(settings_manager.settings.database.host)
         logger.log("PROGRAM", "Database Connected!")
         self.services = {}
         self.queued_items = []
         self.running_items = []
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
-        self.sql_Session = sessionmaker(self.media_engine)
+        self.sql_Session = db.Session
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
@@ -159,19 +158,40 @@ class Program(threading.Thread):
         
         #@with self.sql_Session.begin() as session:
         #    for item in session.query(MediaItem).all():
-                
-        # if not len(self.media_items):
-        #     # Seed initial MIC with Library State
-        #     for item in self.services[SymlinkLibrary].run():
-        #         if settings_manager.settings.map_metadata:
-        #             if isinstance(item, (Movie, Show)):
-        #                 item = next(self.services[TraktIndexer].run(item))
-        #                 logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
-        #         self.media_items.upsert(item)
-        #     self.media_items.save(str(data_dir_path / "media.pkl"))
+        alembic.revision("riven")
+        alembic.upgrade()
+        with db.Session() as session:
+            res = session.execute(func.count(MediaItem).scalar_one()
+            if res == 0:
+                for item in self.services[SymlinkLibrary].run():
+                    if settings_manager.settings.map_metadata:
+                        if isinstance(item, (Movie, Show)):
+                            item = next(self.services[TraktIndexer].run(item))
+                            session.add(item)
+                            # Not sure if the following is required. It might and hopefully should add the children automatically due to the relationships.
+                            # if isinstance(item, Show):
+                            #     for season in item.seasons:
+                            #         session.add(season)
+                            #         for episode in season.episodes:
+                            #             session.add(episode)
+                            logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+                session.commit()
+            
+            movies_symlinks = session.execute(select(func.count(Movie).where(Movie.file != "")).scalar_one()
+            episodes_symlinks = session.execute(select(func.count(Episode).where(Episode.file != "")).scalar_one()
+            total_symlinks = movies_symlinks + episodes_symlinks
+            total_movies = session.execute(select(func.count(Movie))).scalar_one()
+            total_shows = session.execute(select(func.count(Show))).scalar_one()
+            total_seasons = session.execute(select(func.count(Season))).scalar_one()
+            total_episodes = session.execute(select(func.count(Episode))).scalar_one()
+            total_items = session.execute(select(func.count(MediaItem))).scalar_one()
 
-        #if len(self.media_items):
-        #    self.media_items.log()
+            logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
+            logger.log("ITEM", f"Shows: {total_shows}")
+            logger.log("ITEM", f"Seasons: {total_seasons}")
+            logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
+            logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
+
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
