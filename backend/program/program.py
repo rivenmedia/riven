@@ -148,7 +148,7 @@ class Program(threading.Thread):
 
         run_migrations()
         with db.Session() as session:
-            res = session.execute(func.count(MediaItem).scalar_one()
+            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             if res == 0:
                 for item in self.services[SymlinkLibrary].run():
                     if settings_manager.settings.map_metadata:
@@ -156,16 +156,17 @@ class Program(threading.Thread):
                             item = next(self.services[TraktIndexer].run(item))
                             session.add(item)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+                            session.commit()
                 session.commit()
             
-            movies_symlinks = session.execute(select(func.count(Movie).where(Movie.file != "")).scalar_one()
-            episodes_symlinks = session.execute(select(func.count(Episode).where(Episode.file != "")).scalar_one()
+            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.file != "")).scalar_one()
+            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.file != "")).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
-            total_movies = session.execute(select(func.count(Movie))).scalar_one()
-            total_shows = session.execute(select(func.count(Show))).scalar_one()
-            total_seasons = session.execute(select(func.count(Season))).scalar_one()
-            total_episodes = session.execute(select(func.count(Episode))).scalar_one()
-            total_items = session.execute(select(func.count(MediaItem))).scalar_one()
+            total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
+            total_shows = session.execute(select(func.count(Show._id))).scalar_one()
+            total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
+            total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
+            total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
 
             logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
             logger.log("ITEM", f"Shows: {total_shows}")
@@ -350,20 +351,25 @@ class Program(threading.Thread):
                     session.commit()
                     logger.log("PROGRAM", "{item.log_string} Inserted into the database.")
     def _run_thread_with_db_item(self, fn, item: MediaItem | None) -> None:
-        imdb_id = item.item_id
-        with db.Session() as session:
-            if isinstance(item, (Movie, Show, Season, Episode)):
-                if self._ensure_item_exists_in_db(imdb_id) == False:
-                    session.add(item)
+        if item is not None:
+            imdb_id = item.item_id
+            with db.Session() as session:
+                if isinstance(item, (Movie, Show, Season, Episode)):
+                    if self._ensure_item_exists_in_db(imdb_id) == False:
+                        session.add(item)
+                        session.commit()
+                    else: 
+                        item = self._get_item_from_db(imdb_id)
+                    res = fn(item)
+                    item.store_state()
                     session.commit()
-                else: 
-                    item = self._get_item_from_db(imdb_id)
-                fn(item)
-                item.store_state()
-                session.commit()
-                return
-        fn(item)
-
+                    yield res
+                    return res
+            yield fn(item)
+            return
+        else:
+            yield fn()
+    
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
             if service.__name__ == "TraktIndexer":
@@ -394,7 +400,7 @@ class Program(threading.Thread):
             cur_executor = new_executor
         fn = self.services[service].run
         func = self._run_thread_with_db_item
-        future = cur_executor.submit(func, fn) if item is None else cur_executor.submit(func, fn, item)
+        future = cur_executor.submit(func, fn, item) # if item is None else cur_executor.submit(func, fn, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):

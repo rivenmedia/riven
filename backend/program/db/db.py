@@ -2,9 +2,14 @@ from sqla_wrapper import Alembic, SQLAlchemy
 from program.settings.manager import settings_manager
 import os
 
-db = SQLAlchemy(settings_manager.database.host)
+db = SQLAlchemy(settings_manager.settings.database.host)
 
 script_location = os.getcwd() + "/data/alembic/"
+
+import os
+if not os.path.exists(script_location):
+    os.makedirs(script_location)
+
 alembic = Alembic(db, script_location)
 alembic.init(script_location)
 
@@ -20,6 +25,9 @@ def need_upgrade_check() -> bool:
     return diff != []
 
 def run_migrations() -> None:
-    if need_upgrade_check:
-        alembic.revision("auto-upg")
+    try:
+        if need_upgrade_check:
+            alembic.revision("auto-upg")
+            alembic.upgrade()
+    except:
         alembic.upgrade()
