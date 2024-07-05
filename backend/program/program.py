@@ -32,7 +32,7 @@ from .types import Event, Service
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from program.db.db import db, alembic
+from program.db.db import db, alembic, run_migrations
 from sqlalchemy import select, func
 
 class Program(threading.Thread):
@@ -145,21 +145,8 @@ class Program(threading.Thread):
 
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
-        #Always assert
-        assert False, "Riven needs more work to be done before it can be used with the new changes"
-        ## Replace all this 
-        # from sqlalchemy import select
-        # stmt = select(User).where(User.name == "spongebob")
-        # with self.sql_Session.begin() as session:
-        #     user = session.execute(stmt).scalar_one()
-        #     user.name = "spongebob squarepants"
-        #     session.add(user)
-        #     session.commit()
-        
-        #@with self.sql_Session.begin() as session:
-        #    for item in session.query(MediaItem).all():
-        alembic.revision("riven")
-        alembic.upgrade()
+
+        run_migrations()
         with db.Session() as session:
             res = session.execute(func.count(MediaItem).scalar_one()
             if res == 0:
@@ -168,12 +155,6 @@ class Program(threading.Thread):
                         if isinstance(item, (Movie, Show)):
                             item = next(self.services[TraktIndexer].run(item))
                             session.add(item)
-                            # Not sure if the following is required. It might and hopefully should add the children automatically due to the relationships.
-                            # if isinstance(item, Show):
-                            #     for season in item.seasons:
-                            #         session.add(season)
-                            #         for episode in season.episodes:
-                            #             session.add(episode)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 session.commit()
             
@@ -205,9 +186,9 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = [
-            item for item in self.media_items.get_incomplete_items().values()
-        ]
+        items_to_submit = []
+        with db.Session() as session:
+            item_to_submit = session.execute(select(MediaItem).where(MediaItem.last_state!="Completed").order_by(MediaItem.scraped_at))
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
@@ -331,12 +312,57 @@ class Program(threading.Thread):
                 self._remove_from_running_items(orig_item, service.__name__)
                 if item is not None and isinstance(item, MediaItem):
                     self._push_event_queue(Event(emitted_by=service, item=item))
+                    self._check_for_and_run_insertion_required(item)
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
+    def _ensure_item_exists_in_db(self, imdb_id:int) -> bool:
+        with db.Session() as session:
+            return session.execute(select(func.count(MediaItem._id)).where(MediaItem.item_id==imdb_id)).scalar_one() == 1
+    def _get_item_type_from_db(self, imdb_id:int) -> str:
+        with db.Session() as session:
+            return session.execute(select(MediaItem.type).where(MediaItem.item_id==imdb_id)).scalar_one()
+    def _get_item_from_db(self, imdb_id:int):
+        if _ensure_item_exists_in_db(imdb_id) == False:
+            return None
+        type = _get_item_type_from_db(imdb_id)
+        match item_type:
+            case "movie":
+                return session.execute(select(Movie).where(Movie.item_id==imdb_id)).scalar_one()
+            case "show":
+                return session.execute(select(Show).where(Show.item_id==imdb_id)).scalar_one()
+            case "season":
+                return session.execute(select(Season).where(Season.item_id==imdb_id)).scalar_one()
+            case "episode":
+                return session.execute(select(Episode).where(Episode.item_id==imdb_id)).scalar_one()
+            case _:
+                logger.error(f"_get_item_from_db Failed to create item from data: {data}")
+                return None
+    def _check_for_and_run_insertion_required(self, item: MediaItem) -> None:
+        if self._ensure_item_exists_in_db(item.imdb_id) == False:
+            if isinstance(item, (Show, Movie, Season, Episode)):
+                with db.Session() as session:
+                    item.store_state()
+                    session.add(item)
+                    session.commit()
+                    logger.log("PROGRAM", "{item.log_string} Inserted into the database.")
+    def _run_thread_with_db_item(self, fn, item: MediaItem | None) -> None:
+        imdb_id = item.item_id
+        with db.Session() as session:
+            if isinstance(item, (Movie, Show, Season, Episode)):
+                if self._ensure_item_exists_in_db(imdb_id) == False:
+                    session.add(item)
+                    session.commit()
+                else: 
+                    item = self._get_item_from_db(imdb_id)
+                fn(item)
+                item.store_state()
+                session.commit()
+                return
+        fn(item)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -366,13 +392,10 @@ class Program(threading.Thread):
             new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
-        
-        try:
-            func = self.services[service].run
-            future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
-            future.add_done_callback(lambda f: self._process_future_item(f, service, item))
-        except RuntimeError as e:
-            logger.error(f"Failed to submit job: {e}")
+        fn = self.services[service].run
+        func = self._run_thread_with_db_item
+        future = cur_executor.submit(func, fn) if item is None else cur_executor.submit(func, fn, item)
+        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
@@ -417,16 +440,13 @@ class Program(threading.Thread):
                 self.dump_tracemalloc()
                 continue
 
-            existing_item = self.media_items.get(event.item.item_id, None)
+            existing_item = self._get_item_from_db(event.item.item_id)
             updated_item, next_service, items_to_submit = process_event(
                 existing_item, event.emitted_by, event.item
             )
 
             if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
                 logger.success(f"Item has been completed: {updated_item.log_string}")
-
-            if updated_item:
-                self.media_items.upsert(updated_item)
 
             self._remove_from_running_items(event.item, "program.run")
 

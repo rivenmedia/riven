@@ -70,6 +70,7 @@ class MediaItem(db.Model):
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
 
     def __init__(self, item: dict) -> None:
         # id: Mapped[int] = mapped_column(primary_key=True)
@@ -122,6 +123,9 @@ class MediaItem(db.Model):
         # Overseerr related
         self.overseerr_id: Optional[int] = item.get("overseerr_id", None)
 
+    def store_state(self) -> None:
+        self.last_state = self._determine_state().name
+        
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
