@@ -34,6 +34,7 @@ if settings_manager.settings.tracemalloc:
 
 from program.db.db import db, alembic, run_migrations
 from sqlalchemy import select, func
+from sqlalchemy.orm import joinedload
 
 class Program(threading.Thread):
     """Program class"""
@@ -189,7 +190,8 @@ class Program(threading.Thread):
         """Retry any items that are in an incomplete state."""
         items_to_submit = []
         with db.Session() as session:
-            item_to_submit = session.execute(select(MediaItem).where(MediaItem.last_state!="Completed").order_by(MediaItem.scraped_at))
+            items_to_submit = session.execute(select(MediaItem).where( (MediaItem.last_state!="Completed" ) & ( (MediaItem.type == 'show') | (MediaItem.type == 'movie') )).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
+            session.expunge_all()
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
@@ -280,6 +282,8 @@ class Program(threading.Thread):
                 logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
 
     def add_to_running(self, item, service_name):
+        if item is None:
+            return
         if item not in self.running_items:
             self.running_items.append(item)
             logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
@@ -311,33 +315,57 @@ class Program(threading.Thread):
                 self._remove_from_running_items(orig_item, service.__name__)
                 if item is not None and isinstance(item, MediaItem):
                     self._push_event_queue(Event(emitted_by=service, item=item))
-                    self._check_for_and_run_insertion_required(item)
+                    # self._check_for_and_run_insertion_required(item)
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
+    
     def _ensure_item_exists_in_db(self, item:MediaItem) -> bool:
+        if isinstance(item, (Movie, Show)):
+            with db.Session() as session:
+                return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id==item.imdb_id)).scalar_one() != 0
         return item._id is not None
+    
     def _get_item_type_from_db(self, item: MediaItem) -> str:
         with db.Session() as session:
-            session.expire_on_commit = False
+            if item._id is None:
+                return session.execute(select(MediaItem.type).where(MediaItem.imdb_id==item.imdb_id)).scalar_one()    
             return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
+    
     def _get_item_from_db(self, item: MediaItem):
-        if item._id is None:
+        if not self._ensure_item_exists_in_db(item):
             return None
         type = self._get_item_type_from_db(item)
         with db.Session() as session:
             match type:
                 case "movie":
-                    return session.execute(select(Movie).where(Movie._id==item._id)).unique().scalar_one()
+                    r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
+                    session.expunge_all()
+                    return r
                 case "show":
-                    return session.execute(select(Show).where(Show._id==item._id)).unique().scalar_one()
+                    r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
+                    session.expunge_all()
+                    for season in r.seasons:
+                        for episode in season.episodes:
+                            episode.parent = season
+                        season.parent = r
+                    return r
                 case "season":
-                    return session.execute(select(Season).where(Season._id==item._id)).unique().scalar_one()
+                    r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
+                    r.parent = r.parent
+                    session.expunge_all()
+                    for episode in r.episodes:
+                        episode.parent = r
+                    return r
                 case "episode":
-                    return session.execute(select(Episode).where(Episode._id==item._id)).unique().scalar_one()
+                    r = session.execute(select(Episode).where(Episode._id==item._id).options(joinedload("*"))).unique().scalar_one()
+                    r.parent = r.parent
+                    r.parent.parent = r.parent.parent
+                    session.expunge_all()
+                    return r
                 case _:
                     logger.error(f"_get_item_from_db Failed to create item from data: {data}")
                     return None
@@ -348,22 +376,23 @@ class Program(threading.Thread):
                     item.store_state()
                     session.add(item)
                     session.expire_on_commit = False
+                    session.expunge_all()
                     session.commit()
                     logger.log("PROGRAM", f"{item.log_string} Inserted into the database.")
+                    return True
+        return False
     def _run_thread_with_db_item(self, fn, item: MediaItem | None) -> None:
         if item is not None:
             imdb_id = item.item_id
             with db.Session() as session:
                 if isinstance(item, (Movie, Show, Season, Episode)):
-                    if self._ensure_item_exists_in_db(item) == False:
-                        session.add(item)
-                        session.commit()
-                    else: 
+                    if not self._check_for_and_run_insertion_required(item): 
                         item = self._get_item_from_db(item)
                     res = fn(item)
                     item.store_state()
                     session.expire_on_commit = False
                     session.commit()
+                    session.expunge_all()
                     yield from res
                     return res
             yield from fn(item)

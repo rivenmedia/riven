@@ -170,10 +170,8 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
                     return d
         return None
 
-    data = find_first(["show", "movie", "season", "episode"], response.data)
-    if data:
-        return _map_item_from_data(getattr(data, data.type), data.type)
-    return None
+    data = next((d for d in response.data if d.type in ["show", "movie", "season"]), None)
+    return _map_item_from_data(getattr(data, data.type), data.type) if data else None
 
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""

@@ -26,7 +26,7 @@ def need_upgrade_check() -> bool:
 
 def run_migrations() -> None:
     try:
-        if need_upgrade_check:
+        if need_upgrade_check():
             alembic.revision("auto-upg")
             alembic.upgrade()
     except:
