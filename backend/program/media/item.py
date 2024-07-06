@@ -356,7 +356,7 @@ class Season(MediaItem):
     def __eq__(self, other):
         if (
             type(self) == type(other)
-            and self.item_id.parent_id == other.item_id.parent_id
+            and self.parent_id == other.parent_id
         ):
             return self.number == other.get("number", None)
 
