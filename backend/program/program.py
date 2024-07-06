@@ -154,13 +154,13 @@ class Program(threading.Thread):
                     if settings_manager.settings.map_metadata:
                         if isinstance(item, (Movie, Show)):
                             item = next(self.services[TraktIndexer].run(item))
+                            item.store_state()
                             session.add(item)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
-                            session.commit()
                 session.commit()
             
-            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.file != "")).scalar_one()
-            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.file != "")).scalar_one()
+            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
             total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
             total_shows = session.execute(select(func.count(Show._id))).scalar_one()
@@ -264,8 +264,9 @@ class Program(threading.Thread):
             return False
 
     def store_item(self, item):
-        with self.sql_Session.begin() as session:
+        with db.Session() as session:
             session.add(item)
+            session.commit()
             
 
     def _pop_event_queue(self, event):
@@ -299,9 +300,6 @@ class Program(threading.Thread):
                     for i in item:
                         if not isinstance(i, MediaItem):
                             all_media_items = False
-                    if( isinstance(orig_item, MediaItem)):
-                        with self.sql_Session.begin() as session:
-                            session.add(orig_item)
 
                     self._remove_from_running_items(orig_item, service.__name__)
                     if all_media_items == True:
@@ -320,55 +318,58 @@ class Program(threading.Thread):
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
-    def _ensure_item_exists_in_db(self, imdb_id:int) -> bool:
+    def _ensure_item_exists_in_db(self, item:MediaItem) -> bool:
+        return item._id is not None
+    def _get_item_type_from_db(self, item: MediaItem) -> str:
         with db.Session() as session:
-            return session.execute(select(func.count(MediaItem._id)).where(MediaItem.item_id==imdb_id)).scalar_one() == 1
-    def _get_item_type_from_db(self, imdb_id:int) -> str:
-        with db.Session() as session:
-            return session.execute(select(MediaItem.type).where(MediaItem.item_id==imdb_id)).scalar_one()
-    def _get_item_from_db(self, imdb_id:int):
-        if _ensure_item_exists_in_db(imdb_id) == False:
+            session.expire_on_commit = False
+            return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
+    def _get_item_from_db(self, item: MediaItem):
+        if item._id is None:
             return None
-        type = _get_item_type_from_db(imdb_id)
-        match item_type:
-            case "movie":
-                return session.execute(select(Movie).where(Movie.item_id==imdb_id)).scalar_one()
-            case "show":
-                return session.execute(select(Show).where(Show.item_id==imdb_id)).scalar_one()
-            case "season":
-                return session.execute(select(Season).where(Season.item_id==imdb_id)).scalar_one()
-            case "episode":
-                return session.execute(select(Episode).where(Episode.item_id==imdb_id)).scalar_one()
-            case _:
-                logger.error(f"_get_item_from_db Failed to create item from data: {data}")
-                return None
+        type = self._get_item_type_from_db(item)
+        with db.Session() as session:
+            match type:
+                case "movie":
+                    return session.execute(select(Movie).where(Movie._id==item._id)).unique().scalar_one()
+                case "show":
+                    return session.execute(select(Show).where(Show._id==item._id)).unique().scalar_one()
+                case "season":
+                    return session.execute(select(Season).where(Season._id==item._id)).unique().scalar_one()
+                case "episode":
+                    return session.execute(select(Episode).where(Episode._id==item._id)).unique().scalar_one()
+                case _:
+                    logger.error(f"_get_item_from_db Failed to create item from data: {data}")
+                    return None
     def _check_for_and_run_insertion_required(self, item: MediaItem) -> None:
-        if self._ensure_item_exists_in_db(item.imdb_id) == False:
+        if self._ensure_item_exists_in_db(item) == False:
             if isinstance(item, (Show, Movie, Season, Episode)):
                 with db.Session() as session:
                     item.store_state()
                     session.add(item)
+                    session.expire_on_commit = False
                     session.commit()
-                    logger.log("PROGRAM", "{item.log_string} Inserted into the database.")
+                    logger.log("PROGRAM", f"{item.log_string} Inserted into the database.")
     def _run_thread_with_db_item(self, fn, item: MediaItem | None) -> None:
         if item is not None:
             imdb_id = item.item_id
             with db.Session() as session:
                 if isinstance(item, (Movie, Show, Season, Episode)):
-                    if self._ensure_item_exists_in_db(imdb_id) == False:
+                    if self._ensure_item_exists_in_db(item) == False:
                         session.add(item)
                         session.commit()
                     else: 
-                        item = self._get_item_from_db(imdb_id)
+                        item = self._get_item_from_db(item)
                     res = fn(item)
                     item.store_state()
+                    session.expire_on_commit = False
                     session.commit()
-                    yield res
+                    yield from res
                     return res
-            yield fn(item)
+            yield from fn(item)
             return
         else:
-            yield fn()
+            yield from fn()
     
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -446,7 +447,7 @@ class Program(threading.Thread):
                 self.dump_tracemalloc()
                 continue
 
-            existing_item = self._get_item_from_db(event.item.item_id)
+            existing_item = self._get_item_from_db(event.item)
             updated_item, next_service, items_to_submit = process_event(
                 existing_item, event.emitted_by, event.item
             )

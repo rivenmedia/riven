@@ -57,17 +57,18 @@ class MediaItem(db.Model):
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
+        "with_polymorphic":"*",
     }
 
     def __init__(self, item: dict) -> None:
         # id: Mapped[int] = mapped_column(primary_key=True)
         # name: Mapped[str] = mapped_column(String(30))
         # fullname: Mapped[Optional[str]]
-        # addresses: Mapped[List["Address"]] = relationship(
+        # addresses: Mapped[List["Address"]] = relationship(lazy="joined", 
         # back_populates="user", cascade="all, delete-orphan"
         # )
         # user_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("user_account.id"))
-        # user: Mapped["User"] = relationship(back_populates="addresses")
+        # user: Mapped["User"] = relationship(lazy="joined", back_populates="addresses")
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by", None)
 
@@ -290,6 +291,7 @@ class Movie(MediaItem):
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     __mapper_args__ = {
         "polymorphic_identity": "movie",
+        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):
@@ -309,11 +311,12 @@ class Season(MediaItem):
     __tablename__ = "Season"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
-    parent: Mapped["Show"] = relationship(back_populates="seasons", foreign_keys="Season.parent_id")
-    episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Episode._id")
+    parent: Mapped["Show"] = relationship(lazy="joined", back_populates="seasons", foreign_keys="Season.parent_id")
+    episodes: Mapped[List["Episode"]] = relationship(lazy="joined", back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Episode.parent_id")
     
     __mapper_args__ = {
         "polymorphic_identity": "season",
+        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):
@@ -399,10 +402,11 @@ class Episode(MediaItem):
     __tablename__ = "Episode"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
-    parent: Mapped["Season"] = relationship(back_populates='episodes', foreign_keys="Episode.parent_id")
+    parent: Mapped["Season"] = relationship(lazy="joined", back_populates='episodes', foreign_keys="Episode.parent_id")
     
     __mapper_args__ = {
         "polymorphic_identity": "episode",
+        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):
@@ -450,10 +454,11 @@ class Show(MediaItem):
     """Show class"""
     __tablename__ = "Show"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
-    seasons: Mapped[List["Season"]] = relationship(back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Season._id")
+    seasons: Mapped[List["Season"]] = relationship(lazy="joined", back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Season.parent_id")
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
+        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):
