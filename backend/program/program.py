@@ -376,21 +376,22 @@ class Program(threading.Thread):
             except Empty:
                 self.dump_tracemalloc()
                 continue
+            with db.Session() as session:
+                existing_item = DB._get_item_from_db(session, event.item)
+                updated_item, next_service, items_to_submit = process_event(
+                    existing_item, event.emitted_by, event.item
+                )
 
-            existing_item = DB._get_item_from_db(event.item)
-            updated_item, next_service, items_to_submit = process_event(
-                existing_item, event.emitted_by, event.item
-            )
+                if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
+                    logger.success(f"Item has been completed: {updated_item.log_string}")
 
-            if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
-                logger.success(f"Item has been completed: {updated_item.log_string}")
-
-            self._remove_from_running_items(event.item, "program.run")
-
-            if items_to_submit:
-                for item_to_submit in items_to_submit:
-                    self.add_to_running(item_to_submit, next_service.__name__)
-                    self._submit_job(next_service, item_to_submit)
+                self._remove_from_running_items(event.item, "program.run")
+                
+                if items_to_submit:
+                    for item_to_submit in items_to_submit:
+                        self.add_to_running(item_to_submit, next_service.__name__)
+                        self._submit_job(next_service, item_to_submit)
+                session.commit()
 
     def stop(self):
         if not self.running:

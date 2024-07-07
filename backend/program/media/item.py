@@ -36,6 +36,7 @@ class MediaItem(db.Model):
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
