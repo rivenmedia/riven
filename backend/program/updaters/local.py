@@ -16,11 +16,8 @@ class LocalUpdater:
 
     def validate(self) -> bool:
         """Validate Local Updater"""
-        if not settings_manager.settings.local_only:
+        if not settings_manager.settings.updaters.local.enabled:
             logger.warning("Local Updater is set to disabled.")
-            return False
-        if settings_manager.settings.plex.token:
-            logger.error("Local Updater cannot be enabled if Plex is enabled!")
             return False
         return True
 
@@ -43,14 +40,26 @@ class LocalUpdater:
 
         if isinstance(item, (Movie, Episode)):
             items_to_update = [item] if update_item(item) else []
+            if items_to_update:
+                logger.log("LOCAL", f"Updated {item.log_string}")
         elif isinstance(item, Show):
-            for season in item.seasons:
-                items_to_update += [e for e in season.episodes if update_item(e)]
+            items_to_update = [e for season in item.seasons for e in season.episodes if update_item(e)]
+            if items_to_update:
+                if all(e.symlinked for season in item.seasons for e in season.episodes):
+                    logger.log("LOCAL", f"Updated {item.log_string}")
+                else:
+                    for updated_item in items_to_update:
+                        logger.log("LOCAL", f"Updated {updated_item.log_string}")
         elif isinstance(item, Season):
             items_to_update = [e for e in item.episodes if update_item(e)]
-
-        for updated_item in items_to_update:
-            yield updated_item
+            if items_to_update:
+                if all(e.symlinked for e in item.episodes):
+                    logger.log("LOCAL", f"Updated {item.log_string}")
+                else:
+                    for updated_item in items_to_update:
+                        logger.log("LOCAL", f"Updated {updated_item.log_string}")
 
         if not items_to_update:
-            yield item
+            logger.log("LOCAL", f"No items to update for {item.log_string}")
+
+        yield item

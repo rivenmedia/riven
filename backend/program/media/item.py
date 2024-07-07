@@ -346,11 +346,15 @@ class Season(MediaItem):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
-            if all(episode.state == States.Indexed for episode in self.episodes):
+            if any(episode.state == States.Indexed for episode in self.episodes):
                 return States.Indexed
             if any(episode.state == States.Requested for episode in self.episodes):
                 return States.Requested
         return States.Unknown
+
+    @property
+    def is_released(self) -> bool:
+        return any(episode.is_released for episode in self.episodes)
 
     def __eq__(self, other):
         if (
@@ -409,7 +413,7 @@ class Episode(MediaItem):
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
-            self.is_anime = self.parent.is_anime
+            self.is_anime = self.parent.parent.is_anime
 
     def __eq__(self, other):
         if (

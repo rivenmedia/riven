@@ -20,7 +20,7 @@ from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
-from program.updaters.plex import PlexUpdater
+from program.updaters import Updater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
@@ -63,9 +63,9 @@ class Program(threading.Thread):
         }
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
-            Scraping: Scraping(hash_cache),
+            Scraping: Scraping(),
             Symlinker: Symlinker(self.media_items),
-            PlexUpdater: PlexUpdater(),
+            Updater: Updater(),
         }
         self.downloader_services = {
             Debrid: Debrid(hash_cache),
@@ -302,6 +302,12 @@ class Program(threading.Thread):
                 logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
             else:
                 logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
+
+        # Check if the executor has been shut down
+        if not self.running:
+            logger.error("Cannot submit job, executor is shut down.")
+            return
+    
         # Instead of using the one executor, loop over the list of self.executors, if one is found with the service.__name__ then use that one
         # If one is not found with the service.__name__ then create a new one and append it to the list
         # This will allow for multiple services to run at the same time
@@ -312,14 +318,19 @@ class Program(threading.Thread):
                 found = True
                 cur_executor = executor["_executor"]
                 break
+
         if not found:
             max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
             new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
-        func = self.services[service].run
-        future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
-        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        
+        try:
+            func = self.services[service].run
+            future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
+            future.add_done_callback(lambda f: self._process_future_item(f, service, item))
+        except RuntimeError as e:
+            logger.error(f"Failed to submit job: {e}")
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')

@@ -53,6 +53,8 @@ jobs:
         push: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags: |
+        tags: |            
+          ghcr.io/rivenmedia/riven:latest
+          ghcr.io/rivenmedia/riven:${{ steps.version.outputs.VERSION }}
           docker.io/spoked/riven:latest
           docker.io/spoked/riven:${{ steps.version.outputs.VERSION }}
