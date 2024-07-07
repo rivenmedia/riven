@@ -35,6 +35,7 @@ if settings_manager.settings.tracemalloc:
 from program.db.db import db, alembic, run_migrations
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
+import program.db.db_functions as DB
 
 class Program(threading.Thread):
     """Program class"""
@@ -265,14 +266,10 @@ class Program(threading.Thread):
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
 
-    def store_item(self, item):
-        with db.Session() as session:
-            session.add(item)
-            session.commit()
-            
-
+                
     def _pop_event_queue(self, event):
         with self.mutex:
+            DB._store_item(event.item)
             self.queued_items.remove(event.item)
 
     def _remove_from_running_items(self, item, service_name=""):
@@ -291,115 +288,19 @@ class Program(threading.Thread):
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            timeout_seconds = int(
-                os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]
-            ) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60 * 3
-            fut_except = future.exception()
-            if fut_except != None:
-                logger.error(f"{fut_except}")
-                self._remove_from_running_items(item)
-            for item in future.result(timeout=timeout_seconds):
-                if isinstance(item, list):
-                    all_media_items = True
-                    for i in item:
-                        if not isinstance(i, MediaItem):
-                            all_media_items = False
-
-                    self._remove_from_running_items(orig_item, service.__name__)
-                    if all_media_items == True:
-                        for i in item:
-                            self._push_event_queue(Event(emitted_by=self.__class__, item=i))    
-                    return
-                elif not isinstance(item, MediaItem):
-                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
-                self._remove_from_running_items(orig_item, service.__name__)
-                if item is not None and isinstance(item, MediaItem):
-                    self._push_event_queue(Event(emitted_by=service, item=item))
-                    # self._check_for_and_run_insertion_required(item)
+            for item in future.result():
+                pass
+            if orig_item is not None:
+                logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
+            else:
+                logger.log("PROGRAM", f"Service {service.__name__} finished running.")
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
-    
-    def _ensure_item_exists_in_db(self, item:MediaItem) -> bool:
-        if isinstance(item, (Movie, Show)):
-            with db.Session() as session:
-                return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id==item.imdb_id)).scalar_one() != 0
-        return item._id is not None
-    
-    def _get_item_type_from_db(self, item: MediaItem) -> str:
-        with db.Session() as session:
-            if item._id is None:
-                return session.execute(select(MediaItem.type).where(MediaItem.imdb_id==item.imdb_id)).scalar_one()    
-            return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
-    
-    def _get_item_from_db(self, item: MediaItem):
-        if not self._ensure_item_exists_in_db(item):
-            return None
-        type = self._get_item_type_from_db(item)
-        with db.Session() as session:
-            match type:
-                case "movie":
-                    r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-                    session.expunge_all()
-                    return r
-                case "show":
-                    r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-                    session.expunge_all()
-                    for season in r.seasons:
-                        for episode in season.episodes:
-                            episode.parent = season
-                        season.parent = r
-                    return r
-                case "season":
-                    r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
-                    r.parent = r.parent
-                    session.expunge_all()
-                    for episode in r.episodes:
-                        episode.parent = r
-                    return r
-                case "episode":
-                    r = session.execute(select(Episode).where(Episode._id==item._id).options(joinedload("*"))).unique().scalar_one()
-                    r.parent = r.parent
-                    r.parent.parent = r.parent.parent
-                    session.expunge_all()
-                    return r
-                case _:
-                    logger.error(f"_get_item_from_db Failed to create item from data: {data}")
-                    return None
-    def _check_for_and_run_insertion_required(self, item: MediaItem) -> None:
-        if self._ensure_item_exists_in_db(item) == False:
-            if isinstance(item, (Show, Movie, Season, Episode)):
-                with db.Session() as session:
-                    item.store_state()
-                    session.add(item)
-                    session.expire_on_commit = False
-                    session.expunge_all()
-                    session.commit()
-                    logger.log("PROGRAM", f"{item.log_string} Inserted into the database.")
-                    return True
-        return False
-    def _run_thread_with_db_item(self, fn, item: MediaItem | None) -> None:
-        if item is not None:
-            imdb_id = item.item_id
-            with db.Session() as session:
-                if isinstance(item, (Movie, Show, Season, Episode)):
-                    if not self._check_for_and_run_insertion_required(item): 
-                        item = self._get_item_from_db(item)
-                    res = fn(item)
-                    item.store_state()
-                    session.expire_on_commit = False
-                    session.commit()
-                    session.expunge_all()
-                    yield from res
-                    return res
-            yield from fn(item)
-            return
-        else:
-            yield from fn()
-    
+        
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
             if service.__name__ == "TraktIndexer":
@@ -429,8 +330,8 @@ class Program(threading.Thread):
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
         fn = self.services[service].run
-        func = self._run_thread_with_db_item
-        future = cur_executor.submit(func, fn, item) # if item is None else cur_executor.submit(func, fn, item)
+        func = DB._run_thread_with_db_item #func = self.services[service].run # self._run_thread_with_db_item
+        future = cur_executor.submit(func, fn, service, self, item)  #cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
@@ -476,7 +377,7 @@ class Program(threading.Thread):
                 self.dump_tracemalloc()
                 continue
 
-            existing_item = self._get_item_from_db(event.item)
+            existing_item = DB._get_item_from_db(event.item)
             updated_item, next_service, items_to_submit = process_event(
                 existing_item, event.emitted_by, event.item
             )

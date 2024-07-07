@@ -17,7 +17,6 @@ import sqlalchemy
 
 from program.db.db import db
 
-
 class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
@@ -31,7 +30,7 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[Optional[dict[str, Torrent]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    streams: Optional[dict[str, Torrent]] = {}
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
