@@ -102,8 +102,7 @@ class Symlinker:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
         item.set("symlinked_times", item.symlinked_times + 1)
-        if self.should_submit(item):
-            yield item
+        yield item
 
     @staticmethod
     def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:

@@ -33,7 +33,7 @@ def _get_item_from_db(session, item: MediaItem):
     if not _ensure_item_exists_in_db(item):
         return None
     type = _get_item_type_from_db(item)
-
+    session.expire_on_commit = False
     match type:
         case "movie":
             r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
