@@ -32,7 +32,7 @@
 			delay: 5000
 		})
 	]}
-	class="h-[70vh] md:h-[100vh] overflow-hidden"
+	class="h-[70vh] overflow-hidden md:h-[100vh]"
 >
 	<div class="absolute top-0 z-50 w-full">
 		<Header darkWhiteText={true} />
@@ -45,7 +45,7 @@
 						<img
 							src="https://www.themoviedb.org/t/p/original{nowPlaying.backdrop_path}"
 							alt={nowPlaying.title}
-							class="h-[70vh] md:h-[100vh] w-full select-none object-cover object-center"
+							class="h-[70vh] w-full select-none object-cover object-center md:h-[100vh]"
 							loading="lazy"
 						/>
 						<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-60"></div>
@@ -79,7 +79,7 @@
 										size="lg"
 										variant="default"
 										class="flex items-center gap-2"
-										href={`/movie/${nowPlaying.id}`}
+										href="/movie/{nowPlaying.id}"
 									>
 										<Play class="h-4 w-4" />
 										<span>Request</span>
@@ -88,7 +88,7 @@
 										size="lg"
 										variant="ghost"
 										class="flex items-center gap-2"
-										href={`/movie/${nowPlaying.id}`}
+										href="/movie/{nowPlaying.id}"
 									>
 										<Info class="h-4 w-4" />
 										<span>Details</span>
@@ -124,12 +124,13 @@
 		<Carousel.Content class="w-full">
 			{#each data.trendingAll.data.results as trendingAll, i}
 				{#if trendingAll.media_type !== 'person'}
+					{@const mediaType = trendingAll.media_type}
 					<Carousel.Item class="basis-auto text-slate-50">
 						<div
 							class="hover:border-primary aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2"
 						>
 							<a
-								href={`/movie/${trendingAll.id}`}
+								href="/{mediaType}/{trendingAll.id}"
 								class="group relative flex h-full w-full flex-shrink-0 flex-col"
 							>
 								<div class="z-0">
@@ -171,6 +172,6 @@
 	</Carousel.Root>
 </div>
 
-<HomeItems name="Movies" data={data.trendingMovies.data} />
+<HomeItems name="Movies" data={data.trendingMovies.data} type="movie" />
 
-<HomeItems name="Shows" data={data.trendingShows.data} />
+<HomeItems name="Shows" data={data.trendingShows.data} type="tv" />

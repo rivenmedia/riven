@@ -48,6 +48,7 @@ export const generalSettingsSchema = z.object({
 	log: z.boolean().default(true),
 	rclone_path: z.string().min(1),
 	library_path: z.string().min(1),
+	separate_anime_dirs: z.boolean().default(false),
 	movie_filesize_min: z.coerce.number().gte(0).int().optional().default(200),
 	movie_filesize_max: z.coerce.number().gte(-1).int().optional().default(-1),
 	episode_filesize_min: z.coerce.number().gte(0).int().optional().default(40),
@@ -67,6 +68,7 @@ export function generalSettingsToPass(data: any) {
 		log: data.data.log,
 		rclone_path: data.data.symlink.rclone_path,
 		library_path: data.data.symlink.library_path,
+		separate_anime_dirs: data.data.symlink.separate_anime_dirs,
 		movie_filesize_min: data.data.movie_filesize_min,
 		movie_filesize_max: data.data.movie_filesize_max,
 		episode_filesize_min: data.data.episode_filesize_min,
@@ -94,7 +96,8 @@ export function generalSettingsToSet(form: SuperValidated<Infer<GeneralSettingsS
 			key: 'symlink',
 			value: {
 				rclone_path: form.data.rclone_path,
-				library_path: form.data.library_path
+				library_path: form.data.library_path,
+				separate_anime_dirs: form.data.separate_anime_dirs
 			}
 		},
 		{
@@ -121,11 +124,13 @@ export function generalSettingsToSet(form: SuperValidated<Infer<GeneralSettingsS
 
 // Media Server Settings -----------------------------------------------------------------------------------
 
-export const mediaServerSettingsToGet: string[] = ['plex'];
+export const mediaServerSettingsToGet: string[] = ['updaters'];
 
 export const mediaServerSettingsSchema = z.object({
 	// update_interval: z.number().nonnegative().int().optional().default(120), // Moved to coerce due to https://github.com/huntabyte/shadcn-svelte/issues/574
 	update_interval: z.coerce.number().gte(0).int().optional().default(120),
+	local_enabled: z.boolean().default(false),
+	plex_enabled: z.boolean().default(false),
 	plex_token: z.string().optional().default(''),
 	plex_url: z.string().optional().default('')
 });
@@ -133,20 +138,28 @@ export type MediaServerSettingsSchema = typeof mediaServerSettingsSchema;
 
 export function mediaServerSettingsToPass(data: any) {
 	return {
-		update_interval: data.data.plex.update_interval,
-		plex_token: data.data.plex.token,
-		plex_url: data.data.plex.url // TODO: Maybe rename to url only?
+		update_interval: data.data.updaters.update_interval,
+		plex_token: data.data.updaters.plex.token,
+		plex_url: data.data.updaters.plex.url,
+		plex_enabled: data.data.updaters.plex.enabled,
+		local_enabled: data.data.updaters.local.enabled
 	};
 }
 
 export function mediaServerSettingsToSet(form: SuperValidated<Infer<MediaServerSettingsSchema>>) {
 	return [
 		{
-			key: 'plex',
+			key: 'updaters',
 			value: {
 				update_interval: form.data.update_interval,
-				token: form.data.plex_token,
-				url: form.data.plex_url
+				local: {
+					enabled: form.data.local_enabled
+				},
+				plex: {
+					enabled: form.data.plex_enabled,
+					token: form.data.plex_token,
+					url: form.data.plex_url
+				}
 			}
 		}
 	];
@@ -162,33 +175,53 @@ export const scrapersSettingsSchema = z.object({
 	after_10: z.coerce.number().gte(0).int().default(24),
 	torrentio_enabled: z.boolean().default(false),
 	torrentio_url: z.string().optional().default('https://torrentio.strem.fun'),
+	torrentio_timeout: z.coerce.number().gte(0).int().optional().default(30),
+	torrentio_ratelimit: z.boolean().default(true),
 	torrentio_filter: z
 		.string()
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	knightcrawler_enabled: z.boolean().default(false),
 	knightcrawler_url: z.string().optional().default('https://knightcrawler.elfhosted.com/'),
+	knightcrawler_timeout: z.coerce.number().gte(0).int().optional().default(30),
+	knightcrawler_ratelimit: z.boolean().default(true),
 	knightcrawler_filter: z
 		.string()
 		.optional()
 		.default('sort=qualitysize%7Cqualityfilter=480p,scr,cam,unknown'),
 	annatar_enabled: z.boolean().default(false),
 	annatar_url: z.string().optional().default('https://annatar.elfhosted.com'),
-	annatar_limit: z.coerce.number().gte(0).int().optional().default(2000),
 	annatar_timeout: z.coerce.number().gte(0).int().optional().default(10),
+	annatar_ratelimit: z.boolean().default(true),
+	annatar_limit: z.coerce.number().gte(0).int().optional().default(2000),
 	orionoid_enabled: z.boolean().default(false),
 	orionoid_api_key: z.string().optional().default(''),
+	orionoid_timeout: z.coerce.number().gte(0).int().optional().default(10),
+	orionoid_ratelimit: z.boolean().default(true),
 	orionoid_limitcount: z.coerce.number().gte(0).int().optional().default(5),
 	jackett_enabled: z.boolean().default(false),
 	jackett_url: z.string().optional().default('http://localhost:9117'),
+	jackett_timeout: z.coerce.number().gte(0).int().optional().default(10),
+	jackett_ratelimit: z.boolean().default(true),
 	jackett_api_key: z.string().optional().default(''),
 	mediafusion_enabled: z.boolean().default(false),
 	mediafusion_url: z.string().optional().default('https://mediafusion.elfhosted.com'),
+	mediafusion_timeout: z.coerce.number().gte(0).int().optional().default(10),
+	mediafusion_ratelimit: z.boolean().default(true),
 	mediafusion_catalogs: z.array(z.string()).optional().default([]),
 	prowlarr_enabled: z.boolean().default(false),
 	prowlarr_url: z.string().optional().default('http://localhost:9696'),
+	prowlarr_timeout: z.coerce.number().gte(0).int().optional().default(10),
+	prowlarr_ratelimit: z.boolean().default(true),
+	prowlarr_limiter_seconds: z.coerce.number().gte(0).int().optional().default(60),
 	prowlarr_api_key: z.string().optional().default(''),
-	torbox_scraper_enabled: z.boolean().default(false)
+	torbox_scraper_enabled: z.boolean().default(false),
+	torbox_scraper_timeout: z.coerce.number().gte(0).int().optional().default(30),
+	torbox_scraper_ratelimit: z.boolean().default(true),
+	zilean_enabled: z.boolean().default(false),
+	zilean_url: z.string().optional().default('http://localhost:8181'),
+	zilean_timeout: z.coerce.number().gte(0).int().optional().default(30),
+	zilean_ratelimit: z.boolean().default(true)
 });
 export type ScrapersSettingsSchema = typeof scrapersSettingsSchema;
 
@@ -199,31 +232,51 @@ export function scrapersSettingsToPass(data: any) {
 		after_10: data.data.scraping.after_10,
 		torrentio_url: data.data.scraping.torrentio?.url || 'https://torrentio.strem.fun',
 		torrentio_enabled: data.data.scraping.torrentio.enabled,
+		torrentio_filter: data.data.scraping.torrentio?.filter || '',
+		torrentio_timeout: data.data.scraping.torrentio?.timeout || 30,
+		torrentio_ratelimit: data.data.scraping.torrentio?.ratelimit || true,
 		knightcrawler_url:
 			data.data.scraping.knightcrawler?.url || 'https://knightcrawler.elfhosted.com/',
 		knightcrawler_enabled: data.data.scraping.knightcrawler.enabled,
+		knightcrawler_filter: data.data.scraping.knightcrawler?.filter || '',
+		knightcrawler_timeout: data.data.scraping.knightcrawler?.timeout || 30,
+		knightcrawler_ratelimit: data.data.scraping.knightcrawler?.ratelimit || true,
 		annatar_url: data.data.scraping.annatar?.url || 'https://annatar.elfhosted.com',
 		annatar_enabled: data.data.scraping.annatar.enabled,
 		annatar_limit: data.data.scraping.annatar?.limit || 2000,
 		annatar_timeout: data.data.scraping.annatar?.timeout || 10,
+		annatar_ratelimit: data.data.scraping.annatar?.ratelimit || true,
 		orionoid_enabled: data.data.scraping.orionoid.enabled,
-		jackett_enabled: data.data.scraping.jackett.enabled,
-		torrentio_filter: data.data.scraping.torrentio?.filter || '',
-		knightcrawler_filter: data.data.scraping.knightcrawler?.filter || '',
 		orionoid_api_key: data.data.scraping.orionoid?.api_key || '',
 		orionoid_limitcount: data.data.scraping.orionoid?.limitcount || 5,
+		orionoid_timeout: data.data.scraping.orionoid?.timeout || 10,
+		orionoid_ratelimit: data.data.scraping.orionoid?.ratelimit || true,
+		jackett_enabled: data.data.scraping.jackett.enabled,
 		jackett_url: data.data.scraping.jackett?.url || '',
 		jackett_api_key: data.data.scraping.jackett?.api_key || '',
+		jackett_timeout: data.data.scraping.jackett?.timeout || 10,
+		jackett_ratelimit: data.data.scraping.jackett?.ratelimit || true,
 		mediafusion_url: data.data.scraping.mediafusion?.url || 'https://mediafusion.elfhosted.com/',
 		mediafusion_enabled: data.data.scraping.mediafusion.enabled,
 		mediafusion_catalogs: data.data.scraping.mediafusion.catalogs || [
 			'prowlarr_streams',
 			'torrentio_streams'
 		],
+		mediafusion_timeout: data.data.scraping.mediafusion?.timeout || 10,
+		mediafusion_ratelimit: data.data.scraping.mediafusion?.ratelimit || true,
 		prowlarr_enabled: data.data.scraping.prowlarr?.enabled || false,
 		prowlarr_url: data.data.scraping.prowlarr?.url || 'http://localhost:9696',
 		prowlarr_api_key: data.data.scraping.prowlarr?.api_key || '',
-		torbox_scraper_enabled: data.data.scraping.torbox_scraper?.enabled || false
+		prowlarr_timeout: data.data.scraping.prowlarr?.timeout || 10,
+		prowlarr_ratelimit: data.data.scraping.prowlarr?.ratelimit || true,
+		prowlarr_limiter_seconds: data.data.scraping.prowlarr?.limiter_seconds || 60,
+		torbox_scraper_enabled: data.data.scraping.torbox_scraper?.enabled || false,
+		torbox_scraper_timeout: data.data.scraping.torbox_scraper?.timeout || 30,
+		torbox_scraper_ratelimit: data.data.scraping.torbox_scraper?.ratelimit || true,
+		zilean_enabled: data.data.scraping.zilean?.enabled || false,
+		zilean_url: data.data.scraping.zilean?.url || 'http://localhost:8181',
+		zilean_timeout: data.data.scraping.zilean?.timeout || 30,
+		zilean_ratelimit: data.data.scraping.zilean?.ratelimit || true
 	};
 }
 
@@ -238,41 +291,63 @@ export function scrapersSettingsToSet(form: SuperValidated<Infer<ScrapersSetting
 				torrentio: {
 					enabled: form.data.torrentio_enabled,
 					url: form.data.torrentio_url,
-					filter: form.data.torrentio_filter
+					filter: form.data.torrentio_filter,
+					timeout: form.data.torrentio_timeout,
+					ratelimit: form.data.torrentio_ratelimit
 				},
 				knightcrawler: {
 					enabled: form.data.knightcrawler_enabled,
 					url: form.data.knightcrawler_url,
-					filter: form.data.knightcrawler_filter
+					filter: form.data.knightcrawler_filter,
+					timeout: form.data.knightcrawler_timeout,
+					ratelimit: form.data.knightcrawler_ratelimit
 				},
 				annatar: {
 					enabled: form.data.annatar_enabled,
 					url: form.data.annatar_url,
 					limit: form.data.annatar_limit,
-					timeout: form.data.annatar_timeout
+					timeout: form.data.annatar_timeout,
+					ratelimit: form.data.annatar_ratelimit
 				},
 				orionoid: {
 					enabled: form.data.orionoid_enabled,
 					api_key: form.data.orionoid_api_key,
-					limitcount: form.data.orionoid_limitcount
+					limitcount: form.data.orionoid_limitcount,
+					timeout: form.data.orionoid_timeout,
+					ratelimit: form.data.orionoid_ratelimit
 				},
 				jackett: {
 					enabled: form.data.jackett_enabled,
 					url: form.data.jackett_url,
-					api_key: form.data.jackett_api_key
+					api_key: form.data.jackett_api_key,
+					timeout: form.data.jackett_timeout,
+					ratelimit: form.data.jackett_ratelimit
 				},
 				mediafusion: {
 					enabled: form.data.mediafusion_enabled,
 					url: form.data.mediafusion_url,
-					catalogs: form.data.mediafusion_catalogs
+					catalogs: form.data.mediafusion_catalogs,
+					timeout: form.data.mediafusion_timeout,
+					ratelimit: form.data.mediafusion_ratelimit
 				},
 				prowlarr: {
 					enabled: form.data.prowlarr_enabled,
 					url: form.data.prowlarr_url,
-					api_key: form.data.prowlarr_api_key
+					api_key: form.data.prowlarr_api_key,
+					timeout: form.data.prowlarr_timeout,
+					ratelimit: form.data.prowlarr_ratelimit,
+					limiter_seconds: form.data.prowlarr_limiter_seconds
 				},
 				torbox_scraper: {
-					enabled: form.data.torbox_scraper_enabled
+					enabled: form.data.torbox_scraper_enabled,
+					timeout: form.data.torbox_scraper_timeout,
+					ratelimit: form.data.torbox_scraper_ratelimit
+				},
+				zilean: {
+					enabled: form.data.zilean_enabled,
+					url: form.data.zilean_url,
+					timeout: form.data.zilean_timeout,
+					ratelimit: form.data.zilean_ratelimit
 				}
 			}
 		}

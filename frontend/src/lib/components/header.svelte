@@ -12,8 +12,8 @@
 			path: '/'
 		},
 		{
-			name: 'Status',
-			path: '/status'
+			name: 'Library',
+			path: '/library'
 		},
 		{
 			name: 'Settings',

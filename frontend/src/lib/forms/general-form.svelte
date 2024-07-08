@@ -38,6 +38,7 @@
 	<CheckboxField {form} name="log" {formData} fieldDescription="Requires restart" />
 	<TextField {form} name="rclone_path" {formData} />
 	<TextField {form} name="library_path" {formData} />
+	<CheckboxField {form} name="separate_anime_dirs" {formData} fieldDescription="Creates anime_movies and anime_shows folders" />
 
 	<!-- movie_filesize_min, movie_filesize_max, episode_filesize_min, episode_filesize_max -->
 	<NumberField
