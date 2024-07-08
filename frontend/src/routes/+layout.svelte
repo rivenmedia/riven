@@ -10,8 +10,12 @@
 	import { page } from '$app/stores';
 	import { setContext } from 'svelte';
 	import { dev } from '$app/environment';
+	import { writable, type Writable } from 'svelte/store';
+
+	const showMenu: Writable<boolean> = writable(false);
 
 	setContext('formDebug', dev);
+	setContext('showMenu', showMenu);
 
 	beforeNavigate(() => {
 		NProgress.start();

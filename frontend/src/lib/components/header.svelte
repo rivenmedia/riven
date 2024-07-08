@@ -5,11 +5,19 @@
 	import { Mountain, MoreHorizontal, X, Command } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
 	import clsx from 'clsx';
+	import * as Drawer from '$lib/components/ui/drawer';
+	import { getContext } from 'svelte';
+	import { type Writable } from 'svelte/store';
+	import { goto } from '$app/navigation';
 
 	const navItems: NavItem[] = [
 		{
 			name: 'Home',
 			path: '/'
+		},
+		{
+			name: 'Stats',
+			path: '/statistics'
 		},
 		{
 			name: 'Library',
@@ -21,17 +29,15 @@
 		}
 	];
 
-	let showMenu = false;
+	let showMenu: Writable<boolean> = getContext('showMenu');
 
 	function toggleNavbar() {
-		showMenu = !showMenu;
+		showMenu.update((v) => !v);
 	}
 
 	export let darkWhiteText: boolean = false;
 </script>
 
-<!-- made change to bg-transparent -->
-<!-- made change to white fixed text -->
 <header
 	class={clsx(
 		'flex w-full items-center justify-between bg-transparent p-8 md:px-24 lg:px-32',
@@ -59,35 +65,35 @@
 	</nav>
 	<nav class="flex items-center gap-2 tracking-wider md:hidden">
 		<ThemeSwitcher />
-		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
-			<MoreHorizontal class="h-4 w-4" />
-		</Button>
+		<Drawer.Root
+			onClose={() => {
+				showMenu.set(false);
+			}}
+			open={$showMenu}
+		>
+			<Drawer.Trigger>
+				<Button type="button" size="sm" class="max-w-max">
+					<MoreHorizontal class="h-4 w-4" />
+				</Button>
+			</Drawer.Trigger>
+			<Drawer.Content>
+				<nav class="my-4 flex w-full flex-col items-center justify-center gap-2">
+					{#each navItems as navItem}
+						<Drawer.Close asChild let:builder>
+							<Button
+								on:click={() => {
+									goto(navItem.path);
+								}}
+								builders={[builder]}
+								size="sm"
+								variant="ghost"
+							>
+								{navItem.name}
+							</Button>
+						</Drawer.Close>
+					{/each}
+				</nav>
+			</Drawer.Content>
+		</Drawer.Root>
 	</nav>
 </header>
-
-<div
-	id="mobilenav"
-	class:h-0={!showMenu}
-	class:h-screen={showMenu}
-	class:h-[100dvh]={showMenu}
-	class="bg-background fixed left-0 top-0 z-[99] flex h-0 w-screen flex-col items-center overflow-x-hidden md:hidden"
->
-	<div class="flex w-full items-end justify-end p-8 transition-all duration-300 ease-in-out">
-		<Button on:click={toggleNavbar} type="button" size="sm" class="max-w-max">
-			<X class="h-4 w-4" />
-		</Button>
-	</div>
-	<div class="flex w-full flex-col items-center justify-center gap-6 p-8">
-		{#each navItems as navItem}
-			<button on:click={toggleNavbar}>
-				<NavigationItem {navItem} />
-			</button>
-		{/each}
-	</div>
-</div>
-
-<style>
-	#mobilenav {
-		transition: all 0.5s ease-in-out;
-	}
-</style>

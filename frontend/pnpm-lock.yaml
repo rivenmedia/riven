@@ -56,6 +56,9 @@ importers:
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
+      vaul-svelte:
+        specifier: ^0.3.2
+        version: 0.3.2(svelte@4.2.18)
       zod:
         specifier: ^3.23.8
         version: 3.23.8
@@ -2079,6 +2082,11 @@ packages:
     resolution: {integrity: sha512-c1Q0mCiPlgdTVVVIJIrBuxNicYE+t/7oKeI9MWLj3fh/uq2Pxh/3eeWbVZ4OcGW1TUf53At0njHw5SMdA3tmMg==}
     engines: {node: '>= 0.10'}
 
+  vaul-svelte@0.3.2:
+    resolution: {integrity: sha512-X4OGWttSTVUl417qGDsSFgOvIx24DoiMRY/jaP9z0v9FL8LQQJ0RQ1ZM0QpdyQPRlNd24ewjNQHh5EgYDtfNpw==}
+    peerDependencies:
+      svelte: ^4.0.0 || ^5.0.0-next.1
+
   vite-node@1.6.0:
     resolution: {integrity: sha512-de6HJgzC+TFzOu0NTC4RAIsyf/DY/ibWDYQUcuEA84EMHhcefTUGkjFHKKEJhQN4A+6I0u++kr3l36ZF2d7XRw==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -4096,6 +4104,11 @@ snapshots:
 
   validator@13.12.0:
     optional: true
+
+  vaul-svelte@0.3.2(svelte@4.2.18):
+    dependencies:
+      bits-ui: 0.21.10(svelte@4.2.18)
+      svelte: 4.2.18
 
   vite-node@1.6.0:
     dependencies:
