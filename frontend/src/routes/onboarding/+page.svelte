@@ -51,7 +51,7 @@
 		<!-- TODO: REMOVED FOR SOMETIME -->
 		<!-- {#if data.health.message !== true}
 			<div class="flex flex-col items-center justify-center gap-2 slide-up">
-				<h1 class="text-3xl font-semibold text-center">Iceberg is initializing...</h1>
+				<h1 class="text-3xl font-semibold text-center">Riven is initializing...</h1>
 				<Button class="w-full font-semibold" href="/">Go back to home</Button>
 			</div>
 		{:else} -->

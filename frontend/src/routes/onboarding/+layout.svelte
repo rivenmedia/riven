@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>Onboarding | Iceberg</title>
+	<title>Onboarding | Riven</title>
 </svelte:head>
 
 <slot />

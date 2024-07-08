@@ -40,7 +40,7 @@
 		clientIdentifier = uuidv4();
 		return clientIdentifier;
 	};
-	let appName = 'Iceberg';
+	let appName = 'Riven';
 	let plexId: string;
 	let plexCode: string;
 	let pollingInterval: any;

@@ -31,7 +31,7 @@
 	};
 	const supportData: SupportData = {
 		discord: 'https://discord.gg/wDgVdH8vNM',
-		github: 'https://github.com/dreulavelle/iceberg'
+		github: 'https://github.com/rivenmedia/riven'
 	};
 
 	let updateLoading = false;
@@ -105,7 +105,7 @@
 
 	<h2 class="text-xl font-semibold md:text-2xl">Support</h2>
 	<p class="text-muted-foreground text-sm md:text-base">
-		Need help? Reach out to the Iceberg community or report an issue on GitHub.
+		Need help? Reach out to the Riven community or report an issue on GitHub.
 	</p>
 	<div class="my-8 flex w-full flex-col gap-4">
 		{#each Object.keys(supportData) as key}
@@ -125,7 +125,7 @@
 
 	<h2 class="text-xl font-semibold md:text-2xl">Contributors</h2>
 	<p class="text-muted-foreground text-sm md:text-base">
-		Thanks to the following people for their contributions to Iceberg
+		Thanks to the following people for their contributions to Riven
 	</p>
 	<a
 		href="https://github.com/rivenmedia/riven/graphs/contributors"
