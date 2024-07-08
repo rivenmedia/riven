@@ -99,3 +99,11 @@ export function convertIcebergItemsToObject(items: RivenItem[]) {
 
 	return result;
 }
+
+export function createQueryString(params: Record<string, any>): string {
+	const queryString = Object.entries(params)
+		.filter(([_, value]) => value !== null && value !== undefined && value.toString().trim() !== '')
+		.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+		.join('&');
+	return `?${queryString}`;
+}

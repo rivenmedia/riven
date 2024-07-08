@@ -53,7 +53,7 @@
 							<!-- TODO: Maybe change m-4 to padding? -->
 							<div class="ml-4 flex h-full w-full flex-col justify-end gap-2 p-8 md:px-24 lg:px-32">
 								<div class="w-full max-w-2xl select-none">
-									<h1 class="break-words text-3xl font-semibold leading-tight md:text-4xl">
+									<h1 class="break-words text-3xl font-medium leading-tight md:text-4xl">
 										{nowPlaying.title}
 									</h1>
 								</div>
@@ -108,7 +108,7 @@
 		<div class="bg-primary rounded-md p-2">
 			<Flame class="size-4" />
 		</div>
-		<h2 class="text-xl font-semibold md:text-2xl">What's Trending Today</h2>
+		<h2 class="text-xl font-medium md:text-2xl">What's Trending Today</h2>
 	</div>
 	<Carousel.Root
 		opts={{

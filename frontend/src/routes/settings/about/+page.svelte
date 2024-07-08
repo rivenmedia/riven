@@ -60,7 +60,7 @@
 </svelte:head>
 
 <div class="flex flex-col">
-	<h2 class="text-xl font-semibold md:text-2xl">About</h2>
+	<h2 class="text-xl font-medium md:text-2xl">About</h2>
 	<p class="text-muted-foreground text-sm md:text-base">
 		Know what you're running and how to get help.
 	</p>
@@ -103,7 +103,7 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl font-semibold md:text-2xl">Support</h2>
+	<h2 class="text-xl font-medium md:text-2xl">Support</h2>
 	<p class="text-muted-foreground text-sm md:text-base">
 		Need help? Reach out to the Riven community or report an issue on GitHub.
 	</p>
@@ -123,7 +123,7 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl font-semibold md:text-2xl">Contributors</h2>
+	<h2 class="text-xl font-medium md:text-2xl">Contributors</h2>
 	<p class="text-muted-foreground text-sm md:text-base">
 		Thanks to the following people for their contributions to Riven
 	</p>

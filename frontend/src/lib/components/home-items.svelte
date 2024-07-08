@@ -26,7 +26,7 @@
 					<div class="bg-primary rounded-md p-2 text-white">
 						<Clapperboard class="size-4" />
 					</div>
-					<h2 class="text-xl font-semibold md:text-2xl">Trending {name}</h2>
+					<h2 class="text-xl font-medium md:text-2xl">Trending {name}</h2>
 				</div>
 				<a href="/movies" class="text-primary-foreground flex items-center gap-2 text-sm">
 					<MoveUpRight class="size-4" />
@@ -67,7 +67,7 @@
 					<div class="bg-primary rounded-md p-2 text-white">
 						<Star class="size-4" />
 					</div>
-					<h2 class="text-xl font-semibold md:text-2xl">Popular {name}</h2>
+					<h2 class="text-xl font-medium md:text-2xl">Popular {name}</h2>
 				</div>
 				<a href="/{type}" class="text-primary-foreground flex items-center gap-2 text-sm">
 					<MoveUpRight class="size-4" />

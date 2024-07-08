@@ -63,7 +63,7 @@
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
-					'bg-primary font-semibold': item.path === $page.url.pathname,
+					'bg-primary font-medium': item.path === $page.url.pathname,
 					'hover:bg-primary': item.path !== $page.url.pathname
 				})}
 				href={item.path}
