@@ -95,6 +95,7 @@
 			{formData}
 			isForGroup={true}
 		/>
+		<CheckboxField {form} name="zilean_enabled" label="Zilean" {formData} isForGroup={true} />
 	</GroupCheckboxField>
 
 	{#if $formData.torrentio_enabled}
@@ -105,6 +106,20 @@
 		<div transition:slide>
 			<TextField {form} name="torrentio_filter" {formData} />
 		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="torrentio_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="torrentio_ratelimit" {formData} />
+		</div>
 	{/if}
 
 	{#if $formData.knightcrawler_enabled}
@@ -113,6 +128,20 @@
 		</div>
 		<div transition:slide>
 			<TextField {form} name="knightcrawler_filter" {formData} />
+		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="knightcrawler_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="knightcrawler_ratelimit" {formData} />
 		</div>
 	{/if}
 
@@ -140,6 +169,10 @@
 				fieldDescription="Timeout in seconds"
 			/>
 		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="annatar_ratelimit" {formData} />
+		</div>
 	{/if}
 
 	{#if $formData.orionoid_enabled}
@@ -156,6 +189,20 @@
 				fieldDescription="Search results limit"
 			/>
 		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="orionoid_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="orionoid_ratelimit" {formData} />
+		</div>
 	{/if}
 
 	{#if $formData.jackett_enabled}
@@ -165,6 +212,20 @@
 
 		<div transition:slide>
 			<TextField {form} name="jackett_api_key" {formData} isProtected={true} />
+		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="jackett_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="jackett_ratelimit" {formData} />
 		</div>
 	{/if}
 
@@ -205,7 +266,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-sm text-muted-foreground">Add catalogs</p>
+					<p class="text-muted-foreground text-sm">Add catalogs</p>
 					<Form.Button
 						type="button"
 						size="sm"
@@ -219,6 +280,20 @@
 				</div>
 			</ArrayField>
 		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="mediafusion_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="mediafusion_ratelimit" {formData} />
+		</div>
 	{/if}
 
 	{#if $formData.prowlarr_enabled}
@@ -228,6 +303,67 @@
 
 		<div transition:slide>
 			<TextField {form} name="prowlarr_api_key" {formData} isProtected={true} />
+		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="prowlarr_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="prowlarr_limiter_seconds"
+				label="Prowlarr Limiter"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="prowlarr_ratelimit" {formData} />
+		</div>
+	{/if}
+
+	{#if $formData.torbox_scraper_enabled}
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="torbox_scraper_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="torbox_scraper_ratelimit" {formData} />
+		</div>
+	{/if}
+
+	{#if $formData.zilean_enabled}
+		<div transition:slide>
+			<TextField {form} name="zilean_url" {formData} />
+		</div>
+
+		<div transition:slide>
+			<NumberField
+				{form}
+				name="zilean_timeout"
+				{formData}
+				stepValue={1}
+				fieldDescription="in seconds"
+			/>
+		</div>
+
+		<div transition:slide>
+			<CheckboxField {form} name="zilean_ratelimit" {formData} />
 		</div>
 	{/if}
 

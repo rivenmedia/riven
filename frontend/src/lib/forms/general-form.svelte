@@ -38,6 +38,7 @@
 	<CheckboxField {form} name="log" {formData} fieldDescription="Requires restart" />
 	<TextField {form} name="rclone_path" {formData} />
 	<TextField {form} name="library_path" {formData} />
+	<CheckboxField {form} name="separate_anime_dirs" {formData} fieldDescription="Creates anime_movies and anime_shows folders" />
 
 	<!-- movie_filesize_min, movie_filesize_max, episode_filesize_min, episode_filesize_max -->
 	<NumberField
@@ -91,6 +92,22 @@
 		<div transition:slide>
 			<TextField {form} name="realdebrid_api_key" {formData} isProtected={true} />
 		</div>
+
+		<div transition:slide>
+			<CheckboxField
+				{form}
+				name="realdebrid_proxy_enabled"
+				label="Real-Debrid Proxy"
+				{formData}
+				fieldDescription="Use proxy for Real-Debrid API"
+			/>
+		</div>
+
+		{#if $formData.realdebrid_proxy_enabled}
+			<div transition:slide>
+				<TextField {form} name="realdebrid_proxy_url" {formData} />
+			</div>
+		{/if}
 	{/if}
 
 	{#if $formData.torbox_enabled}

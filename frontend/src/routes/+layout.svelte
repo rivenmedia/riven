@@ -10,8 +10,12 @@
 	import { page } from '$app/stores';
 	import { setContext } from 'svelte';
 	import { dev } from '$app/environment';
+	import { writable, type Writable } from 'svelte/store';
+
+	const showMenu: Writable<boolean> = writable(false);
 
 	setContext('formDebug', dev);
+	setContext('showMenu', showMenu);
 
 	beforeNavigate(() => {
 		NProgress.start();
@@ -27,9 +31,17 @@
 <ModeWatcher track={true} />
 <Toaster richColors closeButton />
 
-<div class="flex h-full w-full flex-col overflow-x-hidden font-primary font-medium">
+<!-- <div class="flex h-full w-full flex-col overflow-x-hidden font-primary font-medium">
 	{#if !$page.url.pathname.startsWith('/onboarding')}
 		<Header />
 	{/if}
+	<slot />
+</div> -->
+
+<div class="bg-background font-primary font-medium">
+	<!-- {#if !$page.url.pathname.startsWith('/onboarding')}
+		<Header />
+	{/if} -->
+
 	<slot />
 </div>
