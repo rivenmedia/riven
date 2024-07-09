@@ -14,7 +14,6 @@ from program.downloaders.realdebrid import Debrid
 from program.downloaders.torbox import TorBoxDownloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media.container import MediaItemContainer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
@@ -25,13 +24,18 @@ from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
 from .cache import hash_cache
-from .pickly import Pickly
 from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+
 if settings_manager.settings.tracemalloc:
     import tracemalloc
+
+from program.db.db import db, alembic, run_migrations
+from sqlalchemy import select, func
+from sqlalchemy.orm import joinedload
+import program.db.db_functions as DB
 
 class Program(threading.Thread):
     """Program class"""
@@ -42,12 +46,13 @@ class Program(threading.Thread):
         self.startup_args = args
         self.initialized = False
         self.event_queue = Queue()
-        self.media_items = MediaItemContainer()
+        logger.log("PROGRAM", "Database Connected!")
         self.services = {}
         self.queued_items = []
         self.running_items = []
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
+        self.sql_Session = db.Session
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
@@ -64,7 +69,7 @@ class Program(threading.Thread):
         self.indexing_services = {TraktIndexer: TraktIndexer()}
         self.processing_services = {
             Scraping: Scraping(),
-            Symlinker: Symlinker(self.media_items),
+            Symlinker: Symlinker(),
             Updater: Updater(),
         }
         self.downloader_services = {
@@ -143,22 +148,34 @@ class Program(threading.Thread):
         self.initialized = True
         logger.log("PROGRAM", "Riven started!")
 
-        if not self.startup_args.ignore_cache:
-            self.pickly = Pickly(self.media_items, data_dir_path)
-            self.pickly.start()
+        run_migrations()
+        with db.Session() as session:
+            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            if res == 0:
+                for item in self.services[SymlinkLibrary].run():
+                    if settings_manager.settings.map_metadata:
+                        if isinstance(item, (Movie, Show)):
+                            item = next(self.services[TraktIndexer].run(item))
+                            item.store_state()
+                            session.add(item)
+                            logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+                session.commit()
+            
+            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+            total_symlinks = movies_symlinks + episodes_symlinks
+            total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
+            total_shows = session.execute(select(func.count(Show._id))).scalar_one()
+            total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
+            total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
+            total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
 
-        if not len(self.media_items):
-            # Seed initial MIC with Library State
-            for item in self.services[SymlinkLibrary].run():
-                if settings_manager.settings.map_metadata:
-                    if isinstance(item, (Movie, Show)):
-                        item = next(self.services[TraktIndexer].run(item))
-                        logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
-                self.media_items.upsert(item)
-            self.media_items.save(str(data_dir_path / "media.pkl"))
+            logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
+            logger.log("ITEM", f"Shows: {total_shows}")
+            logger.log("ITEM", f"Seasons: {total_seasons}")
+            logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
+            logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
 
-        if len(self.media_items):
-            self.media_items.log()
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
@@ -172,9 +189,10 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = [
-            item for item in self.media_items.get_incomplete_items().values()
-        ]
+        items_to_submit = []
+        with db.Session() as session:
+            items_to_submit = session.execute(select(MediaItem).where( (MediaItem.last_state!="Completed" ) & ( (MediaItem.type == 'show') | (MediaItem.type == 'movie') )).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
+            session.expunge_all()
         logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
         for item in items_to_submit:
             self._push_event_queue(Event(emitted_by=self.__class__, item=item))
@@ -248,8 +266,10 @@ class Program(threading.Thread):
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
 
+                
     def _pop_event_queue(self, event):
         with self.mutex:
+            DB._store_item(event.item)
             self.queued_items.remove(event.item)
 
     def _remove_from_running_items(self, item, service_name=""):
@@ -259,6 +279,8 @@ class Program(threading.Thread):
                 logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
 
     def add_to_running(self, item, service_name):
+        if item is None:
+            return
         if item not in self.running_items:
             self.running_items.append(item)
             logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
@@ -266,36 +288,19 @@ class Program(threading.Thread):
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            timeout_seconds = int(
-                os.environ[service.__name__.upper() +"_WORKER_TIMEOUT"]
-            ) if service.__name__.upper() + "_WORKER_TIMEOUT" in os.environ else 60 * 3
-            fut_except = future.exception()
-            if fut_except != None:
-                logger.error(f"{fut_except}")
-                self._remove_from_running_items(item)
-            for item in future.result(timeout=timeout_seconds):
-                if isinstance(item, list):
-                    all_media_items = True
-                    for i in item:
-                        if not isinstance(i, MediaItem):
-                            all_media_items = False
-                    self._remove_from_running_items(orig_item, service.__name__)
-                    if all_media_items == True:
-                        for i in item:
-                            self._push_event_queue(Event(emitted_by=self.__class__, item=i))    
-                    return
-                elif not isinstance(item, MediaItem):
-                    logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
-                self._remove_from_running_items(orig_item, service.__name__)
-                if item is not None and isinstance(item, MediaItem):
-                    self._push_event_queue(Event(emitted_by=service, item=item))
+            for item in future.result():
+                pass
+            if orig_item is not None:
+                logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
+            else:
+                logger.log("PROGRAM", f"Service {service.__name__} finished running.")
         except TimeoutError:
             logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
-
+        
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
             if service.__name__ == "TraktIndexer":
@@ -324,13 +329,10 @@ class Program(threading.Thread):
             new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
             self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
             cur_executor = new_executor
-        
-        try:
-            func = self.services[service].run
-            future = cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
-            future.add_done_callback(lambda f: self._process_future_item(f, service, item))
-        except RuntimeError as e:
-            logger.error(f"Failed to submit job: {e}")
+        fn = self.services[service].run
+        func = DB._run_thread_with_db_item #func = self.services[service].run # self._run_thread_with_db_item
+        future = cur_executor.submit(func, fn, service, self, item)  #cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
+        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
@@ -374,24 +376,22 @@ class Program(threading.Thread):
             except Empty:
                 self.dump_tracemalloc()
                 continue
+            with db.Session() as session:
+                existing_item = DB._get_item_from_db(session, event.item)
+                updated_item, next_service, items_to_submit = process_event(
+                    existing_item, event.emitted_by, event.item
+                )
 
-            existing_item = self.media_items.get(event.item.item_id, None)
-            updated_item, next_service, items_to_submit = process_event(
-                existing_item, event.emitted_by, event.item
-            )
+                if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
+                    logger.success(f"Item has been completed: {updated_item.log_string}")
 
-            if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
-                logger.success(f"Item has been completed: {updated_item.log_string}")
-
-            if updated_item:
-                self.media_items.upsert(updated_item)
-
-            self._remove_from_running_items(event.item, "program.run")
-
-            if items_to_submit:
-                for item_to_submit in items_to_submit:
-                    self.add_to_running(item_to_submit, next_service.__name__)
-                    self._submit_job(next_service, item_to_submit)
+                self._remove_from_running_items(event.item, "program.run")
+                
+                if items_to_submit:
+                    for item_to_submit in items_to_submit:
+                        self.add_to_running(item_to_submit, next_service.__name__)
+                        self._submit_job(next_service, item_to_submit)
+                session.commit()
 
     def stop(self):
         if not self.running:
@@ -405,8 +405,6 @@ class Program(threading.Thread):
                     executor["_executor"].shutdown(wait=False)
         if hasattr(self, "scheduler") and getattr(self.scheduler, 'running', False):
             self.scheduler.shutdown(wait=False)
-        if hasattr(self, "pickly") and getattr(self.pickly, 'running', False):
-            self.pickly.stop()
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def add_to_queue(self, item: MediaItem) -> bool:

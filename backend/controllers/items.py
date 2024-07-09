@@ -5,8 +5,7 @@ from typing import List, Optional
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.content.overseerr import Overseerr
-from program.media.container import MediaItemContainer
-from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.symlink import Symlinker
 from pydantic import BaseModel
@@ -58,7 +57,7 @@ async def get_items(
         search_lower = search.lower()
         filtered_items = []
         if search_lower.startswith("tt"):
-            item = request.app.program.media_items.get_item(ItemId(search_lower))
+            item = request.app.program.media_items.get_item(search_lower)
             if item:
                 filtered_items.append(item)
             else:
@@ -190,7 +189,7 @@ async def remove_item(
     request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None
 ):
     if item_id:
-        item = request.app.program.media_items.get(ItemId(item_id))
+        item = request.app.program.media_items.get(item_id)
         id_type = "ID"
     elif imdb_id:
         item = next(
@@ -246,12 +245,12 @@ async def get_imdb_info(
     Get the item with the given IMDb ID.
     If the season and episode are provided, get the item with the given season and episode.
     """
-    item_id = ItemId(imdb_id)
+    item_id = imdb_id
     if season is not None:
-        item_id = ItemId(str(season), parent_id=item_id)
+        item_id = str(season) #, parent_id=item_id)
     if episode is not None:
-        item_id = ItemId(str(episode), parent_id=item_id)
-
+        item_id = str(episode) #,  parent_id=item_id)
+    
     item = request.app.program.media_items.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")

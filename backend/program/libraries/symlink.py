@@ -40,15 +40,17 @@ class SymlinkLibrary:
         Create a library from the symlink paths. Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in.
         """
+        for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
+            if not self.settings.separate_anime_dirs and is_anime:
+                continue
+            yield from process_shows(self.settings.library_path / directory, item_type, is_anime)
+
         for directory, item_type, is_anime in [("movies", "movie", False), ("anime_movies", "anime movie", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
                 continue
             yield from process_items(self.settings.library_path / directory, Movie, item_type, is_anime)
 
-        for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
-            if not self.settings.separate_anime_dirs and is_anime:
-                continue
-            yield from process_shows(self.settings.library_path / directory, item_type, is_anime)
+        
 
 
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
