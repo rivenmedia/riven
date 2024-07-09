@@ -7,72 +7,113 @@ from RTN import Torrent
 from RTN.patterns import extract_episodes
 from utils.logger import logger
 
+# from sqlalchemy import ForeignKey
+# from sqlalchemy import String
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import relationship
+import sqlalchemy
 
-@dataclass
-class ItemId:
-    value: str
-    parent_id: Optional[Self] = None
+from program.db.db import db
 
-    def __repr__(self):
-        if not self.parent_id:
-            return str(self.value)
-        return f"{self.parent_id}/{self.value}"
-
-    def __hash__(self):
-        return hash(repr(self))
-
-    def __eq__(self, other):
-        if isinstance(other, ItemId):
-            return repr(self) == repr(other)
-        return False
-
-
-class MediaItem:
+class MediaItem(db.Model):
     """MediaItem class"""
+    __tablename__ = "MediaItem"
+    _id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
+    requested_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    streams: Optional[dict[str, Torrent]] = {}
+    symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    language: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    key: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
+
+    __mapper_args__ = {
+        "polymorphic_identity": "mediaitem",
+        "polymorphic_on":"type",
+        "with_polymorphic":"*",
+    }
 
     def __init__(self, item: dict) -> None:
-        self.requested_at: Optional[datetime] = item.get("requested_at", datetime.now())
-        self.requested_by: Optional[str] = item.get("requested_by", None)
+        # id: Mapped[int] = mapped_column(primary_key=True)
+        # name: Mapped[str] = mapped_column(String(30))
+        # fullname: Mapped[Optional[str]]
+        # addresses: Mapped[List["Address"]] = relationship(lazy=False, 
+        # back_populates="user", cascade="all, delete-orphan"
+        # )
+        # user_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("user_account.id"))
+        # user: Mapped["User"] = relationship(lazy=False, back_populates="addresses")
+        self.requested_at = item.get("requested_at", datetime.now())
+        self.requested_by = item.get("requested_by", None)
 
-        self.indexed_at: Optional[datetime] = None
+        self.indexed_at = None
 
-        self.scraped_at: Optional[datetime] = None
-        self.scraped_times: Optional[int] = 0
-        self.active_stream: Optional[dict[str, str]] = item.get("active_stream", {})
+        self.scraped_at  = None
+        self.scraped_times = 0
+        self.active_stream = item.get("active_stream", {})
         self.streams: Optional[dict[str, Torrent]] = {}
 
-        self.symlinked: Optional[bool] = False
-        self.symlinked_at: Optional[datetime] = None
-        self.symlinked_times: Optional[int] = 0
+        self.symlinked = False
+        self.symlinked_at = None
+        self.symlinked_times = 0
 
-        self.file: Optional[str] = None
-        self.folder: Optional[str] = None
-        self.is_anime: Optional[bool] = item.get("is_anime", False)
-        self.parent: Optional[Self] = None
+        self.file  = None
+        self.folder = None
+        self.is_anime = item.get("is_anime", False)
 
         # Media related
-        self.title: Optional[str] = item.get("title", None)
-        self.imdb_id: Optional[str] = item.get("imdb_id", None)
+        self.title = self.clean_title(item.get("title", None))
+        self.imdb_id =  item.get("imdb_id", None)
         if self.imdb_id:
-            self.imdb_link: Optional[str] = f"https://www.imdb.com/title/{self.imdb_id}/"
+            self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, "item_id"):
-                self.item_id: ItemId = ItemId(self.imdb_id)
-        self.tvdb_id: Optional[str] = item.get("tvdb_id", None)
-        self.tmdb_id: Optional[str] = item.get("tmdb_id", None)
-        self.network: Optional[str] = item.get("network", None)
-        self.country: Optional[str] = item.get("country", None)
-        self.language: Optional[str] = item.get("language", None)
-        self.aired_at: Optional[datetime] = item.get("aired_at", None)
-        self.genres: Optional[List[str]] = item.get("genres", [])
+                self.item_id: ItemId = self.imdb_id
+        self.tvdb_id = item.get("tvdb_id", None)
+        self.tmdb_id = item.get("tmdb_id", None)
+        self.network = item.get("network", None)
+        self.country = item.get("country", None)
+        self.language = item.get("language", None)
+        self.aired_at = item.get("aired_at", None)
+        self.year = item.get("year" , None)
+        self.genres = item.get("genres", [])
 
         # Plex related
-        self.key: Optional[str] = item.get("key", None)
-        self.guid: Optional[str] = item.get("guid", None)
-        self.update_folder: Optional[str] = item.get("update_folder", None)
+        self.key = item.get("key", None)
+        self.guid = item.get("guid", None)
+        self.update_folder = item.get("update_folder", None)
 
         # Overseerr related
-        self.overseerr_id: Optional[int] = item.get("overseerr_id", None)
+        self.overseerr_id = item.get("overseerr_id", None)
 
+    def store_state(self) -> None:
+        self.last_state = self._determine_state().name
+        
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
@@ -245,12 +286,18 @@ class MediaItem:
 
 class Movie(MediaItem):
     """Movie class"""
+    __tablename__ = "Movie"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    __mapper_args__ = {
+        "polymorphic_identity": "movie",
+        "polymorphic_load": "inline",
+    }
 
     def __init__(self, item):
         self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
-        self.item_id = ItemId(self.imdb_id)
+        self.item_id = self.imdb_id
 
     def __repr__(self):
         return f"Movie:{self.log_string}:{self.state.name}"
@@ -258,78 +305,28 @@ class Movie(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-class Show(MediaItem):
-    """Show class"""
-
-    def __init__(self, item):
-        super().__init__(item)
-        self.type = "show"
-        self.locations = item.get("locations", [])
-        self.seasons: list[Season] = item.get("seasons", [])
-        self.item_id = ItemId(self.imdb_id)
-
-    def get_season_index_by_id(self, item_id):
-        """Find the index of an season by its item_id."""
-        for i, season in enumerate(self.seasons):
-            if season.item_id == item_id:
-                return i
-        return None
-
-    def _determine_state(self):
-        if all(season.state == States.Completed for season in self.seasons):
-            return States.Completed
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
-            return States.PartiallyCompleted
-        if all(season.state == States.Symlinked for season in self.seasons):
-            return States.Symlinked
-        if all(season.state == States.Downloaded for season in self.seasons):
-            return States.Downloaded
-        if self.is_scraped():
-            return States.Scraped
-        if any(season.state == States.Indexed for season in self.seasons):
-            return States.Indexed
-        if any(season.state == States.Requested for season in self.seasons):
-            return States.Requested
-        return States.Unknown
-
-    def __repr__(self):
-        return f"Show:{self.log_string}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
-
-    def fill_in_missing_children(self, other: Self):
-        existing_seasons = [s.number for s in self.seasons]
-        for s in other.seasons:
-            if s.number not in existing_seasons:
-                self.add_season(s)
-            else:
-                existing_season = next(
-                    es for es in self.seasons if s.number == es.number
-                )
-                existing_season.fill_in_missing_children(s)
-
-    def add_season(self, season):
-        """Add season to show"""
-        if season.number not in [s.number for s in self.seasons]:
-            season.is_anime = self.is_anime
-            self.seasons.append(season)
-            season.parent = self
-            season.item_id.parent_id = self.item_id
-            self.seasons = sorted(self.seasons, key=lambda s: s.number)
-
-
 class Season(MediaItem):
     """Season class"""
-
+    __tablename__ = "Season"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
+    parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
+    episodes: Mapped[List["Episode"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Episode.parent_id")
+    
+    __mapper_args__ = {
+        "polymorphic_identity": "season",
+        "polymorphic_load": "inline",
+    }
+    def store_state(self) -> None:
+        for episode in self.episodes:
+            episode.store_state()
+        self.last_state = self._determine_state().name
     def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
-        self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
+        self.item_id = self.number
+        self.parent = item.get("parent", None)
         super().__init__(item)
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
@@ -359,7 +356,7 @@ class Season(MediaItem):
     def __eq__(self, other):
         if (
             type(self) == type(other)
-            and self.item_id.parent_id == other.item_id.parent_id
+            and self.parent_id == other.parent_id
         ):
             return self.number == other.get("number", None)
 
@@ -393,7 +390,6 @@ class Season(MediaItem):
         episode.is_anime = self.is_anime
         self.episodes.append(episode)
         episode.parent = self
-        episode.item_id.parent_id = self.item_id
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
     @property
@@ -405,12 +401,21 @@ class Season(MediaItem):
 
 class Episode(MediaItem):
     """Episode class"""
+    __tablename__ = "Episode"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
+    parent: Mapped["Season"] = relationship(lazy=False, back_populates='episodes', foreign_keys="Episode.parent_id")
+    
+    __mapper_args__ = {
+        "polymorphic_identity": "episode",
+        "polymorphic_load": "inline",
+    }
 
     def __init__(self, item):
         self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
-        self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
+        self.item_id = self.number# , parent_id=item.get("parent_id"))
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
@@ -418,7 +423,8 @@ class Episode(MediaItem):
     def __eq__(self, other):
         if (
             type(self) == type(other)
-            and self.item_id.parent_id == other.item_id.parent_id
+            and self.item_id == other.item_id
+            and self.parent.parent.item_id == other.parent.parent.item_id
         ):
             return self.number == other.get("number", None)
 
@@ -439,6 +445,108 @@ class Episode(MediaItem):
 
     def get_top_title(self) -> str:
         return self.parent.parent.title
+
+    def get_top_year(self) -> Optional[int]:
+        return self.parent.parent.year
+
+    def get_season_year(self) -> Optional[int]:
+        return self.parent.year
+
+class Show(MediaItem):
+    """Show class"""
+    __tablename__ = "Show"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    seasons: Mapped[List["Season"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Season.parent_id")
+
+    __mapper_args__ = {
+        "polymorphic_identity": "show",
+        "polymorphic_load": "inline",
+    }
+
+    def __init__(self, item):
+        super().__init__(item)
+        self.type = "show"
+        self.locations = item.get("locations", [])
+        self.seasons: list[Season] = item.get("seasons", [])
+        self.item_id = item.get("imdb_id")
+        self.propagate_attributes_to_childs()
+
+    def get_season_index_by_id(self, item_id):
+        """Find the index of an season by its item_id."""
+        for i, season in enumerate(self.seasons):
+            if season.item_id == item_id:
+                return i
+        return None
+
+    def _determine_state(self):
+        if all(season.state == States.Completed for season in self.seasons):
+            return States.Completed
+
+        if any(
+            season.state in (States.Completed, States.PartiallyCompleted)
+            for season in self.seasons
+        ):
+            return States.PartiallyCompleted
+        if all(season.state == States.Symlinked for season in self.seasons):
+            return States.Symlinked
+        if all(season.state == States.Downloaded for season in self.seasons):
+            return States.Downloaded
+        if self.is_scraped():
+            return States.Scraped
+        if any(season.state == States.Indexed for season in self.seasons):
+            return States.Indexed
+        if any(season.state == States.Requested for season in self.seasons):
+            return States.Requested
+        return States.Unknown
+    def store_state(self) -> None:
+        for season in self.seasons:
+            season.store_state()
+        self.last_state = self._determine_state().name
+    def __repr__(self):
+        return f"Show:{self.log_string}:{self.state.name}"
+
+    def __hash__(self):
+        return super().__hash__()
+
+    def fill_in_missing_children(self, other: Self):
+        existing_seasons = [s.number for s in self.seasons]
+        for s in other.seasons:
+            if s.number not in existing_seasons:
+                self.add_season(s)
+            else:
+                existing_season = next(
+                    es for es in self.seasons if s.number == es.number
+                )
+                existing_season.fill_in_missing_children(s)
+
+    def add_season(self, season):
+        """Add season to show"""
+        if season.number not in [s.number for s in self.seasons]:
+            season.is_anime = self.is_anime
+            self.seasons.append(season)
+            season.parent = self
+            #season.item_id.parent_id = self.item_id
+            self.seasons = sorted(self.seasons, key=lambda s: s.number)
+
+    def propagate_attributes_to_childs(self):
+        """Propagate show attributes to seasons and episodes if they are empty or do not match."""
+        # Important attributes that need to be connected.
+        attributes = ["genres", "country", "network", "language", "is_anime"]
+
+        def propagate(target, source):
+            for attr in attributes:
+                source_value = getattr(source, attr, None)
+                target_value = getattr(target, attr, None)
+                # Check if the attribute source is not falsy (none, false, 0, [])
+                # and if the target is not None we set the source to the target
+                if (not target_value) and source_value is not None:
+                    setattr(target, attr, source_value)
+
+        for season in self.seasons:
+            propagate(season, self)
+            for episode in season.episodes:
+                propagate(episode, self)
+
 
 
 def _set_nested_attr(obj, key, value):

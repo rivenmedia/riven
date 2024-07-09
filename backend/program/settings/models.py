@@ -291,6 +291,8 @@ def get_version() -> str:
     with open(version_file_path.resolve()) as file:
         return file.read() or "x.x.x"
 
+class DatabaseModel(Observable):
+    host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
 
 class AppModel(Observable):
     version: str = get_version()
@@ -306,3 +308,4 @@ class AppModel(Observable):
     scraping: ScraperModel = ScraperModel()
     ranking: RTNSettingsModel = RTNSettingsModel()
     indexer: IndexerModel = IndexerModel()
+    database: DatabaseModel = DatabaseModel()
