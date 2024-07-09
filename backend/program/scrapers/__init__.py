@@ -16,6 +16,7 @@ from program.scrapers.shared import _parse_results
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.zilean import Zilean
+from program.scrapers.comet import Comet
 from program.settings.manager import settings_manager
 from RTN import Torrent
 from utils.logger import logger
@@ -35,7 +36,8 @@ class Scraping:
             TorBoxScraper: TorBoxScraper(),
             Mediafusion: Mediafusion(),
             Prowlarr: Prowlarr(),
-            Zilean: Zilean()
+            Zilean: Zilean(),
+            Comet: Comet()
         }
         self.initialized = self.validate()
         if not self.initialized:

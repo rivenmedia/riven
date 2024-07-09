@@ -42,7 +42,7 @@ class Annatar:
             logger.error("Annatar ratelimit must be a valid boolean.")
             return False
         try:
-            response = get("https://annatar.elfhosted.com/manifest.json", timeout=15)
+            response = get(f"{self.settings.url}/manifest.json", timeout=15)
             if not response.is_ok:
                 return False
             return True
