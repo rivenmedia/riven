@@ -28,8 +28,22 @@ export const load = (async () => {
 		}
 	}
 
+	async function getServices() {
+		try {
+			const res = await fetch('http://127.0.0.1:8080/services');
+			if (res.ok) {
+				return await res.json();
+			}
+			error(400, `Unable to fetch services data: ${res.status} ${res.statusText}`);
+		} catch (e) {
+			console.error(e);
+			error(503, 'Unable to fetch services data. Server error or API is down.');
+		}
+	}
+
 	return {
 		stats: await getStats(),
-		incompleteItems: await getIncompleteItems()
+		incompleteItems: await getIncompleteItems(),
+		services: await getServices()
 	};
 }) satisfies PageServerLoad;
