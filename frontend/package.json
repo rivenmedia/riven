@@ -52,7 +52,7 @@
 		"mode-watcher": "^0.3.0",
 		"motion": "^10.18.0",
 		"nprogress": "^0.2.0",
-		"svelte-sonner": "^0.3.24",
+		"svelte-sonner": "^0.3.25",
 		"sveltekit-superforms": "^2.14.0",
 		"tailwind-merge": "^2.3.0",
 		"tailwind-variants": "^0.2.1",
