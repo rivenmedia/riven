@@ -138,6 +138,7 @@
 										><img
 											src="https://image.tmdb.org/t/p/w342{trendingAll.backdrop_path}"
 											alt={trendingAll.name}
+											loading="lazy"
 											class="size-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 										/></span
 									>

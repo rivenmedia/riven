@@ -43,6 +43,7 @@
 							<img
 								src="https://image.tmdb.org/t/p/w342{item.poster_path}"
 								alt={item.title || item.name}
+								loading="lazy"
 								class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 							/>
 							<div
@@ -84,6 +85,7 @@
 								<img
 									src={`https://image.tmdb.org/t/p/w342${item.poster_path}`}
 									alt={item.title || item.name}
+									loading="lazy"
 									class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 								/>
 							</div>

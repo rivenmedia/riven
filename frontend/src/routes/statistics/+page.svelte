@@ -243,6 +243,7 @@
 						<img
 							src="{baseUrl}{item.imdb_id}/img"
 							alt={item.title}
+							loading="lazy"
 							class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 						/>
 						<!-- <div
