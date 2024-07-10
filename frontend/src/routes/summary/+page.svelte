@@ -169,7 +169,7 @@
 
 <div class="mt-16 flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<h2 class="text-xl md:text-2xl">Statistics</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">Statistics of the library</p>
+	<p class="text-sm text-muted-foreground lg:text-base">Statistics of the library</p>
 	<div class="mt-4 grid w-full grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
 		{#each statsData as stat}
 			<Card.Root>
@@ -179,10 +179,10 @@
 				<Card.Content>
 					{#if stat.title === 'Total Shows'}
 						<p class="text-lg lg:text-3xl">{stat.value}</p>
-						<p class="text-muted-foreground text-sm lg:text-base">
+						<p class="text-sm text-muted-foreground lg:text-base">
 							{data.stats.data.total_seasons} Seasons
 						</p>
-						<p class="text-muted-foreground text-sm lg:text-base">
+						<p class="text-sm text-muted-foreground lg:text-base">
 							{data.stats.data.total_episodes} Episodes
 						</p>
 					{:else}
@@ -194,7 +194,7 @@
 	</div>
 
 	<h2 class="mt-8 text-xl md:text-2xl">Services</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">Tells the current status of the services</p>
+	<p class="text-sm text-muted-foreground lg:text-base">Tells the current status of the services</p>
 	<div class="mt-4 grid w-full grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
 		{#each servicesStatus as service}
 			<Card.Root>
@@ -219,11 +219,11 @@
 	</div>
 
 	<h2 class="mt-8 text-xl md:text-2xl">States</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">
+	<p class="text-sm text-muted-foreground lg:text-base">
 		Tells the current state of the items in the library
 	</p>
 	<Dialog.Root>
-		<Dialog.Trigger class="text-muted-foreground flex w-full max-w-max items-start underline">
+		<Dialog.Trigger class="flex w-full max-w-max items-start text-muted-foreground underline">
 			Know more about states
 		</Dialog.Trigger>
 		<Dialog.Content>
@@ -263,15 +263,15 @@
 
 	<div class="mt-8 flex w-full flex-col">
 		<h2 class="text-xl md:text-2xl">Incomplete Items</h2>
-		<p class="text-muted-foreground text-sm lg:text-base">Items whose state is not Completed</p>
+		<p class="text-sm text-muted-foreground lg:text-base">Items whose state is not Completed</p>
 		<div class="mt-2">
 			{#if totalIncompleteItems}
-				<p class="text-muted-foreground text-sm lg:text-base">
+				<p class="text-sm text-muted-foreground lg:text-base">
 					Showing {start + 1} to {end > totalIncompleteItems ? totalIncompleteItems : end} of{' '}
 					{totalIncompleteItems} items
 				</p>
 			{:else}
-				<p class="text-muted-foreground text-sm lg:text-base">No incomplete items found</p>
+				<p class="text-sm text-muted-foreground lg:text-base">No incomplete items found</p>
 			{/if}
 		</div>
 		<div class="no-scrollbar mt-2 flex flex-wrap overflow-x-auto">
@@ -303,7 +303,7 @@
 					</div>
 				</a> -->
 				<MediaItem data={item} {statesName} />
- 			{/each}
+			{/each}
 		</div>
 		{#if totalIncompleteItems}
 			<Pagination.Root

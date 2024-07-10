@@ -105,7 +105,7 @@
 
 <div class="flex w-full flex-col items-start gap-4 p-8 md:-mt-56">
 	<div class="z-50 flex w-full items-center gap-2 text-white md:px-16 lg:px-24">
-		<div class="bg-primary rounded-md p-2">
+		<div class="rounded-md bg-primary p-2">
 			<Flame class="size-4" />
 		</div>
 		<h2 class="text-xl font-medium md:text-2xl">What's Trending Today</h2>
@@ -127,7 +127,7 @@
 					{@const mediaType = trendingAll.media_type}
 					<Carousel.Item class="basis-auto text-slate-50">
 						<div
-							class="hover:border-primary aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2"
+							class="aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2 hover:border-primary"
 						>
 							<a
 								href="/{mediaType}/{trendingAll.id}"
@@ -149,7 +149,7 @@
 										<Clapperboard class="size-4" />
 										<p class="line-clamp-1">{trendingAll.name || trendingAll.original_title}</p>
 									</div>
-									<div class="text-primary-foreground flex items-center gap-2 text-xs">
+									<div class="flex items-center gap-2 text-xs text-primary-foreground">
 										<div class="flex items-center gap-2">
 											<Star class="size-4" />
 											<p>{roundOff(trendingAll.vote_average)}</p>

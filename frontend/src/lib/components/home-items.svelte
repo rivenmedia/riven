@@ -23,12 +23,12 @@
 		<div class="my-2 flex flex-col gap-3 md:my-0 md:gap-4 xl:w-[70%]">
 			<div class="flex items-center justify-between gap-2">
 				<div class="flex items-center gap-2">
-					<div class="bg-primary rounded-md p-2 text-white">
+					<div class="rounded-md bg-primary p-2 text-white">
 						<Clapperboard class="size-4" />
 					</div>
 					<h2 class="text-xl font-medium md:text-2xl">Trending {name}</h2>
 				</div>
-				<a href="/movies" class="text-primary-foreground flex items-center gap-2 text-sm">
+				<a href="/movies" class="flex items-center gap-2 text-sm text-primary-foreground">
 					<MoveUpRight class="size-4" />
 				</a>
 			</div>
@@ -65,12 +65,12 @@
 		>
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2">
-					<div class="bg-primary rounded-md p-2 text-white">
+					<div class="rounded-md bg-primary p-2 text-white">
 						<Star class="size-4" />
 					</div>
 					<h2 class="text-xl font-medium md:text-2xl">Popular {name}</h2>
 				</div>
-				<a href="/{type}" class="text-primary-foreground flex items-center gap-2 text-sm">
+				<a href="/{type}" class="flex items-center gap-2 text-sm text-primary-foreground">
 					<MoveUpRight class="size-4" />
 				</a>
 			</div>
@@ -95,11 +95,11 @@
 								</h3>
 								<div class="flex items-center gap-2 text-xs font-normal">
 									<div class="flex items-center gap-1">
-										<CalendarDays class="text-muted-foreground size-4" />
+										<CalendarDays class="size-4 text-muted-foreground" />
 										<p>{item.release_date || item.first_air_date}</p>
 									</div>
 									<div class="flex items-center gap-1">
-										<Star class="text-muted-foreground size-4" />
+										<Star class="size-4 text-muted-foreground" />
 										<p>{roundOff(item.vote_average)}</p>
 									</div>
 								</div>

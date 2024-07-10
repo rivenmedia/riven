@@ -130,7 +130,7 @@
 					<div class="mb-2 flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4">
 						<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
 							<Form.Label>Plex Token</Form.Label>
-							<p class="text-muted-foreground text-xs">
+							<p class="text-xs text-muted-foreground">
 								Click the button to generate a new Plex token
 							</p>
 						</div>

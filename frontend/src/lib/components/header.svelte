@@ -64,7 +64,7 @@
 <header
 	id="header"
 	class={clsx(
-		'flex w-full items-center justify-between bg-transparent p-8 md:px-24 lg:px-32 fixed top-0 transition-all duration-300 ease-in-out' ,
+		'fixed top-0 flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32',
 		{
 			'text-background dark:text-foreground': darkWhiteText
 		},

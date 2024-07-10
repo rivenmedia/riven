@@ -59,7 +59,7 @@
 		</Select.Content>
 	</Select.Root>
 
-	<div class="text-foreground hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm lg:flex">
+	<div class="hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm text-foreground lg:flex">
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
