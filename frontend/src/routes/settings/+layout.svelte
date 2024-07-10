@@ -37,7 +37,7 @@
 
 <Header />
 
-<div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
+<div class="mt-16 flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<Select.Root
 		portal={null}
 		onSelectedChange={(selected) => {
@@ -59,7 +59,7 @@
 		</Select.Content>
 	</Select.Root>
 
-	<div class="hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm text-foreground lg:flex">
+	<div class="text-foreground hidden w-full flex-wrap gap-2 rounded-md p-1 text-sm lg:flex">
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {

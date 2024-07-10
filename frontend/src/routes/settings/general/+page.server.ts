@@ -26,9 +26,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	}
 
 	let data: any = await getPartialSettings();
-	console.log('data', data);
 	let toPassToSchema = generalSettingsToPass(data);
-	console.log('toPassToSchema', toPassToSchema);
 
 	return {
 		form: await superValidate(toPassToSchema, zod(generalSettingsSchema))
