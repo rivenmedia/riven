@@ -266,7 +266,7 @@
 				{/each}
 
 				<div class="flex w-full items-center justify-between gap-2">
-					<p class="text-muted-foreground text-sm">Add catalogs</p>
+					<p class="text-sm text-muted-foreground">Add catalogs</p>
 					<Form.Button
 						type="button"
 						size="sm"

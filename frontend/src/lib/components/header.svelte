@@ -9,6 +9,7 @@
 	import { getContext } from 'svelte';
 	import { type Writable } from 'svelte/store';
 	import { goto } from '$app/navigation';
+	import { onMount, onDestroy } from 'svelte';
 
 	const navItems: NavItem[] = [
 		{
@@ -16,8 +17,8 @@
 			path: '/'
 		},
 		{
-			name: 'Stats',
-			path: '/statistics'
+			name: 'Summary',
+			path: '/summary'
 		},
 		{
 			name: 'Library',
@@ -36,11 +37,34 @@
 	}
 
 	export let darkWhiteText: boolean = false;
+
+	onMount(async () => {
+		const header = document.getElementById('header');
+		const headerHeight = header?.offsetHeight;
+		console.log(headerHeight);
+
+		// header?.style.transition = 'padding 0.5s ease, other-properties 0.5s ease';
+
+		window.addEventListener('scroll', () => {
+			if (window.scrollY) {
+				// header?.classList.add('absolute');
+				header?.classList.remove('p-8');
+				header?.classList.add('p-4');
+				header?.classList.add('backdrop-blur-sm');
+			} else {
+				// header?.classList.remove('absolute');
+				header?.classList.remove('p-4');
+				header?.classList.add('p-8');
+				header?.classList.remove('backdrop-blur-sm');
+			}
+		});
+	});
 </script>
 
 <header
+	id="header"
 	class={clsx(
-		'flex w-full items-center justify-between bg-transparent p-8 md:px-24 lg:px-32',
+		'fixed top-0 flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32',
 		{
 			'text-background dark:text-foreground': darkWhiteText
 		},

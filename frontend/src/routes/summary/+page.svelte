@@ -3,6 +3,9 @@
 	import Header from '$lib/components/header.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { clsx } from 'clsx';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Pagination from '$lib/components/ui/pagination';
+	import MediaItem from '$lib/components/media-item.svelte';
 
 	export let data: PageData;
 
@@ -33,7 +36,7 @@
 		Downloaded: 'Downloaded',
 		Symlinked: 'Symlinked',
 		Completed: 'Completed',
-		PartiallyCompleted: 'Incomplete',
+		PartiallyCompleted: 'Partially Completed',
 		Failed: 'Failed'
 	};
 
@@ -73,8 +76,7 @@
 		'jackett',
 		'orionoid',
 		'mediafusion',
-		'torbox',
-		'prowlarr',
+		'Prowlarr',
 		'zilean'
 	];
 
@@ -154,13 +156,20 @@
 		Movie: 'movie',
 		Show: 'tv'
 	};
+
+	const totalIncompleteItems = data.incompleteItems.incomplete_items.length;
+	let curPage = 1;
+	const perPage = 20;
+	$: start = (curPage - 1) * perPage;
+	$: end = start + perPage;
+	$: incompleteItems = data.incompleteItems.incomplete_items.slice(start, end);
 </script>
 
 <Header />
 
-<div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
+<div class="mt-16 flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<h2 class="text-xl md:text-2xl">Statistics</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">Statistics of the library</p>
+	<p class="text-sm text-muted-foreground lg:text-base">Statistics of the library</p>
 	<div class="mt-4 grid w-full grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4">
 		{#each statsData as stat}
 			<Card.Root>
@@ -170,10 +179,10 @@
 				<Card.Content>
 					{#if stat.title === 'Total Shows'}
 						<p class="text-lg lg:text-3xl">{stat.value}</p>
-						<p class="text-muted-foreground text-sm lg:text-base">
+						<p class="text-sm text-muted-foreground lg:text-base">
 							{data.stats.data.total_seasons} Seasons
 						</p>
-						<p class="text-muted-foreground text-sm lg:text-base">
+						<p class="text-sm text-muted-foreground lg:text-base">
 							{data.stats.data.total_episodes} Episodes
 						</p>
 					{:else}
@@ -185,7 +194,7 @@
 	</div>
 
 	<h2 class="mt-8 text-xl md:text-2xl">Services</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">Tells the current status of the services</p>
+	<p class="text-sm text-muted-foreground lg:text-base">Tells the current status of the services</p>
 	<div class="mt-4 grid w-full grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
 		{#each servicesStatus as service}
 			<Card.Root>
@@ -210,9 +219,31 @@
 	</div>
 
 	<h2 class="mt-8 text-xl md:text-2xl">States</h2>
-	<p class="text-muted-foreground text-sm lg:text-base">
+	<p class="text-sm text-muted-foreground lg:text-base">
 		Tells the current state of the items in the library
 	</p>
+	<Dialog.Root>
+		<Dialog.Trigger class="flex w-full max-w-max items-start text-muted-foreground underline">
+			Know more about states
+		</Dialog.Trigger>
+		<Dialog.Content>
+			<Dialog.Header>
+				<Dialog.Title>What are these states?</Dialog.Title>
+				<Dialog.Description class="flex flex-col gap-2">
+					<p>
+						Riven has items, which are movies/shows/season/episode. These items go through different
+						states.
+					</p>
+					<p>
+						States represent how the items are processed in the library. Each state represents a
+						different stage of the item in the library. Items start Requested and end up in
+						Completed state. Sometimes due to ongoing series, no streams or some error, they can end
+						up in Incomplete or Failed state. Rarely items end up in Unknown state.
+					</p>
+				</Dialog.Description>
+			</Dialog.Header>
+		</Dialog.Content>
+	</Dialog.Root>
 	<div class="mt-4 grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
 		{#each Object.keys(data.stats.data.states) as state}
 			<Card.Root
@@ -232,12 +263,22 @@
 
 	<div class="mt-8 flex w-full flex-col">
 		<h2 class="text-xl md:text-2xl">Incomplete Items</h2>
-		<p class="text-muted-foreground text-sm lg:text-base">Items that are not yet completed</p>
-		<div class="no-scrollbar mt-4 flex flex-wrap overflow-x-auto px-1 lg:p-0">
-			{#each data.incompleteItems.incomplete_items as item, i}
-				<a
+		<p class="text-sm text-muted-foreground lg:text-base">Items whose state is not Completed</p>
+		<div class="mt-2">
+			{#if totalIncompleteItems}
+				<p class="text-sm text-muted-foreground lg:text-base">
+					Showing {start + 1} to {end > totalIncompleteItems ? totalIncompleteItems : end} of{' '}
+					{totalIncompleteItems} items
+				</p>
+			{:else}
+				<p class="text-sm text-muted-foreground lg:text-base">No incomplete items found</p>
+			{/if}
+		</div>
+		<div class="no-scrollbar mt-2 flex flex-wrap overflow-x-auto">
+			{#each incompleteItems as item, id (item.imdb_id)}
+				<!-- <a
 					href="/{convertTo[item.type]}/{item.imdb_id}"
-					class="group relative mb-2 flex w-1/2 flex-shrink-0 flex-col gap-2 rounded-lg p-2 sm:w-1/4 lg:w-1/6 xl:p-[.4rem]"
+					class="group relative mb-2 flex w-1/2 flex-shrink-0 flex-col gap-2 rounded-lg p-2 sm:w-1/4 lg:w-1/6"
 				>
 					<div class="relative aspect-[1/1.5] w-full overflow-hidden rounded-lg">
 						<img
@@ -246,17 +287,54 @@
 							loading="lazy"
 							class="h-full w-full object-cover object-center transition-all duration-300 ease-in-out group-hover:scale-105"
 						/>
-						<!-- <div
-							class="absolute right-0 top-1 flex items-center justify-center gap-1 rounded-l-md bg-slate-900/70 px-[5px] py-1"
-						>
-							<Star class="size-3 text-yellow-400" />
-							<span class="text-xs font-light text-white">
-								{roundOff(item.vote_average)}
-							</span>
-						</div> -->
+						<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-20"></div>
+						<div class="absolute inset-0 z-[2] flex flex-col justify-end gap-2">
+							<div class="flex flex-col p-4 relative">
+								<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-60 bg-blend-difference"></div>
+
+								<div class="flex w-full items-center justify-center gap-1 z-[2]">
+									<p class="text-center">{item.type}</p>
+									<span class="max-w-max">•</span>
+									<p class="text-center">{item.state === 'PartiallyCompleted' ? 'Partial' : statesName[item.state]}</p>
+								</div>
+								<p class="text-center z-[2]">{item.title}</p>
+							</div>
+						</div>
 					</div>
-				</a>
+				</a> -->
+				<MediaItem data={item} {statesName} />
 			{/each}
 		</div>
+		{#if totalIncompleteItems}
+			<Pagination.Root
+				count={totalIncompleteItems}
+				{perPage}
+				let:pages
+				let:currentPage
+				onPageChange={(page) => (curPage = page)}
+			>
+				<Pagination.Content>
+					<Pagination.Item>
+						<Pagination.PrevButton />
+					</Pagination.Item>
+					{#each pages as page (page.key)}
+						{#if page.type === 'ellipsis'}
+							<Pagination.Item>
+								<Pagination.Ellipsis />
+							</Pagination.Item>
+						{:else}
+							<Pagination.Item>
+								<Pagination.Link {page} isActive={currentPage == page.value}>
+									{page.value}
+								</Pagination.Link>
+							</Pagination.Item>
+						{/if}
+					{/each}
+					<Pagination.Item>
+						<Pagination.NextButton />
+					</Pagination.Item>
+				</Pagination.Content>
+			</Pagination.Root>
+		{/if}
 	</div>
 </div>

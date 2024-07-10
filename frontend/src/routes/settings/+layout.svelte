@@ -37,7 +37,7 @@
 
 <Header />
 
-<div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
+<div class="mt-16 flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<Select.Root
 		portal={null}
 		onSelectedChange={(selected) => {
