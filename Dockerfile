@@ -52,7 +52,8 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     libffi-dev \
-    python3-dev && \
+    python3-dev \
+    libpq-dev && \
     npm install -g pnpm
 
 # Install Nerd Fonts
