@@ -379,7 +379,7 @@ class Program(threading.Thread):
             with db.Session() as session:
                 existing_item = DB._get_item_from_db(session, event.item)
                 updated_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, event.item
+                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
                 if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
