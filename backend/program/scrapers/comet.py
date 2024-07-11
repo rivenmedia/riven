@@ -2,6 +2,7 @@
 from typing import Dict, Union
 import base64
 import json
+from urllib.parse import quote
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -96,18 +97,18 @@ class Comet:
         """Wrapper for `Comet` scrape method"""
         if isinstance(item, Show):
             scrape_type = "series"
-            imdb_id = item.imdb_id
+            imdb_id = item.imdb_id + ":1"
         elif isinstance(item, Season):
             scrape_type = "series"
-            imdb_id = item.parent.imdb_id
+            imdb_id = f"{item.parent.imdb_id}:{item.number}"
         elif isinstance(item, Episode):
             scrape_type = "series"
-            imdb_id = item.parent.parent.imdb_id
+            imdb_id = f"${item.parent.parent.imdb_id}:{item.parent.number}:{item.number}"
         elif isinstance(item, Movie):
             scrape_type = "movie"
             imdb_id = item.imdb_id
 
-        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}.json"
+        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{quote(imdb_id)}.json"
 
         if self.second_limiter:
             with self.second_limiter:
