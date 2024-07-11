@@ -151,11 +151,15 @@ class Program(threading.Thread):
         run_migrations()
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            added = []
             if res == 0:
                 for item in self.services[SymlinkLibrary].run():
                     if settings_manager.settings.map_metadata:
                         if isinstance(item, (Movie, Show)):
                             item = next(self.services[TraktIndexer].run(item))
+                            if item.item_id in added:
+                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required.")
+                                exit(0)
                             item.store_state()
                             session.add(item)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
