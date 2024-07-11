@@ -102,6 +102,7 @@ class Program(threading.Thread):
                 any(s.initialized for s in self.library_services.values()),
                 any(s.initialized for s in self.indexing_services.values()),
                 all(s.initialized for s in self.processing_services.values()),
+                self.processing_services[Downloader].initialized,
             )
         )
 
