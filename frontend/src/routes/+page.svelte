@@ -18,6 +18,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import { roundOff } from '$lib/helpers';
 	import HomeItems from '$lib/components/home-items.svelte';
+	import * as Select from '$lib/components/ui/select';
+
+	let curTopRatedType = 'movie';
 
 	export let data: PageData;
 </script>
@@ -34,9 +37,7 @@
 	]}
 	class="h-[70vh] overflow-hidden md:h-[100vh]"
 >
-	<div class="absolute top-0 z-50 w-full">
-		<Header darkWhiteText={true} />
-	</div>
+	<Header darkWhiteText={true} />
 	<Carousel.Content class="h-full">
 		{#each data.nowPlaying.data.results as nowPlaying, i}
 			{#if i <= 9}
@@ -48,9 +49,10 @@
 							class="h-[70vh] w-full select-none object-cover object-center md:h-[100vh]"
 							loading="lazy"
 						/>
-						<div class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"></div>
+						<div
+							class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"
+						></div>
 						<div class="absolute inset-0 z-[2] mt-16 flex flex-col gap-4 md:mb-56">
-							<!-- TODO: Maybe change m-4 to padding? -->
 							<div class="ml-4 flex h-full w-full flex-col justify-end gap-2 p-8 md:px-24 lg:px-32">
 								<div class="w-full max-w-2xl select-none">
 									<h1 class="break-words text-3xl font-medium leading-tight md:text-4xl">
@@ -104,7 +106,7 @@
 </Carousel.Root>
 
 <div class="flex w-full flex-col items-start gap-4 p-8 md:-mt-56">
-	<div class="z-50 flex w-full items-center gap-2 text-white md:px-16 lg:px-24">
+	<div class="z-40 flex w-full items-center gap-2 text-white md:px-16 lg:px-24">
 		<div class="rounded-md bg-primary p-2">
 			<Flame class="size-4" />
 		</div>
@@ -143,7 +145,9 @@
 										/></span
 									>
 								</div>
-								<div class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"></div>
+								<div
+									class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"
+								></div>
 								<div class="absolute inset-0 z-[2] flex flex-col justify-end gap-2 p-4">
 									<div class="flex items-center gap-2">
 										<Clapperboard class="size-4" />
@@ -176,3 +180,114 @@
 <HomeItems name="Movies" data={data.trendingMovies.data} type="movie" />
 
 <HomeItems name="Shows" data={data.trendingShows.data} type="tv" />
+
+<div class="flex h-full w-full flex-col">
+	<div class="flex w-full items-center justify-between p-8 md:px-24 lg:px-32">
+		<div class="flex items-center gap-2">
+			<div class="rounded-md bg-primary p-2">
+				<Star class="size-4" />
+			</div>
+			<h2 class="text-xl font-medium md:text-2xl">Top Rated</h2>
+		</div>
+		<Select.Root
+			portal={null}
+			selected={{
+				value: curTopRatedType,
+				label: curTopRatedType === 'movie' ? 'Movies' : 'Shows'
+			}}
+			onSelectedChange={(selected) => {
+				curTopRatedType = String(selected?.value);
+			}}
+		>
+			<Select.Trigger class="w-28 text-sm">
+				<Select.Value placeholder="Select type" />
+			</Select.Trigger>
+			<Select.Content>
+				<Select.Item value="movie" label="Movies">Movies</Select.Item>
+				<Select.Item value="tv" label="Shows">Shows</Select.Item>
+			</Select.Content>
+		</Select.Root>
+	</div>
+
+	<div class="relative mb-16 w-full md:px-24 lg:px-32">
+		<Carousel.Root
+			plugins={[
+				Autoplay({
+					delay: 5000
+				})
+			]}
+			class="h-full w-full select-none overflow-hidden rounded-xl md:rounded-2xl"
+		>
+			<Carousel.Content class="h-full w-full">
+				{@const topRatedData =
+					curTopRatedType === 'movie' ? data.moviesTopRated : data.showsTopRated}
+				{#each topRatedData.data.results as showsTopRated, i}
+					<Carousel.Item
+						class="relative ml-2 flex w-full min-w-full basis-full flex-col pl-0 md:flex-row md:p-10 xl:p-16"
+					>
+						<div
+							class="absolute left-0 top-0 z-[-1] h-full w-full overflow-hidden object-cover opacity-50 blur-3xl"
+						>
+							<img
+								alt={showsTopRated.title || showsTopRated.name}
+								src="https://image.tmdb.org/t/p/w780{showsTopRated.poster_path}"
+								class="h-full w-full object-cover object-center"
+							/>
+						</div>
+						<div
+							class="mx-auto flex w-full max-w-3xl flex-col gap-2 p-5 pb-6 pt-3 tracking-wide sm:p-8 md:w-1/2 lg:w-[45%] lg:gap-4 lg:pt-12"
+						>
+							<p class="text-2xl font-medium !leading-tight lg:text-4xl">
+								{showsTopRated.title || showsTopRated.name}
+							</p>
+							<div class="flex gap-3 text-xs">
+								<span class="flex items-center gap-[2px]">
+									<Star class="size-4" />
+									<p>{roundOff(showsTopRated.vote_average)}</p>
+								</span>
+								<span class="uppercase"> tv </span>
+								<span>
+									{showsTopRated.release_date || showsTopRated.first_air_date}
+								</span>
+								<span class="uppercase">
+									{showsTopRated.original_language}
+								</span>
+							</div>
+							<div class="line-clamp-3 text-xs text-zinc-200 lg:line-clamp-5 lg:text-sm">
+								{showsTopRated.overview}
+							</div>
+							<div class="mt-3 flex flex-wrap items-center gap-2 lg:gap-3">
+								<Button
+									size="lg"
+									variant="default"
+									class="flex items-center gap-2"
+									href="/tv/{showsTopRated.id}"
+								>
+									<Play class="h-4 w-4" />
+									<span>Request</span>
+								</Button>
+								<Button
+									size="lg"
+									variant="ghost"
+									class="flex items-center gap-2"
+									href="/tv/{showsTopRated.id}"
+								>
+									<Info class="h-4 w-4" />
+									<span>Details</span>
+								</Button>
+							</div>
+						</div>
+						<div class="order-first mx-auto h-full w-full max-w-3xl md:order-none md:w-1/2">
+							<img
+								alt={showsTopRated.title || showsTopRated.name}
+								src="https://image.tmdb.org/t/p/w780{showsTopRated.backdrop_path}"
+								loading="lazy"
+								class="aspect-[16/11] h-full w-full rounded-2xl object-cover lg:aspect-video"
+							/>
+						</div>
+					</Carousel.Item>
+				{/each}
+			</Carousel.Content>
+		</Carousel.Root>
+	</div>
+</div>
