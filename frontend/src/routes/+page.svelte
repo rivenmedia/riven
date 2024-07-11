@@ -37,7 +37,7 @@
 	]}
 	class="h-[70vh] overflow-hidden md:h-[100vh]"
 >
-	<Header darkWhiteText={true} />
+	<Header />
 	<Carousel.Content class="h-full">
 		{#each data.nowPlaying.data.results as nowPlaying, i}
 			{#if i <= 9}
@@ -107,7 +107,7 @@
 
 <div class="flex w-full flex-col items-start gap-4 p-8 md:-mt-56">
 	<div class="z-40 flex w-full items-center gap-2 text-white md:px-16 lg:px-24">
-		<div class="rounded-md bg-primary p-2">
+		<div class="bg-primary rounded-md p-2">
 			<Flame class="size-4" />
 		</div>
 		<h2 class="text-xl font-medium md:text-2xl">What's Trending Today</h2>
@@ -129,7 +129,7 @@
 					{@const mediaType = trendingAll.media_type}
 					<Carousel.Item class="basis-auto text-slate-50">
 						<div
-							class="aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2 hover:border-primary"
+							class="hover:border-primary aspect-[2/1] h-fit w-full overflow-hidden rounded-2xl border-2 border-transparent hover:border-2"
 						>
 							<a
 								href="/{mediaType}/{trendingAll.id}"
@@ -153,7 +153,7 @@
 										<Clapperboard class="size-4" />
 										<p class="line-clamp-1">{trendingAll.name || trendingAll.original_title}</p>
 									</div>
-									<div class="flex items-center gap-2 text-xs text-primary-foreground">
+									<div class="text-primary-foreground flex items-center gap-2 text-xs">
 										<div class="flex items-center gap-2">
 											<Star class="size-4" />
 											<p>{roundOff(trendingAll.vote_average)}</p>
@@ -184,7 +184,7 @@
 <div class="flex h-full w-full flex-col">
 	<div class="flex w-full items-center justify-between p-8 md:px-24 lg:px-32">
 		<div class="flex items-center gap-2">
-			<div class="rounded-md bg-primary p-2">
+			<div class="bg-primary rounded-md p-2">
 				<Star class="size-4" />
 			</div>
 			<h2 class="text-xl font-medium md:text-2xl">Top Rated</h2>
@@ -253,7 +253,9 @@
 									{showsTopRated.original_language}
 								</span>
 							</div>
-							<div class="line-clamp-3 text-xs text-zinc-200 lg:line-clamp-5 lg:text-sm">
+							<div
+								class="line-clamp-3 text-xs text-zinc-800 lg:line-clamp-5 lg:text-sm dark:text-zinc-200"
+							>
 								{showsTopRated.overview}
 							</div>
 							<div class="mt-3 flex flex-wrap items-center gap-2 lg:gap-3">
