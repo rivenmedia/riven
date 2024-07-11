@@ -48,7 +48,7 @@
 							class="h-[70vh] w-full select-none object-cover object-center md:h-[100vh]"
 							loading="lazy"
 						/>
-						<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-60"></div>
+						<div class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"></div>
 						<div class="absolute inset-0 z-[2] mt-16 flex flex-col gap-4 md:mb-56">
 							<!-- TODO: Maybe change m-4 to padding? -->
 							<div class="ml-4 flex h-full w-full flex-col justify-end gap-2 p-8 md:px-24 lg:px-32">
@@ -143,7 +143,7 @@
 										/></span
 									>
 								</div>
-								<div class="absolute inset-0 z-[1] flex select-none bg-slate-900 opacity-20"></div>
+								<div class="absolute inset-0 z-[1] flex select-none bg-gradient-to-t from-zinc-900"></div>
 								<div class="absolute inset-0 z-[2] flex flex-col justify-end gap-2 p-4">
 									<div class="flex items-center gap-2">
 										<Clapperboard class="size-4" />

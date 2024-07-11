@@ -26,7 +26,7 @@
 			/>
 		</span>
 		<div
-			class="absolute inset-0 z-10 flex h-full w-full flex-col justify-end gap-1 bg-gradient-to-t from-zinc-900 p-[.35rem] pb-2 tracking-wide lg:group-hover:opacity-100"
+			class="absolute inset-0 z-0 flex h-full w-full flex-col justify-end gap-1 bg-gradient-to-t from-zinc-900 pb-2 tracking-wide lg:group-hover:opacity-100"
 		>
 			<div
 				class="flex flex-wrap justify-center gap-1 text-xs font-normal tracking-wide text-gray-200 md:items-center 2xl:text-sm"
