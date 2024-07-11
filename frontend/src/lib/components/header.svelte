@@ -10,6 +10,7 @@
 	import { type Writable } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
 
 	const navItems: NavItem[] = [
 		{
@@ -38,33 +39,41 @@
 
 	export let darkWhiteText: boolean = false;
 
+	let applyBackdropBlur = () => {};
+
 	onMount(async () => {
 		const header = document.getElementById('header');
-		const headerHeight = header?.offsetHeight;
-		console.log(headerHeight);
 
-		// header?.style.transition = 'padding 0.5s ease, other-properties 0.5s ease';
-
-		window.addEventListener('scroll', () => {
+		applyBackdropBlur = () => {
 			if (window.scrollY) {
-				// header?.classList.add('absolute');
 				header?.classList.remove('p-8');
 				header?.classList.add('p-4');
 				header?.classList.add('backdrop-blur-sm');
 			} else {
-				// header?.classList.remove('absolute');
 				header?.classList.remove('p-4');
 				header?.classList.add('p-8');
 				header?.classList.remove('backdrop-blur-sm');
 			}
-		});
+		};
+
+		applyBackdropBlur();
+
+		if (browser) {
+			window.addEventListener('scroll', applyBackdropBlur);
+		}
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			window.removeEventListener('scroll', applyBackdropBlur);
+		}
 	});
 </script>
 
 <header
 	id="header"
 	class={clsx(
-		'fixed top-0 flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32',
+		'fixed top-0 z-50 flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32',
 		{
 			'text-background dark:text-foreground': darkWhiteText
 		},
