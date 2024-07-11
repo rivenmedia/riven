@@ -36,9 +36,7 @@
 	function toggleNavbar() {
 		showMenu.update((v) => !v);
 	}
-
-	export let darkWhiteText: boolean = false;
-
+	
 	let applyBackdropBlur = () => {};
 
 	onMount(async () => {
@@ -72,15 +70,7 @@
 
 <header
 	id="header"
-	class={clsx(
-		'fixed top-0 z-[99] flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32',
-		{
-			'text-background dark:text-foreground': darkWhiteText
-		},
-		{
-			'text-foreground': !darkWhiteText
-		}
-	)}
+	class="fixed top-0 z-[99] flex w-full items-center justify-between bg-transparent p-8 transition-all duration-300 ease-in-out md:px-24 lg:px-32"
 >
 	<div class="flex items-center gap-2">
 		<a href="/" class="flex items-center gap-2">
