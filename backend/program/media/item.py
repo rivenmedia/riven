@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
@@ -88,12 +88,12 @@ class MediaItem(db.Model):
         self.is_anime = item.get("is_anime", False)
 
         # Media related
-        self.title = self.clean_title(item.get("title", None))
+        self.title = item.get("title", None)
         self.imdb_id =  item.get("imdb_id", None)
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, "item_id"):
-                self.item_id: ItemId = self.imdb_id
+                self.item_id = self.imdb_id
         self.tvdb_id = item.get("tvdb_id", None)
         self.tmdb_id = item.get("tmdb_id", None)
         self.network = item.get("network", None)

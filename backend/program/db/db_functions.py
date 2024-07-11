@@ -1,12 +1,10 @@
-from sqla_wrapper import Alembic, SQLAlchemy
-from program.settings.manager import settings_manager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from utils.logger import logger
 from program.types import Event
 from .db import db
-import os
+
 
 def _ensure_item_exists_in_db(item:MediaItem) -> bool:
     if isinstance(item, (Movie, Show)):
@@ -64,7 +62,7 @@ def _get_item_from_db(session, item: MediaItem):
             session.expunge(r)
             return r
         case _:
-            logger.error(f"_get_item_from_db Failed to create item from data: {data}")
+            logger.error(f"_get_item_from_db Failed to create item from type: {type}")
             return None
             
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
