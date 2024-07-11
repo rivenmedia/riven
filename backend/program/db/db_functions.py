@@ -110,9 +110,18 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                     session.expunge_all()
                 return res
         for i in fn(input_item):
+            if isinstance(i, (Show, Movie, Season, Episode)):
+                with db.Session() as session:
+                    _check_for_and_run_insertion_required(session, i)
+                    program._push_event_queue(Event(emitted_by=service, item=i))
             yield i
         return
     else:
         for i in fn():
-            yield i
+            if isinstance(i, (Show, Movie, Season, Episode)):
+                with db.Session() as session:
+                    _check_for_and_run_insertion_required(session, i)
+                    program._push_event_queue(Event(emitted_by=service, item=i))
+            else:
+                program._push_event_queue(Event(emitted_by=service, item=i))
         return
