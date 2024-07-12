@@ -151,11 +151,16 @@ class Program(threading.Thread):
         run_migrations()
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            added = []
             if res == 0:
                 for item in self.services[SymlinkLibrary].run():
                     if settings_manager.settings.map_metadata:
                         if isinstance(item, (Movie, Show)):
                             item = next(self.services[TraktIndexer].run(item))
+                            if item.item_id in added:
+                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required.")
+                                exit(0)
+                            added.append(item.item_id)
                             item.store_state()
                             session.add(item)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
@@ -379,7 +384,7 @@ class Program(threading.Thread):
             with db.Session() as session:
                 existing_item = DB._get_item_from_db(session, event.item)
                 updated_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, event.item
+                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
                 if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
