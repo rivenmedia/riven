@@ -129,6 +129,3 @@ if reset is not None and reset.lower() in ["true","1"]:
     run_delete(Movie)
     run_delete(MediaItem)
     
-    
-
-print(f"Reset is: {reset} ")
