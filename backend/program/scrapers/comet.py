@@ -93,22 +93,33 @@ class Comet:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return data
 
+    
+    def _determine_scrape(self, item: Union[Show, Season, Episode, Movie]) -> tuple[str, str, str]:
+        """Determine the scrape type and identifier for the given media item"""
+        try:
+            if isinstance(item, Show):
+                identifier, scrape_type, imdb_id = f":{item.seasons[0].number}:1", "series", item.imdb_id
+            elif isinstance(item, Season):
+                identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+            elif isinstance(item, Episode):
+                identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+            elif isinstance(item, Movie):
+                identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+            else:
+                logger.error(f"Invalid media item type")
+                return None, None, None
+            return identifier, scrape_type, imdb_id
+        except Exception as e:
+            logger.warning(f"Failed to determine scrape type or identifier for {item.log_string}: {e}")
+            return None, None, None
+
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
-        if isinstance(item, Show):
-            scrape_type = "series"
-            imdb_id = item.imdb_id + ":1"
-        elif isinstance(item, Season):
-            scrape_type = "series"
-            imdb_id = f"{item.parent.imdb_id}:{item.number}"
-        elif isinstance(item, Episode):
-            scrape_type = "series"
-            imdb_id = f"${item.parent.parent.imdb_id}:{item.parent.number}:{item.number}"
-        elif isinstance(item, Movie):
-            scrape_type = "movie"
-            imdb_id = item.imdb_id
+        identifier, scrape_type, imdb_id = self._determine_scrape(item)
+        if not imdb_id:
+            return {}, 0
 
-        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{quote(imdb_id)}.json"
+        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
         if self.second_limiter:
             with self.second_limiter:
@@ -121,15 +132,23 @@ class Comet:
 
         torrents: Dict[str, str] = {}
         for stream in response.data.streams:
-
             # Split the URL by '/playback/' and then split the remaining part by '/'
-            logger.info(url)
-            logger.info(url.split('/playback/'))
-            hash = url.split('/playback/')[1].split('/')[0]
+
+            url_parts = stream.url.split('/playback/')
+
+            if len(url_parts) != 2:
+                logger.warning(f'Comet Playback url can\'t be parsed: {stream.url}')
+
+            end_parts = url_parts[1].split('/')
+
+            if len(end_parts) != 2:
+                logger.warning(f'End part of Comet Playback url can\'t be parsed ({end_parts}): {stream.url}')
+
+            hash = end_parts[0]
 
             if not hash:
                 continue
 
             torrents[hash] = stream.title
 
-        return torrents, len(response.data.media)
+        return torrents, len(response.data.streams)
