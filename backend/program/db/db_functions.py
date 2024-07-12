@@ -94,7 +94,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                         session.commit()
                         return
                     elif not isinstance(res, MediaItem):
-                        logger.log("PROGRAM", f"Service {service.__name__} emitted item {item} of type {item.__class__.__name__}, skipping")
+                        logger.log("PROGRAM", f"Service {service.__name__} emitted {res} from input item {item} of type {type(res).__name__}, backing off.")
                     program._remove_from_running_items(item, service.__name__)
                     if res is not None and isinstance(res, MediaItem):
                         program._push_event_queue(Event(emitted_by=service, item=res))
