@@ -35,27 +35,19 @@ def _get_item_from_db(session, item: MediaItem):
     match type:
         case "movie":
             r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
+            r.set("streams", item.get("streams", {}))
             return r
         case "show":
             r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-            for season in r.seasons:
-                for episode in season.episodes:
-                    episode.parent = season
-                season.parent = r
+            r.set("streams", item.get("streams", {}))
             return r
         case "season":
             r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
-            r.parent = r.parent
-            r.parent.seasons = r.parent.seasons
-            for episode in r.episodes:
-                episode.parent = r
+            r.set("streams", item.get("streams", {}))
             return r
         case "episode":
             r = session.execute(select(Episode).where(Episode._id==item._id).options(joinedload("*"))).unique().scalar_one()
-            r.parent = r.parent
-            r.parent.parent = r.parent.parent
-            r.parent.parent.seasons = r.parent.parent.seasons
-            r.parent.episodes = r.parent.episodes
+            r.set("streams", item.get("streams", {}))
             return r
         case _:
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
@@ -78,7 +70,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                 item = input_item
                 if not _check_for_and_run_insertion_required(session, item): 
                     item = _get_item_from_db(session, item)
-                item.set("streams", input_item.get("streams", {}))
+                
                 #session.merge(item)
                 for res in fn(item):
                     if isinstance(res, list):
@@ -121,3 +113,22 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
             else:
                 program._push_event_queue(Event(emitted_by=service, item=i))
         return
+
+reset = os.getenv("HARD_RESET", None)
+if reset is not None and reset.lower() in ["true","1"]:
+    print("Hard reset detected, dropping all tables") # Logging isn't initialized here yet.
+    def run_delete(_type):
+        with db.Session() as session:
+            all = session.execute(select(_type).options(joinedload("*"))).unique().scalars().all()
+            for i in all:
+                session.delete(i)
+            session.commit()
+    run_delete(Episode)
+    run_delete(Season)
+    run_delete(Show)
+    run_delete(Movie)
+    run_delete(MediaItem)
+    
+    
+
+print(f"Reset is: {reset} ")
