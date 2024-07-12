@@ -35,11 +35,9 @@ def _get_item_from_db(session, item: MediaItem):
     match type:
         case "movie":
             r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-            session.expunge(r)
             return r
         case "show":
             r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-            session.expunge(r)
             for season in r.seasons:
                 for episode in season.episodes:
                     episode.parent = season
@@ -49,7 +47,6 @@ def _get_item_from_db(session, item: MediaItem):
             r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
             r.parent = r.parent
             r.parent.seasons = r.parent.seasons
-            session.expunge(r)
             for episode in r.episodes:
                 episode.parent = r
             return r
@@ -59,7 +56,6 @@ def _get_item_from_db(session, item: MediaItem):
             r.parent.parent = r.parent.parent
             r.parent.parent.seasons = r.parent.parent.seasons
             r.parent.episodes = r.parent.episodes
-            session.expunge(r)
             return r
         case _:
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
