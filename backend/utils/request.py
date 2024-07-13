@@ -126,11 +126,13 @@ def ping(
         timeout=10,
         additional_headers=None,
         proxies=None,
+        params=None,
         specific_rate_limiter: Optional[RateLimiter] = None,
         overall_rate_limiter: Optional[RateLimiter] = None):
     return get(
         url,
         additional_headers=additional_headers,
+        params=params,
         timeout=timeout,
         proxies=proxies,
         specific_rate_limiter=specific_rate_limiter,

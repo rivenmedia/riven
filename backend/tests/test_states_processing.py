@@ -1,5 +1,5 @@
 import pytest
-from program.downloaders.realdebrid import Debrid
+from program.downloaders.realdebrid import RealDebridDownloader
 from program.indexers.trakt import TraktIndexer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -126,8 +126,8 @@ def test_show_state_transitions(show):
     (States.Unknown, Program, TraktIndexer),
     # (States.Requested, TraktIndexer, TraktIndexer),
     (States.Indexed, TraktIndexer, Scraping),
-    (States.Scraped, Scraping, Debrid),
-    (States.Downloaded, Debrid, Symlinker),
+    (States.Scraped, Scraping, RealDebridDownloader),
+    (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])
@@ -150,8 +150,8 @@ def test_process_event_transitions_movie(state, service, next_service, movie):
     (States.Unknown, Program, TraktIndexer),
     # (States.Requested, TraktIndexer, TraktIndexer),
     (States.Indexed, TraktIndexer, Scraping),
-    (States.Scraped, Scraping, Debrid),
-    (States.Downloaded, Debrid, Symlinker),
+    (States.Scraped, Scraping, RealDebridDownloader),
+    (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])
@@ -181,8 +181,8 @@ def test_process_event_transition_shows(state, service, next_service, show):
     (States.Unknown, Program, TraktIndexer),
     # (States.Requested, TraktIndexer, TraktIndexer),
     (States.Indexed, TraktIndexer, Scraping),
-    (States.Scraped, Scraping, Debrid),
-    (States.Downloaded, Debrid, Symlinker),
+    (States.Scraped, Scraping, RealDebridDownloader),
+    (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])

@@ -18,6 +18,10 @@ export const generalSettingsSchema = z.object({
 	realdebrid_api_key: z.string().optional().default(''),
 	realdebrid_proxy_enabled: z.boolean().default(false),
 	realdebrid_proxy_url: z.string().optional().default(''),
+	alldebrid_enabled: z.boolean().default(false),
+	alldebrid_api_key: z.string().optional().default(''),
+	alldebrid_proxy_enabled: z.boolean().default(false),
+	alldebrid_proxy_url: z.string().optional().default(''),
 	torbox_enabled: z.boolean().default(false),
 	torbox_api_key: z.string().optional().default('')
 });
@@ -38,8 +42,12 @@ export function generalSettingsToPass(data: any) {
 		realdebrid_api_key: data.data.downloaders.real_debrid?.api_key || '',
 		realdebrid_proxy_enabled: data.data.downloaders.real_debrid?.proxy_enabled || false,
 		realdebrid_proxy_url: data.data.downloaders.real_debrid?.proxy_url || '',
+		alldebrid_enabled: data.data.downloaders.all_debrid.enabled,
+		alldebrid_api_key: data.data.downloaders.all_debrid?.api_key || '',
+		alldebrid_proxy_enabled: data.data.downloaders.all_debrid?.proxy_enabled || false,
+		alldebrid_proxy_url: data.data.downloaders.all_debrid?.proxy_url || '',
 		torbox_enabled: data.data.downloaders.torbox.enabled,
-		torbox_api_key: data.data.downloaders.torbox?.api_key || ''
+		torbox_api_key: data.data.downloaders.torbox?.api_key || '',
 	};
 }
 
@@ -73,6 +81,12 @@ export function generalSettingsToSet(form: SuperValidated<Infer<GeneralSettingsS
 					api_key: form.data.realdebrid_api_key,
 					proxy_enabled: form.data.realdebrid_proxy_enabled,
 					proxy_url: form.data.realdebrid_proxy_url
+				},
+				all_debrid: {
+					enabled: form.data.alldebrid_enabled,
+					api_key: form.data.alldebrid_api_key,
+					proxy_enabled: form.data.alldebrid_proxy_enabled,
+					proxy_url: form.data.alldebrid_proxy_url
 				},
 				torbox: {
 					enabled: form.data.torbox_enabled,
