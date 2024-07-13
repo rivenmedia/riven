@@ -168,6 +168,21 @@ class KnightcrawlerConfig(Observable):
     timeout: int = 30
     ratelimit: bool = True
 
+
+class CometConfig(Observable):
+    enabled: bool = False
+    url: str = "http://localhost:8000"
+    indexers: List[str] = [
+        "bitsearch",
+        "eztv",
+        "thepiratebay",
+        "therarbg",
+        "yts"
+    ]
+    timeout: int = 30
+    ratelimit: bool = True
+
+
 class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
@@ -238,6 +253,7 @@ class ScraperModel(Observable):
     torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()
+    comet: CometConfig = CometConfig()
 
 
 # Version Ranking Model (set application defaults here!)
