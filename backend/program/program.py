@@ -10,8 +10,7 @@ from queue import Empty, Queue
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
-from program.downloaders.realdebrid import Debrid
-from program.downloaders.torbox import TorBoxDownloader
+from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -71,10 +70,7 @@ class Program(threading.Thread):
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
-        }
-        self.downloader_services = {
-            Debrid: Debrid(hash_cache),
-            TorBoxDownloader: TorBoxDownloader(hash_cache),
+            Downloader: Downloader(hash_cache),
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it
@@ -83,8 +79,6 @@ class Program(threading.Thread):
         }
         if not any(s.initialized for s in self.requesting_services.values()):
             logger.error("No Requesting service initialized, you must select at least one.")
-        if not any(s.initialized for s in self.downloader_services.values()):
-            logger.error("No Downloader service initialized, you must select at least one.")
         if not self.processing_services.get(Scraping).initialized:
             logger.error("No Scraping service initialized, you must select at least one.")
 
@@ -93,7 +87,6 @@ class Program(threading.Thread):
             **self.indexing_services,
             **self.requesting_services,
             **self.processing_services,
-            **self.downloader_services,
         }
 
         if self.enable_trace:
@@ -107,7 +100,6 @@ class Program(threading.Thread):
                 any(s.initialized for s in self.library_services.values()),
                 any(s.initialized for s in self.indexing_services.values()),
                 all(s.initialized for s in self.processing_services.values()),
-                any(s.initialized for s in self.downloader_services.values()),
             )
         )
 

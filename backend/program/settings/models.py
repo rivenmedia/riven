@@ -26,7 +26,13 @@ class Observable(BaseModel):
 
 # Download Services
 
-class DebridModel(Observable):
+class RealDebridModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
+    proxy_enabled: bool = False
+    proxy_url: str = ""
+
+class AllDebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
     proxy_enabled: bool = False
@@ -43,7 +49,8 @@ class DownloadersModel(Observable):
     movie_filesize_max: int = -1    # MB (-1 is no limit)
     episode_filesize_min: int = 40  # MB
     episode_filesize_max: int = -1  # MB (-1 is no limit)
-    real_debrid: DebridModel = DebridModel()
+    real_debrid: RealDebridModel = RealDebridModel()
+    all_debrid: AllDebridModel = AllDebridModel()
     torbox: TorboxModel = TorboxModel()
 
 
