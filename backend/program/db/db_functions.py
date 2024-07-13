@@ -1,3 +1,4 @@
+import os
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
