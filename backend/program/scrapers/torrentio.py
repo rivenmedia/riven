@@ -7,7 +7,8 @@ from program.settings.models import TorrentioConfig
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping
+from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Torrentio:
@@ -42,7 +43,7 @@ class Torrentio:
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
             response = ping(url=url, timeout=10)
-            if response.ok:
+            if response.is_ok:
                 return True
         except Exception as e:
             logger.error(f"Torrentio failed to initialize: {e}", )

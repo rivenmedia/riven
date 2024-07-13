@@ -9,7 +9,8 @@ from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from requests import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, get, post
+from utils.request import get, post
+from utils.ratelimiter import RateLimiter
 
 
 class TraktContent:

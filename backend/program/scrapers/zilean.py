@@ -8,7 +8,8 @@ from program.settings.models import AppModel
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, ping, post
+from utils.request import ping, get
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Zilean:
@@ -18,13 +19,15 @@ class Zilean:
         self.key = "zilean"
         self.api_key = None
         self.downloader = None
+        self.rate_limiter = None
         self.app_settings: AppModel = settings_manager.settings
         self.settings = self.app_settings.scraping.zilean
         self.timeout = self.settings.timeout
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=2) if self.settings.ratelimit else None
+        if self.settings.ratelimit:
+            self.rate_limiter = RateLimiter(max_calls=1, period=2)
         logger.success("Zilean initialized!")
 
     def validate(self) -> bool:
@@ -44,8 +47,8 @@ class Zilean:
 
         try:
             url = f"{self.settings.url}/healthchecks/ping"
-            response = ping(url=url, timeout=self.timeout)
-            return response.ok
+            response = ping(url=url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
+            return response.is_ok
         except Exception as e:
             logger.error(f"Zilean failed to initialize: {e}")
             return False
@@ -58,8 +61,8 @@ class Zilean:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
+            if self.rate_limiter:
+                self.rate_limiter.limit_hit()
             else:
                 logger.warning(f"Zilean ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
@@ -87,24 +90,31 @@ class Zilean:
         if not title:
             return {}, 0
 
-        url = f"{self.settings.url}/dmm/search"
-        payload = {"queryText": title}
+        url = f"{self.settings.url}/dmm/filtered"
+        params = {"Query": title}
 
-        if self.second_limiter:
-            with self.second_limiter:
-                response = post(url, json=payload, timeout=self.timeout)
-        else:
-            response = post(url, json=payload, timeout=self.timeout)
+        if isinstance(item, Movie) and hasattr(item, 'aired_at'):
+            params["Year"] = item.aired_at.year
+
+        if isinstance(item, Show):
+            params["Season"] = 1
+        elif isinstance(item, Season):
+            params["Season"] = item.number
+        elif isinstance(item, Episode):
+            params["Season"] = item.parent.number
+            params["Episode"] = item.number
+
+        response = get(url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
 
         if not response.is_ok or not response.data:
             return {}, 0
 
         torrents: Dict[str, str] = {}
-        
+
         for result in response.data:
-            if not result.filename or not result.infoHash:
+            if not result.rawTitle or not result.infoHash:
                 continue
 
-            torrents[result.infoHash] = result.filename
+            torrents[result.infoHash] = result.rawTitle
 
         return torrents, len(response.data)

@@ -51,17 +51,17 @@
 		<!-- TODO: REMOVED FOR SOMETIME -->
 		<!-- {#if data.health.message !== true}
 			<div class="flex flex-col items-center justify-center gap-2 slide-up">
-				<h1 class="text-3xl font-semibold text-center">Iceberg is initializing...</h1>
+				<h1 class="text-3xl font-semibold text-center">Riven is initializing...</h1>
 				<Button class="w-full font-semibold" href="/">Go back to home</Button>
 			</div>
 		{:else} -->
-		<h1 class="slide-up text-center text-3xl font-semibold">Welcome to Riven!</h1>
+		<h1 class="slide-up text-center text-3xl font-medium">Welcome to Riven!</h1>
 		<p
 			class="slide-up max-w-lg text-center text-base text-muted-foreground md:max-w-2xl md:text-lg"
 		>
 			Before you can start using Riven, you need to configure some services first.
 		</p>
-		<Button class="slide-up mt-4 w-full font-semibold md:max-w-max" href="/onboarding/1">
+		<Button class="slide-up mt-4 w-full font-medium md:max-w-max" href="/onboarding/1">
 			<Rocket class="mr-2 h-4 w-4" />
 			<span>Let's go</span>
 		</Button>

@@ -83,6 +83,10 @@ export function formatWords(words: string) {
 		.join(' ');
 }
 
+export function roundOff(num: number, decimalPlaces: number = 1) {
+	return Math.round(num * 10 ** decimalPlaces) / 10 ** decimalPlaces;
+}
+
 export function convertIcebergItemsToObject(items: RivenItem[]) {
 	const result: { [key: string]: RivenItem[] } = {};
 
@@ -94,4 +98,12 @@ export function convertIcebergItemsToObject(items: RivenItem[]) {
 	}
 
 	return result;
+}
+
+export function createQueryString(params: Record<string, any>): string {
+	const queryString = Object.entries(params)
+		.filter(([_, value]) => value !== null && value !== undefined && value.toString().trim() !== '')
+		.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+		.join('&');
+	return `?${queryString}`;
 }
