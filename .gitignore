@@ -50,3 +50,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Rider IDE
+**/.idea/
+
+# MacOs
+**/.DS_Store

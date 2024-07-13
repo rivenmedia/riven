@@ -1,12 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-const BACKEND_URL = env.BACKEND_URL || 'http://127.0.0.1:8080';
 
 export const load = (async () => {
 	async function getStats() {
 		try {
-			const res = await fetch(`${BACKEND_URL}/stats`);
+			const res = await fetch('http://127.0.0.1:8080/stats');
 			if (res.ok) {
 				return await res.json();
 			}
@@ -19,7 +17,7 @@ export const load = (async () => {
 
 	async function getIncompleteItems() {
 		try {
-			const res = await fetch(`${BACKEND_URL}/items/incomplete`);
+			const res = await fetch('http://127.0.0.1:8080/items/incomplete');
 			if (res.ok) {
 				return await res.json();
 			}
@@ -32,7 +30,7 @@ export const load = (async () => {
 
 	async function getServices() {
 		try {
-			const res = await fetch(`${BACKEND_URL}/services`);
+			const res = await fetch('http://127.0.0.1:8080/services');
 			if (res.ok) {
 				return await res.json();
 			}

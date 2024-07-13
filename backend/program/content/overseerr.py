@@ -40,10 +40,10 @@ class Overseerr:
             )
             if response.status_code >= 201:
                 logger.error(
-                    f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
+                    f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}"
                 )
                 return False
-            return response.ok
+            return response.is_ok
         except (ConnectionError, RetryError, MaxRetryError, NewConnectionError) as e:
             logger.error(f"Overseerr URL is not reachable, or it timed out")
             return False

@@ -13,7 +13,7 @@ from program.settings.manager import settings_manager
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class ProwlarrIndexer(BaseModel):

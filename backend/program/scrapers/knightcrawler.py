@@ -7,7 +7,8 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping
+from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Knightcrawler:
@@ -40,7 +41,7 @@ class Knightcrawler:
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
             response = ping(url=url, timeout=self.timeout)
-            if response.ok:
+            if response.is_ok:
                 return True
         except Exception as e:
             logger.error(f"Knightcrawler failed to initialize: {e}", )

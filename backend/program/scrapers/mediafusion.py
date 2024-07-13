@@ -10,7 +10,8 @@ from program.settings.models import AppModel
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping
+from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Mediafusion:
@@ -87,7 +88,7 @@ class Mediafusion:
         try:
             url = f"{self.settings.url}/manifest.json"
             response = ping(url=url, timeout=self.timeout)
-            return response.ok
+            return response.is_ok
         except Exception as e:
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False

@@ -36,7 +36,7 @@
 	function toggleNavbar() {
 		showMenu.update((v) => !v);
 	}
-
+	
 	let applyBackdropBlur = () => {};
 
 	onMount(async () => {

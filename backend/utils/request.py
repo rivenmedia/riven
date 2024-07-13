@@ -1,8 +1,6 @@
-"""Requests wrapper"""
 import json
 import logging
-import time
-from multiprocessing import Lock
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Optional
 
@@ -12,6 +10,8 @@ from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectTimeout, RequestException
 from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
+from utils.useragents import user_agent_factory
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,14 @@ class ResponseObject:
     def handle_response(self, response: requests.Response) -> dict:
         """Handle different types of responses."""
         timeout_statuses = [408, 460, 504, 520, 524, 522, 598, 599]
+        rate_limit_statuses = [429]
         client_error_statuses = list(range(400, 451))  # 400-450
         server_error_statuses = list(range(500, 512))  # 500-511
 
         if self.status_code in timeout_statuses:
             raise ConnectTimeout(f"Connection timed out with status {self.status_code}", response=response)
+        if self.status_code in rate_limit_statuses:
+            raise RateLimitExceeded(f"Rate Limit Exceeded {self.status_code}", response=response)
         if self.status_code in client_error_statuses:
             raise RequestException(f"Client error with status {self.status_code}", response=response)
         if self.status_code in server_error_statuses:
@@ -51,7 +54,7 @@ class ResponseObject:
         content_type = response.headers.get("Content-Type", "")
         if not content_type or response.content == b"":
             return {}
-        
+
         try:
             if "application/json" in content_type:
                 if self.response_type == dict:
@@ -75,29 +78,40 @@ def _handle_request_exception() -> SimpleNamespace:
 
 
 def _make_request(
-    method: str,
-    url: str,
-    data: dict = None,
-    params: dict = None,
-    timeout=5,
-    additional_headers=None,
-    retry_if_failed=True,
-    response_type=SimpleNamespace,
-    proxies=None,
-    json=None
+        method: str,
+        url: str,
+        data: dict = None,
+        params: dict = None,
+        timeout=5,
+        additional_headers=None,
+        retry_if_failed=True,
+        response_type=SimpleNamespace,
+        proxies=None,
+        json=None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None
 ) -> ResponseObject:
     session = requests.Session()
     if retry_if_failed:
         session.mount("http://", _adapter)
         session.mount("https://", _adapter)
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": user_agent_factory.get_random_user_agent()
+    }
     if additional_headers:
         headers.update(additional_headers)
 
+    specific_context = specific_rate_limiter if specific_rate_limiter else nullcontext()
+    overall_context = overall_rate_limiter if overall_rate_limiter else nullcontext()
+
     try:
-        response = session.request(
-            method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies, json=json
-        )
+        with overall_context:
+            with specific_context:
+                response = session.request(
+                    method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies, json=json
+                )
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {e}", exc_info=True)
         response = _handle_request_exception()
@@ -107,20 +121,34 @@ def _make_request(
     return ResponseObject(response, response_type)
 
 
-def ping(url: str, timeout=10, additional_headers=None, proxies=None):
-    return requests.Session().get(url, headers=additional_headers, timeout=timeout, proxies=proxies)
+def ping(
+        url: str,
+        timeout=10,
+        additional_headers=None,
+        proxies=None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None):
+    return get(
+        url,
+        additional_headers=additional_headers,
+        timeout=timeout,
+        proxies=proxies,
+        specific_rate_limiter=specific_rate_limiter,
+        overall_rate_limiter=overall_rate_limiter)
 
 
 def get(
-    url: str,
-    timeout=10,
-    data=None,
-    params=None,
-    additional_headers=None,
-    retry_if_failed=True,
-    response_type=SimpleNamespace,
-    proxies=None,
-    json=None
+        url: str,
+        timeout=10,
+        data=None,
+        params=None,
+        additional_headers=None,
+        retry_if_failed=True,
+        response_type=SimpleNamespace,
+        proxies=None,
+        json=None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None
 ) -> ResponseObject:
     """Requests get wrapper"""
     return _make_request(
@@ -133,19 +161,23 @@ def get(
         retry_if_failed=retry_if_failed,
         response_type=response_type,
         proxies=proxies,
-        json=json
+        json=json,
+        specific_rate_limiter=specific_rate_limiter,
+        overall_rate_limiter=overall_rate_limiter
     )
 
 
 def post(
-    url: str,
-    data: Optional[dict] = None,
-    params: dict = None,
-    timeout=10,
-    additional_headers=None,
-    retry_if_failed=False,
-    proxies=None,
-    json: Optional[dict] = None
+        url: str,
+        data: Optional[dict] = None,
+        params: dict = None,
+        timeout=10,
+        additional_headers=None,
+        retry_if_failed=False,
+        proxies=None,
+        json: Optional[dict] = None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None
 ) -> ResponseObject:
     """Requests post wrapper"""
     return _make_request(
@@ -157,18 +189,22 @@ def post(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
         proxies=proxies,
-        json=json
+        json=json,
+        specific_rate_limiter=specific_rate_limiter,
+        overall_rate_limiter=overall_rate_limiter
     )
 
 
 def put(
-    url: str,
-    data: dict = None,
-    timeout=10,
-    additional_headers=None,
-    retry_if_failed=False,
-    proxies=None,
-    json=None
+        url: str,
+        data: dict = None,
+        timeout=10,
+        additional_headers=None,
+        retry_if_failed=False,
+        proxies=None,
+        json=None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None
 ) -> ResponseObject:
     """Requests put wrapper"""
     return _make_request(
@@ -179,18 +215,22 @@ def put(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
         proxies=proxies,
-        json=json
+        json=json,
+        specific_rate_limiter=specific_rate_limiter,
+        overall_rate_limiter=overall_rate_limiter
     )
 
 
 def delete(
-    url: str,
-    timeout=10,
-    data=None,
-    additional_headers=None,
-    retry_if_failed=False,
-    proxies=None,
-    json=None
+        url: str,
+        timeout=10,
+        data=None,
+        additional_headers=None,
+        retry_if_failed=False,
+        proxies=None,
+        json=None,
+        specific_rate_limiter: Optional[RateLimiter] = None,
+        overall_rate_limiter: Optional[RateLimiter] = None
 ) -> ResponseObject:
     """Requests delete wrapper"""
     return _make_request(
@@ -201,7 +241,9 @@ def delete(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
         proxies=proxies,
-        json=json
+        json=json,
+        specific_rate_limiter=specific_rate_limiter,
+        overall_rate_limiter=overall_rate_limiter
     )
 
 
@@ -217,76 +259,3 @@ def xml_to_simplenamespace(xml_string):
         return SimpleNamespace(**attributes, text=element.text)
 
     return element_to_simplenamespace(root)
-
-class RateLimitExceeded(Exception):
-    pass
-
-
-class RateLimiter:
-    """
-    A rate limiter class that limits the number of calls within a specified period.
-
-    Args:
-        max_calls (int): The maximum number of calls allowed within the specified period.
-        period (float): The time period (in seconds) within which the calls are limited.
-        raise_on_limit (bool, optional): Whether to raise an exception when the rate limit is exceeded.
-            Defaults to False.
-
-    Attributes:
-        max_calls (int): The maximum number of calls allowed within the specified period.
-        period (float): The time period (in seconds) within which the calls are limited.
-        tokens (int): The number of available tokens for making calls.
-        last_call (float): The timestamp of the last call made.
-        lock (threading.Lock): A lock used for thread-safety.
-        raise_on_limit (bool): Whether to raise an exception when the rate limit is exceeded.
-
-    Methods:
-        limit_hit(): Resets the token count to 0, indicating that the rate limit has been hit.
-        __enter__(): Enters the rate limiter context and checks if a call can be made.
-        __exit__(): Exits the rate limiter context.
-
-    Raises:
-        RateLimitExceeded: If the rate limit is exceeded and `raise_on_limit` is set to True.
-    """
-
-    def __init__(self, max_calls, period, raise_on_limit=False):
-        self.max_calls = max_calls
-        self.period = period
-        self.tokens = max_calls
-        self.last_call = time.time() - period
-        self.lock = Lock()
-        self.raise_on_limit = raise_on_limit
-
-    def limit_hit(self):
-        """
-        Resets the token count to 0, indicating that the rate limit has been hit.
-        """
-        self.tokens = 0
-
-    def __enter__(self):
-        """
-        Enters the rate limiter context and checks if a call can be made.
-        """
-        with self.lock:
-            current_time = time.time()
-            time_elapsed = current_time - self.last_call
-
-            if time_elapsed >= self.period:
-                self.tokens = self.max_calls
-
-            if self.tokens <= 0:
-                if self.raise_on_limit:
-                    raise RateLimitExceeded("Rate limit exceeded")
-                time.sleep(self.period - time_elapsed)
-                self.last_call = time.time()
-                self.tokens = self.max_calls
-            else:
-                self.tokens -= 1
-
-            self.last_call = current_time
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """
-        Exits the rate limiter context.
-        """
