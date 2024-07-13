@@ -5,7 +5,8 @@ from typing import Generator
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping
+from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Mdblist:
@@ -33,7 +34,7 @@ class Mdblist:
             logger.error("Mdblist is enabled, but list is empty.")
             return False
         response = ping(f"https://mdblist.com/api/user?apikey={self.settings.api_key}")
-        if "Invalid API key!" in response.text:
+        if "Invalid API key!" in response.response.text:
             logger.error("Mdblist api key is invalid.")
             return False
         return True

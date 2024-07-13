@@ -8,7 +8,8 @@ from requests.exceptions import ConnectTimeout, ReadTimeout, RetryError
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get, ping
+from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class TorBoxScraper:
@@ -38,7 +39,7 @@ class TorBoxScraper:
 
         try:
             response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
-            return response.ok
+            return response.is_ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
             return False

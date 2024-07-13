@@ -17,6 +17,7 @@ from RTN.parser import parse
 from RTN.patterns import extract_episodes
 from utils.logger import logger
 from utils.request import get, ping, post
+from utils.ratelimiter import RateLimiter
 
 WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
@@ -26,11 +27,14 @@ class Debrid:
     """Real-Debrid API Wrapper"""
 
     def __init__(self, hash_cache):
+        self.rate_limiter = None
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
         self.download_settings = settings_manager.settings.downloaders
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.proxy = self.settings.proxy_url if self.settings.proxy_enabled else None
+        self.torrents_rate_limiter = RateLimiter(1, 1)
+        self.overall_rate_limiter = RateLimiter(60, 60)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -61,9 +65,13 @@ class Debrid:
             logger.error("Proxy is enabled but no proxy URL is provided.")
             return False
         try:
-            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
-            if response.ok:
-                user_info = response.json()
+            response = ping(
+                f"{RD_BASE_URL}/user",
+                additional_headers=self.auth_headers,
+                proxies=self.proxy,
+                overall_rate_limiter=self.overall_rate_limiter)
+            if response.is_ok:
+                user_info = response.response.json()
                 expiration = user_info.get("expiration", "")
                 expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
                 time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
@@ -167,7 +175,7 @@ class Debrid:
         for stream_chunk in _chunked(filtered_streams, 5):
             streams = "/".join(stream_chunk)
             try:
-                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
             except Exception as e:
@@ -552,7 +560,9 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/addMagnet",
                 {"magnet": f"magnet:?xt=urn:btih:{hash}&dn=&tr="},
                 additional_headers=self.auth_headers,
-                proxies=self.proxy
+                proxies=self.proxy,
+                specific_rate_limiter=self.torrents_rate_limiter,
+                overall_rate_limiter=self.overall_rate_limiter
             )
             if response.is_ok:
                 return response.data.id
@@ -571,7 +581,9 @@ class Debrid:
             response = get(
                 f"{RD_BASE_URL}/torrents/info/{request_id}", 
                 additional_headers=self.auth_headers,
-                proxies=self.proxy
+                proxies=self.proxy,
+                specific_rate_limiter=self.torrents_rate_limiter,
+                overall_rate_limiter=self.overall_rate_limiter
             )
             if response.is_ok:
                 return response.data
@@ -594,13 +606,14 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
                 {"files": ",".join(files.keys())},
                 additional_headers=self.auth_headers,
-                proxies=self.proxy
+                proxies=self.proxy,
+                specific_rate_limiter=self.torrents_rate_limiter,
+                overall_rate_limiter=self.overall_rate_limiter
             )
             return response.is_ok
         except Exception as e:
             logger.error(f"Error selecting files for {item.log_string}: {e}")
             return False
-
 
     def get_torrents(self, limit: int) -> dict[str, SimpleNamespace]:
         """Get torrents from real-debrid.com"""
@@ -608,7 +621,9 @@ class Debrid:
             response = get(
                 f"{RD_BASE_URL}/torrents?limit={str(limit)}",
                 additional_headers=self.auth_headers,
-                proxies=self.proxy
+                proxies=self.proxy,
+                specific_rate_limiter=self.torrents_rate_limiter,
+                overall_rate_limiter=self.overall_rate_limiter
             )
             if response.is_ok and response.data:
                 # Example response.data: 

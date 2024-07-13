@@ -401,6 +401,53 @@
 		</div>
 
 		<div transition:slide>
+			<ArrayField {form} name="trakt_collection" {formData}>
+				{#each $formData.trakt_collection as _, i}
+					<Form.ElementField {form} name="trakt_collection[{i}]">
+						<Form.Control let:attrs>
+							<div class="flex items-center gap-2">
+								<Input
+									type="text"
+									spellcheck="false"
+									autocomplete="false"
+									{...attrs}
+									bind:value={$formData.trakt_collection[i]}
+								/>
+
+								<div class="flex items-center gap-2">
+									<Form.Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										on:click={() => {
+											removeField('trakt_collection', i);
+										}}
+									>
+										<Trash2 class="h-4 w-4" />
+									</Form.Button>
+								</div>
+							</div>
+						</Form.Control>
+					</Form.ElementField>
+				{/each}
+
+				<div class="flex w-full items-center justify-between gap-2">
+					<p class="text-sm text-muted-foreground">Add Trakt collections</p>
+					<Form.Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => {
+							addField('trakt_collection');
+						}}
+					>
+						<Plus class="h-4 w-4" />
+					</Form.Button>
+				</div>
+			</ArrayField>
+		</div>
+
+		<div transition:slide>
 			<CheckboxField {form} name="trakt_fetch_trending" {formData} />
 		</div>
 

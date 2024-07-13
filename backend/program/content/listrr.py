@@ -49,11 +49,11 @@ class Listrr:
             return False
         try:
             response = ping("https://listrr.pro/", additional_headers=self.headers)
-            if not response.ok:
+            if not response.is_ok:
                 logger.error(
-                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.reason}",
+                    f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}",
                 )
-            return response.ok
+            return response.is_ok
         except Exception as e:
             logger.error(f"Listrr ping exception: {e}")
             return False

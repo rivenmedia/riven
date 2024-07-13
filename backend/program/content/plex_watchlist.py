@@ -34,7 +34,7 @@ class PlexWatchlist:
             for rss_url in self.settings.rss:
                 try:
                     response = ping(rss_url)
-                    response.raise_for_status()
+                    response.response.raise_for_status()
                     self.rss_enabled = True
                     return True
                 except HTTPError as e:

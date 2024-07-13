@@ -7,7 +7,8 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import RateLimiter, RateLimitExceeded, get
+from utils.request import get
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 

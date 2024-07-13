@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import clsx from 'clsx';
+	import Header from '$lib/components/header.svelte';
 
 	const settingsItems: NavItem[] = [
 		{
@@ -34,7 +35,9 @@
 	<title>Settings | General</title>
 </svelte:head>
 
-<div class="flex w-full flex-col p-8 md:px-24 lg:px-32">
+<Header />
+
+<div class="mt-16 flex w-full flex-col p-8 md:px-24 lg:px-32">
 	<Select.Root
 		portal={null}
 		onSelectedChange={(selected) => {
@@ -60,7 +63,7 @@
 		{#each settingsItems as item}
 			<a
 				class={clsx('rounded-md p-2 px-4 transition-all duration-300', {
-					'bg-primary font-semibold': item.path === $page.url.pathname,
+					'bg-primary font-medium': item.path === $page.url.pathname,
 					'hover:bg-primary': item.path !== $page.url.pathname
 				})}
 				href={item.path}
