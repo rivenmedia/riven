@@ -39,7 +39,7 @@ class TorBoxDownloader:
             return False
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Download media item from TorBox"""   
+        """Download media item from TorBox"""
         logger.info(f"Downloading {item.log_string} from TorBox")
         if self.is_cached(item):
             self.download(item)
