@@ -93,8 +93,8 @@ class Zilean:
         url = f"{self.settings.url}/dmm/filtered"
         params = {"Query": title}
 
-        if isinstance(item, Movie) and hasattr(item, 'aired_at'):
-            params["Year"] = item.aired_at.year
+        if isinstance(item, MediaItem) and hasattr(item, 'year'):
+            params["Year"] = item.year
 
         if isinstance(item, Show):
             params["Season"] = 1
