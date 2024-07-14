@@ -3,14 +3,12 @@ import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { fail, error, redirect } from '@sveltejs/kit';
 import {
-	setSettings,
-	saveSettings,
-	loadSettings,
 	generalSettingsSchema,
 	generalSettingsToGet,
 	generalSettingsToPass,
 	generalSettingsToSet
 } from '$lib/forms/helpers';
+import { setSettings, saveSettings, loadSettings } from '$lib/forms/helpers.server';
 import { BACKEND_URL } from '$env/static/private';
 
 export const load: PageServerLoad = async ({ fetch }) => {
