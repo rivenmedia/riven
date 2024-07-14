@@ -13,7 +13,6 @@ import {
 } from '$lib/forms/helpers';
 import { BACKEND_URL } from '$env/static/private';
 
-
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {

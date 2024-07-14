@@ -2,7 +2,6 @@ import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { BACKEND_URL } from '$env/static/private';
 
-
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getAboutInfo() {
 		try {
