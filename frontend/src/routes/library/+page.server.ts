@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { createQueryString } from '$lib/helpers';
+import { BACKEND_URL } from '$env/static/private';
 
 export const load = (async ({ fetch, url }) => {
 	const params = {
@@ -15,7 +16,7 @@ export const load = (async ({ fetch, url }) => {
 
 	async function getItems() {
 		try {
-			const res = await fetch(`http://127.0.0.1:8080/items${queryString}`);
+			const res = await fetch(`${BACKEND_URL}/items${queryString}`);
 			if (res.ok) {
 				return await res.json();
 			}

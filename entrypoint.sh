@@ -68,6 +68,7 @@ set -x PATH $PATH /app/.venv/bin
 
 su -m $USERNAME -c "poetry config virtualenvs.create false"
 set -q ORIGIN; or set ORIGIN "http://localhost:3000"
+set -q BACKEND_URL; or set BACKEND_URL "http://127.0.0.1:8080"
 
 echo "Container Initialization complete."
 
@@ -83,4 +84,4 @@ set backend_pid (jobs -p %1)
 
 # Start the frontend
 echo "Starting frontend..."
-exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN node /riven/frontend/build'"
+exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN BACKEND_URL=$BACKEND_URL node /riven/frontend/build'"
