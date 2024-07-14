@@ -11,13 +11,12 @@ import {
 	contentSettingsToPass,
 	contentSettingsToSet
 } from '$lib/forms/helpers';
+import { BACKEND_URL } from '$env/static/private';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const results = await fetch(
-				`http://127.0.0.1:8080/settings/get/${contentSettingsToGet.join(',')}`
-			);
+			const results = await fetch(`${BACKEND_URL}/settings/get/${contentSettingsToGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
 			console.error(e);

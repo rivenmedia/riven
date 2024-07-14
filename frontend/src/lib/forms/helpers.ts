@@ -1,10 +1,11 @@
 import { type SuperValidated, type Infer } from 'sveltekit-superforms';
+import { BACKEND_URL } from '$env/static/private';
 
 import { z } from 'zod';
 
 // TODO: Add toCheck
 export async function setSettings(fetch: any, toSet: any) {
-	const settings = await fetch('http://127.0.0.1:8080/settings/set', {
+	const settings = await fetch(`${BACKEND_URL}/settings/set`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json'
@@ -19,7 +20,7 @@ export async function setSettings(fetch: any, toSet: any) {
 }
 
 export async function saveSettings(fetch: any) {
-	const data = await fetch('http://127.0.0.1:8080/settings/save', {
+	const data = await fetch(`${BACKEND_URL}/settings/save`, {
 		method: 'POST'
 	});
 	const response = await data.json();
@@ -30,7 +31,7 @@ export async function saveSettings(fetch: any) {
 }
 
 export async function loadSettings(fetch: any) {
-	const data = await fetch('http://127.0.0.1:8080/settings/load', {
+	const data = await fetch(`${BACKEND_URL}/settings/load`, {
 		method: 'GET'
 	});
 	const response = await data.json();

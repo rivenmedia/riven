@@ -1,11 +1,12 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
+import { BACKEND_URL } from '$env/static/private';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getAboutInfo() {
 		try {
 			const toGet = ['version', 'symlink'];
-			const results = await fetch(`http://127.0.0.1:8080/settings/get/${toGet.join(',')}`);
+			const results = await fetch(`${BACKEND_URL}/settings/get/${toGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
 			console.error(e);
