@@ -28,6 +28,7 @@ RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 FROM node:20-alpine AS frontend
 WORKDIR /app
 COPY frontend/package*.json ./
+ARG BACKEND_URL
 RUN npm install -g pnpm && pnpm install
 COPY frontend/ .
 RUN pnpm run build && pnpm prune --prod
