@@ -7,7 +7,8 @@ import {
 	mediaServerSettingsToGet,
 	mediaServerSettingsToPass
 } from '$lib/forms/helpers';
-import { BACKEND_URL } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+const BACKEND_URL = env.BACKEND_URL || 'http://127.0.0.1:8080';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
