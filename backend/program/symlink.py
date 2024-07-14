@@ -242,8 +242,13 @@ class Symlinker:
             logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
             return False
 
+        filename = self._determine_file_name(item)
+        if not filename:
+            logger.error(f"Symlink filename is None for {item.log_string}, cannot create symlink.")
+            return False
+
         extension = os.path.splitext(item.file)[1][1:]
-        symlink_filename = f"{self._determine_file_name(item)}.{extension}"
+        symlink_filename = f"{filename}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
 
@@ -324,13 +329,6 @@ class Symlinker:
 
         destination_path = os.path.join(destination_folder, filename.replace("/", "-"))
         return destination_path
-
-    @classmethod
-    def save_and_reload_media_items(cls, media_items):
-        """Save and reload the media items to ensure consistency."""
-        # Acquire write lock for the duration of save and reload to ensure consistency
-        logger.error("Deprecated function called save_and_reload_media_items")
-        pass
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""
