@@ -1,7 +1,8 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { createQueryString } from '$lib/helpers';
-import { BACKEND_URL } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+const BACKEND_URL = env.BACKEND_URL || 'http://127.0.0.1:8080';
 
 export const load = (async ({ fetch, url }) => {
 	const params = {
