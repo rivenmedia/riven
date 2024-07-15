@@ -176,8 +176,9 @@ class RealDebridDownloader:
             streams = "/".join(stream_chunk)
             try:
                 response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
-                if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
-                    return True
+                if response.is_ok and response.data and isinstance(response.data, dict):
+                    if self._evaluate_stream_response(response.data, processed_stream_hashes, item):
+                        return True
             except Exception as e:
                 logger.error(f"Error checking cache for streams: {str(e)}", exc_info=True)
 

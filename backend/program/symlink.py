@@ -5,7 +5,7 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -225,8 +225,6 @@ class Symlinker:
         if not item.symlinked and item.file and item.folder:
             if self._symlink(item):
                 logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
-            else:
-                logger.error(f"Failed to create symlink for {item.log_string}")
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
@@ -251,10 +249,6 @@ class Symlinker:
         symlink_filename = f"{filename}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
         source = os.path.join(self.rclone_path, item.folder, item.file)
-
-        if not os.path.exists(source):
-            logger.error(f"Source file does not exist: {source}")
-            return False
 
         try:
             if os.path.islink(destination):
@@ -365,8 +359,8 @@ class Symlinker:
             filename = f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
         elif isinstance(item, Episode):
             episode_string = ""
-            episode_number = item.get_file_episodes()
-            if episode_number and episode_number[0] == item.number:
+            episode_number: List[int] = item.get_file_episodes()
+            if episode_number and item.number in episode_number:
                 if len(episode_number) > 1:
                     episode_string = f"e{str(episode_number[0]).zfill(2)}-e{str(episode_number[-1]).zfill(2)}"
                 else:
@@ -374,7 +368,7 @@ class Symlinker:
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
-                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}" 
+                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
         return filename
 
     def delete_item_symlinks(self, item: Union[Movie, Episode, Season, Show]):
