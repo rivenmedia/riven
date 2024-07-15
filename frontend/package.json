@@ -37,7 +37,7 @@
 		"typescript": "^5.4.5",
 		"typescript-eslint": "8.0.0-alpha.28",
 		"vite": "^5.2.12",
-		"vitest": "^2.0.1"
+		"vitest": "^2.0.3"
 	},
 	"type": "module",
 	"dependencies": {
