@@ -44,6 +44,16 @@ class TorboxModel(Observable):
     api_key: str = ""
 
 
+class LocalDownloaderSettings:
+    enabled: bool
+    sabnzbd_enabled: bool
+    sabnzbd_url: str
+    sabnzbd_api_key: str
+    qbittorrent_enabled: bool
+    qbittorrent_url: str
+    qbittorrent_username: str
+    qbittorrent_password: str
+
 class DownloadersModel(Observable):
     movie_filesize_min: int = 200   # MB
     movie_filesize_max: int = -1    # MB (-1 is no limit)
@@ -52,6 +62,7 @@ class DownloadersModel(Observable):
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
     torbox: TorboxModel = TorboxModel()
+    local: LocalDownloaderSettings = LocalDownloaderSettings()
 
 
 # Symlink Service
