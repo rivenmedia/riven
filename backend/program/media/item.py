@@ -225,9 +225,9 @@ class MediaItem:
         """Get the top title of the item."""
         match self.__class__.__name__:
             case "Season":
-                return self.parent.title
+                return self.parent.title if self.parent else ""
             case "Episode":
-                return self.parent.parent.title
+                return self.parent.parent.title if self.parent and self.parent.parent else ""
             case _:
                 return self.title
 
@@ -398,10 +398,10 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        return self.parent.log_string + " S" + str(self.number).zfill(2)
+        return self.parent.log_string + " S" + str(self.number).zfill(2) if self.parent else f"S{self.number:02}"
 
     def get_top_title(self) -> str:
-        return self.parent.title
+        return self.parent.title if self.parent else ""
 
 class Episode(MediaItem):
     """Episode class"""
@@ -413,7 +413,7 @@ class Episode(MediaItem):
         self.item_id = ItemId(self.number, parent_id=item.get("parent_id"))
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
-            self.is_anime = self.parent.parent.is_anime
+            self.is_anime = self.parent.parent.is_anime if self.parent.parent else False
 
     def __eq__(self, other):
         if (
@@ -435,10 +435,10 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        return f"{self.parent.log_string}E{self.number:02}"
+        return f"{self.parent.log_string}E{self.number:02}" if self.parent else f"E{self.number:02}"
 
     def get_top_title(self) -> str:
-        return self.parent.parent.title
+        return self.parent.parent.title if self.parent and self.parent.parent else ""
 
 
 def _set_nested_attr(obj, key, value):
