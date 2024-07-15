@@ -32,7 +32,7 @@ class SettingsManager:
     def notify_observers(self):
         for observer in self.observers:
             observer()
-    
+
     def check_environment(self, settings, prefix="", seperator="_"):
         checked_settings = {}
         for key, value in settings.items():
@@ -56,7 +56,7 @@ class SettingsManager:
                 else:
                     checked_settings[key] = value
         return checked_settings
-    
+
     def load(self, settings_dict: dict | None = None):
         """Load settings from file, validating against the AppModel schema."""
         try:
@@ -66,6 +66,7 @@ class SettingsManager:
                     if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
+            self.save()
         except ValidationError as e:
             logger.error(f"Error validating settings: {e}")
             raise
