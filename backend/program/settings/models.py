@@ -1,13 +1,15 @@
 """Riven settings models"""
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Any
 
 from pydantic import BaseModel, field_validator
 from RTN.models import CustomRank, SettingsModel
+
+from program.settings.migratable import MigratableBaseModel
 from utils import version_file_path
 
 
-class Observable(BaseModel):
+class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
 
@@ -23,6 +25,17 @@ class Observable(BaseModel):
             with self._notify_observers_context():
                 self.__class__._notify_observers()
 
+    @staticmethod
+    def _notify_observers_context():
+        class NotifyContextManager:
+            def __enter__(self_):
+                pass
+
+            def __exit__(self_, exc_type, exc_value, traceback):
+                pass
+
+        return NotifyContextManager()
+
 
 # Download Services
 
@@ -31,6 +44,7 @@ class RealDebridModel(Observable):
     api_key: str = ""
     proxy_enabled: bool = False
     proxy_url: str = ""
+
 
 class AllDebridModel(Observable):
     enabled: bool = False
@@ -45,8 +59,8 @@ class TorboxModel(Observable):
 
 
 class DownloadersModel(Observable):
-    movie_filesize_min: int = 200   # MB
-    movie_filesize_max: int = -1    # MB (-1 is no limit)
+    movie_filesize_min: int = 200  # MB
+    movie_filesize_max: int = -1  # MB (-1 is no limit)
     episode_filesize_min: int = 40  # MB
     episode_filesize_max: int = -1  # MB (-1 is no limit)
     real_debrid: RealDebridModel = RealDebridModel()
@@ -314,8 +328,10 @@ def get_version() -> str:
     with open(version_file_path.resolve()) as file:
         return file.read() or "x.x.x"
 
+
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
+
 
 class AppModel(Observable):
     version: str = get_version()
@@ -332,3 +348,10 @@ class AppModel(Observable):
     ranking: RTNSettingsModel = RTNSettingsModel()
     indexer: IndexerModel = IndexerModel()
     database: DatabaseModel = DatabaseModel()
+
+    def __init__(self, **data: Any):
+        current_version = get_version()
+        existing_version = data.get('version', current_version)
+        super().__init__(**data)
+        if existing_version < current_version:
+            self.version = current_version
