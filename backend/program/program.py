@@ -78,9 +78,13 @@ class Program(threading.Thread):
             SymlinkLibrary: SymlinkLibrary(),
         }
         if not any(s.initialized for s in self.requesting_services.values()):
-            logger.error("No Requesting service initialized, you must select at least one.")
+            logger.error("No Requesting service initialized, you must enable at least one.")
         if not self.processing_services.get(Scraping).initialized:
-            logger.error("No Scraping service initialized, you must select at least one.")
+            logger.error("No Scraping service initialized, you must enable at least one.")
+        if not self.processing_services.get(Downloader).initialized:
+            logger.error("No Downloader service initialized, you must enable at least one.")
+        if not self.processing_services.get(Updater).initialized:
+            logger.error("No Updater service initialized, you must enable at least one.")
 
         self.services = {
             **self.library_services,
