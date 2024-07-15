@@ -71,7 +71,7 @@ class Overseerr:
             logger.error(f"Unexpected error during fetching requests: {str(e)}")
             return
 
-        if not response.is_ok or not hasattr(response.data, 'pageInfo') or len(getattr(response.data.pageInfo, 'results', [])) == 0:
+        if not response.is_ok or not hasattr(response.data, 'pageInfo') or getattr(response.data.pageInfo, 'results', 0) == 0:
             return
 
         # Lets look at approved items only that are only in the pending state

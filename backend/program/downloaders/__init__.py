@@ -2,6 +2,7 @@ from .realdebrid import RealDebridDownloader
 from .alldebrid import AllDebridDownloader
 from .torbox import TorBoxDownloader
 from program.media.item import MediaItem
+from utils.logger import logger
 
 
 class Downloader:
@@ -16,7 +17,13 @@ class Downloader:
         self.initialized = self.validate()
 
     def validate(self):
-        return any(service.initialized for service in self.services)
+        initialized_services = [service for service in self.services if service.initialized]
+        if len(initialized_services) > 1:
+            logger.error("More than one downloader service is initialized. Only one downloader can be initialized at a time.")
+            return False
+        return len(initialized_services) == 1
 
     def run(self, item: MediaItem):
-        yield next(self.service.run(item))
+        for service in self.services:
+            if service.initialized:
+                return service.run(item)

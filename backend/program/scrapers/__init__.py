@@ -124,10 +124,12 @@ class Scraping:
             item_type = item.type.title()
             top_results = sorted(sorted_streams.values(), key=lambda x: x.rank, reverse=True)[:10]
             for sorted_tor in top_results:
-                if isinstance(item, (Season, Episode)):
-                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
-                else:
+                if isinstance(item, (Movie, Show)):
                     logger.debug(f"[{item_type}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                if isinstance(item, Season):
+                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                elif isinstance(item, Episode):
+                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
         return sorted_streams
 
     @classmethod
