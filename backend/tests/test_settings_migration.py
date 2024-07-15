@@ -62,6 +62,7 @@ def test_load_and_migrate_settings():
         assert settings_manager.settings.downloaders.all_debrid.enabled == True
         assert settings_manager.settings.downloaders.all_debrid.api_key == "12345678"
         assert settings_manager.settings.downloaders.all_debrid.proxy_url == "https://no_proxy.com"
+        assert settings_manager.settings.database.host == "postgresql+psycopg2://postgres:postgres@localhost/riven"
         assert settings_manager.settings.version == TEST_VERSION
     finally:
         temp_settings_file.unlink()
