@@ -109,7 +109,8 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
         except (ValueError, AttributeError) as e:
             logger.error(f"Failed to parse {raw_title}: {e}")
             continue
-        except GarbageTorrent:
+        except GarbageTorrent as e:
+            logger.debug(f"Trashing torrent: '{raw_title}' - {e}")
             continue
 
     if torrents:

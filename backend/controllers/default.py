@@ -2,10 +2,15 @@ import time
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from program.media.item import MediaItem
 from program.content.trakt import TraktContent
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.db.db import db
+from sqlalchemy import select, func
+import program.db.db_functions as DB
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -16,7 +21,7 @@ router = APIRouter(
 async def root():
     return {
         "success": True,
-        "message": "Iceburg is running!",
+        "message": "Riven is running!",
         "version": settings_manager.settings.version,
     }
 
@@ -99,55 +104,61 @@ async def trakt_oauth_callback(code: str, request: Request):
 @router.get("/stats")
 async def get_stats(request: Request):
     payload = {}
+    with db.Session() as session:
 
-    total_items = len(request.app.program.media_items._items)
-    total_movies = len(request.app.program.media_items._movies)
-    total_shows = len(request.app.program.media_items._shows)
-    total_seasons = len(request.app.program.media_items._seasons)
-    total_episodes = len(request.app.program.media_items._episodes)
+        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+        total_symlinks = movies_symlinks + episodes_symlinks
 
-    _incomplete_items = request.app.program.media_items.get_incomplete_items()
+        total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
+        total_shows = session.execute(select(func.count(Show._id))).scalar_one()
+        total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
+        total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
+        total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
+        _incomplete_items = session.execute(select(MediaItem).where(MediaItem.last_state != "Completed")).unique().scalars().all()
 
-    incomplete_retries = {}
-    for _, item in _incomplete_items.items():
-        incomplete_retries[item.log_string] = item.scraped_times
+        incomplete_retries = {}
+        for item in _incomplete_items:
+            incomplete_retries[item.log_string] = item.scraped_times
 
-    states = {}
-    for state in States:
-        states[state] = request.app.program.media_items.count(state)
+        states = {}
+        for state in States:
+            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state.value)).scalar_one()
 
-    payload["total_items"] = total_items
-    payload["total_movies"] = total_movies
-    payload["total_shows"] = total_shows
-    payload["total_seasons"] = total_seasons
-    payload["total_episodes"] = total_episodes
-    payload["incomplete_items"] = len(_incomplete_items)
-    payload["incomplete_retries"] = incomplete_retries
-    payload["states"] = states
+        payload["total_items"] = total_items
+        payload["total_movies"] = total_movies
+        payload["total_shows"] = total_shows
+        payload["total_seasons"] = total_seasons
+        payload["total_episodes"] = total_episodes
+        payload["total_symlinks"] = total_symlinks
+        payload["incomplete_items"] = len(_incomplete_items)
+        payload["incomplete_retries"] = incomplete_retries
+        payload["states"] = states
 
-    return {"success": True, "data": payload}
+        return {"success": True, "data": payload}
 
 @router.get("/scrape/{item_id:path}")
 async def scrape_item(item_id: str, request: Request):
-    item = request.app.program.media_items.get_item(item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    scraper = request.app.program.services.get(Scraping)
-    if scraper is None:
-        raise HTTPException(status_code=404, detail="Scraping service not found")
+    with db.Session() as session:
+        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str}))
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        scraper = request.app.program.services.get(Scraping)
+        if scraper is None:
+            raise HTTPException(status_code=404, detail="Scraping service not found")
 
-    time_now = time.time()
-    scraped_results = scraper.scrape(item, log=False)
-    time_end = time.time()
-    duration = time_end - time_now
+        time_now = time.time()
+        scraped_results = scraper.scrape(item, log=False)
+        time_end = time.time()
+        duration = time_end - time_now
 
-    results = {}
-    for hash, torrent in scraped_results.items():
-        results[hash] = {
-            "title": torrent.data.parsed_title,
-            "raw_title": torrent.raw_title,
-            "rank": torrent.rank,
-        }
+        results = {}
+        for hash, torrent in scraped_results.items():
+            results[hash] = {
+                "title": torrent.data.parsed_title,
+                "raw_title": torrent.raw_title,
+                "rank": torrent.rank,
+            }
 
-    return {"success": True, "total": len(results), "duration": round(duration, 3), "results": results}
+        return {"success": True, "total": len(results), "duration": round(duration, 3), "results": results}

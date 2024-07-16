@@ -3,7 +3,6 @@ from copy import copy
 from datetime import datetime
 from typing import Dict, Generator, List, Union
 
-from program.cache import HashCache
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers.annatar import Annatar
@@ -100,25 +99,29 @@ class Scraping:
         """Scrape an item."""
         threads: List[threading.Thread] = []
         results: Dict[str, str] = {}
-        results_lock = threading.Lock()
+        total_results = 0
+        results_lock = threading.RLock()
 
-        item_copy = copy(item)
-
-        def run_service(service, item_copy):
-            service_results = service.run(item_copy)
+        def run_service(service, item,):
+            nonlocal total_results
+            service_results = service.run(item)
             with results_lock:
                 results.update(service_results)
+                total_results += len(service_results)
 
         for service_name, service in self.services.items():
             if service.initialized:
-                thread = threading.Thread(target=run_service, args=(service, item_copy), name=service_name.__name__)
+                thread = threading.Thread(target=run_service, args=(service, item), name=service_name.__name__)
                 threads.append(thread)
                 thread.start()
 
         for thread in threads:
             thread.join()
 
-        sorted_streams: Dict[str, Torrent] = _parse_results(item_copy, results)
+        if total_results != len(results):
+            logger.debug(f"Scraped {item.log_string} with {total_results} results, removed {total_results - len(results)} duplicate hashes")
+
+        sorted_streams: Dict[str, Torrent] = _parse_results(item, results)
 
         if sorted_streams and (log and settings_manager.settings.debug):
             item_type = item.type.title()
