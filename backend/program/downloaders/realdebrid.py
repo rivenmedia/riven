@@ -352,14 +352,15 @@ class RealDebridDownloader:
                 if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
                     continue
                 # Check if the file's season matches the item's season or if there's only one season
-                if season_num in parsed_file.season:
+                if one_season:
                     for ep_num in parsed_file.episode:
                         if ep_num in needed_episodes:
                             matched_files[ep_num] = file["filename"]
-                elif one_season:
+                elif season_num in parsed_file.season:
                     for ep_num in parsed_file.episode:
                         if ep_num in needed_episodes:
                             matched_files[ep_num] = file["filename"]
+
         if not matched_files:
             return False
 
@@ -378,6 +379,11 @@ class RealDebridDownloader:
         """Check if container has wanted files for a show"""
         if not isinstance(item, Show):
             logger.error(f"Item is not a Show instance: {item.log_string}")
+            return False
+
+        all_released = all(episode.is_released_nolog for season in item.seasons for episode in season.episodes)
+        if not all_released:
+            logger.warning(f"Show {item.log_string} has episodes that are not released, skipping")
             return False
 
         min_size = self.download_settings.episode_filesize_min * 1_000_000
@@ -409,19 +415,27 @@ class RealDebridDownloader:
         # Iterate over each file to check if it matches
         # the season and episode within the show
         matched_files = {}
+        one_season = len(item.seasons) == 1
+
         for file in filenames:
             with contextlib.suppress(GarbageTorrent, TypeError):
                 parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.parsed_title or 0 in parsed_file.season:
                     continue
-                # Check each season and episode to find a match
-                for season_number, episodes in needed_episodes.items():
-                    if season_number in parsed_file.season:
-                        for episode_number in list(episodes):
-                            if episode_number in parsed_file.episode:
-                                # Store the matched file for this episode
-                                matched_files[(season_number, episode_number)] = file
-                                episodes.remove(episode_number)
+                if one_season:
+                    # We dont check season here as it messes up anime titles
+                    for ep in item.seasons[0].episodes:
+                        if ep.number in parsed_file.episode:
+                            matched_files[ep.number] = file["filename"]
+                else:
+                    # Check each season and episode to find a match
+                    for season_number, episodes in needed_episodes.items():
+                        if season_number in parsed_file.season:
+                            for episode_number in list(episodes):
+                                if episode_number in parsed_file.episode:
+                                    # Store the matched file for this episode
+                                    matched_files[(season_number, episode_number)] = file
+                                    episodes.remove(episode_number)
         if not matched_files:
             return False
 

@@ -1,15 +1,12 @@
-from dataclasses import dataclass
+"""MediaItem class"""
 from datetime import datetime
 from typing import List, Optional, Self
 
 from program.media.state import States
-from RTN import Torrent
-from RTN.patterns import extract_episodes
+from RTN import Torrent, parse
+# from RTN.patterns import extract_episodes
 from utils.logger import logger
 
-# from sqlalchemy import ForeignKey
-# from sqlalchemy import String
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -448,7 +445,8 @@ class Episode(MediaItem):
     def get_file_episodes(self) -> List[int]:
         if not self.file or not isinstance(self.file, str):
             raise ValueError("The file attribute must be a non-empty string.")
-        return extract_episodes(self.file)
+        # return list of episodes
+        return parse(self.file).episode
 
     @property
     def log_string(self):

@@ -9,7 +9,6 @@ from typing import List, Optional, Union
 
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils import data_dir_path
 from utils.logger import logger
 
 from .cache import hash_cache

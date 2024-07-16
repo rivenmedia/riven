@@ -107,8 +107,8 @@ class AnimeRanking(BaseRankingModel):
 
 
 class AllRanking(BaseRankingModel):
-    uhd: int = 2
-    fhd: int = 3
+    uhd: int = 1
+    fhd: int = 1
     hd: int = 1
     sd: int = 1
     dolby_video: int = 1

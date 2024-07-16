@@ -32,12 +32,14 @@ start: stop
 	@docker compose -f docker-compose.yml up --build -d --force-recreate --remove-orphans
 	@docker compose -f docker-compose.yml logs -f
 
-start-dev: stop
+start-dev: stop-dev
 	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
 	@docker compose -f docker-compose-dev.yml logs -f
 
 stop:
 	@docker compose -f docker-compose.yml down
+
+stop-dev:
 	@docker compose -f docker-compose-dev.yml down
 
 restart:
@@ -75,7 +77,8 @@ clean:
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
-	@rm -rf data/media.pkl data/media.pkl.bak
+	@rm -rf data/media.*
+	@rm -rf data/
 
 install:
 	@poetry install --with dev
