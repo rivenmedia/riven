@@ -1,10 +1,10 @@
 from sqla_wrapper import Alembic, SQLAlchemy
 from program.settings.manager import settings_manager
-import os
+from utils import data_dir_path
 
 db = SQLAlchemy(settings_manager.settings.database.host)
 
-script_location = os.getcwd() + "/data/alembic/"
+script_location = data_dir_path / "alembic/"
 
 import os
 if not os.path.exists(script_location):
