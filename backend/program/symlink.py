@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import os
 import re
 import shutil
@@ -9,26 +8,12 @@ from pathlib import Path
 from typing import Optional, Union
 
 from program.media.container import MediaItemContainer
-from program.media.item import Episode, ItemId, Movie, Season, Show
+from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
+from utils import data_dir_path
 from utils.logger import logger
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
 
 from .cache import hash_cache
-
-
-class DeleteHandler(FileSystemEventHandler):
-    """Handles the deletion of symlinks."""
-
-    def __init__(self, symlinker):
-        super().__init__()
-        self.symlinker = symlinker
-
-    def on_deleted(self, event):
-        """Called when a file or directory is deleted."""
-        if event.src_path:
-            self.symlinker.on_symlink_deleted(event.src_path)
 
 
 class Symlinker:
@@ -44,15 +29,10 @@ class Symlinker:
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
         self.media_items = media_items
-        # we can't delete from rclone if this is enabled
-        self.torbox_enabled = settings_manager.settings.downloaders.torbox.enabled
         self.rclone_path = self.settings.rclone_path
         self.initialized = self.validate()
         if not self.initialized:
-            logger.error("Symlink initialization failed due to invalid configuration.")
             return
-        if self.initialized:
-            self.start_monitor()
         logger.info(f"Rclone path symlinks are pointed to: {self.rclone_path}")
         logger.info(f"Symlinks will be placed in: {self.settings.library_path}")
         logger.success("Symlink initialized!")
@@ -66,17 +46,17 @@ class Symlinker:
         if self.rclone_path == Path(".") or library_path == Path("."):
             logger.error("rclone_path or library_path is set to the current directory.")
             return False
-        if not self.rclone_path.is_absolute():
-            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
-            return False
-        if not library_path.is_absolute():
-            logger.error(f"library_path is not an absolute path: {library_path}")
-            return False
         if not self.rclone_path.exists():
             logger.error(f"rclone_path does not exist: {self.rclone_path}")
             return False
         if not library_path.exists():
             logger.error(f"library_path does not exist: {library_path}")
+            return False
+        if not self.rclone_path.is_absolute():
+            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
+            return False
+        if not library_path.is_absolute():
+            logger.error(f"library_path is not an absolute path: {library_path}")
             return False
         return self.create_initial_folders()
 
@@ -121,7 +101,7 @@ class Symlinker:
             elif isinstance(item, (Movie, Episode)):
                 self._symlink_single(item)
         except Exception as e:
-            logger.exception(f"Exception thrown when creating symlink for {item.log_string}: {e}")
+            logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
         item.set("symlinked_times", item.symlinked_times + 1)
         yield item
@@ -129,6 +109,9 @@ class Symlinker:
     @staticmethod
     def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""
+        if not item:
+            logger.error("Invalid item sent to Symlinker: None")
+            return False
 
         if isinstance(item, Show):
             all_episodes_ready = True
@@ -200,6 +183,10 @@ class Symlinker:
         return False
 
     def _symlink_show(self, show: Show):
+        if not show or not isinstance(show, Show):
+            logger.error(f"Invalid show sent to Symlinker: {show}")
+            return
+
         all_symlinked = True
         for season in show.seasons:
             for episode in season.episodes:
@@ -215,6 +202,10 @@ class Symlinker:
             logger.error(f"Failed to symlink some episodes for show {show.log_string}")
 
     def _symlink_season(self, season: Season):
+        if not season or not isinstance(season, Season):
+            logger.error(f"Invalid season sent to Symlinker: {season}")
+            return
+
         all_symlinked = True
         successfully_symlinked_episodes = []
         for episode in season.episodes:
@@ -240,8 +231,16 @@ class Symlinker:
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
+        if not item:
+            logger.error("Invalid item sent to Symlinker: None")
+            return False
+
         if item.file is None:
             logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
+            return False
+
+        if not item.folder:
+            logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
             return False
 
         extension = os.path.splitext(item.file)[1][1:]
@@ -254,16 +253,24 @@ class Symlinker:
             return False
 
         try:
-            with contextlib.suppress(FileExistsError):
-                os.symlink(source, destination)
+            if os.path.islink(destination):
+                os.remove(destination)
+            os.symlink(source, destination)
             item.set("symlinked", True)
             item.set("symlinked_at", datetime.now())
             item.set("symlinked_times", item.symlinked_times + 1)
         except PermissionError as e:
+            # This still creates the symlinks, however they will have wrong perms. User needs to fix their permissions.
+            # TODO: Maybe we validate symlink class by symlinking a test file, then try removing it and see if it still exists
             logger.error(f"Permission denied when creating symlink for {item.log_string}: {e}")
-            return False
+            return True
         except OSError as e:
-            logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
+            if e.errno == 36:
+                # This will cause a loop if it hits this.. users will need to fix their paths
+                # TODO: Maybe create an alternative naming scheme to cover this?
+                logger.error(f"Filename too long when creating symlink for {item.log_string}: {e}")
+            else:
+                logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
             return False
 
         # Validate the symlink
@@ -275,16 +282,17 @@ class Symlinker:
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
         """Create necessary folders and determine the destination path for symlinks."""
-        is_anime = hasattr(item, 'is_anime') and item.is_anime
+        is_anime: bool = hasattr(item, 'is_anime') and item.is_anime
 
-        movie_path = self.library_path_movies
-        show_path = self.library_path_shows
+        movie_path: Path = self.library_path_movies
+        show_path: Path = self.library_path_shows
 
-        if is_anime:
-            if isinstance(item, Movie):
-                movie_path = self.library_path_anime_movies
-            elif isinstance(item, (Show, Season, Episode)):
-                show_path = self.library_path_anime_shows
+        if self.settings.separate_anime_dirs:
+            if is_anime:
+                if isinstance(item, Movie):
+                    movie_path = self.library_path_anime_movies
+                elif isinstance(item, (Show, Season, Episode)):
+                    show_path = self.library_path_anime_shows
 
         def create_folder_path(base_path, *subfolders):
             path = os.path.join(base_path, *subfolders)
@@ -318,49 +326,22 @@ class Symlinker:
         destination_path = os.path.join(destination_folder, filename.replace("/", "-"))
         return destination_path
 
-    def start_monitor(self):
-        """Starts monitoring the library path for symlink deletions."""
-        self.event_handler = DeleteHandler(self)
-        self.observer = Observer()
-        self.observer.schedule(
-            self.event_handler, self.settings.library_path, recursive=True
-        )
-        self.observer.start()
-        logger.log("FILES", "Symlink deletion monitoring started")
-
-    def stop_monitor(self):
-        """Stops the directory monitoring."""
-        if hasattr(self, "observer"):
-            self.observer.stop()
-            self.observer.join()
-            logger.log("FILES", "Stopped monitoring for symlink deletions")
-
-    def on_symlink_deleted(self, src: str) -> None:
-        """Handle the event when a symlink is deleted."""
-        logger.info(f"Symlink deleted: {src}")
-        src_path = Path(src)
-        imdb_id = self.extract_imdb_id(src_path)
-        season_number, episode_number = self.extract_season_episode(src_path.name)
-
-        if imdb_id:
-            item_id = ItemId(imdb_id)
-            if season_number is not None:
-                item_id = ItemId(str(season_number), parent_id=item_id)
-            if episode_number is not None:
-                item_id = ItemId(str(episode_number), parent_id=item_id)
-
-            item = self.media_items.get(item_id)
-            if item:
-                if isinstance(item, Episode) and not item.file:
-                    logger.error(f"File attribute is invalid for item: {item.log_string}")
-                    return
-                self.delete_item_symlinks(item)
-                self.media_items.remove(item)
-                logger.log("FILES", f"Successfully removed item: {item.log_string}")
-            else:
-                logger.error(f"Failed to find item with IMDb ID {imdb_id}, season {season_number}, episode {episode_number}")
-        else:
-            logger.error(f"IMDb ID not found in path: {src}")
+    @classmethod
+    def save_and_reload_media_items(cls, media_items: MediaItemContainer):
+        """Save and reload the media items to ensure consistency."""
+        # Acquire write lock for the duration of save and reload to ensure consistency
+        media_items.lock.acquire_write()
+        try:
+            media_file_path = str(data_dir_path / "media.pkl")
+            media_items.save(media_file_path)
+            logger.log("FILES", "Successfully saved updated media items to disk")
+            media_items.load(media_file_path)
+            logger.log("FILES", "Successfully reloaded media items from disk")
+        except Exception as e:
+            logger.error(f"Failed to save or reload media items: {e}")
+            # Consider what rollback or recovery actions might be appropriate here
+        finally:
+            media_items.lock.release_write()
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""
@@ -398,7 +379,7 @@ class Symlinker:
         elif isinstance(item, Episode):
             episode_string = ""
             episode_number = item.get_file_episodes()
-            if episode_number[0] == item.number:
+            if episode_number and episode_number[0] == item.number:
                 if len(episode_number) > 1:
                     episode_string = f"e{str(episode_number[0]).zfill(2)}-e{str(episode_number[-1]).zfill(2)}"
                 else:
@@ -444,7 +425,6 @@ class Symlinker:
     def _delete_single_symlink(self, item: Union[Movie, Episode]):
         """Delete the specific symlink for a movie or episode."""
         if item.file is None:
-            logger.error(f"Item file is None for {item.log_string}, cannot delete symlink.")
             return
 
         if item.update_folder is None:
@@ -534,14 +514,15 @@ def blacklist_item(item):
     else:
         logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
 
-def reset_item(item):
+def reset_item(item: Union[Movie, Show, Season, Episode], reset_times: bool = True) -> None:
     """Reset item attributes for rescraping."""
     item.set("file", None)
     item.set("folder", None)
     item.set("streams", {})
     item.set("active_stream", {})
-    item.set("symlinked_times", 0)
-    item.set("scraped_times", 0)
+    if reset_times:
+        item.set("symlinked_times", 0)
+        item.set("scraped_times", 0)
     logger.debug(f"Item {item.log_string} reset for rescraping")
 
 def get_infohash(item):

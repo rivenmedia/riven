@@ -1,5 +1,5 @@
 name: "\U0001F41E Bug Report"
-description: "Iceberg not working the way it is documented?"
+description: "Riven not working the way it is documented?"
 title: "[Bug]: "
 labels: ["kind/bug", "status/triage"]
 assignees:

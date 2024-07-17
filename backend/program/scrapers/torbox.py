@@ -12,20 +12,16 @@ from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 
 class TorBoxScraper:
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "torbox"
         self.settings = settings_manager.settings.scraping.torbox_scraper
-        self.settings_model = settings_manager.settings.ranking
-        self.ranking_model = models.get(self.settings_model.profile)
         self.base_url = "http://search-api.torbox.app"
         self.user_plan = None
+        self.timeout = self.settings.timeout
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.minute_limiter = RateLimiter(max_calls=300, period=60, raise_on_limit=False)
-        self.second_limiter = RateLimiter(max_calls=1, period=5, raise_on_limit=False)
-        self.rtn = RTN(self.settings_model, self.ranking_model)
-        self.hash_cache = hash_cache
+        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:
@@ -33,63 +29,64 @@ class TorBoxScraper:
         if not self.settings.enabled:
             logger.warning("TorBox Scraper is set to disabled")
             return False
+        if not isinstance(self.timeout, int) or self.timeout <= 0:
+            logger.error("TorBox timeout is not set or invalid.")
+            return False
+        if not isinstance(self.settings.ratelimit, bool):
+            logger.error("TorBox ratelimit must be a valid boolean.")
+            return False
 
         try:
-            response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=60)
+            response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
             return response.ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the TorBox site for the given media items
         and update the object with scraped streams"""
         if not item or isinstance(item, Show):
-            yield item
-            return
+            return {}
 
         try:
-            yield self.scrape(item)
-        except Exception as e:
-            self.minute_limiter.limit_hit()
-            self.second_limiter.limit_hit()
-            self.handle_exception(e, item)
-        yield item
-
-    def handle_exception(self, e: Exception, item: MediaItem) -> None:
-        """Handle exceptions during scraping"""
-        if isinstance(e, RateLimitExceeded):
+            return self.scrape(item)
+        except RateLimitExceeded:
+            if self.second_limiter:
+                self.second_limiter.limit_hit()
+            else:
+                logger.warning(f"TorBox rate limit exceeded for item: {item.log_string}")
+        except ConnectTimeout:
             logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
-        elif isinstance(e, ConnectTimeout):
-            logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
-        elif isinstance(e, ReadTimeout):
+        except ReadTimeout:
             logger.warning(f"TorBox read timeout for item: {item.log_string}")
-        elif isinstance(e, RetryError):
+        except RetryError:
             logger.warning(f"TorBox retry error for item: {item.log_string}")
-        elif isinstance(e, TimeoutError):
+        except TimeoutError:
             logger.warning(f"TorBox timeout error for item: {item.log_string}")
-        elif isinstance(e, RequestException):
+        except RequestException as e:
             if e.response and e.response.status_code == 418:
                 logger.log("NOT_FOUND", f"TorBox has no metadata for item: {item.log_string}, unable to scrape")
             elif e.response and e.response.status_code == 500:
                 logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
-        else:
+        except Exception as e:
             logger.error(f"TorBox exception thrown: {e}")
-        
+        return {}
 
-    def scrape(self, item: MediaItem) -> MediaItem:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the given item"""
-        data, stream_count = self.api_scrape(item)
+        try:
+            data, stream_count = self.api_scrape(item)
+        except:
+            raise
+
         if data:
-            item.streams.update(data)
             logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        elif stream_count > 0:
-            logger.log("NOT_FOUND", f"Could not find good streams for {item.log_string} out of {stream_count}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return item
+        return data
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, Torrent], int]:
+    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Torbox` scrape method using Torbox API"""
         # Example URLs:
         # https://search-api.torbox.app/torrents/imdb:tt0080684?metadata=false
@@ -104,35 +101,21 @@ class TorBoxScraper:
         else:
             return {}, 0
 
-
-        with self.minute_limiter:
+        if self.second_limiter:
             with self.second_limiter:
-                response = get(url, timeout=60, retry_if_failed=False)
-            if not response.is_ok or not response.data.data.torrents:
-                return {}, 0
+                response = get(url, timeout=self.timeout)
+        else:
+            response = get(url, timeout=self.timeout)
+        if not response.is_ok or not response.data.data.torrents:
+            return {}, 0
 
-            correct_title = item.get_top_title()
-            torrents = set()
-            
-            for torrent_data in response.data.data.torrents:
-                raw_title = torrent_data.raw_title
-                info_hash = torrent_data.hash
-                if not info_hash or not raw_title:
-                    continue
-                if self.hash_cache.is_blacklisted(info_hash):
-                    continue
-                try:
-                    torrent = self.rtn.rank(
-                        raw_title=raw_title,
-                        infohash=info_hash,
-                        correct_title=correct_title,
-                        remove_trash=True
-                    )
-                except GarbageTorrent:
-                    continue
-                if torrent and torrent.fetch:
-                    torrents.add(torrent)
-            if not torrents:
-                return {}, 0
-            scraped_torrents = sort_torrents(torrents)
-            return scraped_torrents, len(response.data.data.torrents)
+        torrents = {}
+        for torrent_data in response.data.data.torrents:
+            raw_title = torrent_data.raw_title
+            info_hash = torrent_data.hash
+            if not info_hash or not raw_title:
+                continue
+
+            torrents[info_hash] = raw_title
+
+        return torrents, len(response.data.data.torrents)

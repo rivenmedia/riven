@@ -1,18 +1,19 @@
 services:
-  iceberg:
+  riven:
     build:
       context: .
       dockerfile: Dockerfile
-    image: iceberg:dev
-    container_name: iceberg
+    image: riven:dev
+    container_name: riven
     restart: unless-stopped
     network_mode: host
     tty: true
     environment:
+      # Docker
       - PUID=1000
       - PGID=1000
-      - ORIGIN=http://localhost:3000
-      - TZ=America/New_York
+      - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
+      - TZ=UTC
     volumes:
-      - ./data:/iceberg/data
+      - ./data:/riven/data
       - /mnt:/mnt

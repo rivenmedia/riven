@@ -82,5 +82,12 @@ jobs:
         run: pnpm install
         working-directory: ./frontend
 
-      - run: pnpm lint
-        working-directory: ./frontend
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            modified:
+              - 'frontend/**'
+      - name: Run lint
+        if: steps.changes.outputs.modified == 'true'
+        run: pnpm lint

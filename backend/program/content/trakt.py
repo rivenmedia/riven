@@ -1,4 +1,5 @@
 """Trakt content module"""
+import re
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
@@ -62,6 +63,8 @@ class TraktContent:
         """Log missing items from Trakt"""
         if not self.settings.watchlist:
             logger.log("TRAKT", "No watchlist configured.")
+        if not self.settings.collection:
+            logger.log("TRAKT", "No collection configured.")
         if not self.settings.user_lists:
             logger.log("TRAKT", "No user lists configured.")
         if not self.settings.fetch_trending:
@@ -77,6 +80,7 @@ class TraktContent:
 
         self.next_run_time = current_time + self.settings.update_interval
         watchlist_ids = self._get_watchlist(self.settings.watchlist)
+        collection_ids = self._get_collection(self.settings.collection)
         user_list_ids = self._get_list(self.settings.user_lists)
         trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
         popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
@@ -84,6 +88,7 @@ class TraktContent:
         # Combine all IMDb IDs and types
         all_items = {
             "Watchlist": watchlist_ids,
+            "Collection": collection_ids,
             "User Lists": user_list_ids,
             "Trending": trending_ids,
             "Popular": popular_ids
@@ -133,18 +138,29 @@ class TraktContent:
             imdb_ids.extend(self._extract_imdb_ids(items))
         return imdb_ids
 
+    def _get_collection(self, collection_users: list) -> list:
+        """Get IMDb IDs from Trakt collection"""
+        if not collection_users:
+            return []
+        imdb_ids = []
+        for user in collection_users:
+            items = get_collection_items(self.api_url, self.headers, user, "movies")
+            items.extend(get_collection_items(self.api_url, self.headers, user, "shows"))
+            imdb_ids.extend(self._extract_imdb_ids(items))
+        return imdb_ids
+
+
     def _get_list(self, list_items: list) -> list:
         """Get IMDb IDs from Trakt user list"""
         if not list_items or not any(list_items):
             return []
         imdb_ids = []
         for url in list_items:
-            match = regex.match(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)', url)
-            if not match:
+            user, list_name = _extract_user_list_from_url(url)
+            if not user or not list_name:
                 logger.error(f"Invalid list URL: {url}")
                 continue
-            user, list_name = match.groups()
-            list_name = urlparse(url).path.split('/')[-1]
+            
             items = get_user_list(self.api_url, self.headers, user, list_name)
             for item in items:
                 if hasattr(item, "movie"):
@@ -247,7 +263,9 @@ def _fetch_data(url, headers, params):
                 if not data:
                     break
                 all_data.extend(data)
-                if len(data) <= params["limit"]:
+                if "X-Pagination-Page-Count" not in response.response.headers:
+                    break
+                if params.get("limit") and len(all_data) >= params["limit"]:
                     break
                 page += 1
             elif response.status_code == 429:
@@ -261,20 +279,26 @@ def _fetch_data(url, headers, params):
             break
     return all_data
 
-def get_watchlist_items(api_url, headers, user, limit=10):
+def get_watchlist_items(api_url, headers, user):
     """Get watchlist items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/watchlist"
-    return _fetch_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {})
 
-def get_user_list(api_url, headers, user, list_name, limit=10):
+def get_user_list(api_url, headers, user, list_name):
     """Get user list items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/lists/{list_name}/items"
-    return _fetch_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {})
 
-def get_liked_lists(api_url, headers, limit=10):
+def get_collection_items(api_url, headers, user, media_type):
+    """Get collections from Trakt with pagination support."""
+    url = f"{api_url}/users/{user}/collection/{media_type}"
+    return _fetch_data(url, headers, {})
+
+# UNUSED
+def get_liked_lists(api_url, headers):
     """Get liked lists from Trakt with pagination support."""
     url = f"{api_url}/users/likes/lists"
-    return _fetch_data(url, headers, {"limit": limit})
+    return _fetch_data(url, headers, {})
 
 def get_trending_items(api_url, headers, media_type, limit=10):
     """Get trending items from Trakt with pagination support."""
@@ -286,7 +310,53 @@ def get_popular_items(api_url, headers, media_type, limit=10):
     url = f"{api_url}/{media_type}/popular"
     return _fetch_data(url, headers, {"limit": limit})
 
+# UNUSED
 def get_favorited_items(api_url, headers, user, limit=10):
     """Get favorited items from Trakt with pagination support."""
     url = f"{api_url}/users/{user}/favorites"
     return _fetch_data(url, headers, {"limit": limit})
+
+
+def _extract_user_list_from_url(url) -> tuple:
+    """Extract user and list name from Trakt URL"""
+
+    def match_full_url(url: str) -> tuple:
+        """Helper function to match full URL format"""
+        match = patterns["user_list"].match(url)
+        if match:
+            return match.groups()
+        return None, None
+
+    # First try to match the original URL
+    user, list_name = match_full_url(url)
+    if user and list_name:
+        return user, list_name
+
+    # If it's a short URL, resolve it and try to match again
+    match = patterns["short_list"].match(url)
+    if match:
+        full_url = _resolve_short_url(url)
+        if full_url:
+            user, list_name = match_full_url(full_url)
+            if user and list_name:
+                return user, list_name
+
+    return None, None
+
+def _resolve_short_url(short_url) -> str or None:
+    """Resolve short URL to full URL"""
+    try:
+        response = get(short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
+        if response.is_ok:
+            return response.response.url
+        else:
+            logger.error(f"Failed to resolve short URL: {short_url} (with status code: {response.status_code})")
+            return None
+    except RequestException as e:
+        logger.error(f"Error resolving short URL: {str(e)}")
+        return None
+
+patterns: dict[str, re.Pattern] = {
+    "user_list": re.compile(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)'),
+    "short_list": re.compile(r'https://trakt.tv/lists/\d+')
+}

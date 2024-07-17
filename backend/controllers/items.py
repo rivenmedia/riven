@@ -5,8 +5,9 @@ import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.content.overseerr import Overseerr
 from program.media.container import MediaItemContainer
-from program.media.item import ItemId, MediaItem
+from program.media.item import Episode, ItemId, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.symlink import Symlinker
 from pydantic import BaseModel
 from utils.logger import logger
 
@@ -47,7 +48,7 @@ async def get_items(
     - fetch_all: Fetch all items without pagination (default: False)
     - limit: Number of items per page (default: 20)
     - page: Page number (default: 1)
-    - search: Search term to filter items by title or IMDb ID
+    - search: Search term to filter items by title, IMDb ID, or item ID
     - state: Filter items by state
     - type: Filter items by type (movie, show, season, episode)
 
@@ -66,12 +67,19 @@ async def get_items(
     if search:
         search_lower = search.lower()
         filtered_items = []
-        for item in items:
-            if isinstance(item, MediaItem):
-                title_match = item.title and Levenshtein.distance(search_lower, item.title.lower()) <= 0.90
-                imdb_match = item.imdb_id and Levenshtein.distance(search_lower, item.imdb_id.lower()) <= 1
-                if title_match or imdb_match:
-                    filtered_items.append(item)
+        if search_lower.startswith("tt"):
+            item = request.app.program.media_items.get_item(ItemId(search_lower))
+            if item:
+                filtered_items.append(item)
+            else:
+                raise HTTPException(status_code=404, detail="Item not found.")
+        else:
+            for item in items:
+                if isinstance(item, MediaItem):
+                    title_match = item.title and Levenshtein.distance(search_lower, item.title.lower()) <= 0.90
+                    imdb_match = item.imdb_id and Levenshtein.distance(search_lower, item.imdb_id.lower()) <= 1
+                    if title_match or imdb_match:
+                        filtered_items.append(item)
         items = filtered_items
 
     if type:
@@ -154,7 +162,7 @@ async def add_items(request: Request, imdb_id: Optional[str] = None, imdb_ids: O
         raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
 
     for id in valid_ids:
-        item = MediaItem({"imdb_id": id, "requested_by": "iceberg", "requested_at": datetime.now()})
+        item = MediaItem({"imdb_id": id, "requested_by": "riven"})
         request.app.program.add_to_queue(item)
     
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
@@ -184,13 +192,17 @@ async def remove_item(
 
     try:
         # Remove the item from the media items container
-        request.app.program.media_items.remove(item)
+        request.app.program.media_items.remove([item])
         logger.log("API", f"Removed item with {id_type} {item_id or imdb_id}")
 
         # Remove the symlinks associated with the item
-        symlinker = request.app.program.symlinker
+        symlinker = request.app.program.service[Symlinker]
         symlinker.delete_item_symlinks(item)
         logger.log("API", f"Removed symlink for item with {id_type} {item_id or imdb_id}")
+
+        # Save and reload the media items to ensure consistency
+        symlinker.save_and_reload_media_items(request.app.program.media_items)
+        logger.log("API", f"Saved and reloaded media items after removing item with {id_type} {item_id or imdb_id}")
 
         return {
             "success": True,
@@ -199,7 +211,6 @@ async def remove_item(
     except Exception as e:
         logger.error(f"Failed to remove item with {id_type} {item_id or imdb_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @router.get("/imdb/{imdb_id}")
 async def get_imdb_info(request: Request, imdb_id: str, season: Optional[int] = None, episode: Optional[int] = None):

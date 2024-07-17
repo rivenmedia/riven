@@ -19,6 +19,7 @@ class Overseerr:
         self.settings = settings_manager.settings.content.overseerr
         self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
+        self.run_once = False
         if not self.initialized:
             return
         self.recurring_items = set()
@@ -52,7 +53,10 @@ class Overseerr:
 
     def run(self):
         """Fetch new media from `Overseerr`"""
-        if self.settings.use_webhook:
+        if self.settings.use_webhook and not self.run_once:
+            logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
+
+        if self.run_once:
             return
 
         try:
@@ -86,11 +90,17 @@ class Overseerr:
                 if not imdb_id or imdb_id in self.recurring_items:
                     continue
                 self.recurring_items.add(imdb_id)
-                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+                if media_item:
+                    yield media_item
+                else:
+                    logger.log("NOT_FOUND", f"Failed to create media item for {imdb_id}")
             except Exception as e:
                 logger.error(f"Error processing item {item}: {str(e)}")
-
                 continue
+
+        if self.settings.use_webhook:
+            self.run_once = True
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""
@@ -132,7 +142,6 @@ class Overseerr:
                 except Exception as e:
                     logger.error(f"Error fetching alternate ID: {str(e)}")
                     continue
-        return
 
     @staticmethod
     def delete_request(mediaId: int) -> bool:

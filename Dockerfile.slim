@@ -1,0 +1,54 @@
+# Riven Backend Builder
+
+FROM python:3.11.9-alpine3.19 as Base
+LABEL name="Riven" \
+      description="Riven Debrid Downloader" \
+      url="https://github.com/rivenmedia/riven"
+
+# Install system dependencies
+RUN apk --update add --no-cache curl bash shadow gcc python3-dev musl-dev linux-headers patchelf clang ccache && \
+    rm -rf /var/cache/apk/*
+RUN pip install --upgrade pip && pip install poetry==1.8.3
+
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_CREATE=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache
+
+# Install Poetry globally
+ENV POETRY_HOME="/etc/poetry"
+ENV PATH="$POETRY_HOME/bin:$PATH"
+#RUN curl -sSL https://install.python-poetry.org | python3 - --yes
+
+# Setup the application directory
+WORKDIR /riven
+
+# Expose ports
+EXPOSE 8080
+
+# Set environment variable to force color output
+ENV FORCE_COLOR=1
+ENV TERM=xterm-256color
+
+# Copy the Python project files
+COPY pyproject.toml poetry.lock* /riven/
+
+# Install Python dependencies
+RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR 
+
+# Copy backend code and other necessary files
+COPY backend/ /riven/backend
+COPY VERSION entrypoint.sh /riven/
+
+RUN cd /riven/backend && poetry add nuitka && \
+    poetry run python3 -m nuitka --standalone --onefile --onefile-tempdir-spec=/onefile_%PID%_%TIME% --python-flag=nosite,-O --nofollow-import-to=pytest --clang --warn-implicit-exceptions --warn-unusual-code --prefer-source-code main.py
+
+FROM scratch
+
+COPY --from=Base /riven/backend/main.bin /main.bin
+COPY VERSION /
+VOLUME /data
+COPY --from=Base /lib/ /lib/
+# Ensure entrypoint script is executable
+
+ENTRYPOINT ["/main.bin"]

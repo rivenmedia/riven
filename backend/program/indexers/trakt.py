@@ -1,7 +1,7 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -21,20 +21,37 @@ class TraktIndexer:
         self.initialized = True
         self.settings = settings_manager.settings.indexer
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def copy_items(self, itema: MediaItem, itemb: MediaItem):
+        if isinstance(itema, Show) and isinstance(itemb, Show):
+            for (seasona, seasonb) in zip(itema.seasons, itemb.seasons):
+                for (episodea, episodeb) in zip(seasona.episodes, seasonb.episodes):
+                    episodeb.set("update_folder", episodea.update_folder)
+                    episodeb.set("symlinked", episodea.symlinked)
+                    seasonb.set("is_anime", itema.is_anime)
+                    episodeb.set("is_anime", itema.is_anime) 
+        elif isinstance(itema, Movie) and isinstance(itemb, Movie):
+            itemb.set("update_folder", itema.update_folder)
+            itemb.set("symlinked", itema.symlinked)
+            itemb.set("is_anime", itema.is_anime)
+        return itemb
+            
+    def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
-        if not item:
+        if not in_item:
             logger.error("Item is None")
             return
-        if (imdb_id := item.imdb_id) is None:
-            logger.error(f"Item {item.log_string} does not have an imdb_id, cannot index it")
+        if not (imdb_id := in_item.imdb_id):
+            logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
+        
         item = create_item_from_imdb_id(imdb_id)
-        if not item:
+
+        if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
             return
         if isinstance(item, Show):
             self._add_seasons_to_show(item, imdb_id)
+        item = self.copy_items(in_item, item)
         item.indexed_at = datetime.now()
         yield item
 
@@ -94,12 +111,17 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "tvdb_id": getattr(data.ids, "tvdb", None),
         "tmdb_id": getattr(data.ids, "tmdb", None),
         "genres": genres,
-        "is_anime": "anime" in genres if genres else False,
         "network": getattr(data, "network", None),
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
     }
+
+    item["is_anime"] = (
+        ("anime" in genres or "animation" in genres) if genres
+        and item["country"] in ("jp", "kr")
+        else False
+    )
 
     match item_type:
         case "movie":
@@ -113,6 +135,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
             item["number"] = data.number
             return Episode(item)
         case _:
+            logger.error(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
             return None
 
 
@@ -137,15 +160,20 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
-        logger.error(f"Failed to fetch item from imdb_id: {imdb_id}")
+        logger.error(f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
         return None
 
-    media_type = response.data[0].type
-    data = response.data[0]
-    return _map_item_from_data(data.movie, media_type) if media_type == "movie" else \
-           _map_item_from_data(data.show, media_type) if media_type == "show" else \
-           _map_item_from_data(data.season, media_type) if media_type == "season" else \
-           _map_item_from_data(data.episode, media_type) if media_type == "episode" else None
+    def find_first(preferred_types, data):
+        for type in preferred_types:
+            for d in data:
+                if d.type == type:
+                    return d
+        return None
+
+    data = find_first(["show", "movie", "season", "episode"], response.data)
+    if data:
+        return _map_item_from_data(getattr(data, data.type), data.type)
+    return None
 
 def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
     """Wrapper for trakt.tv API search method."""

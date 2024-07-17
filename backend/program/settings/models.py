@@ -1,4 +1,4 @@
-"""Iceberg settings models"""
+"""Riven settings models"""
 from pathlib import Path
 from typing import Callable, Dict, List
 
@@ -29,14 +29,23 @@ class Observable(BaseModel):
 class DebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
+    proxy_enabled: bool = False 
+    proxy_url: str = "" 
+
 
 class TorboxModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+
 class DownloadersModel(Observable):
+    movie_filesize_min: int = 200   # MB
+    movie_filesize_max: int = -1    # MB (-1 is no limit)
+    episode_filesize_min: int = 40  # MB
+    episode_filesize_max: int = -1  # MB (-1 is no limit)
     real_debrid: DebridModel = DebridModel()
     torbox: TorboxModel = TorboxModel()
+
 
 # Symlink Service
 
@@ -44,6 +53,7 @@ class DownloadersModel(Observable):
 class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
+    separate_anime_dirs: bool = False
 
 
 # Content Services
@@ -59,16 +69,32 @@ class Updatable(Observable):
         return v
 
 
-class PlexLibraryModel(Updatable):
-    update_interval: int = 120
+# Updaters
+
+
+class LocalLibraryModel(Observable):
+    enabled: bool = False
+
+
+class PlexLibraryModel(Observable):
+    enabled: bool = False
     token: str = ""
     url: str = "http://localhost:32400"
 
 
+class UpdatersModel(Observable):
+    updater_interval: int = 120
+    local: LocalLibraryModel = LocalLibraryModel()
+    plex: PlexLibraryModel = PlexLibraryModel()
+
+
+# Content Services
+
+
 class ListrrModel(Updatable):
     enabled: bool = False
-    movie_lists: list[str] = []
-    show_lists: list[str] = []
+    movie_lists: List[str] = []
+    show_lists: List[str] = []
     api_key: str = ""
     update_interval: int = 300
 
@@ -76,7 +102,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
-    lists: list[int] = []
+    lists: List[int | str] = []
     update_interval: int = 300
 
 
@@ -90,29 +116,30 @@ class OverseerrModel(Updatable):
 
 class PlexWatchlistModel(Updatable):
     enabled: bool = False
-    rss: str = ""
+    rss: List[str] = []
     update_interval: int = 60
 
 
-class TraktModel(Updatable):
-    enabled: bool = False
-    api_key: str = ""
-    watchlist: list[str] = []
-    user_lists: list[str] = []
-    fetch_trending: bool = False
-    trending_count: int = 10
-    fetch_popular: bool = False
-    popular_count: int = 10
-    update_interval: int = 300
-
-
 class TraktOauthModel(BaseModel):
-    # This is for app settings to handle oauth with trakt
     oauth_client_id: str = ""
     oauth_client_secret: str = ""
     oauth_redirect_uri: str = ""
     access_token: str = ""
     refresh_token: str = ""
+
+
+class TraktModel(Updatable):
+    enabled: bool = False
+    api_key: str = ""
+    watchlist: List[str] = []
+    user_lists: List[str] = []
+    collection: List[str] = []
+    fetch_trending: bool = False
+    trending_count: int = 10
+    fetch_popular: bool = False
+    popular_count: int = 10
+    update_interval: int = 300
+    # oauth: TraktOauthModel = TraktOauthModel()
 
 
 class ContentModel(Observable):
@@ -130,17 +157,29 @@ class TorrentioConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class KnightcrawlerConfig(Observable):
     enabled: bool = False
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "https://knightcrawler.elfhosted.com"
+    timeout: int = 30
+    ratelimit: bool = True
+
+class ZileanConfig(Observable):
+    enabled: bool = False
+    url: str = "http://localhost:8181"
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
     enabled: bool = False
     url: str = "https://mediafusion.elfhosted.com"
+    timeout: int = 30
+    ratelimit: bool = True
     catalogs: List[str] = [
         "prowlarr_streams",
         "torrentio_streams"
@@ -151,29 +190,39 @@ class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
     limitcount: int = 5
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9117"
     api_key: str = ""
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class ProwlarrConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:9696"
     api_key: str = ""
+    timeout: int = 30
+    ratelimit: bool = True
+    limiter_seconds: int = 60
 
 
 class AnnatarConfig(Observable):
     enabled: bool = False
     url: str = "http://annatar.elfhosted.com"
     limit: int = 2000
-    timeout: int = 10 # cant be higher than 10 # TODO: remove
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class TorBoxScraperConfig(Observable):
     enabled: bool = False
+    timeout: int = 30
+    ratelimit: bool = True
 
 
 class ScraperModel(Observable):
@@ -188,6 +237,7 @@ class ScraperModel(Observable):
     annatar: AnnatarConfig = AnnatarConfig()
     torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
+    zilean: ZileanConfig = ZileanConfig()
 
 
 # Version Ranking Model (set application defaults here!)
@@ -219,6 +269,14 @@ class RTNSettingsModel(SettingsModel, Observable):
         "dubbed": CustomRank(fetch=True, rank=1),
         "subbed": CustomRank(fetch=True, rank=4),
         "av1": CustomRank(fetch=False, rank=0),
+        "h264": CustomRank(fetch=True, rank=0),
+        "h265": CustomRank(fetch=True, rank=0),
+        "hevc": CustomRank(fetch=True, rank=0),
+        "avc": CustomRank(fetch=True, rank=0),
+        "dvdrip": CustomRank(fetch=True, rank=5),
+        "bdrip": CustomRank(fetch=True, rank=5),
+        "brrip": CustomRank(fetch=True, rank=0),
+        "hdtv": CustomRank(fetch=True, rank=0),
     }
 
 
@@ -239,8 +297,10 @@ class AppModel(Observable):
     debug: bool = True
     log: bool = True
     force_refresh: bool = False
-    plex: PlexLibraryModel = PlexLibraryModel()
+    map_metadata: bool = True
+    tracemalloc: bool = False
     symlink: SymlinkModel = SymlinkModel()
+    updaters: UpdatersModel = UpdatersModel()
     downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()
     scraping: ScraperModel = ScraperModel()

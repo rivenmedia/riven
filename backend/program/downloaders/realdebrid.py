@@ -2,19 +2,19 @@
 
 import contextlib
 import time
+from datetime import datetime
 from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List, Union
 
-import regex
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
-from RTN import extract_episodes, parsett
 from RTN.exceptions import GarbageTorrent
-from RTN.parser import parse, title_match
+from RTN.parser import parse
+from RTN.patterns import extract_episodes
 from utils.logger import logger
 from utils.request import get, ping, post
 
@@ -28,7 +28,9 @@ class Debrid:
     def __init__(self, hash_cache):
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
+        self.download_settings = settings_manager.settings.downloaders
         self.auth_headers = {"Authorization": f"Bearer {self.settings.api_key}"}
+        self.proxy = self.settings.proxy_url if self.settings.proxy_enabled else None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -43,11 +45,45 @@ class Debrid:
         if not self.settings.api_key:
             logger.warning("Real-Debrid API key is not set")
             return False
-
+        if not isinstance(self.download_settings.movie_filesize_min, int) or self.download_settings.movie_filesize_min < -1:
+            logger.error("Real-Debrid movie filesize min is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.movie_filesize_max, int) or self.download_settings.movie_filesize_max < -1:
+            logger.error("Real-Debrid movie filesize max is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.episode_filesize_min, int) or self.download_settings.episode_filesize_min < -1:
+            logger.error("Real-Debrid episode filesize min is not set or invalid.")
+            return False
+        if not isinstance(self.download_settings.episode_filesize_max, int) or self.download_settings.episode_filesize_max < -1:
+            logger.error("Real-Debrid episode filesize max is not set or invalid.")
+            return False
+        if self.settings.proxy_enabled and not self.settings.proxy_url:
+            logger.error("Proxy is enabled but no proxy URL is provided.")
+            return False
         try:
-            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers)
+            response = ping(f"{RD_BASE_URL}/user", additional_headers=self.auth_headers, proxies=self.proxy)
             if response.ok:
                 user_info = response.json()
+                expiration = user_info.get("expiration", "")
+                expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
+                time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
+                days_left = time_left.days
+                hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
+                expiration_message = ""
+
+                if days_left > 0:
+                    expiration_message = f"Your account expires in {days_left} days."
+                elif hours_left > 0:
+                    expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+                else:
+                    expiration_message = "Your account expires soon."
+
+                if user_info.get("type", "") != "premium":
+                    logger.error("You are not a premium member.")
+                    return False
+                else:
+                    logger.log("DEBRID", expiration_message)
+
                 return user_info.get("premium", 0) > 0
         except ConnectTimeout:
             logger.error("Connection to Real-Debrid timed out.")
@@ -55,11 +91,22 @@ class Debrid:
             logger.exception(f"Failed to validate Real-Debrid settings: {e}")
         return False
 
+
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Download media item from real-debrid.com"""
-        if isinstance(item, Show) or (item.file and item.folder):
+        if (item.file and item.folder):
+            yield None
             return
         if not self.is_cached(item):
+            if isinstance(item, Season):
+                res = [e for e in item.episodes]
+                yield res
+                return
+            if isinstance(item, Show):
+                res = [s for s in item.seasons]
+                yield res
+                return
+            yield None
             return
         if not self._is_downloaded(item):
             self._download_item(item)
@@ -120,11 +167,11 @@ class Debrid:
         for stream_chunk in _chunked(filtered_streams, 5):
             streams = "/".join(stream_chunk)
             try:
-                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, response_type=dict)
+                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                     return True
-            except Exception:
-                logger.exception("Error checking cache for streams")
+            except Exception as e:
+                logger.error(f"Error checking cache for streams: {str(e)}", exc_info=True)
 
         item.set("streams", {})
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
@@ -166,6 +213,15 @@ class Debrid:
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
                     return True
         elif isinstance(item, Season):
+            other_containers = [
+                s for s in item.parent.seasons 
+                if s != item and s.active_stream
+                and s.state not in (States.Indexed, States.Unknown)
+            ]
+            for c in other_containers:
+                if self._is_wanted_season(c.active_stream["files"], item):
+                    item.set("active_stream", {"hash": c.active_stream["hash"], "files": c.active_stream["files"], "id": None})
+                    return True
             for container in sorted_containers:
                 if self._is_wanted_season(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
@@ -184,8 +240,13 @@ class Debrid:
             logger.error(f"Item is not a Movie instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.movie_filesize_min * 1_000_000
+        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float('inf')
+
         filenames = sorted(
-            (file for file in container.values() if file and file["filesize"] > 2e+8 and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
+            (file for file in container.values() if file and file["filesize"] > min_size 
+            and file["filesize"] < max_size
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS),
             key=lambda file: file["filesize"], reverse=True
         )
 
@@ -200,9 +261,9 @@ class Debrid:
                 if not parsed_file or not parsed_file.parsed_title:
                     continue
                 if parsed_file.type == "movie":
-                    item.set("folder", item.active_stream.get("name")) # TODO: to get this and alt_name we need info from the torrent
+                    item.set("folder", item.active_stream.get("name"))
                     item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                    item.set("file", file["filename"]) # TODO: Does this need to be a dict instead of str to be downloaded?
+                    item.set("file", file["filename"])
                     return True        
         return False
 
@@ -212,9 +273,13 @@ class Debrid:
             logger.error(f"Item is not an Episode instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7
+            if file and file["filesize"] > min_size
+            and file["filesize"] < max_size
             and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
@@ -248,10 +313,15 @@ class Debrid:
             logger.error(f"Item is not a Season instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7 and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+            if file and file["filesize"] > min_size
+            and file["filesize"] < max_size
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:
@@ -285,7 +355,7 @@ class Debrid:
             return False
 
         # Check if all needed episodes are captured (or atleast half)
-        if (needed_episodes.keys() == matched_files.keys()) or (len(matched_files) >= len(needed_episodes) // 2):
+        if (needed_episodes.keys() == matched_files.keys()):
             # Set the necessary attributes for each episode
             for ep_num, filename in matched_files.items():
                 ep = needed_episodes[ep_num]
@@ -301,10 +371,15 @@ class Debrid:
             logger.error(f"Item is not a Show instance: {item.log_string}")
             return False
 
+        min_size = self.download_settings.episode_filesize_min * 1_000_000
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+
         # Filter and sort files once to improve performance
         filenames = [
             file for file in container.values()
-            if file and file["filesize"] > 4e+7 and splitext(file["filename"].lower())[1] in WANTED_FORMATS
+            if file and file["filesize"] > min_size
+            and file["filesize"] < max_size
+            and splitext(file["filename"].lower())[1] in WANTED_FORMATS
         ]
 
         if not filenames:
@@ -315,8 +390,8 @@ class Debrid:
         acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed]
 
         for season in item.seasons:
-            if season.state in acceptable_states and season.is_released:
-                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released}
+            if season.state in acceptable_states and season.is_released_nolog:
+                needed_episode_numbers = {episode.number for episode in season.episodes if episode.state in acceptable_states and episode.is_released_nolog}
                 if needed_episode_numbers:
                     needed_episodes[season.number] = needed_episode_numbers
         if not needed_episodes:
@@ -441,6 +516,12 @@ class Debrid:
             for episode in item.episodes:
                 if episode.file and not episode.folder:
                     episode.set("folder", item.folder)
+        
+        if isinstance(item, Show) and item.folder:
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.file and not episode.folder:
+                        episode.set("folder", item.folder)
 
     def _is_wanted_item(self, item: Union[Movie, Episode, Season]) -> bool:
         """Check if item is wanted"""
@@ -471,6 +552,7 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/addMagnet",
                 {"magnet": f"magnet:?xt=urn:btih:{hash}&dn=&tr="},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data.id
@@ -488,7 +570,8 @@ class Debrid:
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents/info/{request_id}", 
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok:
                 return response.data
@@ -511,18 +594,21 @@ class Debrid:
                 f"{RD_BASE_URL}/torrents/selectFiles/{request_id}",
                 {"files": ",".join(files.keys())},
                 additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             return response.is_ok
         except Exception as e:
             logger.error(f"Error selecting files for {item.log_string}: {e}")
             return False
 
+
     def get_torrents(self, limit: int) -> dict[str, SimpleNamespace]:
         """Get torrents from real-debrid.com"""
         try:
             response = get(
                 f"{RD_BASE_URL}/torrents?limit={str(limit)}",
-                additional_headers=self.auth_headers
+                additional_headers=self.auth_headers,
+                proxies=self.proxy
             )
             if response.is_ok and response.data:
                 # Example response.data: 
@@ -568,11 +654,11 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                     return True
         return False
 
-    def check_season():
-        season_number = item.number
-        episodes_in_season = {episode.number for episode in item.episodes}
+    def check_season(season):
+        season_number = season.number
+        episodes_in_season = {episode.number for episode in season.episodes}
         matched_episodes = set()
-        one_season = len(item.parent.seasons) == 1
+        one_season = len(season.parent.seasons) == 1
         for file in torrent_info.files:
             if file.selected == 1:
                 file_episodes = extract_episodes(Path(file.path).name)
@@ -591,7 +677,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Season):
-        if check_season():
+        if check_season(item):
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
     elif isinstance(item, Episode):

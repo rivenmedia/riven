@@ -19,7 +19,7 @@ class PlexUpdater:
         self.library_path = os.path.abspath(
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
-        self.settings = settings_manager.settings.plex
+        self.settings = settings_manager.settings.updaters.plex
         self.plex: PlexServer = None
         self.sections: Dict[LibrarySection, List[str]] = {}
         self.initialized = self.validate()
@@ -29,8 +29,11 @@ class PlexUpdater:
 
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
+        if not self.settings.enabled:
+            logger.warning("Plex Updater is set to disabled.")
+            return False
         if not self.settings.token:
-            logger.error("Plex Updater token is not set, this is required!")
+            logger.error("Plex token is not set!")
             return False
         if not self.settings.url:
             logger.error("Plex URL is not set!")
@@ -49,6 +52,8 @@ class PlexUpdater:
             return True
         except Unauthorized:
             logger.error("Plex is not authorized!")
+        except TimeoutError as e:
+            logger.error(f"Plex timeout error: {e}")
         except BadRequest:
             logger.error("Plex is not configured correctly!")
         except MaxRetryError:
@@ -60,7 +65,7 @@ class PlexUpdater:
         except RequestError as e:
             logger.error(f"Plex request error: {e}")
         except Exception as e:
-            logger.exception(f"Plex exception thrown: {e}")
+            logger.error(f"Plex exception thrown: {e}")
         return False
 
     def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
@@ -78,7 +83,8 @@ class PlexUpdater:
         if isinstance(item, (Movie, Episode)):
             items_to_update = [item]
         elif isinstance(item, Show):
-            items_to_update = [s for s in item.seasons for e in s.episodes if e.symlinked and e.update_folder != "updated"]
+            for season in item.seasons:
+                items_to_update += [e for e in season.episodes if e.symlinked and e.get("update_folder") != "updated" ]
         elif isinstance(item, Season):
             items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
 
@@ -113,6 +119,7 @@ class PlexUpdater:
                     logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
             else:
                 logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
+
         yield item
 
     def _update_section(self, section, item: Union[Movie, Episode]) -> bool:
