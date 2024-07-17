@@ -6,9 +6,9 @@
 </script>
 
 <div class="flex flex-col">
-	<h2 class="text-xl font-semibold md:text-2xl">Media Server Settings</h2>
+	<h2 class="text-xl font-medium md:text-2xl">Media Server Settings</h2>
 	<p class="text-sm text-muted-foreground md:text-base">
-		Configure media server settings for Iceberg.
+		Configure media server settings for Riven.
 	</p>
 
 	<MediaServerForm data={data.form} actionUrl="/settings/mediaserver" />

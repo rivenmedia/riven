@@ -3,21 +3,19 @@ import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { fail, error, redirect } from '@sveltejs/kit';
 import {
-	setSettings,
-	saveSettings,
-	loadSettings,
 	generalSettingsSchema,
 	generalSettingsToGet,
 	generalSettingsToPass,
 	generalSettingsToSet
 } from '$lib/forms/helpers';
+import { setSettings, saveSettings, loadSettings } from '$lib/forms/helpers.server';
+import { env } from '$env/dynamic/private';
+const BACKEND_URL = env.BACKEND_URL || 'http://127.0.0.1:8080';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	async function getPartialSettings() {
 		try {
-			const results = await fetch(
-				`http://127.0.0.1:8080/settings/get/${generalSettingsToGet.join(',')}`
-			);
+			const results = await fetch(`${BACKEND_URL}/settings/get/${generalSettingsToGet.join(',')}`);
 			return await results.json();
 		} catch (e) {
 			console.error(e);

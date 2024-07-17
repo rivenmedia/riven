@@ -31,14 +31,14 @@
 	};
 	const supportData: SupportData = {
 		discord: 'https://discord.gg/wDgVdH8vNM',
-		github: 'https://github.com/dreulavelle/iceberg'
+		github: 'https://github.com/rivenmedia/riven'
 	};
 
 	let updateLoading = false;
 
 	async function getLatestVersion() {
 		updateLoading = true;
-		const data = await fetch('https://raw.githubusercontent.com/dreulavelle/iceberg/main/VERSION');
+		const data = await fetch('https://raw.githubusercontent.com/rivenmedia/riven/main/VERSION');
 		if (data.status !== 200) {
 			toast.error('Failed to fetch latest version.');
 			updateLoading = false;
@@ -60,7 +60,7 @@
 </svelte:head>
 
 <div class="flex flex-col">
-	<h2 class="text-xl font-semibold md:text-2xl">About</h2>
+	<h2 class="text-xl font-medium md:text-2xl">About</h2>
 	<p class="text-sm text-muted-foreground md:text-base">
 		Know what you're running and how to get help.
 	</p>
@@ -103,9 +103,9 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl font-semibold md:text-2xl">Support</h2>
+	<h2 class="text-xl font-medium md:text-2xl">Support</h2>
 	<p class="text-sm text-muted-foreground md:text-base">
-		Need help? Reach out to the Iceberg community or report an issue on GitHub.
+		Need help? Reach out to the Riven community or report an issue on GitHub.
 	</p>
 	<div class="my-8 flex w-full flex-col gap-4">
 		{#each Object.keys(supportData) as key}
@@ -123,18 +123,18 @@
 		{/each}
 	</div>
 
-	<h2 class="text-xl font-semibold md:text-2xl">Contributors</h2>
+	<h2 class="text-xl font-medium md:text-2xl">Contributors</h2>
 	<p class="text-sm text-muted-foreground md:text-base">
-		Thanks to the following people for their contributions to Iceberg
+		Thanks to the following people for their contributions to Riven
 	</p>
 	<a
-		href="https://github.com/dreulavelle/iceberg/graphs/contributors"
+		href="https://github.com/rivenmedia/riven/graphs/contributors"
 		target="_blank"
 		rel="noopener noreferrer"
 		class="my-8"
 		><img
 			alt="contributors"
-			src="https://contrib.rocks/image?repo=dreulavelle/iceberg"
+			src="https://contrib.rocks/image?repo=rivenmedia/riven"
 			class="mt-2 max-w-lg"
 		/></a
 	>

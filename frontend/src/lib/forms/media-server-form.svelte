@@ -14,6 +14,8 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { v4 as uuidv4 } from 'uuid';
 	import { Button } from '$lib/components/ui/button';
+	import CheckboxField from './components/checkbox-field.svelte';
+	import GroupCheckboxField from './components/group-checkbox-field.svelte';
 
 	export let data: SuperValidated<Infer<MediaServerSettingsSchema>>;
 	export let actionUrl: string = '?/default';
@@ -38,7 +40,7 @@
 		clientIdentifier = uuidv4();
 		return clientIdentifier;
 	};
-	let appName = 'Iceberg';
+	let appName = 'Riven';
 	let plexId: string;
 	let plexCode: string;
 	let pollingInterval: any;
@@ -107,43 +109,59 @@
 </script>
 
 <form method="POST" action={actionUrl} use:enhance class="my-8 flex flex-col gap-2">
-	<TextField {form} name="plex_url" {formData} label="Plex URL" />
-
-	<Form.Field {form} name="plex_token">
-		<Form.Control let:attrs>
-			<div class="mb-2 flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4">
-				<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
-					<Form.Label>Plex Token</Form.Label>
-					<p class="text-xs text-muted-foreground">Click the button to generate a new Plex token</p>
-				</div>
-				<input type="hidden" name="plex_token" id="plex_token" value={$formData.plex_token} />
-				<Button
-					type="button"
-					disabled={ongoingAuth}
-					variant="outline"
-					size="sm"
-					class="w-full"
-					on:click={async () => {
-						await startLogin();
-					}}
-				>
-					{#if ongoingAuth}
-						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-					{/if}
-					{#if $formData.plex_token.length > 0}
-						<p class="w-full text-left">
-							Reauthenticate with Plex
-							<span class="ml-1">({$formData.plex_token.slice(0, 5)}...)</span>
-						</p>
-					{:else}
-						<p class="w-full text-left">Authenticate with Plex</p>
-					{/if}
-				</Button>
-			</div>
-		</Form.Control>
-	</Form.Field>
-
 	<NumberField {form} name="update_interval" {formData} stepValue={1} />
+
+	<GroupCheckboxField
+		fieldTitle="Updaters"
+		fieldDescription="Choose the updater services you want to enable"
+	>
+		<CheckboxField {form} name="local_enabled" label="Local Updater" {formData} isForGroup={true} />
+		<CheckboxField {form} name="plex_enabled" label="Plex Updater" {formData} isForGroup={true} />
+	</GroupCheckboxField>
+
+	{#if $formData.plex_enabled}
+		<div transition:slide>
+			<TextField {form} name="plex_url" {formData} label="Plex URL" />
+		</div>
+
+		<div transition:slide>
+			<Form.Field {form} name="plex_token">
+				<Form.Control let:attrs>
+					<div class="mb-2 flex max-w-6xl flex-col items-start gap-2 md:flex-row md:gap-4">
+						<div class="flex w-full min-w-48 flex-col items-start gap-2 md:w-48">
+							<Form.Label>Plex Token</Form.Label>
+							<p class="text-xs text-muted-foreground">
+								Click the button to generate a new Plex token
+							</p>
+						</div>
+						<input type="hidden" name="plex_token" id="plex_token" value={$formData.plex_token} />
+						<Button
+							type="button"
+							disabled={ongoingAuth}
+							variant="outline"
+							size="sm"
+							class="w-full"
+							on:click={async () => {
+								await startLogin();
+							}}
+						>
+							{#if ongoingAuth}
+								<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+							{/if}
+							{#if $formData.plex_token.length > 0}
+								<p class="w-full text-left">
+									Reauthenticate with Plex
+									<span class="ml-1">({$formData.plex_token.slice(0, 5)}...)</span>
+								</p>
+							{:else}
+								<p class="w-full text-left">Authenticate with Plex</p>
+							{/if}
+						</Button>
+					</div>
+				</Form.Control>
+			</Form.Field>
+		</div>
+	{/if}
 
 	<Separator class="mt-4" />
 	<div class="flex w-full justify-end">

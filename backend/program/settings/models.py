@@ -266,17 +266,17 @@ class RTNSettingsModel(SettingsModel, Observable):
         "webdl": CustomRank(fetch=True, rank=90),
         "repack": CustomRank(fetch=True, rank=5),
         "proper": CustomRank(fetch=True, rank=4),
-        "dubbed": CustomRank(fetch=True, rank=1),
-        "subbed": CustomRank(fetch=True, rank=4),
+        "dubbed": CustomRank(fetch=True, rank=3),
+        "subbed": CustomRank(fetch=True, rank=3),
         "av1": CustomRank(fetch=False, rank=0),
         "h264": CustomRank(fetch=True, rank=0),
         "h265": CustomRank(fetch=True, rank=0),
         "hevc": CustomRank(fetch=True, rank=0),
         "avc": CustomRank(fetch=True, rank=0),
-        "dvdrip": CustomRank(fetch=True, rank=5),
+        "dvdrip": CustomRank(fetch=True, rank=-100),
         "bdrip": CustomRank(fetch=True, rank=5),
         "brrip": CustomRank(fetch=True, rank=0),
-        "hdtv": CustomRank(fetch=True, rank=0),
+        "hdtv": CustomRank(fetch=True, rank=-100),
     }
 
 
