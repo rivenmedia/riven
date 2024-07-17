@@ -189,15 +189,15 @@ class RealDebridDownloader:
     def _evaluate_stream_response(self, data, processed_stream_hashes, item):
         """Evaluate the response data from the stream availability check."""
         for stream_hash, provider_list in data.items():
-            if stream_hash in processed_stream_hashes or self.hash_cache.is_blacklisted(stream_hash):
+            if stream_hash in processed_stream_hashes: # or self.hash_cache.is_blacklisted(stream_hash):
                 continue
             if not provider_list or not provider_list.get("rd"):
-                self.hash_cache.blacklist(stream_hash)
+                # self.hash_cache.blacklist(stream_hash)
                 continue
             processed_stream_hashes.add(stream_hash)
             if self._process_providers(item, provider_list, stream_hash):
                 return True
-            self.hash_cache.blacklist(stream_hash)
+            # self.hash_cache.blacklist(stream_hash)
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:
@@ -458,9 +458,9 @@ class RealDebridDownloader:
             logger.log("DEBRID", f"Item missing hash, skipping check: {item.log_string}")
             return False
 
-        if self.hash_cache.is_blacklisted(hash_key):
-            logger.log("DEBRID", f"Skipping download check for blacklisted hash: {hash_key}")
-            return False
+        # if self.hash_cache.is_blacklisted(hash_key):
+        #     logger.log("DEBRID", f"Skipping download check for blacklisted hash: {hash_key}")
+        #     return False
 
         if self.hash_cache.is_downloaded(hash_key) and item.active_stream.get("id", None):
             logger.log("DEBRID", f"Item already downloaded for hash: {hash_key}")
@@ -481,11 +481,11 @@ class RealDebridDownloader:
         info = self.get_torrent_info(torrent.id)
         if not info or not hasattr(info, "files"):
             logger.debug(f"Failed to get torrent info for ID: {torrent.id}")
-            self.hash_cache.blacklist(torrent.hash)
+            # self.hash_cache.blacklist(torrent.hash)
             return False
 
         if not _matches_item(info, item):
-            self.hash_cache.blacklist(torrent.hash)
+            # self.hash_cache.blacklist(torrent.hash)
             return False
 
         # Cache this as downloaded

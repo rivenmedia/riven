@@ -77,8 +77,8 @@ clean:
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
-	@rm -rf data/media.*
-	@rm -rf data/
+	@rm -rf data/alembic/
+	@rm -rf data/*.db
 
 install:
 	@poetry install --with dev
