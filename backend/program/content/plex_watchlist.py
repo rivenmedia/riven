@@ -61,16 +61,16 @@ class PlexWatchlist:
 
         new_items = watchlist_items | rss_items
 
-        items = [
-            MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
-            for imdb_id in new_items if imdb_id not in self.recurring_items
-        ]
         for imdb_id in new_items:
-            if imdb_id in self.recurring_items:
+            if not imdb_id or imdb_id in self.recurring_items:
                 continue
             self.recurring_items.add(imdb_id)
+            media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+            if media_item:
+                yield media_item
+            else:
+                logger.log("NOT_FOUND", f"Failed to create media item for {imdb_id}")
 
-        yield items
 
     def _get_items_from_rss(self) -> Generator[MediaItem, None, None]:
         """Fetch media from Plex RSS Feeds."""
