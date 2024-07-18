@@ -59,8 +59,8 @@ ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy the rest of the application code
-COPY backend/ /riven/backend
-COPY pyproject.toml poetry.lock /riven/backend/
+COPY src/ /riven/src
+COPY pyproject.toml poetry.lock /riven/src/
 COPY VERSION entrypoint.sh /riven/
 
 # Ensure entrypoint script is executable
