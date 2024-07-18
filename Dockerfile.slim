@@ -1,4 +1,4 @@
-# Riven Backend Builder
+# Riven src Builder
 
 FROM python:3.11.9-alpine3.19 as Base
 LABEL name="Riven" \
@@ -36,16 +36,16 @@ COPY pyproject.toml poetry.lock* /riven/
 # Install Python dependencies
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR 
 
-# Copy backend code and other necessary files
-COPY backend/ /riven/backend
+# Copy src code and other necessary files
+COPY src/ /riven/src
 COPY VERSION entrypoint.sh /riven/
 
-RUN cd /riven/backend && poetry add nuitka && \
+RUN cd /riven/src && poetry add nuitka && \
     poetry run python3 -m nuitka --standalone --onefile --onefile-tempdir-spec=/onefile_%PID%_%TIME% --python-flag=nosite,-O --nofollow-import-to=pytest --clang --warn-implicit-exceptions --warn-unusual-code --prefer-source-code main.py
 
 FROM scratch
 
-COPY --from=Base /riven/backend/main.bin /main.bin
+COPY --from=Base /riven/src/main.bin /main.bin
 COPY VERSION /
 VOLUME /data
 COPY --from=Base /lib/ /lib/
