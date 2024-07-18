@@ -328,6 +328,8 @@ def get_version() -> str:
     with open(version_file_path.resolve()) as file:
         return file.read() or "x.x.x"
 
+class LoggingModel(Observable):
+    ...
 
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
