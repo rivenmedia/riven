@@ -43,7 +43,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
         needed_seasons = [season.number for season in item.seasons]
 
     for infohash, raw_title in results.items():
-        if infohash in processed_infohashes or hash_cache.is_blacklisted(infohash):
+        if infohash in processed_infohashes: # or hash_cache.is_blacklisted(infohash):
             continue
 
         try:

@@ -13,7 +13,8 @@ services:
       - PUID=1000
       - PGID=1000
       - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
-      - BACKEND_URL=${RIVEN_BACKEND_URL:-http://
+      - RIVEN_FORCE_ENV=true
+      - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
       - TZ=UTC
     volumes:
       - ./data:/riven/data

@@ -118,8 +118,9 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
     }
 
     item["is_anime"] = (
-        ("anime" in genres or "animation" in genres) if genres
-        and item["country"] in ("jp", "kr")
+        ("anime" in genres) 
+        or ("animation" in genres and (item["country"] in ("jp", "kr")or item["language"] == "ja"))
+        if genres
         else False
     )
 

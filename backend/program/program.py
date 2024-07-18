@@ -45,7 +45,6 @@ class Program(threading.Thread):
         self.startup_args = args
         self.initialized = False
         self.event_queue = Queue()
-        logger.log("PROGRAM", "Database Connected!")
         self.services = {}
         self.queued_items = []
         self.running_items = []
