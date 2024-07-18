@@ -195,9 +195,12 @@ class RealDebridDownloader:
                 # self.hash_cache.blacklist(stream_hash)
                 continue
             processed_stream_hashes.add(stream_hash)
+            logger.debug(f"Processing {stream_hash} for {item.log_string}")
             if self._process_providers(item, provider_list, stream_hash):
+                logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
             # self.hash_cache.blacklist(stream_hash)
+        logger.debug(f"Finished processing without finding desired filenames for {item.log_string}")
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:
@@ -215,11 +218,13 @@ class RealDebridDownloader:
             for container in sorted_containers:
                 if self._is_wanted_movie(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    logger.debug(f"Found wanted files for {item.log_string} in {stream_hash}")
                     return True
         elif isinstance(item, Show):
             for container in sorted_containers:
                 if self._is_wanted_show(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    logger.debug(f"Found wanted files for {item.log_string} in {stream_hash}")
                     return True
         elif isinstance(item, Season):
             other_containers = [
@@ -230,17 +235,21 @@ class RealDebridDownloader:
             for c in other_containers:
                 if self._is_wanted_season(c.active_stream["files"], item):
                     item.set("active_stream", {"hash": c.active_stream["hash"], "files": c.active_stream["files"], "id": None})
+                    logger.debug(f"Found wanted files for {item.log_string} in {c.active_stream['hash']}")
                     return True
             for container in sorted_containers:
                 if self._is_wanted_season(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    logger.debug(f"Found wanted files for {item.log_string} in {stream_hash}")
                     return True
         elif isinstance(item, Episode):
             for container in sorted_containers:
                 if self._is_wanted_episode(container, item):
                     item.set("active_stream", {"hash": stream_hash, "files": container, "id": None})
+                    logger.debug(f"Found wanted files for {item.log_string} in {stream_hash}")
                     return True
         # False if no cached files in containers (provider_list)
+        logger.debug(f"No wanted files found for {item.log_string} in {stream_hash}")
         return False
 
     def _is_wanted_movie(self, container: dict, item: Movie) -> bool:
