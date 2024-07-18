@@ -13,7 +13,7 @@ help:
 	@echo "Riven Local Development Environment"
 	@echo "-------------------------------------------------------------------------"
 	@echo "install   : Install the required packages"
-	@echo "run       : Run the Riven backend"
+	@echo "run       : Run the Riven src"
 	@echo "start     : Build and run the Riven container (requires Docker)"
 	@echo "start-dev : Build and run the Riven container in development mode (requires Docker)"
 	@echo "stop      : Stop and remove the Riven container (requires Docker)"
@@ -85,27 +85,27 @@ install:
 
 # Run the application
 run:
-	@poetry run python backend/main.py
+	@poetry run python src/main.py
 
 # Code quality commands
 format:
-	@poetry run isort backend
+	@poetry run isort src
 
 check:
 	@poetry run pyright
 
 lint:
-	@poetry run ruff check backend
-	@poetry run isort --check-only backend
+	@poetry run ruff check src
+	@poetry run isort --check-only src
 
 sort:
-	@poetry run isort backend
+	@poetry run isort src
 
 test:
-	@poetry run pytest backend
+	@poetry run pytest src
 
 coverage: clean
-	@poetry run pytest backend --cov=backend --cov-report=xml --cov-report=term
+	@poetry run pytest src --cov=src --cov-report=xml --cov-report=term
 
 # Run the linter and tests
 pr-ready: clean lint test
