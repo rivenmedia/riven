@@ -258,12 +258,11 @@ class Program(threading.Thread):
                             for e in s.episodes:
                                 if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
                                     return
-                        return 
+                        
                     if isinstance(event.item, Season):
                         for e in event.item.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
                                 return
-                        return
                     if hasattr(event.item, "parent") and ( self._id_in_queue(event.item.parent._id) or self._id_in_running_items(event.item.parent._id) ):
                         return
                     if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and ( self._id_in_queue(event.item.parent.parent._id) or self._id_in_running_items(event.item.parent.parent._id)):
