@@ -140,7 +140,7 @@ async def get_stats(request: Request):
 @router.get("/scrape/{item_id:path}")
 async def scrape_item(item_id: str, request: Request):
     with db.Session() as session:
-        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str}))
+        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
         

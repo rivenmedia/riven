@@ -4,6 +4,9 @@ from typing import List, Optional
 
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
+from program.db.db import db
+from sqlalchemy import select, func
+import program.db.db_functions as DB
 from program.content.overseerr import Overseerr
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -50,46 +53,29 @@ async def get_items(
     if limit < 1:
         raise HTTPException(status_code=400, detail="Limit must be 1 or greater.")
 
-    items = list(request.app.program.media_items._items.values())
-    total_items = len(items)
-
-    if search: # TODO: fix for search
+    query = select(MediaItem)
+    
+    if search:
         search_lower = search.lower()
-        filtered_items = []
         if search_lower.startswith("tt"):
-            item = request.app.program.media_items.get_item(search_lower)
-            if item:
-                filtered_items.append(item)
-            else:
-                raise HTTPException(status_code=404, detail="Item not found.")
+            query = query.where(MediaItem.imdb_id == search_lower)
         else:
-            for item in items:
-                if isinstance(item, MediaItem):
-                    title_match = (
-                        item.title
-                        and Levenshtein.distance(search_lower, item.title.lower())
-                        <= 0.90
-                    )
-                    imdb_match = (
-                        item.imdb_id
-                        and Levenshtein.distance(search_lower, item.imdb_id.lower())
-                        <= 1
-                    )
-                    if title_match or imdb_match:
-                        filtered_items.append(item)
-        items = filtered_items
+            query = query.where(
+                (func.lower(MediaItem.title).like(f"%{search_lower}%")) |
+                (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
+            )
 
     if state:
         filter_lower = state.lower()
         filter_state = None
-        for state in States:
-            if Levenshtein.distance(filter_lower, state.name.lower()) <= 0.82:
-                filter_state = state
+        for state_enum in States:
+            if Levenshtein.distance(filter_lower, state_enum.name.lower()) <= 0.82:
+                filter_state = state_enum
                 break
         if filter_state:
-            items = [item for item in items if item.state == filter_state]
+            query = query.where(MediaItem.state == filter_state)
         else:
-            valid_states = [state.name for state in States]
+            valid_states = [state_enum.name for state_enum in States]
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid filter state: {state}. Valid states are: {valid_states}",
@@ -97,40 +83,28 @@ async def get_items(
 
     if type:
         type_lower = type.lower()
-        if type_lower == "movie":
-            items = list(request.app.program.media_items.movies.values())
-            total_items = len(items)
-        elif type_lower == "show":
-            items = list(request.app.program.media_items.shows.values())
-            total_items = len(items)
-        elif type_lower == "season":
-            items = list(request.app.program.media_items.seasons.values())
-            total_items = len(items)
-        elif type_lower == "episode":
-            items = list(request.app.program.media_items.episodes.values())
-            total_items = len(items)
-        else:
+        if type_lower not in ["movie", "show", "season", "episode"]:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
             )
+        query = query.where(MediaItem.type == type_lower)
 
-    if (
-        sort and not search
-    ):  # we don't want to sort search results as they are already sorted by relevance
+    if sort and not search:
         if sort.lower() == "asc":
-            items = sorted(items, key=lambda x: x.requested_at)
+            query = query.order_by(MediaItem.requested_at.asc())
         elif sort.lower() == "desc":
-            items = sorted(items, key=lambda x: x.requested_at, reverse=True)
+            query = query.order_by(MediaItem.requested_at.desc())
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid sort: {sort}. Valid sorts are: ['asc', 'desc']",
             )
 
-    start = (page - 1) * limit
-    end = start + limit
-    items = items[start:end]
+    with db.Session() as session:
+        total_items = session.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+        items = session.execute(query.offset((page - 1) * limit).limit(limit)).unique().scalars().all()
+
     total_pages = (total_items + limit - 1) // limit
 
     return {
@@ -145,14 +119,11 @@ async def get_items(
 
 @router.get("/extended/{item_id}")
 async def get_extended_item_info(request: Request, item_id: str):
-    mic: MediaItemContainer = request.app.program.media_items
-    item = mic.get(item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return {
-        "success": True,
-        "item": item.to_extended_dict(),
-    }
+    with db.Session() as session:
+        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {"success": True, "item": item.to_extended_dict()}
 
 
 @router.post("/add/imdb/{imdb_id}")
@@ -245,32 +216,48 @@ async def get_imdb_info(
     Get the item with the given IMDb ID.
     If the season and episode are provided, get the item with the given season and episode.
     """
-    item_id = imdb_id
-    if season is not None:
-        item_id = str(season) #, parent_id=item_id)
-    if episode is not None:
-        item_id = str(episode) #,  parent_id=item_id)
-    
-    item = request.app.program.media_items.get_item(item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
+    with db.Session() as session:
+        if season is not None and episode is not None:
+            item = session.execute(
+                select(Episode).where(
+                    (Episode.imdb_id == imdb_id) &
+                    (Episode.season_number == season) &
+                    (Episode.episode_number == episode)
+                )
+            ).scalar_one_or_none()
+        elif season is not None:
+            item = session.execute(
+                select(Season).where(
+                    (Season.imdb_id == imdb_id) &
+                    (Season.season_number == season)
+                )
+            ).scalar_one_or_none()
+        else:
+            item = session.execute(
+                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+            ).scalar_one_or_none()
 
-    return {"success": True, "item": item.to_extended_dict()}
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        return {"success": True, "item": item.to_extended_dict()}
 
 
 @router.get("/incomplete")
 async def get_incomplete_items(request: Request):
-    if not hasattr(request.app, "program") or not hasattr(
-        request.app.program, "media_items"
-    ):
-        logger.error("Program or media_items not found in the request app")
+    if not hasattr(request.app, "program"):
+        logger.error("Program not found in the request app")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    incomplete_items = request.app.program.media_items.get_incomplete_items()
+    with db.Session() as session:
+        incomplete_items = session.execute(
+            select(MediaItem).where(MediaItem.last_state != "Completed")
+        ).unique().scalars().all()
+
     if not incomplete_items:
         return {"success": True, "incomplete_items": []}
 
     return {
         "success": True,
-        "incomplete_items": [item.to_dict() for item in incomplete_items.values()],
+        "incomplete_items": [item.to_dict() for item in incomplete_items],
     }

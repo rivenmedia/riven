@@ -11,6 +11,8 @@ from rich.console import Console
 from utils import data_dir_path
 
 
+LOG_ENABLED: bool = settings_manager.settings.log
+
 def setup_logger(level):
     """Setup the logger"""
     logs_dir_path = data_dir_path / "logs"
@@ -63,6 +65,21 @@ def setup_logger(level):
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
         "<fg #990066>{module}</fg #990066>.<fg #990066>{function}</fg #990066> - <level>{message}</level>"
     )
+
+    # handlers = {
+    #     "sink": log_filename, 
+    #     "level": level, 
+    #     "format": log_format, 
+    #     "rotation": "50 MB", 
+    #     "retention": "8 hours", 
+    #     "compression": None, 
+    #     "backtrace": False, 
+    #     "diagnose": True,
+    #     "enqueue": True,
+    # }
+
+    # if LOG_ENABLED:
+    #     handlers.append(log_filename)
 
     logger.configure(handlers=[
         {
