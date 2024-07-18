@@ -77,10 +77,5 @@ echo "Container Initialization complete."
 # set rclone_pid (jobs -p %1)
 
 # Start the backend
-echo "Starting backend..."
-su -m $USERNAME -c "fish -c 'cd /riven/backend; and poetry run python3 main.py'" &
-set backend_pid (jobs -p %1)
-
-# Start the frontend
-echo "Starting frontend..."
-exec su -m $USERNAME -c "fish -c 'ORIGIN=$ORIGIN node /riven/frontend/build'"
+echo "Starting Riven (Backend)..."
+su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
