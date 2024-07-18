@@ -4,20 +4,6 @@ version: 2
 
 updates:
 
-  # Frontend (points to frontend/package.json)
-  - package-ecosystem: 'npm'
-    directory: '/frontend'
-    schedule:
-      interval: 'weekly'
-    ignore:
-      - dependency-name: '*'
-        update-types: ["version-update:semver-minor"]
-    commit-message:
-      prefix: 'chore'
-      include: 'scope'
-    assignees:
-      - 'AyushSehrawat'
-
   # Backend (points to pyproject.toml in root directory)
   - package-ecosystem: 'pip'
     directory: '/'
