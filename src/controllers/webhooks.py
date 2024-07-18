@@ -1,12 +1,17 @@
 from typing import Any, Dict
 
+from backend.program.media.state import OverseerrStates
 import pydantic
 from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
-from program.indexers.trakt import TraktIndexer, get_imdbid_from_tmdb
-from program.media.item import MediaItem, Show
-from requests import RequestException
+from program.indexers.trakt import get_imdbid_from_tmdb
+from program.media.item import MediaItem
+from requests.exceptions import RequestException, ConnectionError, RetryError
 from utils.logger import logger
+from program.settings.manager import settings_manager
+from urllib3.exceptions import MaxRetryError
+from utils.request import get
+
 
 from .models.overseerr import OverseerrWebhook
 
@@ -56,8 +61,28 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     else:
         overseerr.recurring_items.add(imdb_id)
 
+    req_id = req.request.request_id
+    overseerr_config = settings_manager.settings.content.overseerr
+    header = {"X-Api-Key": overseerr_config.api_key}
+
+    try:
+        resp = get(
+            overseerr_config.url + f"/api/v1/request/{req_id}",
+            additional_headers=header,
+        )
+    except (ConnectionError, RetryError, MaxRetryError) as e:
+        logger.error(f"Failed to fetch requests from overseerr to get mediaId: {str(e)}")
+        pass
+    except Exception as e:
+        logger.error(f"Unexpected error during fetching requests to get mediaId: {str(e)}")
+        pass
+
+    media_id = resp.data.media.id
+
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
+        if media_id:
+            new_item.set("overseerr_id", media_id)
         request.app.program.add_to_queue(new_item)
     except Exception as e:
         logger.error(f"Failed to create item from imdb_id: {imdb_id}")
