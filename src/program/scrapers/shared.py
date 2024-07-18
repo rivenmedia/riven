@@ -13,7 +13,7 @@ from utils.logger import logger
 
 settings_model = settings_manager.settings.ranking
 ranking_model = models.get(settings_model.profile)
-rtn = RTN(settings_model, ranking_model)
+rtn = RTN(settings_model, ranking_model, 0.821)
 
 
 def _get_stremio_identifier(item: MediaItem) -> str:
@@ -107,10 +107,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
             processed_infohashes.add(infohash)
 
         except (ValueError, AttributeError) as e:
-            logger.error(f"Failed to parse {raw_title}: {e}")
+            logger.error(f"Failed to parse: '{raw_title}' - {e}")
             continue
         except GarbageTorrent as e:
-            logger.debug(f"Trashing torrent: '{raw_title}' - {e}")
+            logger.debug(f"Trashing torrent {infohash}: '{raw_title}'")
             continue
 
     if torrents:

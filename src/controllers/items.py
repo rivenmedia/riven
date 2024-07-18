@@ -54,7 +54,7 @@ async def get_items(
         raise HTTPException(status_code=400, detail="Limit must be 1 or greater.")
 
     query = select(MediaItem)
-    
+
     if search:
         search_lower = search.lower()
         if search_lower.startswith("tt"):
@@ -105,16 +105,16 @@ async def get_items(
         total_items = session.execute(select(func.count()).select_from(query.subquery())).scalar_one()
         items = session.execute(query.offset((page - 1) * limit).limit(limit)).unique().scalars().all()
 
-    total_pages = (total_items + limit - 1) // limit
+        total_pages = (total_items + limit - 1) // limit
 
-    return {
-        "success": True,
-        "items": [item.to_dict() for item in items],
-        "page": page,
-        "limit": limit,
-        "total_items": total_items,
-        "total_pages": total_pages,
-    }
+        return {
+            "success": True,
+            "items": [item.to_dict() for item in items],
+            "page": page,
+            "limit": limit,
+            "total_items": total_items,
+            "total_pages": total_pages,
+        }
 
 
 @router.get("/extended/{item_id}")
@@ -254,10 +254,10 @@ async def get_incomplete_items(request: Request):
             select(MediaItem).where(MediaItem.last_state != "Completed")
         ).unique().scalars().all()
 
-    if not incomplete_items:
-        return {"success": True, "incomplete_items": []}
+        if not incomplete_items:
+            return {"success": True, "incomplete_items": []}
 
-    return {
-        "success": True,
-        "incomplete_items": [item.to_dict() for item in incomplete_items],
-    }
+        return {
+            "success": True,
+            "incomplete_items": [item.to_dict() for item in incomplete_items],
+        }
