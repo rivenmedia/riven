@@ -76,5 +76,5 @@ su -m "$USERNAME" -c "poetry config virtualenvs.create false"
 echo "Container Initialization complete."
 
 # Start the backend
-echo "Starting backend..."
-su -m "$USERNAME" -c "cd /riven/backend && poetry run python3 main.py"
+echo "Starting Riven (Backend)..."
+su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
