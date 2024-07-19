@@ -7,7 +7,7 @@ from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.scrapers import Scraping
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
-from program.updaters import Updater
+from program.updaters import Updater, OverseerrUpdater
 from utils.logger import logger
 
 
@@ -40,6 +40,10 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             if existing_item.state == States.Completed:
                 return existing_item, None, []
         items_to_submit = [item] if Scraping.can_we_scrape(item) else []
+    
+    elif item.last_overseerr_status is not None and item.last_overseerr_status != item.overseerr_status.name:
+        next_service = OverseerrUpdater
+        items_to_submit = [item]
 
     elif item.state == States.Scraped:
         next_service = Downloader
