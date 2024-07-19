@@ -174,6 +174,16 @@ class MediaItem(db.Model):
         elif state in (States.Symlinked, States.Downloaded, States.Scraped):
             return OverseerrStatus.Pending
         return OverseerrStatus.Requested
+    
+    def get_parent(self) -> Self:
+        parent = self.get("parent")
+        while parent:
+            p_parent = parent.get("parent")
+            if p_parent is None:
+                return parent
+            parent = p_parent
+            
+        return self
 
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""

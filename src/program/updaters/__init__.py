@@ -1,9 +1,8 @@
 """Updater module"""
-from typing import Dict
-
 from program.media.item import MediaItem
 from program.updaters.local import LocalUpdater
 from program.updaters.plex import PlexUpdater
+from program.updaters.overseerr_updater import OverseerrUpdater
 from utils.logger import logger
 
 
