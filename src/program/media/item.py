@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional, Self
 
-from program.media.state import States
+from program.media.state import States, OverseerrStatus
 from RTN import Torrent, parse
 # from RTN.patterns import extract_episodes
 from utils.logger import logger
@@ -49,6 +49,7 @@ class MediaItem(db.Model):
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    last_overseerr_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
 
     __mapper_args__ = {
@@ -109,6 +110,7 @@ class MediaItem(db.Model):
 
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id", None)
+        self.last_overseerr_status = item.get("last_overseerr_status", None)
 
     def store_state(self) -> None:
         self.last_state = self._determine_state().name
@@ -155,6 +157,23 @@ class MediaItem(db.Model):
         elif self.imdb_id and self.requested_by:
             return States.Requested
         return States.Unknown
+        
+    @property
+    def overseerr_status(self):
+        return self._determine_overseerr_status()
+    
+    def _determine_overseerr_status(self) -> OverseerrStatus:
+        state = self._determine_state()
+        return self._state_to_overseerr_status(state)
+    
+    def _state_to_overseerr_status(self, state: States) -> OverseerrStatus:
+        if state == States.Completed:
+            return OverseerrStatus.Available
+        elif state == States.PartiallyCompleted:
+            return OverseerrStatus.PartiallyAvailable
+        elif state in (States.Symlinked, States.Downloaded, States.Scraped):
+            return OverseerrStatus.Pending
+        return OverseerrStatus.Requested
 
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""
@@ -168,6 +187,7 @@ class MediaItem(db.Model):
         self.genres = getattr(other, "genres", [])
         self.is_anime = getattr(other, "is_anime", False)
         self.overseerr_id = getattr(other, "overseerr_id", None)
+        self.last_overseerr_status = getattr(other, "last_overseerr_status", None)
 
     def is_scraped(self):
         return len(self.streams) > 0
@@ -322,10 +342,12 @@ class Season(MediaItem):
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
     }
+
     def store_state(self) -> None:
         for episode in self.episodes:
             episode.store_state()
         self.last_state = self._determine_state().name
+
     def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
@@ -336,7 +358,7 @@ class Season(MediaItem):
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
 
-    def _determine_state(self):
+    def _determine_state(self) -> States:
         if len(self.episodes) > 0:
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
@@ -354,6 +376,21 @@ class Season(MediaItem):
                 return States.Requested
         return States.Unknown
 
+    def _determine_overseerr_status(self) -> OverseerrStatus:
+        if len(self.episodes) > 0:
+            if all(episode.state == States.Completed for episode in self.episodes):
+                return OverseerrStatus.Available
+            if any(
+                episode.state in (States.Completed, States.PartiallyCompleted)
+                for episode in self.episodes
+            ):
+                return OverseerrStatus.PartiallyAvailable
+            if any(episode.state in (States.Symlinked, States.Downloaded, States.Scraped)
+                for episode in self.episodes
+            ):
+                return OverseerrStatus.Pending
+        return OverseerrStatus.Requested
+    
     @property
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
@@ -509,10 +546,27 @@ class Show(MediaItem):
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
         return States.Unknown
+
+    def _determine_overseerr_status(self) -> OverseerrStatus:
+        if len(self.seasons) > 0:
+            if all(season.state == States.Completed for season in self.seasons):
+                return OverseerrStatus.Available
+            if any(
+                season.state in (States.Completed, States.PartiallyCompleted)
+                for season in self.seasons
+            ):
+                return OverseerrStatus.PartiallyAvailable
+            if any(season.state in (States.Symlinked, States.Downloaded, States.Scraped)
+                for season in self.seasons
+            ):
+                return OverseerrStatus.Pending
+        return OverseerrStatus.Requested
+
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
         self.last_state = self._determine_state().name
+
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 

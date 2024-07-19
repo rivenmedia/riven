@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from backend.program.media.state import OverseerrStates
+from program.media.state import OverseerrStatus
 import pydantic
 from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
@@ -80,7 +80,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     media_id = resp.data.media.id
 
     try:
-        new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
+        new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "last_overseerr_status": OverseerrStatus.Requested.name})
         if media_id:
             new_item.set("overseerr_id", media_id)
         request.app.program.add_to_queue(new_item)
