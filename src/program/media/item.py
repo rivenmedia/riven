@@ -322,10 +322,12 @@ class Season(MediaItem):
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
     }
+
     def store_state(self) -> None:
         for episode in self.episodes:
             episode.store_state()
         self.last_state = self._determine_state().name
+
     def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
@@ -336,7 +338,10 @@ class Season(MediaItem):
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
 
-    def _determine_state(self):
+    def is_scraped(self):
+        return len(self.streams) > 0 or all(episode.is_scraped() for episode in self.episodes)
+
+    def _determine_state(self) -> States:
         if len(self.episodes) > 0:
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
@@ -490,6 +495,9 @@ class Show(MediaItem):
                 return i
         return None
 
+    def is_scraped(self):
+        return len(self.streams) > 0 or all(season.is_scraped() for season in self.seasons)
+
     def _determine_state(self):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
@@ -509,10 +517,12 @@ class Show(MediaItem):
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
         return States.Unknown
+
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
         self.last_state = self._determine_state().name
+
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
