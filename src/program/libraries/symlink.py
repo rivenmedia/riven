@@ -90,11 +90,13 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
         show_item = Show({'imdb_id': imdb_id.group(), 'title': title.group(1)})
         if is_anime:
             show_item.is_anime = True
+        seasons = {}
         for season in os.listdir(directory / show):
             if not (season_number := re.search(r'(\d+)', season)):
                 logger.log("NOT_FOUND", f"Can't extract season number at path {directory / show / season}")
                 continue
             season_item = Season({'number': int(season_number.group())})
+            episodes = {}
             for episode in os.listdir(directory / show / season):
                 if not (episode_number := re.search(r's\d+e(\d+)', episode)):
                     logger.log("NOT_FOUND", f"Can't extract episode number at path {directory / show / season / episode}")
@@ -110,6 +112,13 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                     episode_item.set("update_folder", "updated")
                 if is_anime:
                     episode_item.is_anime = True
-                season_item.add_episode(episode_item)
-            show_item.add_season(season_item)
+                #season_item.add_episode(episode_item)
+                episodes[int(episode_number.group(1))] = episode_item
+            if len(episodes) > 0:
+                for i in range(1, max(episodes.keys())+1):
+                    season_item.add_episode(episodes.get(i, Episode({'number': i})))
+                seasons[int(season_number.group())] = season_item
+        if len(seasons) > 0:
+            for i in range(1, max(seasons.keys())+1):
+                show_item.add_season(seasons.get(i, Season({'number': i})))
         yield show_item

@@ -193,9 +193,9 @@ class Program(threading.Thread):
         with db.Session() as session:
             items_to_submit = session.execute(select(MediaItem).where( (MediaItem.last_state!="Completed" ) & ( (MediaItem.type == 'show') | (MediaItem.type == 'movie') )).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
             session.expunge_all()
-        logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
-        for item in items_to_submit:
-            self._push_event_queue(Event(emitted_by=self.__class__, item=item))
+            logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
+            for item in items_to_submit:
+                self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -237,25 +237,36 @@ class Program(threading.Thread):
                 coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
-
+    def _id_in_queue(self, id):
+        for i in self.queued_items:
+            if i._id == id:
+                return True 
+        return False
+    def _id_in_running_items(self, id):
+        for i in self.running_items:
+            if i._id == id:
+                return True
+        return False
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
-                if ( isinstance(event.item, Show) 
-                        and (any( [s for s in event.item.seasons if s in self.queued_items or s in self.running_items]) 
-                        or any([e for e in [s.episodes for s in event.item.seasons] if e in self.queued_items or e in self.running_items]) ) 
-                        ):
-                    return 
-                if isinstance(event.item, Season) and any( [e for e in event.item.episodes if e in self.queued_items or e in self.running_items] ):
-                    return
-                if hasattr(event.item, "parent") and event.item.parent in self.queued_items :
-                    return
-                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.queued_items :
-                    return
-                if hasattr(event.item, "parent") and event.item.parent in self.running_items :
-                    return
-                if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and event.item.parent.parent in self.running_items :
-                    return
+                if hasattr(event.item, "_id"):
+                    if isinstance(event.item, Show):
+                        for s in event.item.seasons:
+                            if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
+                                return
+                            for e in s.episodes:
+                                if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                                    return
+                        
+                    if isinstance(event.item, Season):
+                        for e in event.item.episodes:
+                            if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                                return
+                    if hasattr(event.item, "parent") and ( self._id_in_queue(event.item.parent._id) or self._id_in_running_items(event.item.parent._id) ):
+                        return
+                    if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and ( self._id_in_queue(event.item.parent.parent._id) or self._id_in_running_items(event.item.parent.parent._id)):
+                        return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
                 if not isinstance(event.item, (Show, Movie, Episode, Season)):
@@ -282,7 +293,10 @@ class Program(threading.Thread):
         if item is None:
             return
         if item not in self.running_items:
-            self.running_items.append(item)
+            if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
+                self.running_items.append(item)
+            elif not isinstance(item, MediaItem):
+                self.running_items.append(item)
             logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
