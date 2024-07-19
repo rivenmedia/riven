@@ -18,7 +18,7 @@ from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
-from program.updaters import Updater
+from program.updaters import Updater, OverseerrUpdater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
@@ -57,8 +57,9 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_services(self):
+        overseerr = Overseerr()
         self.requesting_services = {
-            Overseerr: Overseerr(),
+            Overseerr: overseerr,
             PlexWatchlist: PlexWatchlist(),
             Listrr: Listrr(),
             Mdblist: Mdblist(),
@@ -70,6 +71,7 @@ class Program(threading.Thread):
             Symlinker: Symlinker(),
             Updater: Updater(),
             Downloader: Downloader(hash_cache),
+            OverseerrUpdater: OverseerrUpdater(overseerr.initialized),
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it
