@@ -14,7 +14,8 @@ class States(Enum):
 
 class OverseerrStatus(Enum):
     Requested = "Requested"
-    Processing = "Processing"
+    # `Processing` is a valid status but has no effect in the overseerr server AFAIK
+    # so we use `Pending` instead
     Pending = "Pending"
     Available = "Available"
     PartiallyAvailable = "PartiallyAvailable"
