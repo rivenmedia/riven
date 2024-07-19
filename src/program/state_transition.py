@@ -28,7 +28,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             return no_further_processing
         return None, next_service, [item]
 
-    elif emitted_by == TraktIndexer or item.state == States.Indexed or item.state == States.PartiallyCompleted:
+    # the extra check is to ensure we update the overseerr status before trying to scrape the partially complete show (just to have the status reflected as soon as possible)
+    # because it may have been marked as partial in the event right before this one
+    elif emitted_by == TraktIndexer or item.state == States.Indexed or (not (item.last_overseerr_status is not None and item.last_overseerr_status != item.overseerr_status.name) and item.state == States.PartiallyCompleted):
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:
