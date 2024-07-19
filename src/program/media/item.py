@@ -340,14 +340,14 @@ class Season(MediaItem):
         if len(self.episodes) > 0:
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
-            if any(episode.state == States.Completed for episode in self.episodes):
-                return States.PartiallyCompleted
             if all(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
             if all(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
+            if any(episode.state == States.Completed for episode in self.episodes):
+                return States.PartiallyCompleted
             if any(episode.state == States.Indexed for episode in self.episodes):
                 return States.Indexed
             if any(episode.state == States.Requested for episode in self.episodes):
@@ -493,18 +493,17 @@ class Show(MediaItem):
     def _determine_state(self):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
-
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
-            return States.PartiallyCompleted
         if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
         if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
+        if any(
+            season.state in (States.Completed, States.PartiallyCompleted)
+            for season in self.seasons
+        ):
+            return States.PartiallyCompleted
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):

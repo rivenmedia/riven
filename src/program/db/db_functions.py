@@ -69,8 +69,9 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
         with db.Session() as session:
             if isinstance(input_item, (Movie, Show, Season, Episode)):
                 item = input_item
-                if not _check_for_and_run_insertion_required(session, item): 
-                    item = _get_item_from_db(session, item)
+                if not _check_for_and_run_insertion_required(session, item):
+                    pass
+                item = _get_item_from_db(session, item)
                 
                 #session.merge(item)
                 for res in fn(item):
