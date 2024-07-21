@@ -25,7 +25,7 @@ AD_PARAM_AGENT = f"agent={AD_AGENT}"
 class AllDebridDownloader:
     """All-Debrid API Wrapper"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.rate_limiter = None
         self.key = "alldebrid"
         self.settings = settings_manager.settings.downloaders.all_debrid
@@ -37,7 +37,6 @@ class AllDebridDownloader:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.hash_cache = hash_cache
         logger.success("AllDebrid initialized!")
 
     def validate(self) -> bool:
@@ -196,18 +195,15 @@ class AllDebridDownloader:
         magnets = data.get("data", {}).get("magnets", [])
         for magnet in magnets:
             stream_hash = magnet.get("hash")
-            if not stream_hash or stream_hash in processed_stream_hashes or self.hash_cache.is_blacklisted(stream_hash):
+            if not stream_hash or stream_hash in processed_stream_hashes:
                 continue
     
             if not magnet.get("instant", False):
-                self.hash_cache.blacklist(stream_hash)
                 continue
     
             processed_stream_hashes.add(stream_hash)
             if self._process_providers(item, magnet, stream_hash):
-                return True
-            self.hash_cache.blacklist(stream_hash)
-    
+                return True   
         return False
 
     def _process_providers(self, item: MediaItem, magnet: dict, stream_hash: str) -> bool:
@@ -404,15 +400,7 @@ class AllDebridDownloader:
         if not hash_key:
             logger.log("DEBRID", f"Item missing hash, skipping check: {item.log_string}")
             return False
-    
-        if self.hash_cache.is_blacklisted(hash_key):
-            logger.log("DEBRID", f"Skipping download check for blacklisted hash: {hash_key}")
-            return False
-    
-        if self.hash_cache.is_downloaded(hash_key) and item.active_stream.get("id", None):
-            logger.log("DEBRID", f"Item already downloaded for hash: {hash_key}")
-            return True
-    
+
         logger.debug(f"Checking if torrent is already downloaded for item: {item.log_string}")
         torrent = self.get_torrent(hash_key)
     
@@ -427,16 +415,13 @@ class AllDebridDownloader:
         info = self.get_torrent_info(torrent.id)
         if not info or not hasattr(info, "links"):
             logger.debug(f"Failed to get torrent info for ID: {torrent.id}")
-            self.hash_cache.blacklist(torrent.hash)
             return False
     
         if not self._matches_item(info, item):
-            self.hash_cache.blacklist(torrent.hash)
             return False
     
         # Cache this as downloaded
         logger.debug(f"Marking torrent as downloaded for hash: {torrent.hash}")
-        self.hash_cache.mark_downloaded(torrent.hash)
         item.set("active_stream.id", torrent.id)
         self.set_active_files(item)
         logger.debug(f"Set active files for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
@@ -451,7 +436,6 @@ class AllDebridDownloader:
         self.set_active_files(item)
         logger.debug(f"Active files set for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
         time.sleep(0.5)
-        self.hash_cache.mark_downloaded(item.active_stream["hash"])
         logger.debug(f"Item marked as downloaded: {item.log_string}")
 
     def set_active_files(self, item: MediaItem) -> None:

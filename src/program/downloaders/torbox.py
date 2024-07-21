@@ -22,13 +22,12 @@ WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
 class TorBoxDownloader:
     """TorBox Downloader"""
 
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "torbox_downloader"
         self.settings = settings_manager.settings.downloaders.torbox
         self.api_key = self.settings.api_key
         self.base_url = "https://api.torbox.app/v1/api"
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
-        self.hash_cache = hash_cache
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -65,7 +64,7 @@ class TorBoxDownloader:
 
                 return user_info.plan != 0
         except ConnectTimeout:
-            logger.error("Connection to All-Debrid timed out.")
+            logger.error("Connection to Torbox timed out.")
         except Exception as e:
             logger.exception(f"Failed to validate Torbox settings: {e}")
         return False
@@ -86,15 +85,12 @@ class TorBoxDownloader:
                     )
                     self.download(item)
                     break
-                else:
-                    self.hash_cache.blacklist(cache["hash"])
         else:
             logger.log("DEBRID", f"Item is not cached: {item.log_string}")
             for hash in item.streams:
                 logger.log(
                     "DEBUG", f"Blacklisting hash ({hash}) for item: {item.log_string}"
                 )
-                self.hash_cache.blacklist(hash)
             item.streams = {}
         yield item
 
@@ -110,9 +106,10 @@ class TorBoxDownloader:
 
         if item.type == "movie":
             for file in files:
-                parsed_file = parse(file["name"], remove_trash=True)
-                if parsed_file.type == "movie":
-                    return [file]
+                with contextlib.suppress(GarbageTorrent, TypeError):
+                    parsed_file = parse(file["name"], remove_trash=True)
+                    if parsed_file.type == "movie":
+                        return [file]
         if item.type == "show":
             # Create a dictionary to map seasons and episodes needed
             needed_episodes = {}

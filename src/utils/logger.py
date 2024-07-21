@@ -84,7 +84,7 @@ def setup_logger(level):
     logger.configure(handlers=[
         {
             "sink": sys.stderr,
-            "level": "DEBUG",
+            "level": level.upper() or "INFO",
             "format": log_format,
             "backtrace": False,
             "diagnose": False,
@@ -92,7 +92,7 @@ def setup_logger(level):
         },
         {
             "sink": log_filename, 
-            "level": level, 
+            "level": level.upper(), 
             "format": log_format, 
             "rotation": "50 MB", 
             "retention": "8 hours", 

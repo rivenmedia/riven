@@ -22,7 +22,6 @@ from program.updaters import Updater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 
-from .cache import hash_cache
 from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
@@ -69,7 +68,7 @@ class Program(threading.Thread):
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
-            Downloader: Downloader(hash_cache),
+            Downloader: Downloader(),
         }
         # Depends on Symlinker having created the file structure so needs
         # to run after it

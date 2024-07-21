@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Dict, Set
 
-from program.cache import hash_cache
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.versions import models
@@ -43,7 +42,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
         needed_seasons = [season.number for season in item.seasons]
 
     for infohash, raw_title in results.items():
-        if infohash in processed_infohashes: # or hash_cache.is_blacklisted(infohash):
+        if infohash in processed_infohashes:
             continue
 
         try:
@@ -107,10 +106,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
             processed_infohashes.add(infohash)
 
         except (ValueError, AttributeError) as e:
-            logger.error(f"Failed to parse: '{raw_title}' - {e}")
+            # logger.error(f"Failed to parse: '{raw_title}' - {e}")
             continue
         except GarbageTorrent as e:
-            logger.debug(f"Trashing torrent {infohash}: '{raw_title}'")
+            # logger.debug(f"Trashing torrent {infohash}: '{raw_title}'")
             continue
 
     if torrents:
