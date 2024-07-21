@@ -11,8 +11,6 @@ from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
 
-from .cache import hash_cache
-
 
 class Symlinker:
     """
@@ -117,7 +115,6 @@ class Symlinker:
                 for episode in season.episodes:
                     if not episode.file or not episode.folder or episode.file == "None.mkv":
                         logger.warning(f"Cannot submit {episode.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                        blacklist_item(episode)
                         all_episodes_ready = False
                     elif not quick_file_check(episode):
                         logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
@@ -125,9 +122,6 @@ class Symlinker:
                             all_episodes_ready = False
                             break  # Give up on the whole season if one episode is not found in 90 seconds
             if not all_episodes_ready:
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        blacklist_item(episode)
                 logger.warning(f"Cannot submit show {item.log_string} for symlink: One or more episodes need to be rescraped.")
             return all_episodes_ready
 
@@ -136,7 +130,6 @@ class Symlinker:
             for episode in item.episodes:
                 if not episode.file or not episode.folder or episode.file == "None.mkv":
                     logger.warning(f"Cannot submit {episode.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                    blacklist_item(episode)
                     all_episodes_ready = False
                 elif not quick_file_check(episode):
                     logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
@@ -144,15 +137,12 @@ class Symlinker:
                         all_episodes_ready = False
                         break  # Give up on the whole season if one episode is not found in 90 seconds
             if not all_episodes_ready:
-                for episode in item.episodes:
-                    blacklist_item(episode)
                 logger.warning(f"Cannot submit season {item.log_string} for symlink: One or more episodes need to be rescraped.")
             return all_episodes_ready
 
         if isinstance(item, (Movie, Episode)):
             if not item.file or not item.folder or item.file == "None.mkv":
                 logger.warning(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                blacklist_item(item)
                 return False
 
         if item.symlinked_times < 3:
@@ -173,8 +163,7 @@ class Symlinker:
                 logger.log("SYMLINKER", f"File found for {item.log_string}, creating symlink")
                 return True
             else:
-                logger.log("SYMLINKER", f"File not found for {item.log_string} after 3 attempts, blacklisting")
-                blacklist_item(item)
+                logger.log("SYMLINKER", f"File not found for {item.log_string} after 3 attempts, skipping")
                 return False
 
         logger.debug(f"Item {item.log_string} not submitted for symlink, file not found yet")
@@ -439,8 +428,7 @@ async def wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
             if search_file(rclone_path, item):
                 logger.log("SYMLINKER", f"File found for {item.log_string} after searching")
                 return True
-    logger.log("SYMLINKER", f"File not found for {item.log_string} after waiting for {timeout} seconds, blacklisting")
-    blacklist_item(item)
+    logger.log("SYMLINKER", f"File not found for {item.log_string} after waiting for {timeout} seconds, skipping")
     return False
 
 def quick_file_check(item: Union[Movie, Episode]) -> bool:
@@ -485,15 +473,6 @@ def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
         logger.error(f"Error occurred while searching for file {filename} in {rclone_path}: {e}")
     return False
 
-def blacklist_item(item):
-    """Blacklist the item and reset its attributes to be rescraped."""
-    infohash = get_infohash(item)
-    reset_item(item)
-    if infohash:
-        hash_cache.blacklist(infohash)
-    else:
-        logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
-
 def reset_item(item: Union[Movie, Show, Season, Episode], reset_times: bool = True) -> None:
     """Reset item attributes for rescraping."""
     item.set("file", None)
@@ -504,12 +483,3 @@ def reset_item(item: Union[Movie, Show, Season, Episode], reset_times: bool = Tr
         item.set("symlinked_times", 0)
         item.set("scraped_times", 0)
     logger.debug(f"Item {item.log_string} reset for rescraping")
-
-def get_infohash(item):
-    """Retrieve the infohash from the item or its parent."""
-    infohash = item.active_stream.get("hash")
-    if isinstance(item, Episode) and not infohash:
-        infohash = item.parent.active_stream.get("hash")
-    if isinstance(item, Movie) and not infohash:
-        logger.error(f"Failed to retrieve hash for {item.log_string}, unable to blacklist")
-    return infohash

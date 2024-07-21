@@ -1,5 +1,3 @@
-from datetime import datetime
-from enum import Enum
 from typing import List, Optional
 
 import Levenshtein
@@ -7,7 +5,6 @@ from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
 from sqlalchemy import select, func
 import program.db.db_functions as DB
-from program.content.overseerr import Overseerr
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.symlink import Symlinker

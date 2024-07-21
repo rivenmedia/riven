@@ -6,13 +6,13 @@ from utils.logger import logger
 
 
 class Downloader:
-    def __init__(self, hash_cache):
+    def __init__(self):
         self.key = "downloader"
         self.initialized = False
         self.services = {
-            RealDebridDownloader: RealDebridDownloader(hash_cache),
-            TorBoxDownloader: TorBoxDownloader(hash_cache),
-            AllDebridDownloader: AllDebridDownloader(hash_cache),
+            RealDebridDownloader: RealDebridDownloader(),
+            TorBoxDownloader: TorBoxDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
         }
         self.initialized = self.validate()
 
