@@ -82,22 +82,131 @@ We are constantly adding features and improvements as we go along and squashing 
 
 Create a `docker-compose.yml` file with the following contents:
 
+docker-compose.yml (Backend Only)
 ```yml
+---
 services:
-    riven:
-        image: spoked/riven:latest
-        container_name: riven
-        restart: unless-stopped
-        environment:
-            PUID: "1000"
-            PGID: "1000"
-            ORIGIN: "http://localhost:3000" # IMP: read below to avoid CORS issues
-            BACKEND_URL: http://127.0.0.1:8080 # optional
-        ports:
-            - "3000:3000"
-        volumes:
-            - ./data:/riven/data
-            - /mnt:/mnt
+	riven:
+		image: spoked/riven:latest
+		container_name: riven
+		restart: unless-stopped
+		ports:
+			- "8080:8080"
+		tty: true
+		environment:
+			- PUID=1000
+			- PGID=1000
+			- TZ=Europe/Amsterdam
+			- RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
+		volumes:
+			- ./riven-data:/riven/data
+			- /mnt:/mnt
+```
+
+docker-compose.yml (Frontend + Backend + SQLite)
+```yml
+---
+services:
+	riven-frontend:
+		image: spoked/riven-frontend:latest
+		container_name: riven-frontend
+		restart: unless-stopped
+		network_mode: host
+		tty: true
+		environment:
+			- PUID=1000
+			- PGID=1000
+			- ORIGIN=http://localhost:3000
+			- BACKEND_URL=http://127.0.0.1:8080
+			- TZ=Europe/Amsterdam
+		depends_on:
+			riven:
+			condition: service_healthy
+		
+	riven:
+		image: spoked/riven:latest
+		container_name: riven
+		restart: unless-stopped
+		network_mode: host
+		tty: true
+		environment:
+			- PUID=1000
+			- PGID=1000
+			- TZ=Europe/Amsterdam
+			- RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
+		healthcheck:
+			test: curl -s http://localhost:8080 >/dev/null || exit 1
+			interval: 30s
+			timeout: 10s
+			retries: 10
+		volumes:
+			- ./riven-data:/riven/data
+			- /mnt:/mnt
+```
+
+docker-compose.yml (Frontend + Backend + Postgres)
+```yml
+---
+services:
+	riven-frontend:
+		image: spoked/riven-frontend:latest
+		container_name: riven-frontend
+		restart: unless-stopped
+		ports:
+			- "3000:3000"
+		tty: true
+		environment:
+			- PUID=1000
+			- PGID=1000
+			- ORIGIN=http://localhost:3000
+			- BACKEND_URL=http://127.0.0.1:8080
+			- TZ=Europe/Amsterdam
+		depends_on:
+			riven:
+				condition: service_healthy
+      
+	riven:
+		image: spoked/riven:latest
+		container_name: riven
+		restart: unless-stopped
+		ports:
+			- "8080:8080"
+		tty: true
+		environment:
+			- PUID=1000
+			- PGID=1000
+			- TZ=Europe/Amsterdam
+			- RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven_postgres/riven
+		healthcheck:
+			test: curl -s http://localhost:8080 >/dev/null || exit 1
+			interval: 30s
+			timeout: 10s
+			retries: 10
+		volumes:
+			- ./riven-data:/riven/data
+			- /mnt:/mnt
+		depends_on:
+			riven_postgres:
+				condition: service_healthy
+        
+	riven_postgres:
+		image: postgres:16.3-alpine3.20
+		container_name: riven-db
+		environment:
+			POSTGRES_USER: postgres
+			POSTGRES_PASSWORD: postgres
+			POSTGRES_DB: riven
+		healthcheck:
+			test: ["CMD-SHELL", "pg_isready -U postgres"]
+			interval: 30s
+			timeout: 10s
+			retries: 5
+		networks:
+			- postgres-internal
+
+networks:
+	postgres-internal:
+	default:
 ```
 
 Then run `docker compose up -d` to start the container in the background. You can then access the web interface at `http://localhost:3000` or whatever port and origin you set in the `docker-compose.yml` file.
