@@ -50,8 +50,6 @@ class SymlinkLibrary:
                 continue
             yield from process_items(self.settings.library_path / directory, Movie, item_type, is_anime)
 
-        
-
 
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
     """Process items in the given directory and yield MediaItem instances."""

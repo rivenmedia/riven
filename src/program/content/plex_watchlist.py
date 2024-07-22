@@ -80,7 +80,12 @@ class PlexWatchlist:
                 if not response.is_ok:
                     logger.error(f"Failed to fetch Plex RSS feed from {rss_url}: HTTP {response.status_code}")
                     continue
-                yield self._extract_imdb_ids(response.data.channel.item.guid)
+                if not hasattr(response.data, "items"):
+                    logger.error("Invalid response or missing items attribute in response data.")
+                    continue
+                results = response.data.items
+                for item in results:
+                    yield self._extract_imdb_ids(item.guids)
             except Exception as e:
                 logger.error(f"An unexpected error occurred while fetching Plex RSS feed from {rss_url}: {e}")
 
@@ -101,6 +106,8 @@ class PlexWatchlist:
                 imdb_id = self._ratingkey_to_imdbid(item.ratingKey)
                 if imdb_id:
                     yield imdb_id
+            else:
+                logger.log("NOT_FOUND", f"{item.title} ({item.year}) is missing ratingKey attribute from Plex")
 
     @staticmethod
     def _ratingkey_to_imdbid(ratingKey: str) -> str:
@@ -121,4 +128,4 @@ class PlexWatchlist:
             if guid.startswith("imdb://"):
                 imdb_id = guid.split("//")[-1]
                 if imdb_id:
-                    yield imdb_id
+                    return imdb_id

@@ -9,12 +9,11 @@ services:
     network_mode: host
     tty: true
     environment:
-      # Docker
       - PUID=1000
       - PGID=1000
       - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
-      - RIVEN_FORCE_ENV=true
-      - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
+      # - RIVEN_FORCE_ENV=true
+      # - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
       - TZ=UTC
     volumes:
       - ./data:/riven/data

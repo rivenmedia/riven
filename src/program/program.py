@@ -107,12 +107,7 @@ class Program(threading.Thread):
 
     def start(self):
         latest_version = get_version()
-        user_version = settings_manager.settings.version
-
-        if latest_version != user_version:
-            logger.log("PROGRAM", f"Riven v{user_version} starting! (Update Available: v{latest_version})")
-        else:
-            logger.log("PROGRAM", f"Riven v{user_version} starting!")
+        logger.log("PROGRAM", f"Riven v{latest_version} starting!")
 
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
@@ -150,7 +145,11 @@ class Program(threading.Thread):
                 for item in self.services[SymlinkLibrary].run():
                     if settings_manager.settings.map_metadata:
                         if isinstance(item, (Movie, Show)):
-                            item = next(self.services[TraktIndexer].run(item))
+                            try:
+                                item = next(self.services[TraktIndexer].run(item))
+                            except StopIteration:
+                                logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
+                                continue
                             if item.item_id in added:
                                 logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required.")
                                 exit(0)
@@ -159,7 +158,7 @@ class Program(threading.Thread):
                             session.add(item)
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 session.commit()
-            
+
             movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
             episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
@@ -175,7 +174,6 @@ class Program(threading.Thread):
             logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
             logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
 
-
         self.executors = []
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
@@ -188,10 +186,9 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry any items that are in an incomplete state."""
-        items_to_submit = []
         with db.Session() as session:
-            items_to_submit = session.execute(select(MediaItem).where( (MediaItem.last_state!="Completed" ) & ( (MediaItem.type == 'show') | (MediaItem.type == 'movie') )).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
-            session.expunge_all()
+            items_to_submit = session.execute(select(Show).where(MediaItem.last_state!="Completed" ).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
+            items_to_submit = items_to_submit + session.execute(select(Movie).where(MediaItem.last_state!="Completed" ).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
             logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
             for item in items_to_submit:
                 self._push_event_queue(Event(emitted_by=self.__class__, item=item))
@@ -236,16 +233,19 @@ class Program(threading.Thread):
                 coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+
     def _id_in_queue(self, id):
         for i in self.queued_items:
             if i._id == id:
-                return True 
+                return True
         return False
+
     def _id_in_running_items(self, id):
         for i in self.running_items:
             if i._id == id:
                 return True
         return False
+
     def _push_event_queue(self, event):
         with self.mutex:
             if( not event.item in self.queued_items and not event.item in self.running_items):
@@ -257,7 +257,7 @@ class Program(threading.Thread):
                             for e in s.episodes:
                                 if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
                                     return
-                        
+
                     if isinstance(event.item, Season):
                         for e in event.item.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
@@ -276,7 +276,6 @@ class Program(threading.Thread):
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
 
-                
     def _pop_event_queue(self, event):
         with self.mutex:
             DB._store_item(event.item)
@@ -313,7 +312,7 @@ class Program(threading.Thread):
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
             self._remove_from_running_items(orig_item, service.__name__)
-        
+
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
             if service.__name__ == "TraktIndexer":
@@ -323,9 +322,9 @@ class Program(threading.Thread):
 
         # Check if the executor has been shut down
         if not self.running:
-            logger.error("Cannot submit job, executor is shut down.")
+            logger.log("PROGRAM", "Waiting for executor to start before submitting jobs")
             return
-    
+
         # Instead of using the one executor, loop over the list of self.executors, if one is found with the service.__name__ then use that one
         # If one is not found with the service.__name__ then create a new one and append it to the list
         # This will allow for multiple services to run at the same time
@@ -399,11 +398,13 @@ class Program(threading.Thread):
                     logger.success(f"Item has been completed: {updated_item.log_string}")
 
                 self._remove_from_running_items(event.item, "program.run")
-                
+
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
                         self.add_to_running(item_to_submit, next_service.__name__)
                         self._submit_job(next_service, item_to_submit)
+                if isinstance(existing_item, MediaItem):
+                    existing_item.store_state()
                 session.commit()
 
     def stop(self):

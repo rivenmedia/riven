@@ -53,7 +53,7 @@ def _get_item_from_db(session, item: MediaItem):
         case _:
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
             return None
-            
+
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
     if _ensure_item_exists_in_db(item) == False:
         if isinstance(item, (Show, Movie, Season, Episode)):
