@@ -9,8 +9,8 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - ORIGIN=http://localhost:3000 # No trailing slash, read more below
-      - BACKEND_URL=http://127.0.0.1:8080 # No trailing slash, read more below
+      - ORIGIN=http://localhost:3000
+      - BACKEND_URL=http://127.0.0.1:8080
       - TZ=Europe/Amsterdam
     depends_on:
       riven:
