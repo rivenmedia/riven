@@ -25,7 +25,6 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - BACKEND_URL=http://localhost:8080
       - TZ=Europe/Amsterdam
       - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@localhost/riven
     healthcheck:
