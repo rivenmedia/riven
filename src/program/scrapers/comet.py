@@ -53,7 +53,7 @@ class Comet:
         try:
             url = f"{self.settings.url}/manifest.json"
             response = ping(url=url, timeout=self.timeout)
-            if response.ok:
+            if response.is_ok:
                 return True
         except Exception as e:
             logger.error(f"Comet failed to initialize: {e}", )
