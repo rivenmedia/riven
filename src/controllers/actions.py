@@ -16,13 +16,8 @@ router = APIRouter(
 )
 
 
-@router.post("/request")
+@router.post("/request/{imdb_id}")
 async def request(request: Request, imdb_id: str) -> Dict[str, Any]:
-    if not imdb_id:
-        logger.log("API", "No imdb id passed, skipping requesting")
-        return {"success": False, "message": "Invalid request"}
-
-
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "manually"})
         request.app.program.add_to_queue(new_item)
