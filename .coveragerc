@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = backend
+source = src
 
 [report]
 omit =

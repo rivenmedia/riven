@@ -10,8 +10,19 @@ services:
       - ORIGIN=http://localhost:3000
       - BACKEND_URL=http://127.0.0.1:8080
       - TZ=America/New_York
+      - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven_postgres/riven
     volumes:
       - ./data:/riven/data
       - /mnt:/mnt
     ports:
       - "3000:3000"
+
+  riven_postgres:
+    image: postgres:16.3-alpine3.20
+    container_name: riven-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: riven
+    networks:
+      - postgres-internal

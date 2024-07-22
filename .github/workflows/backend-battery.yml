@@ -34,14 +34,14 @@ jobs:
 
     # - name: Ruff & Isort Check
     #   run: |
-    #     poetry run ruff check ./backend
-    #     poetry run isort --check-only ./backend
+    #     poetry run ruff check ./src
+    #     poetry run isort --check-only ./src
 
     # - name: Type check
     #   run: poetry run pyright
 
     # - name: Run Tests & Coverage
-    #   run: poetry run pytest --cov=./backend --cov-report=xml
+    #   run: poetry run pytest --cov=./src --cov-report=xml
 
     # - name: Upload Coverage Report to Codecov
     #   uses: codecov/codecov-action@v4.1.1
