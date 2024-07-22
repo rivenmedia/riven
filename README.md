@@ -147,7 +147,6 @@ services:
 docker-compose.yml (Frontend + Backend + Postgres)
 ```yml
 ---
----
 services:
 	riven-frontend:
 		image: spoked/riven-frontend:latest
