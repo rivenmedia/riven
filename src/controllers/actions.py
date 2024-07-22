@@ -17,7 +17,7 @@ router = APIRouter(
 
 
 @router.post("/request")
-async def request(request: Request, imdb_id: Optional[str]) -> Dict[str, Any]:
+async def request(request: Request, imdb_id: str) -> Dict[str, Any]:
     if not imdb_id:
         logger.log("API", "No imdb id passed, skipping requesting")
         return {"success": False, "message": "Invalid request"}
