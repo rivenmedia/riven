@@ -1,0 +1,55 @@
+---
+services:
+  riven-frontend:
+    image: spoked/riven-frontend:latest
+    container_name: riven-frontend
+    restart: unless-stopped
+    network_mode: host
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - ORIGIN=http://localhost:3000 # No trailing slash, read more below
+      - BACKEND_URL=http://127.0.0.1:8080 # No trailing slash, read more below
+      - TZ=Europe/Amsterdam
+    depends_on:
+      riven:
+        condition: service_healthy
+      
+  riven:
+    image: spoked/riven:latest
+    container_name: riven
+    restart: unless-stopped
+    network_mode: host
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - BACKEND_URL=http://localhost:8080
+      - TZ=Europe/Amsterdam
+      - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@localhost/riven
+    healthcheck:
+      test: curl -s http://localhost:8080 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - ./riven-data:/riven/data
+      - /mnt:/mnt
+    depends_on:
+      riven_postgres:
+        condition: service_healthy
+        
+  riven_postgres:
+    image: postgres:16.3-alpine3.20
+    container_name: riven-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: riven
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    network_mode: host
