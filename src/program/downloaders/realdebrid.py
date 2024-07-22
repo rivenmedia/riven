@@ -234,7 +234,6 @@ class RealDebridDownloader:
                     logger.debug(f"Found wanted files for {item.log_string} in {stream_hash}")
                     return True
         # False if no cached files in containers (provider_list)
-        logger.debug(f"No wanted files found for {item.log_string} in {stream_hash}")
         return False
 
     def _is_wanted_movie(self, container: dict, item: Movie) -> bool:
@@ -263,11 +262,10 @@ class RealDebridDownloader:
                 parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.parsed_title:
                     continue
-                if parsed_file.type == "movie":
-                    item.set("folder", item.active_stream.get("name"))
-                    item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                    item.set("file", file["filename"])
-                    return True
+                item.set("folder", item.active_stream.get("name"))
+                item.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                item.set("file", file["filename"])
+                return True
         return False
 
     def _is_wanted_episode(self, container: dict, item: Episode) -> bool:
@@ -362,10 +360,9 @@ class RealDebridDownloader:
                     if not filename or "sample" in filename.lower():
                         continue
                     ep = next(episode for episode in item.episodes if episode.number == ep_num)
-                    if ep.state in acceptable_states and ep.is_released_nolog:
-                        ep.set("folder", item.active_stream.get("name"))
-                        ep.set("alternative_folder", item.active_stream.get("alternative_name"))
-                        ep.set("file", filename)
+                    ep.set("folder", item.active_stream.get("name"))
+                    ep.set("alternative_folder", item.active_stream.get("alternative_name"))
+                    ep.set("file", filename)
             return True
         return False
 
@@ -432,10 +429,9 @@ class RealDebridDownloader:
                         continue
                     season = next(season for season in item.seasons if season.number == season_number)
                     episode = next(episode for episode in season.episodes if episode.number == episode_number)
-                    if episode.state in acceptable_states and episode.is_released_nolog:
-                        episode.set("folder", item.active_stream.get("name"))
-                        episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                        episode.set("file", filename)
+                    episode.set("folder", item.active_stream.get("name"))
+                    episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                    episode.set("file", filename)
             return True
         return False
 
