@@ -35,7 +35,7 @@ psycopg2-binary = "^2.9.9"
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
 pyperf = "^2.2.0"
-pytest = "^8.2.2"
+pytest = "^8.3.1"
 pyfakefs = "^5.4.1"
 ruff = "^0.3.0"
 isort = "^5.10.1"
