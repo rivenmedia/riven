@@ -148,11 +148,11 @@ services:
     volumes:
       - ./riven-data:/riven/data
       - /mnt:/mnt
-    depends_on:
+    depends_on: # Add # before all {depend: riven_postgress} lines when using SQLite
       riven_postgres:
         condition: service_healthy
         
-  riven_postgres: # Add #before all {riven_postgres} lines when using SQLite
+  riven_postgres: # Add # before all {riven_postgres} lines when using SQLite
     image: postgres:16.3-alpine3.20
     container_name: riven-db
     environment:
