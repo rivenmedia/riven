@@ -1,6 +1,8 @@
-name: Run Battery of Checks for Backend
+name: Linting and Testing
 
-on: [push, pull_request]
+on:
+  pull_request:
+    branches: [ main ]
 
 jobs:
   battery:
@@ -32,19 +34,19 @@ jobs:
         pip install poetry
         poetry install --no-root --with dev
 
-    # - name: Ruff & Isort Check
-    #   run: |
-    #     poetry run ruff check ./src
-    #     poetry run isort --check-only ./src
+    - name: Ruff & Isort Check
+      run: |
+        poetry run ruff check ./src
+        poetry run isort --check-only ./src
 
-    # - name: Type check
-    #   run: poetry run pyright
+    - name: Type check
+      run: poetry run pyright
 
-    # - name: Run Tests & Coverage
-    #   run: poetry run pytest --cov=./src --cov-report=xml
+    - name: Run Tests & Coverage
+      run: poetry run pytest --cov=./src --cov-report=xml
 
-    # - name: Upload Coverage Report to Codecov
-    #   uses: codecov/codecov-action@v4.1.1
-    #   with:
-    #     token: ${{ secrets.CODECOV_TOKEN }}
-    #     file: ./coverage.xml
+    - name: Upload Coverage Report to Codecov
+      uses: codecov/codecov-action@v4.1.1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml
