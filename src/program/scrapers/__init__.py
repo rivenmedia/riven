@@ -6,7 +6,6 @@ from typing import Dict, Generator, List, Union
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers.annatar import Annatar
-from program.scrapers.comet import Comet
 from program.scrapers.jackett import Jackett
 from program.scrapers.knightcrawler import Knightcrawler
 from program.scrapers.mediafusion import Mediafusion
@@ -16,6 +15,7 @@ from program.scrapers.shared import _parse_results
 from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.zilean import Zilean
+from program.scrapers.comet import Comet
 from program.settings.manager import settings_manager
 from RTN import Torrent
 from utils.logger import logger
@@ -47,9 +47,11 @@ class Scraping:
 
     def yield_incomplete_children(self, item: MediaItem) -> Union[List[Season], List[Episode]]:
         if isinstance(item, Season):
-            return [e for e in item.episodes if e.state != States.Completed and e.is_released and self.should_submit(e)]
+            res = [e for e in item.episodes if e.state != States.Completed and e.is_released and self.should_submit(e)]
+            return res
         if isinstance(item, Show):
-            return [s for s in item.seasons if s.state != States.Completed and s.is_released and self.should_submit(s)]
+            res = [s for s in item.seasons if s.state != States.Completed and s.is_released and self.should_submit(s)]
+            return res
         return None
 
     def partial_state(self, item: MediaItem) -> bool:
@@ -75,7 +77,7 @@ class Scraping:
             return
 
         partial_state = self.partial_state(item)
-        if partial_state is not False:
+        if partial_state != False:
             yield partial_state
             return
 

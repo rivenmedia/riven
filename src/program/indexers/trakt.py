@@ -188,8 +188,8 @@ def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
 
 def get_imdb_id_from_list(namespaces):
     for ns in namespaces:
-        if ns.type == "movie":
+        if ns.type == 'movie':
             return ns.movie.ids.imdb
-        elif ns.type == "show":
+        elif ns.type == 'show':
             return ns.show.ids.imdb
     return None

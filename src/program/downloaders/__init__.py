@@ -1,9 +1,8 @@
+from .realdebrid import RealDebridDownloader
+from .alldebrid import AllDebridDownloader
+from .torbox import TorBoxDownloader
 from program.media.item import MediaItem
 from utils.logger import logger
-
-from .alldebrid import AllDebridDownloader
-from .realdebrid import RealDebridDownloader
-from .torbox import TorBoxDownloader
 
 
 class Downloader:

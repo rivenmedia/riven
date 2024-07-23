@@ -1,11 +1,9 @@
 import os
-
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.types import Event
-from sqlalchemy import func, select
+from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from utils.logger import logger
-
+from program.types import Event
 from .db import db
 
 
@@ -18,7 +16,7 @@ def _ensure_item_exists_in_db(item:MediaItem) -> bool:
 def _get_item_type_from_db(item: MediaItem) -> str:
     with db.Session() as session:
         if item._id is None:
-            return session.execute(select(MediaItem.type).where( (MediaItem.imdb_id==item.imdb_id ) & ( (MediaItem.type == "show") | (MediaItem.type == "movie") ) )).scalar_one() 
+            return session.execute(select(MediaItem.type).where( (MediaItem.imdb_id==item.imdb_id ) & ( (MediaItem.type == 'show') | (MediaItem.type == 'movie') ) )).scalar_one() 
         return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
     
 def _store_item(item: MediaItem):
@@ -57,7 +55,8 @@ def _get_item_from_db(session, item: MediaItem):
             return None
 
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
-    if _ensure_item_exists_in_db(item) is False and isinstance(item, (Show, Movie, Season, Episode)):
+    if _ensure_item_exists_in_db(item) == False:
+        if isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
             session.add(item)
             session.commit()
@@ -83,7 +82,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                                 all_media_items = False
 
                         program._remove_from_running_items(item, service.__name__)
-                        if all_media_items is True:
+                        if all_media_items == True:
                             for i in res:
                                 program._push_event_queue(Event(emitted_by="_run_thread_with_db_item", item=i))
                         session.commit()
@@ -119,6 +118,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
 
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
+    print("Hard reset detected, dropping all tables") # Logging isn't initialized here yet.
     def run_delete(_type):
         with db.Session() as session:
             all = session.execute(select(_type).options(joinedload("*"))).unique().scalars().all()

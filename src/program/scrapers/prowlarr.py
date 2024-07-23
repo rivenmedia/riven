@@ -163,7 +163,7 @@ class Prowlarr:
 
     def _search_movie_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
-        if indexer.movie_search_capabilities is None:
+        if indexer.movie_search_capabilities == None:
             return []
         params = {
             "apikey": self.api_key,
@@ -180,7 +180,7 @@ class Prowlarr:
 
     def _search_series_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for series on the given indexer"""
-        if indexer.tv_search_capabilities is None:
+        if indexer.tv_search_capabilities == None:
             return []
         q, season, ep = self._get_series_search_params(item)
 
@@ -227,7 +227,15 @@ class Prowlarr:
         """Parse the indexers from the XML content"""
         indexer_list = []
         for indexer in json.loads(json_content):
-            indexer_list.append(ProwlarrIndexer(title=indexer["name"], id=str(indexer["id"]), link=indexer["infoLink"], type=indexer["protocol"], language=indexer["language"], movie_search_capabilities=(s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None, tv_search_capabilities=(s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None))
+            indexer_list.append(ProwlarrIndexer(**{
+                "title": indexer["name"],
+                "id": str(indexer["id"]),
+                "link": indexer["infoLink"],
+                "type": indexer["protocol"],
+                "language": indexer["language"],
+                "movie_search_capabilities": (s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None,
+                "tv_search_capabilities":  (s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None
+            }))
             
         return indexer_list
 
@@ -266,7 +274,7 @@ class Prowlarr:
             infohashes_found = True
             result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
         len_data = len(data)
-        if infohashes_found is False and len_data > 0:
+        if infohashes_found == False and len_data > 0:
             logger.warning(f"{self.key} Tracker {indexer_title} may never return infohashes, consider disabling: {len_data} items found, None contain infohash.")
         return result_list
 

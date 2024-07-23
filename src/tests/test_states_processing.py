@@ -161,10 +161,10 @@ def test_process_event_transition_shows(state, service, next_service, show):
     show._determine_state = lambda: state  # Manually override the state
 
     # Ensure the show has seasons and episodes
-    if not hasattr(show, "seasons"):
+    if not hasattr(show, 'seasons'):
         show.seasons = []
     for season in show.seasons:
-        if not hasattr(season, "episodes"):
+        if not hasattr(season, 'episodes'):
             season.episodes = []
 
     # When: The event is processed

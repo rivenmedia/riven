@@ -28,7 +28,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             return no_further_processing
         return None, next_service, [item]
 
-    elif item.state in (States.Indexed, States.PartiallyCompleted):
+    elif emitted_by == TraktIndexer or item.state == States.Indexed or item.state == States.PartiallyCompleted:
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:

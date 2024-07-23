@@ -97,7 +97,7 @@ async def set_settings(settings: List[SetSettings]):
         settings_manager.load(settings_dict=updated_settings.model_dump())
         settings_manager.save()  # Ensure the changes are persisted
     except ValidationError as e:
-        raise HTTPException from e(
+        raise HTTPException(
             status_code=400,
             detail=f"Failed to update settings: {str(e)}",
         )

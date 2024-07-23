@@ -1,14 +1,14 @@
 from typing import List, Optional
 
 import Levenshtein
-import program.db.db_functions as DB
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
-from program.media.item import Episode, MediaItem, Season
+from sqlalchemy import select, func
+import program.db.db_functions as DB
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.symlink import Symlinker
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from utils.logger import logger
 
 router = APIRouter(
@@ -36,7 +36,7 @@ async def get_states():
     description="Fetch media items with optional filters and pagination",
 )
 async def get_items(
-    _: Request,
+    request: Request,
     limit: Optional[int] = 50,
     page: Optional[int] = 1,
     type: Optional[str] = None,
@@ -115,7 +115,7 @@ async def get_items(
 
 
 @router.get("/extended/{item_id}")
-async def get_extended_item_info(_: Request, item_id: str):
+async def get_extended_item_info(request: Request, item_id: str):
     with db.Session() as session:
         item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
         if item is None:
@@ -199,12 +199,12 @@ async def remove_item(
         }
     except Exception as e:
         logger.error(f"Failed to remove item with {id_type} {item_id or imdb_id}: {e}")
-        raise HTTPException from e(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/imdb/{imdb_id}")
 async def get_imdb_info(
-    _: Request,
+    request: Request,
     imdb_id: str,
     season: Optional[int] = None,
     episode: Optional[int] = None,
