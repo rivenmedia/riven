@@ -96,6 +96,8 @@ class RealDebridDownloader:
             logger.error("Connection to Real-Debrid timed out.")
         except Exception as e:
             logger.exception(f"Failed to validate Real-Debrid settings: {e}")
+        except:
+            logger.error("Couldn't parse user data response from Real-Debrid.")
         return False
 
 

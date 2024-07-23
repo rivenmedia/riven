@@ -18,7 +18,13 @@ class Updater:
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
-        return any(service.initialized for service in self.services.values())
+        initialized_services = [service for service in self.services.values() if service.initialized]
+
+        if self.services[LocalUpdater].initialized and len(initialized_services) > 1:
+            logger.error("Local updater can not be used together with other updaters.")
+            return False
+
+        return len(initialized_services) > 0
 
     def run(self, item: MediaItem):
         if not self.initialized:
