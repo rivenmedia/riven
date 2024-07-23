@@ -268,17 +268,16 @@ class Symlinker:
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
         """Create necessary folders and determine the destination path for symlinks."""
-        is_anime: bool = hasattr(item, 'is_anime') and item.is_anime
+        is_anime: bool = hasattr(item, "is_anime") and item.is_anime
 
         movie_path: Path = self.library_path_movies
         show_path: Path = self.library_path_shows
 
-        if self.settings.separate_anime_dirs:
-            if is_anime:
-                if isinstance(item, Movie):
-                    movie_path = self.library_path_anime_movies
-                elif isinstance(item, (Show, Season, Episode)):
-                    show_path = self.library_path_anime_shows
+        if self.settings.separate_anime_dirs and is_anime:
+            if isinstance(item, Movie):
+                movie_path = self.library_path_anime_movies
+            elif isinstance(item, (Show, Season, Episode)):
+                show_path = self.library_path_anime_shows
 
         def create_folder_path(base_path, *subfolders):
             path = os.path.join(base_path, *subfolders)
@@ -309,18 +308,17 @@ class Symlinker:
             destination_folder = create_folder_path(show_path, folder_season_name)
             item.set("update_folder", destination_folder)
 
-        destination_path = os.path.join(destination_folder, filename.replace("/", "-"))
-        return destination_path
+        return os.path.join(destination_folder, filename.replace("/", "-"))
 
     def extract_imdb_id(self, path: Path) -> Optional[str]:
         """Extract IMDb ID from the file or folder name using regex."""
-        match = re.search(r'tt\d+', path.name)
+        match = re.search(r"tt\d+", path.name)
         if match:
             return match.group(0)
-        match = re.search(r'tt\d+', path.parent.name)
+        match = re.search(r"tt\d+", path.parent.name)
         if match:
             return match.group(0)
-        match = re.search(r'tt\d+', path.parent.parent.name)
+        match = re.search(r"tt\d+", path.parent.parent.name)
         if match:
             return match.group(0)
 
@@ -330,7 +328,7 @@ class Symlinker:
     def extract_season_episode(self, filename: str) -> (Optional[int], Optional[int]):
         """Extract season and episode numbers from the file name using regex."""
         season = episode = None
-        match = re.search(r'[Ss](\d+)[Ee](\d+)', filename)
+        match = re.search(r"[Ss](\d+)[Ee](\d+)", filename)
         if match:
             season = int(match.group(1))
             episode = int(match.group(2))

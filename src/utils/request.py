@@ -9,9 +9,9 @@ from lxml import etree
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectTimeout, RequestException
 from urllib3.util.retry import Retry
-from xmltodict import parse as parse_xml
-from utils.useragents import user_agent_factory
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
+from utils.useragents import user_agent_factory
+from xmltodict import parse as parse_xml
 
 logger = logging.getLogger(__name__)
 

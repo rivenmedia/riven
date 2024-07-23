@@ -7,8 +7,8 @@ from program.settings.models import TorrentioConfig
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import get, ping
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
+from utils.request import get, ping
 
 
 class Torrentio:
@@ -95,7 +95,7 @@ class Torrentio:
             elif isinstance(item, Movie):
                 identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
             else:
-                logger.error(f"Invalid media item type")
+                logger.error("Invalid media item type")
                 return None, None, None
             return identifier, scrape_type, imdb_id
         except Exception as e:

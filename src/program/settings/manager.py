@@ -4,7 +4,7 @@ import os
 from program.settings.models import AppModel, Observable
 from pydantic import ValidationError
 from utils import data_dir_path
-from utils.logger import logger
+from loguru import logger
 
 
 class SettingsManager:
