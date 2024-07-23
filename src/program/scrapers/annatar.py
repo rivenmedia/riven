@@ -6,8 +6,8 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import get
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
+from utils.request import get
 
 
 class Annatar:
@@ -95,7 +95,7 @@ class Annatar:
         if isinstance(item, Show):
             scrape_type = "series"
             imdb_id = item.imdb_id
-            identifier = f"season=1"
+            identifier = "season=1"
         elif isinstance(item, Season):
             scrape_type = "series"
             imdb_id = item.parent.imdb_id

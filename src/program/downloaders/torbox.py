@@ -1,15 +1,13 @@
 import contextlib
 from datetime import datetime
+from pathlib import Path
 from posixpath import splitext
 from typing import Generator
-from pathlib import Path
-from RTN import parse
-from RTN.exceptions import GarbageTorrent
-from requests import ConnectTimeout
 
-from program.media.state import States
 from program.media.item import MediaItem
+from program.media.state import States
 from program.settings.manager import settings_manager
+from requests import ConnectTimeout
 from RTN import parse
 from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
@@ -184,11 +182,7 @@ class TorBoxDownloader:
                     ):
                         continue
                     # Check if the file's season matches the item's season or if there's only one season
-                    if season_num in parsed_file.season:
-                        for ep_num in parsed_file.episode:
-                            if ep_num in needed_episodes:
-                                matched_files.append(file)
-                    elif one_season:
+                    if season_num in parsed_file.season or one_season:
                         for ep_num in parsed_file.episode:
                             if ep_num in needed_episodes:
                                 matched_files.append(file)

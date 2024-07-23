@@ -1,11 +1,10 @@
 """Riven settings models"""
 from pathlib import Path
-from typing import Callable, Dict, List, Any
-
-from pydantic import BaseModel, field_validator
-from RTN.models import CustomRank, SettingsModel
+from typing import Any, Callable, Dict, List
 
 from program.settings.migratable import MigratableBaseModel
+from pydantic import BaseModel, field_validator
+from RTN.models import CustomRank, SettingsModel
 from utils import version_file_path
 
 
@@ -353,7 +352,7 @@ class AppModel(Observable):
 
     def __init__(self, **data: Any):
         current_version = get_version()
-        existing_version = data.get('version', current_version)
+        existing_version = data.get("version", current_version)
         super().__init__(**data)
         if existing_version < current_version:
             self.version = current_version

@@ -155,7 +155,7 @@ class Jackett:
 
     def _search_movie_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
-        if indexer.movie_search_capabilities == None:
+        if indexer.movie_search_capabilities is None:
             return []
         params = {
             "apikey": self.api_key,
@@ -173,7 +173,7 @@ class Jackett:
 
     def _search_series_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
         """Search for series on the given indexer"""
-        if indexer.tv_search_capabilities == None:
+        if indexer.tv_search_capabilities is None:
             return []
         q, season, ep = self._get_series_search_params(item)
 

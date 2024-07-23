@@ -7,6 +7,7 @@ import time
 import traceback
 
 import uvicorn
+from controllers.actions import router as actions_router
 from controllers.default import router as default_router
 from controllers.items import router as items_router
 
@@ -14,7 +15,6 @@ from controllers.items import router as items_router
 from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
 from controllers.webhooks import router as webhooks_router
-from controllers.actions import router as actions_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from program import Program
@@ -99,8 +99,8 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
-def signal_handler(sig, frame):
-    logger.log('PROGRAM','Exiting Gracefully.')
+def signal_handler():
+    logger.log("PROGRAM","Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)
 
