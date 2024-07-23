@@ -42,7 +42,7 @@ jobs:
 
     - name: Read VERSION file
       id: version
-      run: echo "VERSION=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+      run: echo "VERSION=$(cat version.txt)" >> "$GITHUB_OUTPUT"
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5.3.0
