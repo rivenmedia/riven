@@ -147,7 +147,7 @@ class Program(threading.Thread):
                         if isinstance(item, (Movie, Show)):
                             try:
                                 item = next(self.services[TraktIndexer].run(item))
-                            except StopIteration:
+                            except StopIteration as e:
                                 logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
                                 continue
                             if item.item_id in added:
