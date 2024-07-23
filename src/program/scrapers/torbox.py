@@ -1,12 +1,15 @@
-from typing import Dict
+from typing import Dict, Generator
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
+from program.settings.versions import models
 from requests import RequestException
 from requests.exceptions import ConnectTimeout, ReadTimeout, RetryError
+from RTN import RTN, Torrent, sort_torrents
+from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
-from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class TorBoxScraper:

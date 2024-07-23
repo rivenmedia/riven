@@ -26,13 +26,14 @@ from .state_transition import process_event
 from .symlink import Symlinker
 from .types import Event, Service
 
+
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
+from program.db.db import db, alembic, run_migrations
+from sqlalchemy import select, func
+from sqlalchemy.orm import joinedload
 import program.db.db_functions as DB
-from program.db.db import db, run_migrations
-from sqlalchemy import func, select
-
 
 class Program(threading.Thread):
     """Program class"""
@@ -122,7 +123,7 @@ class Program(threading.Thread):
         except Exception as e:
             logger.exception(f"Failed to initialize services: {e}")
 
-        max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
+        max_worker_env_vars = [var for var in os.environ if var.endswith('_MAX_WORKERS')]
         if max_worker_env_vars:
             for var in max_worker_env_vars:
                 logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
@@ -159,8 +160,8 @@ class Program(threading.Thread):
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 session.commit()
 
-            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked is True)).scalar_one()
-            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked is True)).scalar_one()
+            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
             total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
             total_shows = session.execute(select(func.count(Show._id))).scalar_one()
@@ -235,31 +236,37 @@ class Program(threading.Thread):
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _id_in_queue(self, id):
-        return any(i._id == id for i in self.queued_items)
+        for i in self.queued_items:
+            if i._id == id:
+                return True
+        return False
 
     def _id_in_running_items(self, id):
-        return any(i._id == id for i in self.running_items)
+        for i in self.running_items:
+            if i._id == id:
+                return True
+        return False
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if( event.item not in self.queued_items and event.item not in self.running_items):
+            if( not event.item in self.queued_items and not event.item in self.running_items):
                 if hasattr(event.item, "_id"):
                     if isinstance(event.item, Show):
                         for s in event.item.seasons:
                             if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
-                                return None
+                                return
                             for e in s.episodes:
                                 if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                                    return None
+                                    return
 
                     if isinstance(event.item, Season):
                         for e in event.item.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                                return None
+                                return
                     if hasattr(event.item, "parent") and ( self._id_in_queue(event.item.parent._id) or self._id_in_running_items(event.item.parent._id) ):
-                        return None
+                        return
                     if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and ( self._id_in_queue(event.item.parent.parent._id) or self._id_in_running_items(event.item.parent.parent._id)):
-                        return None
+                        return
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
                 if not isinstance(event.item, (Show, Movie, Episode, Season)):
@@ -285,21 +292,23 @@ class Program(threading.Thread):
         if item is None:
             return
         if item not in self.running_items:
-            if isinstance(item, MediaItem) and not self._id_in_running_items(item._id) or not isinstance(item, MediaItem):
+            if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
+                self.running_items.append(item)
+            elif not isinstance(item, MediaItem):
                 self.running_items.append(item)
             logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            for _item in future.result():
+            for item in future.result():
                 pass
             if orig_item is not None:
                 logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
             else:
                 logger.log("PROGRAM", f"Service {service.__name__} finished running.")
         except TimeoutError:
-            logger.debug("Service {service.__name__} timeout waiting for result on {orig_item.log_string}")
+            logger.debug('Service {service.__name__} timeout waiting for result on {orig_item.log_string}')
             self._remove_from_running_items(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
@@ -338,8 +347,8 @@ class Program(threading.Thread):
         future = cur_executor.submit(func, fn, service, self, item)  #cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
         future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
-    def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
-        top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
+    def display_top_allocators(self, snapshot, key_type='lineno', limit=10):
+        top_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
 
         logger.debug("Top %s lines" % limit)
         for index, stat in enumerate(top_stats[:limit], 1):
@@ -350,7 +359,7 @@ class Program(threading.Thread):
                 % (index, filename, frame.lineno, stat.size / 1024))
             line = linecache.getline(frame.filename, frame.lineno).strip()
             if line:
-                logger.debug("    %s" % line)
+                logger.debug('    %s' % line)
 
         other = top_stats[limit:]
         if other:
@@ -361,6 +370,7 @@ class Program(threading.Thread):
 
     def dump_tracemalloc(self):
         if self.enable_trace and time.monotonic() - self.malloc_time > 60:
+            print("Taking Snapshot " + str(time.monotonic() - self.malloc_time) )
             self.malloc_time = time.monotonic()
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
@@ -406,9 +416,9 @@ class Program(threading.Thread):
         self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
             for executor in self.executors:
-                if not getattr(executor["_executor"], "_shutdown", False):
+                if not getattr(executor["_executor"], '_shutdown', False):
                     executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler") and getattr(self.scheduler, "running", False):
+        if hasattr(self, "scheduler") and getattr(self.scheduler, 'running', False):
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
 

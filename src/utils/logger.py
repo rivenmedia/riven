@@ -1,5 +1,6 @@
 """Logging utils"""
 
+import logging
 import os
 import sys
 from datetime import datetime
@@ -8,6 +9,7 @@ from loguru import logger
 from program.settings.manager import settings_manager
 from rich.console import Console
 from utils import data_dir_path
+
 
 LOG_ENABLED: bool = settings_manager.settings.log
 

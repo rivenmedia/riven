@@ -3,8 +3,8 @@ from typing import Any, Dict
 import pydantic
 from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
-from program.indexers.trakt import get_imdbid_from_tmdb
-from program.media.item import MediaItem
+from program.indexers.trakt import TraktIndexer, get_imdbid_from_tmdb
+from program.media.item import MediaItem, Show
 from requests import RequestException
 from utils.logger import logger
 
@@ -38,7 +38,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     if not imdb_id:
         try:
             imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
-        except RequestException:
+        except RequestException as e:
             logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
             return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
         if not imdb_id:
@@ -59,7 +59,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
         request.app.program.add_to_queue(new_item)
-    except Exception:
+    except Exception as e:
         logger.error(f"Failed to create item from imdb_id: {imdb_id}")
         return {"success": False, "message": "Failed to create item from imdb_id", "title": req.subject}
 

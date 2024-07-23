@@ -5,8 +5,8 @@ from typing import Generator
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
-from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
+from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
 class Mdblist:

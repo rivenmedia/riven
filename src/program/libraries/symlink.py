@@ -60,12 +60,12 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
         if files
     ]
     for path, filename in items:
-        imdb_id = re.search(r"(tt\d+)", filename)
-        title = re.search(r"(.+)?( \()", filename)
+        imdb_id = re.search(r'(tt\d+)', filename)
+        title = re.search(r'(.+)?( \()', filename)
         if not imdb_id or not title:
             logger.error(f"Can't extract {item_type} imdb_id or title at path {path / filename}")
             continue
-        item = item_class({"imdb_id": imdb_id.group(), "title": title.group(1)})
+        item = item_class({'imdb_id': imdb_id.group(), 'title': title.group(1)})
         if settings_manager.settings.force_refresh:
             item.set("symlinked", True)
             item.set("update_folder", path)
@@ -80,28 +80,28 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
 def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
     """Process shows in the given directory and yield Show instances."""
     for show in os.listdir(directory):
-        imdb_id = re.search(r"(tt\d+)", show)
-        title = re.search(r"(.+)?( \()", show)
+        imdb_id = re.search(r'(tt\d+)', show)
+        title = re.search(r'(.+)?( \()', show)
         if not imdb_id or not title:
             logger.log("NOT_FOUND", f"Can't extract {item_type} imdb_id or title at path {directory / show}")
             continue
-        show_item = Show({"imdb_id": imdb_id.group(), "title": title.group(1)})
+        show_item = Show({'imdb_id': imdb_id.group(), 'title': title.group(1)})
         if is_anime:
             show_item.is_anime = True
         seasons = {}
         for season in os.listdir(directory / show):
-            if not (season_number := re.search(r"(\d+)", season)):
+            if not (season_number := re.search(r'(\d+)', season)):
                 logger.log("NOT_FOUND", f"Can't extract season number at path {directory / show / season}")
                 continue
-            season_item = Season({"number": int(season_number.group())})
+            season_item = Season({'number': int(season_number.group())})
             episodes = {}
             for episode in os.listdir(directory / show / season):
-                if not (episode_number := re.search(r"s\d+e(\d+)", episode)):
+                if not (episode_number := re.search(r's\d+e(\d+)', episode)):
                     logger.log("NOT_FOUND", f"Can't extract episode number at path {directory / show / season / episode}")
                     # Delete the episode since it can't be indexed
                     os.remove(directory / show / season / episode)
                     continue
-                episode_item = Episode({"number": int(episode_number.group(1))})
+                episode_item = Episode({'number': int(episode_number.group(1))})
                 if settings_manager.settings.force_refresh:
                     episode_item.set("symlinked", True)
                     episode_item.set("update_folder", f"{directory}/{show}/{season}/{episode}")
@@ -114,9 +114,9 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                 episodes[int(episode_number.group(1))] = episode_item
             if len(episodes) > 0:
                 for i in range(1, max(episodes.keys())+1):
-                    season_item.add_episode(episodes.get(i, Episode({"number": i})))
+                    season_item.add_episode(episodes.get(i, Episode({'number': i})))
                 seasons[int(season_number.group())] = season_item
         if len(seasons) > 0:
             for i in range(1, max(seasons.keys())+1):
-                show_item.add_season(seasons.get(i, Season({"number": i})))
+                show_item.add_season(seasons.get(i, Season({'number': i})))
         yield show_item

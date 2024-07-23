@@ -1,14 +1,16 @@
 """Trakt content module"""
 import re
 import time
-from urllib.parse import urlencode
+from types import SimpleNamespace
+from urllib.parse import urlencode, urlparse
 
+import regex
 from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from requests import RequestException
 from utils.logger import logger
-from utils.ratelimiter import RateLimiter
 from utils.request import get, post
+from utils.ratelimiter import RateLimiter
 
 
 class TraktContent:
@@ -41,7 +43,7 @@ class TraktContent:
                 logger.error("Trakt API key is not set.")
                 return False
             response = get(f"{self.api_url}/lists/2", additional_headers=self.headers)
-            if not getattr(response.data, "name", None):
+            if not getattr(response.data, 'name', None):
                 logger.error("Invalid user settings received from Trakt.")
                 return False
             return True
@@ -220,7 +222,8 @@ class TraktContent:
             "client_id": self.settings.oauth_client_id,
             "redirect_uri": self.settings.oauth_redirect_uri,
         }
-        return f"{self.api_url}/oauth/authorize?{urlencode(params)}"
+        auth_url = f"{self.api_url}/oauth/authorize?{urlencode(params)}"
+        return auth_url
 
     def handle_oauth_callback(self, code: str) -> bool:
         """Handle the OAuth callback and exchange the code for an access token."""
@@ -355,6 +358,6 @@ def _resolve_short_url(short_url) -> str or None:
         return None
 
 patterns: dict[str, re.Pattern] = {
-    "user_list": re.compile(r"https://trakt.tv/users/([^/]+)/lists/([^/]+)"),
-    "short_list": re.compile(r"https://trakt.tv/lists/\d+")
+    "user_list": re.compile(r'https://trakt.tv/users/([^/]+)/lists/([^/]+)'),
+    "short_list": re.compile(r'https://trakt.tv/lists/\d+')
 }
