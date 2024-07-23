@@ -151,8 +151,8 @@ class Program(threading.Thread):
                                 logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
                                 continue
                             if item.item_id in added:
-                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required.")
-                                exit(0)
+                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
+                                continue
                             added.append(item.item_id)
                             item.store_state()
                             session.add(item)
