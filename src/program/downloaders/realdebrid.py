@@ -6,7 +6,7 @@ from datetime import datetime
 from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Generator, List, Union
+from typing import Generator, List
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -16,8 +16,8 @@ from RTN.exceptions import GarbageTorrent
 from RTN.parser import parse
 from RTN.patterns import extract_episodes
 from utils.logger import logger
-from utils.request import get, ping, post
 from utils.ratelimiter import RateLimiter
+from utils.request import get, ping, post
 
 WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
 RD_BASE_URL = "https://api.real-debrid.com/rest/1.0"
@@ -72,7 +72,7 @@ class RealDebridDownloader:
             if response.is_ok:
                 user_info = response.response.json()
                 expiration = user_info.get("expiration", "")
-                expiration_datetime = datetime.fromisoformat(expiration.replace('Z', '+00:00')).replace(tzinfo=None)
+                expiration_datetime = datetime.fromisoformat(expiration.replace("Z", "+00:00")).replace(tzinfo=None)
                 time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
                 days_left = time_left.days
                 hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
@@ -125,10 +125,7 @@ class RealDebridDownloader:
     @staticmethod
     def log_item(item: MediaItem) -> None:
         """Log only the files downloaded for the item based on its type."""
-        if isinstance(item, Movie):
-            if item.file and item.folder:
-                logger.log("DEBRID", f"Downloaded {item.log_string} with file: {item.file}")
-        elif isinstance(item, Episode):
+        if isinstance(item, (Episode, Movie)):
             if item.file and item.folder:
                 logger.log("DEBRID", f"Downloaded {item.log_string} with file: {item.file}")
         elif isinstance(item, Season):
@@ -245,7 +242,7 @@ class RealDebridDownloader:
             return False
 
         min_size = self.download_settings.movie_filesize_min * 1_000_000
-        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float("inf")
 
         filenames = sorted(
             (file for file in container.values() if file and file["filesize"] > min_size
@@ -277,7 +274,7 @@ class RealDebridDownloader:
             return False
 
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
 
         filenames = [
             file for file in container.values()
@@ -298,12 +295,7 @@ class RealDebridDownloader:
                 parsed_file = parse(file["filename"], remove_trash=True)
                 if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
                     continue
-                if item.number in parsed_file.episode and item.parent.number in parsed_file.season:
-                    item.set("folder", item.active_stream.get("name"))
-                    item.set("alternative_folder", item.active_stream.get("alternative_name"))
-                    item.set("file", file["filename"])
-                    return True
-                elif one_season and item.number in parsed_file.episode:
+                if item.number in parsed_file.episode and item.parent.number in parsed_file.season or one_season and item.number in parsed_file.episode:
                     item.set("folder", item.active_stream.get("name"))
                     item.set("alternative_folder", item.active_stream.get("alternative_name"))
                     item.set("file", file["filename"])
@@ -317,7 +309,7 @@ class RealDebridDownloader:
             return False
 
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
 
         # Filter and sort files once to improve performance
         filenames = [
@@ -375,7 +367,7 @@ class RealDebridDownloader:
             return False
 
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
 
         # Filter and sort files once to improve performance
         filenames = [
@@ -649,9 +641,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
         for file in torrent_info.files:
             if file.selected == 1:
                 file_episodes = extract_episodes(Path(file.path).name)
-                if season_number in file_episodes:
-                    matched_episodes.update(file_episodes)
-                elif one_season and file_episodes:
+                if season_number in file_episodes or one_season and file_episodes:
                     matched_episodes.update(file_episodes)
         return len(matched_episodes) >= len(episodes_in_season) // 2
 
@@ -667,10 +657,9 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
         if check_season(item):
             logger.info(f"{item.log_string} already exists in Real-Debrid account.")
             return True
-    elif isinstance(item, Episode):
-        if check_episode():
-            logger.info(f"{item.log_string} already exists in Real-Debrid account.")
-            return True
+    elif isinstance(item, Episode) and check_episode():
+        logger.info(f"{item.log_string} already exists in Real-Debrid account.")
+        return True
 
     logger.debug(f"No matching item found for {item.log_string}")
     return False

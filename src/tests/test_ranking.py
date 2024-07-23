@@ -1,5 +1,5 @@
 import pytest
-from RTN import RTN, SettingsModel, Torrent, DefaultRanking
+from RTN import RTN, DefaultRanking, SettingsModel, Torrent
 
 
 @pytest.fixture

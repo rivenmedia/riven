@@ -14,8 +14,8 @@ from RTN.exceptions import GarbageTorrent
 from RTN.parser import parse
 from RTN.patterns import extract_episodes
 from utils.logger import logger
-from utils.request import get, ping, post
 from utils.ratelimiter import RateLimiter
+from utils.request import get, ping, post
 
 WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
 AD_BASE_URL = "https://api.alldebrid.com/v4"
@@ -172,9 +172,9 @@ class AllDebridDownloader:
 
         for stream_chunk in _chunked(filtered_streams, 5):
             try:
-                params = {'agent': AD_AGENT}
+                params = {"agent": AD_AGENT}
                 for i, magnet in enumerate(stream_chunk):
-                    params[f'magnets[{i}]'] = magnet
+                    params[f"magnets[{i}]"] = magnet
 
                 response = get(f"{AD_BASE_URL}/magnet/instant", params=params, additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.inner_rate_limit, overall_rate_limiter=self.overall_rate_limiter)
                 if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
@@ -255,7 +255,7 @@ class AllDebridDownloader:
             return False
     
         min_size = self.download_settings.movie_filesize_min * 1_000_000
-        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.movie_filesize_max * 1_000_000 if self.download_settings.movie_filesize_max != -1 else float("inf")
     
         if not isinstance(file, dict) or file.get("s", 0) < min_size or file.get("s", 0) > max_size or splitext(file.get("n", "").lower())[1] not in WANTED_FORMATS:
             return False
@@ -276,7 +276,7 @@ class AllDebridDownloader:
             return False
     
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
     
         if not isinstance(file, dict) or file.get("s", 0) < min_size or file.get("s", 0) > max_size or splitext(file.get("n", "").lower())[1] not in WANTED_FORMATS:
             return False
@@ -299,7 +299,7 @@ class AllDebridDownloader:
             return False
     
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
     
         filenames = [
             file for file in files
@@ -344,7 +344,7 @@ class AllDebridDownloader:
             return False
     
         min_size = self.download_settings.episode_filesize_min * 1_000_000
-        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float('inf')
+        max_size = self.download_settings.episode_filesize_max * 1_000_000 if self.download_settings.episode_filesize_max != -1 else float("inf")
     
         filenames = [
             file for file in files
@@ -466,10 +466,7 @@ class AllDebridDownloader:
                         for file in link.files:
                             if isinstance(file, SimpleNamespace) and hasattr(file, "e"):
                                 for subfile in file.e:
-                                    if isinstance(item, Movie) and self._is_wanted_movie(subfile, item):
-                                        item.set("file", subfile.n)
-                                        break
-                                    elif isinstance(item, Episode) and self._is_wanted_episode(subfile, item):
+                                    if isinstance(item, Movie) and self._is_wanted_movie(subfile, item) or isinstance(item, Episode) and self._is_wanted_episode(subfile, item):
                                         item.set("file", subfile.n)
                                         break
             if not item.folder or not item.alternative_folder or not item.file:
@@ -493,9 +490,7 @@ class AllDebridDownloader:
                 for file in link.files:
                     if isinstance(file, SimpleNamespace) and hasattr(file, "e"):
                         for subfile in file.e:
-                            if isinstance(item, Season) and self._is_wanted_season(link.files, item):
-                                break
-                            elif isinstance(item, Show) and self._is_wanted_show(link.files, item):
+                            if isinstance(item, Season) and self._is_wanted_season(link.files, item) or isinstance(item, Show) and self._is_wanted_show(link.files, item):
                                 break
     
         if isinstance(item, Season) and item.folder:
@@ -515,9 +510,7 @@ class AllDebridDownloader:
                 for file in link.files:
                     if isinstance(file, SimpleNamespace) and hasattr(file, "e"):
                         for subfile in file.e:
-                            if isinstance(item, Season) and self._is_wanted_season(link.files, item):
-                                break
-                            elif isinstance(item, Show) and self._is_wanted_show(link.files, item):
+                            if isinstance(item, Season) and self._is_wanted_season(link.files, item) or isinstance(item, Show) and self._is_wanted_show(link.files, item):
                                 break
 
     ### API Methods for All-Debrid below
@@ -530,7 +523,7 @@ class AllDebridDownloader:
         try:
             hash = item.active_stream.get("hash")
             params = {"agent": AD_AGENT}
-            params[f'magnets[0]'] = hash
+            params["magnets[0]"] = hash
             response = post(
                 f"{AD_BASE_URL}/magnet/upload",
                 params=params,
@@ -626,9 +619,7 @@ class AllDebridDownloader:
             for file in torrent_info.files:
                 if file["selected"] == 1:
                     file_episodes = extract_episodes(Path(file["path"]).name)
-                    if season_number in file_episodes:
-                        matched_episodes.update(file_episodes)
-                    elif one_season and file_episodes:
+                    if season_number in file_episodes or one_season and file_episodes:
                         matched_episodes.update(file_episodes)
             return len(matched_episodes) >= len(episodes_in_season) // 2
     
@@ -644,10 +635,9 @@ class AllDebridDownloader:
             if check_season(item):
                 logger.info(f"{item.log_string} already exists in All-Debrid account.")
                 return True
-        elif isinstance(item, Episode):
-            if check_episode():
-                logger.info(f"{item.log_string} already exists in All-Debrid account.")
-                return True
+        elif isinstance(item, Episode) and check_episode():
+            logger.info(f"{item.log_string} already exists in All-Debrid account.")
+            return True
     
         logger.debug(f"No matching item found for {item.log_string}")
         return False

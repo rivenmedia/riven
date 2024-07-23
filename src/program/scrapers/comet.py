@@ -1,12 +1,10 @@
 """ Comet scraper module """
-from typing import Dict, Union
 import base64
 import json
-from urllib.parse import quote
+from typing import Dict, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.settings.models import CometConfig
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
@@ -29,7 +27,7 @@ class Comet:
             "debridService":"realdebrid",
             "debridApiKey": settings_manager.settings.downloaders.real_debrid.api_key,
             "debridStreamProxyPassword":""
-        }).encode('utf-8')).decode('utf-8')
+        }).encode("utf-8")).decode("utf-8")
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -106,7 +104,7 @@ class Comet:
             elif isinstance(item, Movie):
                 identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
             else:
-                logger.error(f"Invalid media item type")
+                logger.error("Invalid media item type")
                 return None, None, None
             return identifier, scrape_type, imdb_id
         except Exception as e:
@@ -134,15 +132,15 @@ class Comet:
         for stream in response.data.streams:
             # Split the URL by '/playback/' and then split the remaining part by '/'
 
-            url_parts = stream.url.split('/playback/')
+            url_parts = stream.url.split("/playback/")
 
             if len(url_parts) != 2:
-                logger.warning(f'Comet Playback url can\'t be parsed: {stream.url}')
+                logger.warning(f"Comet Playback url can't be parsed: {stream.url}")
 
-            end_parts = url_parts[1].split('/')
+            end_parts = url_parts[1].split("/")
 
             if len(end_parts) != 2:
-                logger.warning(f'End part of Comet Playback url can\'t be parsed ({end_parts}): {stream.url}')
+                logger.warning(f"End part of Comet Playback url can't be parsed ({end_parts}): {stream.url}")
 
             hash = end_parts[0]
 

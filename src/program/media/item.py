@@ -2,18 +2,16 @@
 from datetime import datetime
 from typing import List, Optional, Self
 
+import sqlalchemy
+from program.db.db import db
 from program.media.state import States
 from RTN import Torrent, parse
+from sqlalchemy import orm
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 # from RTN.patterns import extract_episodes
 from utils.logger import logger
 
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import relationship
-import sqlalchemy
-from sqlalchemy import orm
-
-from program.db.db import db
 
 class MediaItem(db.Model):
     """MediaItem class"""
@@ -69,7 +67,7 @@ class MediaItem(db.Model):
         # user_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("user_account.id"))
         # user: Mapped["User"] = relationship(lazy=False, back_populates="addresses")
         self.requested_at = item.get("requested_at", datetime.now())
-        self.requested_by = item.get("requested_by", None)
+        self.requested_by = item.get("requested_by")
 
         self.indexed_at = None
 
@@ -87,28 +85,28 @@ class MediaItem(db.Model):
         self.is_anime = item.get("is_anime", False)
 
         # Media related
-        self.title = item.get("title", None)
-        self.imdb_id =  item.get("imdb_id", None)
+        self.title = item.get("title")
+        self.imdb_id =  item.get("imdb_id")
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
             if not hasattr(self, "item_id"):
                 self.item_id = self.imdb_id
-        self.tvdb_id = item.get("tvdb_id", None)
-        self.tmdb_id = item.get("tmdb_id", None)
-        self.network = item.get("network", None)
-        self.country = item.get("country", None)
-        self.language = item.get("language", None)
-        self.aired_at = item.get("aired_at", None)
-        self.year = item.get("year" , None)
+        self.tvdb_id = item.get("tvdb_id")
+        self.tmdb_id = item.get("tmdb_id")
+        self.network = item.get("network")
+        self.country = item.get("country")
+        self.language = item.get("language")
+        self.aired_at = item.get("aired_at")
+        self.year = item.get("year")
         self.genres = item.get("genres", [])
 
         # Plex related
-        self.key = item.get("key", None)
-        self.guid = item.get("guid", None)
-        self.update_folder = item.get("update_folder", None)
+        self.key = item.get("key")
+        self.guid = item.get("guid")
+        self.update_folder = item.get("update_folder")
 
         # Overseerr related
-        self.overseerr_id = item.get("overseerr_id", None)
+        self.overseerr_id = item.get("overseerr_id")
 
     def store_state(self) -> None:
         self.last_state = self._determine_state().name
@@ -409,7 +407,7 @@ class Episode(MediaItem):
     __tablename__ = "Episode"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
-    parent: Mapped["Season"] = relationship(lazy=False, back_populates='episodes', foreign_keys="Episode.parent_id")
+    parent: Mapped["Season"] = relationship(lazy=False, back_populates="episodes", foreign_keys="Episode.parent_id")
     @orm.reconstructor
     def init_on_load(self):
         self.streams: Optional[dict[str, Torrent]] = {}

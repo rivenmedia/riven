@@ -7,8 +7,8 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import get, ping
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
+from utils.request import get, ping
 
 
 class Knightcrawler:

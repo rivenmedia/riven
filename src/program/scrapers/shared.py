@@ -18,7 +18,7 @@ rtn = RTN(settings_model, ranking_model, 0.821)
 def _get_stremio_identifier(item: MediaItem) -> str:
     """Get the stremio identifier for a media item based on its type."""
     if isinstance(item, Show):
-        identifier, scrape_type, imdb_id = f":1:1", "series", item.imdb_id
+        identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
     elif isinstance(item, Season):
         identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
     elif isinstance(item, Episode):
@@ -57,7 +57,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
                 continue
 
             if isinstance(item, Movie):
-                if hasattr(item, 'aired_at'):
+                if hasattr(item, "aired_at"):
                     # If the item has an aired_at date and it's not in the future, we can check the year
                     if item.aired_at <= datetime.now() and item.aired_at.year == torrent.data.year:
                         torrents.add(torrent)
@@ -70,10 +70,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
                     logger.error(f"No seasons found for {item.log_string}")
                     break
                 if (
-                    hasattr(torrent.data, 'season')
+                    hasattr(torrent.data, "season")
                     and len(torrent.data.season) >= (len(needed_seasons) - 1)
                     and (
-                        not hasattr(torrent.data, 'episode')
+                        not hasattr(torrent.data, "episode")
                         or len(torrent.data.episode) == 0
                     )
                     or torrent.data.is_complete
@@ -82,33 +82,32 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
 
             elif isinstance(item, Season):
                 if (
-                    len(getattr(torrent.data, 'season', [])) == 1
+                    len(getattr(torrent.data, "season", [])) == 1
                     and item.number in torrent.data.season
                     and (
-                        not hasattr(torrent.data, 'episode')
+                        not hasattr(torrent.data, "episode")
                         or len(torrent.data.episode) == 0
                     )
                     or torrent.data.is_complete
                 ):
                     torrents.add(torrent)
 
-            elif isinstance(item, Episode):
-                if (
-                    item.number in torrent.data.episode
-                    and (
-                        not hasattr(torrent.data, 'season')
-                        or item.parent.number in torrent.data.season
-                    )
-                    or torrent.data.is_complete
-                ):
-                    torrents.add(torrent)
+            elif isinstance(item, Episode) and (
+                item.number in torrent.data.episode
+                and (
+                    not hasattr(torrent.data, "season")
+                    or item.parent.number in torrent.data.season
+                )
+                or torrent.data.is_complete
+            ):
+                torrents.add(torrent)
 
             processed_infohashes.add(infohash)
 
-        except (ValueError, AttributeError) as e:
+        except (ValueError, AttributeError):
             # logger.error(f"Failed to parse: '{raw_title}' - {e}")
             continue
-        except GarbageTorrent as e:
+        except GarbageTorrent:
             # logger.debug(f"Trashing torrent {infohash}: '{raw_title}'")
             continue
 
