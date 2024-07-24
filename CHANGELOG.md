@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/rivenmedia/riven/compare/v0.8.0...v0.8.1) (2024-07-24)
+
+
+### Bug Fixes
+
+* moved poetry files to root workdir ([a0eb41b](https://github.com/rivenmedia/riven/commit/a0eb41b7aa93a635deaf04a56f57a0201c91d418))
+* revert appendleft on push_event_queue ([8becb59](https://github.com/rivenmedia/riven/commit/8becb5923b1ef103ddd4cb76f59778b7c1f2269f))
+
 ## 0.8.0 (2024-07-24)
 
 
