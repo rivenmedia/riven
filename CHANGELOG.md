@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/rivenmedia/riven/compare/v0.8.1...v0.8.2) (2024-07-24)
+
+
+### Bug Fixes
+
+* api port back to 8080 ([6a7cf4f](https://github.com/rivenmedia/riven/commit/6a7cf4fb16fc39142ab613afa05afca64908bfca))
+
 ## [0.8.1](https://github.com/rivenmedia/riven/compare/v0.8.0...v0.8.1) (2024-07-24)
 
 
