@@ -7,7 +7,8 @@ from program.db.db import db
 from program.media.state import States
 from RTN import Torrent, parse
 from sqlalchemy import orm
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, collections
+from .stream import Stream
 
 # from RTN.patterns import extract_episodes
 from utils.logger import logger
@@ -26,6 +27,7 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    streams: Mapped[List[Stream]] = relationship("Stream", back_populates="parent", cascade="all, delete-orphan")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -54,18 +56,7 @@ class MediaItem(db.Model):
         "polymorphic_on":"type",
         "with_polymorphic":"*",
     }
-    @orm.reconstructor
-    def init_on_load(self):
-        self.streams: Optional[dict[str, Torrent]] = {}
     def __init__(self, item: dict) -> None:
-        # id: Mapped[int] = mapped_column(primary_key=True)
-        # name: Mapped[str] = mapped_column(String(30))
-        # fullname: Mapped[Optional[str]]
-        # addresses: Mapped[List["Address"]] = relationship(lazy=False, 
-        # back_populates="user", cascade="all, delete-orphan"
-        # )
-        # user_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("user_account.id"))
-        # user: Mapped["User"] = relationship(lazy=False, back_populates="addresses")
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
 
@@ -74,7 +65,7 @@ class MediaItem(db.Model):
         self.scraped_at  = None
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", {})
-        self.streams: Optional[dict[str, Torrent]] = {}
+        self.streams: Optional[list[Stream]] = []
 
         self.symlinked = False
         self.symlinked_at = None
@@ -168,20 +159,9 @@ class MediaItem(db.Model):
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self):
-        return len(self.streams) > 0
-
-    def is_checked_for_availability(self):
-        """Check if item has been checked for availability."""
-        if self.streams:
-            return all(
-                stream.get("cached", None) is not None
-                for stream in self.streams.values()
-            )
-        return False
-
-    def has_complete_metadata(self) -> bool:
-        """Check if the item has complete metadata."""
-        return self.title is not None and self.aired_at is not None
+        return (len(self.streams) > 0 
+                and 
+                all(stream.blacklisted == False for stream in self.streams))
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""
@@ -289,9 +269,6 @@ class Movie(MediaItem):
         "polymorphic_identity": "movie",
         "polymorphic_load": "inline",
     }
-    @orm.reconstructor
-    def init_on_load(self):
-        self.streams: Optional[dict[str, Torrent]] = {}
     
     def __init__(self, item):
         self.type = "movie"
@@ -312,10 +289,6 @@ class Season(MediaItem):
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
     episodes: Mapped[List["Episode"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Episode.parent_id")
-    @orm.reconstructor
-    def init_on_load(self):
-        self.streams: Optional[dict[str, Torrent]] = {}
-
     __mapper_args__ = {
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
@@ -408,9 +381,6 @@ class Episode(MediaItem):
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
     parent: Mapped["Season"] = relationship(lazy=False, back_populates="episodes", foreign_keys="Episode.parent_id")
-    @orm.reconstructor
-    def init_on_load(self):
-        self.streams: Optional[dict[str, Torrent]] = {}
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",
@@ -464,10 +434,7 @@ class Show(MediaItem):
     __tablename__ = "Show"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Season.parent_id")
-    @orm.reconstructor
-    def init_on_load(self):
-        self.streams: Optional[dict[str, Torrent]] = {}
-    
+
     __mapper_args__ = {
         "polymorphic_identity": "show",
         "polymorphic_load": "inline",

@@ -67,9 +67,10 @@ class TorBoxDownloader:
             logger.exception(f"Failed to validate Torbox settings: {e}")
         return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> bool:
         """Download media item from torbox.app"""
-        cached_hashes = self.get_torrent_cached([hash for hash in item.streams])
+        return_value = False
+        cached_hashes = self.get_torrent_cached([stream.infohash for stream in item.streams])
         if cached_hashes:
             for cache in cached_hashes.values():
                 item.active_stream = cache
@@ -82,15 +83,19 @@ class TorBoxDownloader:
                         {"hash": cache["hash"], "files": cache["files"], "id": None},
                     )
                     self.download(item)
+                    return_value = True
                     break
+                else:
+                    stream = next(stream for stream in item.streams if stream.infohash == cache["hash"])
+                    stream.blacklisted = True
         else:
             logger.log("DEBRID", f"Item is not cached: {item.log_string}")
-            for hash in item.streams:
+            for stream in item.streams:
                 logger.log(
-                    "DEBUG", f"Blacklisting hash ({hash}) for item: {item.log_string}"
+                    "DEBUG", f"Blacklisting hash ({stream.infohash}) for item: {item.log_string}"
                 )
-            item.streams = {}
-        yield item
+                stream.blacklisted = True
+        return return_value
 
     def find_required_files(self, item, container):
 
@@ -267,7 +272,7 @@ class TorBoxDownloader:
         return response.data["data"]
 
     def create_torrent(self, hash) -> int:
-        magnet_url = f"magnet:?xt=urn:btih:{hash}"
+        magnet_url = f"magnet:?xt=urn:btih:{hash}&dn=&tr="
         response = post(
             f"{self.base_url}/torrents/createtorrent",
             data={"magnet": magnet_url, "seed": 1, "allow_zip": False},

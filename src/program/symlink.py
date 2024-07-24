@@ -475,7 +475,8 @@ def reset_item(item: Union[Movie, Show, Season, Episode], reset_times: bool = Tr
     """Reset item attributes for rescraping."""
     item.set("file", None)
     item.set("folder", None)
-    item.set("streams", {})
+    for stream in item.streams.values():
+        stream.blacklisted = True
     item.set("active_stream", {})
     if reset_times:
         item.set("symlinked_times", 0)

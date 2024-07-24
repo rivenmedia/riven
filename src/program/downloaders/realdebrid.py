@@ -100,27 +100,14 @@ class RealDebridDownloader:
             logger.error("Couldn't parse user data response from Real-Debrid.")
         return False
 
-
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> bool:
         """Download media item from real-debrid.com"""
-        if (item.file and item.folder):
-            yield None
-            return
-        if not self.is_cached(item):
-            if isinstance(item, Season):
-                res = [e for e in item.episodes]
-                yield res
-                return
-            if isinstance(item, Show):
-                res = [s for s in item.seasons]
-                yield res
-                return
-            yield None
-            return
-        if not self._is_downloaded(item):
+        return_value = False
+        if self.is_cached(item) and not self._is_downloaded(item):
             self._download_item(item)
+            return_value = True
         self.log_item(item)
-        yield item
+        return return_value
 
     @staticmethod
     def log_item(item: MediaItem) -> None:
@@ -153,7 +140,7 @@ class RealDebridDownloader:
         logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
 
         processed_stream_hashes = set()
-        filtered_streams = [hash for hash in item.streams if hash and hash not in processed_stream_hashes]
+        filtered_streams = [stream.infohash for stream in item.streams if stream.infohash and stream.infohash not in processed_stream_hashes]
         if not filtered_streams:
             logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
             return False
@@ -164,13 +151,11 @@ class RealDebridDownloader:
                 response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
                 if response.is_ok and response.data and isinstance(response.data, dict):
                     if self._evaluate_stream_response(response.data, processed_stream_hashes, item):
-                        item.set("streams", {})
                         return True
             except Exception as e:
                 logger.exception(f"Error checking cache for streams: {str(e)}", exc_info=True)
                 continue
 
-        item.set("streams", {})
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
         return False
 
@@ -185,6 +170,9 @@ class RealDebridDownloader:
             if self._process_providers(item, provider_list, stream_hash):
                 logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
+            else:
+                stream = next(stream for stream in item.streams if stream.infohash == stream_hash)
+                stream.blacklisted = True
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:
