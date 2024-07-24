@@ -44,8 +44,8 @@ class Overseerr:
                 )
                 return False
             return response.is_ok
-        except (ConnectionError, RetryError, MaxRetryError, NewConnectionError) as e:
-            logger.error(f"Overseerr URL is not reachable, or it timed out")
+        except (ConnectionError, RetryError, MaxRetryError, NewConnectionError):
+            logger.error("Overseerr URL is not reachable, or it timed out")
             return False
         except Exception as e:
             logger.error(f"Unexpected error during Overseerr validation: {str(e)}")
@@ -71,7 +71,7 @@ class Overseerr:
             logger.error(f"Unexpected error during fetching requests: {str(e)}")
             return
 
-        if not response.is_ok or not hasattr(response.data, 'pageInfo') or getattr(response.data.pageInfo, 'results', 0) == 0:
+        if not response.is_ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
             return
 
         # Lets look at approved items only that are only in the pending state
@@ -117,13 +117,13 @@ class Overseerr:
             )
         except (ConnectionError, RetryError, MaxRetryError) as e:
             logger.error(f"Failed to fetch media details from overseerr: {str(e)}")
-            return
+            return None
         except Exception as e:
             logger.error(f"Unexpected error during fetching media details: {str(e)}")
-            return
+            return None
 
         if not response.is_ok or not hasattr(response.data, "externalIds"):
-            return
+            return None
 
         imdb_id = getattr(response.data.externalIds, "imdbId", None)
         if imdb_id:

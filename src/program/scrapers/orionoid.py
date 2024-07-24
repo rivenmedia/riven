@@ -1,5 +1,4 @@
 """ Orionoid scraper module """
-from datetime import datetime
 from typing import Dict
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -7,8 +6,8 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 from utils.logger import logger
-from utils.request import get
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
+from utils.request import get
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 

@@ -1,16 +1,15 @@
 import time
 
+import program.db.db_functions as DB
 import requests
 from fastapi import APIRouter, HTTPException, Request
-from program.media.item import MediaItem
 from program.content.trakt import TraktContent
+from program.db.db import db
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.db.db import db
-from sqlalchemy import select, func
-import program.db.db_functions as DB
+from sqlalchemy import func, select
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -102,12 +101,12 @@ async def trakt_oauth_callback(code: str, request: Request):
 
 
 @router.get("/stats")
-async def get_stats(request: Request):
+async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
 
-        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
-        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked is True)).scalar_one()
+        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked is True)).scalar_one()
         total_symlinks = movies_symlinks + episodes_symlinks
 
         total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
