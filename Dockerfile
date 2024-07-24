@@ -61,7 +61,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy the rest of the application code
 COPY src/ /riven/src
 COPY pyproject.toml poetry.lock /riven/src/
-COPY version.txt entrypoint.sh /riven/
+COPY entrypoint.sh /riven/
 
 # Ensure entrypoint script is executable
 RUN chmod +x /riven/entrypoint.sh

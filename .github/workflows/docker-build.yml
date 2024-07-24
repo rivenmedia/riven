@@ -2,8 +2,8 @@ name: Docker Build and Push
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
@@ -40,21 +40,30 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-    - name: Read VERSION file
-      id: version
-      run: echo "VERSION=$(cat version.txt)" >> "$GITHUB_OUTPUT"
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5.3.0
+    - name: Build Docker Metadata
+      id: docker-metadata
+      uses: docker/metadata-action@v5
       with:
-        context: .
-        file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
-        push: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        tags: |            
-          ghcr.io/rivenmedia/riven:latest
-          ghcr.io/rivenmedia/riven:${{ steps.version.outputs.VERSION }}
-          docker.io/spoked/riven:latest
-          docker.io/spoked/riven:${{ steps.version.outputs.VERSION }}
+        images: |
+          ghcr.io/rivenmedia/riven
+          docker.io/spoked/riven
+        flavor: |
+          latest=auto
+        tags: |
+          type=ref,event=tag
+          type=sha,commit=${{ github.sha }}
+          type=semver,pattern={{version}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Push Service Image to repo
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          provenance: mode=max
+          tags: ${{ steps.docker-metadata.outputs.tags }}
+          labels: ${{ steps.docker-metadata.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ github.workflow }}
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}
