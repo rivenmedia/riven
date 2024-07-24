@@ -261,8 +261,7 @@ class Program(threading.Thread):
                     if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and ( self._id_in_queue(event.item.parent.parent._id) or self._id_in_running_items(event.item.parent.parent._id)):
                         return None
                 self.queued_items.append(event.item)
-                # self.event_queue.put(event)
-                self.event_queue.queue.appendleft(event)
+                self.event_queue.put(event)
                 if not isinstance(event.item, (Show, Movie, Episode, Season)):
                     logger.log("NEW", f"Added {event.item.log_string} to the queue")
                 else:
