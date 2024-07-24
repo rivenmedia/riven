@@ -99,7 +99,7 @@ services:
       - TZ=Europe/Amsterdam
       - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
     volumes:
-      - ./riven-data:/riven/data
+      - ./data:/riven/data
       - /mnt:/mnt
 ```
 
@@ -146,7 +146,7 @@ services:
       timeout: 10s
       retries: 10
     volumes:
-      - ./riven-data:/riven/data
+      - ./data:/riven/data
       - /mnt:/mnt
     depends_on: # Add # before all {depend: riven_postgress} lines when using SQLite
       riven_postgres:
