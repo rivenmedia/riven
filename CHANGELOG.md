@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.4](https://github.com/rivenmedia/riven/compare/v0.8.3...v0.8.4) (2024-07-25)
+
+
+### Bug Fixes
+
+* Release 0.8.4 ([266cf0c](https://github.com/rivenmedia/riven/commit/266cf0cb455354d54edcb2e47ffc632f6c8e6b7b))
+* tweaked comet scraper. removed poetry venv from entrypoint. ([32be8fc](https://github.com/rivenmedia/riven/commit/32be8fc174eca148c2577a3941005da41e7f8513))
+
 ## [0.8.3](https://github.com/rivenmedia/riven/compare/v0.8.2...v0.8.3) (2024-07-25)
 
 
