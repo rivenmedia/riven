@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/rivenmedia/riven/compare/v0.8.2...v0.8.3) (2024-07-25)
+
+
+### Miscellaneous Chores
+
+* release 0.8.3 ([66085da](https://github.com/rivenmedia/riven/commit/66085da71a86f507d09cf21df121a24a2b2a0537))
+
 ## [0.8.2](https://github.com/rivenmedia/riven/compare/v0.8.1...v0.8.2) (2024-07-24)
 
 
