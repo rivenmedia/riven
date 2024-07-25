@@ -3,6 +3,8 @@ import base64
 import json
 from typing import Dict, Union
 
+import regex
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
@@ -20,13 +22,12 @@ class Comet:
         self.timeout = self.settings.timeout
         self.encoded_string = base64.b64encode(json.dumps({
             "indexers": self.settings.indexers,
-            "maxResults":0,
-            "filterTitles":False,
-            "resolutions":["All"],
-            "languages":["All"],
-            "debridService":"realdebrid",
+            "maxResults": 0,
+            "resolutions": ["All"],
+            "languages": ["All"],
+            "debridService": "realdebrid",
             "debridApiKey": settings_manager.settings.downloaders.real_debrid.api_key,
-            "debridStreamProxyPassword":""
+            "debridStreamProxyPassword": ""
         }).encode("utf-8")).decode("utf-8")
         self.initialized = self.validate()
         if not self.initialized:
@@ -55,13 +56,12 @@ class Comet:
                 return True
         except Exception as e:
             logger.error(f"Comet failed to initialize: {e}", )
-            return False
-        return True
+        return False
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the comet site for the given media items
         and update the object with scraped streams"""
-        if not item:
+        if not item or isinstance(item, Show):
             return {}
 
         try:
@@ -125,28 +125,23 @@ class Comet:
         else:
             response = get(url, timeout=self.timeout)
 
-        if not response.is_ok or not response.data.streams:
+        if not response.is_ok or not getattr(response.data, "streams", None):
             return {}, 0
 
         torrents: Dict[str, str] = {}
         for stream in response.data.streams:
-            # Split the URL by '/playback/' and then split the remaining part by '/'
+            if stream.title == "Invalid Comet config.":
+                logger.error("Invalid Comet config.")
+                return {}, 0
 
-            url_parts = stream.url.split("/playback/")
+            infohash_pattern = regex.compile(r"(?!.*playback\/)[a-zA-Z0-9]{40}")
+            infohash = infohash_pattern.search(stream.url).group()
+            title = stream.title.split("\n")[0]
 
-            if len(url_parts) != 2:
-                logger.warning(f"Comet Playback url can't be parsed: {stream.url}")
-
-            end_parts = url_parts[1].split("/")
-
-            if len(end_parts) != 2:
-                logger.warning(f"End part of Comet Playback url can't be parsed ({end_parts}): {stream.url}")
-
-            hash = end_parts[0]
-
-            if not hash:
+            if not infohash:
+                logger.warning(f"Comet infohash not found for title: {title}")
                 continue
 
-            torrents[hash] = stream.title
+            torrents[infohash] = title
 
         return torrents, len(response.data.streams)

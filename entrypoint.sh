@@ -72,7 +72,6 @@ export HOME="$USER_HOME"
 # Ensure poetry is in the PATH
 export PATH="$PATH:/app/.venv/bin"
 
-poetry config virtualenvs.create false
 echo "Container Initialization complete."
 
 echo "Starting Riven (Backend)..."
