@@ -105,8 +105,8 @@ async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
 
-        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked is True)).scalar_one()
-        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked is True)).scalar_one()
+        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
         total_symlinks = movies_symlinks + episodes_symlinks
 
         total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
