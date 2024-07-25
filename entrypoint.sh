@@ -72,9 +72,12 @@ export HOME="$USER_HOME"
 # Ensure poetry is in the PATH
 export PATH="$PATH:/app/.venv/bin"
 
-su -m "$USERNAME" -c "poetry config virtualenvs.create false"
+poetry config virtualenvs.create false
 echo "Container Initialization complete."
 
-# Start the backend
 echo "Starting Riven (Backend)..."
-su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
+if [ "$PUID" = "0" ]; then
+    cd /riven/src && poetry run python3 main.py
+else
+    su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
+fi

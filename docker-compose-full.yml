@@ -1,0 +1,156 @@
+# This is a full setup for Riven with Plex, Overseerr, Zilean, and Torrentio.
+# This compose assumes you already setup rclone and zurg. See notes below!
+
+## Notes:
+
+# Zurg & Rclone will have to be supplied as well and visible to Riven as well as Plex.
+# Rclone should be mounted to: /mnt/zurg (optional directory)
+# You will need to set the rclone_path in riven to use the `/mnt/zurg/__all__` dir though
+# so that Riven can see all the torrents from their parent directory.
+
+services:
+  riven-frontend:
+    image: spoked/riven-frontend:latest
+    container_name: riven-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - ORIGIN=http://localhost:3000  # Set to IP or FQDN of the server
+      - BACKEND_URL=http://riven:8080
+      - TZ=America/New_York
+    depends_on:
+      riven:
+        condition: service_healthy
+
+  riven:
+    image: spoked/riven:latest
+    container_name: riven
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - RIVEN_FORCE_ENV=true # forces the use of env vars to be always used!
+      - RIVEN_SYMLINK_RCLONE_PATH=/mnt/zurg/__all__ # Set this to your rclone's mount `__all__` dir if using Zurg
+      - RIVEN_SYMLINK_LIBRARY_PATH=/mnt/library # This is the path that symlinks will be placed in
+      - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
+      - RIVEN_DOWNLOADERS_REAL_DEBRID_ENABLED=true
+      - RIVEN_DOWNLOADERS_REAL_DEBRID_API_KEY=xxxxx # set your real debrid api key
+      - RIVEN_UPDATERS_PLEX_ENABLED=true
+      - RIVEN_UPDATERS_PLEX_URL=http://plex:32400
+      - RIVEN_UPDATERS_PLEX_TOKEN=xxxxx # set your plex token
+      - RIVEN_CONTENT_OVERSEERR_ENABLED=true
+      - RIVEN_CONTENT_OVERSEERR_URL=http://overseerr:5055
+      - RIVEN_CONTENT_OVERSEERR_API_KEY=xxxxx # set your overseerr token
+      - RIVEN_SCRAPING_TORRENTIO_ENABLED=true
+      - RIVEN_SCRAPING_ZILEAN_ENABLED=true
+      - RIVEN_SCRAPING_ZILEAN_URL=http://zilean:8181
+    healthcheck:
+      test: curl -s http://localhost:8080 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - ./data:/riven/data
+      - /mnt:/mnt
+    depends_on:
+      riven_postgres:
+        condition: service_healthy
+
+  riven_postgres:
+    image: postgres:16.3-alpine3.20
+    container_name: riven-db
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: riven
+    volumes:
+      - ./riven-db:/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ## Plex (optional media server)
+
+  plex:
+    image: plexinc/pms-docker:latest
+    container_name: plex
+    restart: unless-stopped
+    ports:
+      - "32400:32400"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - VERSION=docker
+    volumes:
+      - ./config:/config
+      - /mnt:/mnt
+    devices:
+      - "/dev/dri:/dev/dri"
+
+  ## Overseerr (optional content service)
+
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - ./config:/config
+    ports:
+      - 5055:5055
+
+  ## Zilean (optional scraper service)
+
+  zilean:
+    image: ipromknight/zilean:latest
+    container_name: zilean
+    restart: unless-stopped
+    ports:
+      - "8181:8181"
+    volumes:
+      - zilean_data:/app/data
+    environment:
+        Zilean__ElasticSearch__Url: http://elasticsearch:9200
+    healthcheck:
+      test: curl --connect-timeout 10 --silent --show-error --fail http://localhost:8181/healthchecks/ping
+      timeout: 60s
+      interval: 30s
+      retries: 10
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  elasticsearch:
+    image: elasticsearch:8.14.1@sha256:ff3998ab3d8a84984e5298d33d01a174fc5f8abed15ad58d0a54364fc63d68d9
+    container_name: elasticsearch
+    environment:
+      ES_SETTING_DISCOVERY_TYPE: single-node
+      ES_SETTING_XPACK_SECURITY_ENABLED: false
+      ES_SETTING_BOOTSTRAP_MEMORY__LOCK: true
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    healthcheck:
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data:rw

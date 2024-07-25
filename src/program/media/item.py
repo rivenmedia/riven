@@ -507,10 +507,12 @@ class Show(MediaItem):
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
         return States.Unknown
+
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
         self.last_state = self._determine_state().name
+
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 

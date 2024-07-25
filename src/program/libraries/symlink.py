@@ -68,7 +68,7 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
         item = item_class({"imdb_id": imdb_id.group(), "title": title.group(1)})
         if settings_manager.settings.force_refresh:
             item.set("symlinked", True)
-            item.set("update_folder", path)
+            item.set("update_folder", str(path))
         else:
             item.set("symlinked", True)
             item.set("update_folder", "updated")
@@ -104,7 +104,7 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                 episode_item = Episode({"number": int(episode_number.group(1))})
                 if settings_manager.settings.force_refresh:
                     episode_item.set("symlinked", True)
-                    episode_item.set("update_folder", f"{directory}/{show}/{season}/{episode}")
+                    episode_item.set("update_folder", str(Path(directory) / show / season / episode))
                 else:
                     episode_item.set("symlinked", True)
                     episode_item.set("update_folder", "updated")

@@ -243,15 +243,14 @@ class Program(threading.Thread):
     def _push_event_queue(self, event):
         with self.mutex:
             if( event.item not in self.queued_items and event.item not in self.running_items):
-                if hasattr(event.item, "_id"):
+                if hasattr(event.item, "_id") and event.item._id is not None:
                     if isinstance(event.item, Show):
                         for s in event.item.seasons:
-                            if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
+                            if s._id and (self._id_in_queue(s._id) or self._id_in_running_items(s._id)):
                                 return None
                             for e in s.episodes:
-                                if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                                if e._id and (self._id_in_queue(e._id) or self._id_in_running_items(e._id)):
                                     return None
-
                     if isinstance(event.item, Season):
                         for e in event.item.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):

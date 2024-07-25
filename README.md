@@ -47,20 +47,29 @@ We are constantly adding features and improvements as we go along and squashing 
 
 ## Table of Contents
 
--   [Table of Contents](#table-of-contents)
--   [ElfHosted](#elfhosted)
--   [Self Hosted](#self-hosted)
-    -   [Docker Compose](#docker-compose)
-        -   [What is ORIGIN ?](#what-is-origin-)
-    -   [Running outside of Docker](#running-outside-of-docker)
-        -   [First terminal:](#first-terminal)
-        -   [Second terminal:](#second-terminal)
-    -   [Symlinking settings](#symlinking-settings)
-        -   [Example:](#example)
--   [Development](#development)
-    -   [Development without `make`](#development-without-make)
--   [Contributing](#contributing)
--   [License](#license)
+- [Table of Contents](#table-of-contents)
+- [ElfHosted](#elfhosted)
+- [Self Hosted](#self-hosted)
+  - [Docker Compose](#docker-compose)
+    - [What is ORIGIN ?](#what-is-origin-)
+  - [Running outside of Docker](#running-outside-of-docker)
+    - [First terminal:](#first-terminal)
+    - [Second terminal:](#second-terminal)
+  - [Symlinking settings](#symlinking-settings)
+- [Development](#development)
+  - [Prerequisites](#prerequisites)
+  - [Initial Setup](#initial-setup)
+  - [Using `make` for Development](#using-make-for-development)
+  - [Development without `make`](#development-without-make)
+  - [Additional Tips](#additional-tips)
+- [Contributing](#contributing)
+  - [Submitting Changes](#submitting-changes)
+  - [Code Formatting](#code-formatting)
+  - [Dependency Management](#dependency-management)
+    - [Setting Up Your Environment](#setting-up-your-environment)
+    - [Adding or Updating Dependencies](#adding-or-updating-dependencies)
+  - [Running Tests and Linters](#running-tests-and-linters)
+- [License](#license)
 
 ---
 
@@ -80,92 +89,10 @@ We are constantly adding features and improvements as we go along and squashing 
 
 ### Docker Compose
 
-Create a `docker-compose.yml` file with the following contents:
+Copy over the contents of [docker-compose.yml](docker-compose.yml) to your `docker-compose.yml` file.
 
-docker-compose.yml (Backend Only)
-```yml
----
-services:
-  riven:
-    image: spoked/riven:latest
-    container_name: riven
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    tty: true
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Amsterdam
-      - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
-    volumes:
-      - ./data:/riven/data
-      - /mnt:/mnt
-```
-
-docker-compose.yml (Frontend + Backend + Postgress / SQLite + ports: / network_mode: host)
-```yml
----
-services:
-  riven-frontend:
-    image: spoked/riven-frontend:latest
-    container_name: riven-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    #network_mode: host
-    tty: true
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - ORIGIN=http://localhost:3000
-      - BACKEND_URL=http://127.0.0.1:8080
-      - TZ=America/New_York
-    depends_on:
-      riven:
-        condition: service_healthy
-      
-  riven:
-    image: spoked/riven:latest
-    container_name: riven
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    #network_mode: host
-    tty: true
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=America/New_York
-      - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven_postgres/riven        #Postgres database
-      #- RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@localhost/riven            #nework_mode: host {use @localhost}
-      #- RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db                                     #SQLite database
-    healthcheck:
-      test: curl -s http://localhost:8080 >/dev/null || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    volumes:
-      - ./data:/riven/data
-      - /mnt:/mnt
-    depends_on: # Add # before all {depend: riven_postgress} lines when using SQLite
-      riven_postgres:
-        condition: service_healthy
-        
-  riven_postgres: # Add # before all {riven_postgres} lines when using SQLite
-    image: postgres:16.3-alpine3.20
-    container_name: riven-db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: riven
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    #network_mode: host
-```
+> [!NOTE]
+> You can check out the [docker-compose-full.yml](docker-compose-full.yml) file to get an idea of how things tie together.
 
 Then run `docker compose up -d` to start the container in the background. You can then access the web interface at `http://localhost:3000` or whatever port and origin you set in the `docker-compose.yml` file.
 
