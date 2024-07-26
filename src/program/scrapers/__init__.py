@@ -5,6 +5,7 @@ from typing import Dict, Generator, List, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.media.stream import Stream
 from program.scrapers.annatar import Annatar
 from program.scrapers.comet import Comet
 from program.scrapers.jackett import Jackett
@@ -82,7 +83,10 @@ class Scraping:
         sorted_streams = self.scrape(item)
 
         # Set the streams and yield the item
-        item.streams.update(sorted_streams)
+
+        for stream in sorted_streams.values():
+            if stream not in item.streams:
+                item.streams.append(stream)
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
 
@@ -93,7 +97,7 @@ class Scraping:
 
         yield item
 
-    def scrape(self, item: MediaItem, log = True) -> Dict[str, Torrent]:
+    def scrape(self, item: MediaItem, log = True) -> Dict[str, Stream]:
         """Scrape an item."""
         threads: List[threading.Thread] = []
         results: Dict[str, str] = {}
@@ -119,18 +123,18 @@ class Scraping:
         if total_results != len(results):
             logger.debug(f"Scraped {item.log_string} with {total_results} results, removed {total_results - len(results)} duplicate hashes")
 
-        sorted_streams: Dict[str, Torrent] = _parse_results(item, results)
+        sorted_streams: Dict[str, Stream] = _parse_results(item, results)
 
         if sorted_streams and (log and settings_manager.settings.debug):
             item_type = item.type.title()
             top_results = sorted(sorted_streams.values(), key=lambda x: x.rank, reverse=True)[:10]
             for sorted_tor in top_results:
                 if isinstance(item, (Movie, Show)):
-                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
                 if isinstance(item, Season):
-                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
                 elif isinstance(item, Episode):
-                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.data.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
         return sorted_streams
 
     @classmethod

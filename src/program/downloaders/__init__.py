@@ -27,4 +27,10 @@ class Downloader:
     def run(self, item: MediaItem):
         for service in self.services.values():
             if service.initialized:
-                return service.run(item)
+                downloaded = service.run(item)
+                if not downloaded:
+                    if item.type == "show":
+                        yield [season for season in item.seasons]
+                    elif item.type == "season":
+                        yield [episode for episode in item.episodes]
+        yield item

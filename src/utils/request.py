@@ -95,13 +95,6 @@ def _make_request(
     if retry_if_failed:
         session.mount("http://", _adapter)
         session.mount("https://", _adapter)
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": user_agent_factory.get_random_user_agent()
-    }
-    if additional_headers:
-        headers.update(additional_headers)
 
     specific_context = specific_rate_limiter if specific_rate_limiter else nullcontext()
     overall_context = overall_rate_limiter if overall_rate_limiter else nullcontext()
@@ -110,7 +103,7 @@ def _make_request(
         with overall_context:
             with specific_context:
                 response = session.request(
-                    method, url, headers=headers, data=data, params=params, timeout=timeout, proxies=proxies, json=json
+                    method, url, headers=additional_headers, data=data, params=params, timeout=timeout, proxies=proxies, json=json
                 )
     except requests.exceptions.RequestException as e:
         logger.error(f"Request failed: {e}", exc_info=True)

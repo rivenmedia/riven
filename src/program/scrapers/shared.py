@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Set
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from RTN import RTN, Torrent, sort_torrents
@@ -30,7 +31,7 @@ def _get_stremio_identifier(item: MediaItem) -> str:
     return identifier, scrape_type, imdb_id
 
 
-def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torrent]:
+def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
@@ -113,6 +114,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Torren
 
     if torrents:
         logger.log("SCRAPER", f"Processed {len(torrents)} matches for {item.log_string}")
-        return sort_torrents(torrents)
+        torrents = sort_torrents(torrents)
+        torrents_dict = {}
+        for torrent in torrents.values():
+            torrents_dict[torrent.infohash] = Stream(torrent)
+        return torrents_dict
 
     return {}
