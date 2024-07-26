@@ -159,8 +159,8 @@ class Program(threading.Thread):
                             logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 session.commit()
 
-            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked is True)).scalar_one()
-            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked is True)).scalar_one()
+            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
+            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one() # noqa
             total_symlinks = movies_symlinks + episodes_symlinks
             total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
             total_shows = session.execute(select(func.count(Show._id))).scalar_one()
@@ -242,30 +242,37 @@ class Program(threading.Thread):
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if( event.item not in self.queued_items and event.item not in self.running_items):
-                if hasattr(event.item, "_id") and event.item._id is not None:
-                    if isinstance(event.item, Show):
+            if (not event.item in self.queued_items and not event.item in self.running_items):
+                if hasattr(event.item, "_id"):
+                    if event.item.type == "show":
                         for s in event.item.seasons:
-                            if s._id and (self._id_in_queue(s._id) or self._id_in_running_items(s._id)):
-                                return None
+                            if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
+                                return False
                             for e in s.episodes:
-                                if e._id and (self._id_in_queue(e._id) or self._id_in_running_items(e._id)):
-                                    return None
-                    if isinstance(event.item, Season):
+                                if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                                    return False
+
+                    elif event.item.type == "season":
                         for e in event.item.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                                return None
-                    if hasattr(event.item, "parent") and ( self._id_in_queue(event.item.parent._id) or self._id_in_running_items(event.item.parent._id) ):
-                        return None
-                    if hasattr(event.item, "parent") and hasattr(event.item.parent, "parent") and event.item.parent.parent and ( self._id_in_queue(event.item.parent.parent._id) or self._id_in_running_items(event.item.parent.parent._id)):
-                        return None
+                                return False
+                            
+                    elif hasattr(event.item, "parent"):
+                        parent = event.item.parent
+                        if self._id_in_queue(parent._id) or self._id_in_running_items(parent._id):
+                            return False
+                        elif hasattr(parent, "parent") and self._id_in_queue(parent.parent._id) or self._id_in_running_items(parent.parent._id):
+                            return False
+
                 self.queued_items.append(event.item)
                 self.event_queue.put(event)
+
                 if not isinstance(event.item, (Show, Movie, Episode, Season)):
                     logger.log("NEW", f"Added {event.item.log_string} to the queue")
                 else:
                     logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
                 return True
+
             logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
             return False
 
@@ -278,15 +285,18 @@ class Program(threading.Thread):
         with self.mutex:
             if item in self.running_items:
                 self.running_items.remove(item)
-                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
+                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name} with state {item.state.value}" )
 
     def add_to_running(self, item, service_name):
         if item is None:
             return
-        if item not in self.running_items:
-            if isinstance(item, MediaItem) and not self._id_in_running_items(item._id) or not isinstance(item, MediaItem):
-                self.running_items.append(item)
-            logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
+        with self.mutex:
+            if item not in self.running_items:
+                if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
+                    self.running_items.append(item)
+                elif not isinstance(item, MediaItem):
+                    self.running_items.append(item)
+                logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name} with state {item.state.value}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -378,8 +388,9 @@ class Program(threading.Thread):
             except Empty:
                 self.dump_tracemalloc()
                 continue
+
             with db.Session() as session:
-                existing_item = DB._get_item_from_db(session, event.item)
+                existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
                 updated_item, next_service, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )

@@ -242,14 +242,10 @@ class Symlinker:
             if os.path.islink(destination):
                 os.remove(destination)
             os.symlink(source, destination)
-            item.set("symlinked", True)
-            item.set("symlinked_at", datetime.now())
-            item.set("symlinked_times", item.symlinked_times + 1)
         except PermissionError as e:
             # This still creates the symlinks, however they will have wrong perms. User needs to fix their permissions.
             # TODO: Maybe we validate symlink class by symlinking a test file, then try removing it and see if it still exists
-            logger.error(f"Permission denied when creating symlink for {item.log_string}: {e}")
-            return True
+            logger.exception(f"Permission denied when creating symlink for {item.log_string}: {e}")
         except OSError as e:
             if e.errno == 36:
                 # This will cause a loop if it hits this.. users will need to fix their paths
@@ -259,11 +255,19 @@ class Symlinker:
                 logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
             return False
 
-        # Validate the symlink
-        if not os.path.islink(destination) or not os.path.exists(destination):
-            logger.error(f"Symlink validation failed for {item.log_string} from source: {source} to destination: {destination}")
+        if not os.path.islink(destination):
+            logger.error(f"Symlink validation failed: {destination} is not a symlink for {item.log_string}")
+            return False
+        if os.readlink(destination) != source:
+            logger.error(f"Symlink validation failed: {destination} does not point to {source} for {item.log_string}")
+            return False
+        if not os.path.isfile(destination):
+            logger.error(f"Symlink validation failed: {destination} is not a valid file for {item.log_string}")
             return False
 
+        item.set("symlinked", True)
+        item.set("symlinked_at", datetime.now())
+        item.set("symlinked_times", item.symlinked_times + 1)
         return True
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
