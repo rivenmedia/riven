@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.0](https://github.com/rivenmedia/riven/compare/v0.8.4...v0.9.0) (2024-07-27)
+
+
+### Features
+
+* add automatic dev builds in pipeline ([d55e061](https://github.com/rivenmedia/riven/commit/d55e06173b3a35de6c0b586fd9aee0216e9455da))
+
+
+### Bug Fixes
+
+* add alembic reinit to hard reset ([91ba58b](https://github.com/rivenmedia/riven/commit/91ba58bfa24a50759115cd9e7190f81b7ddb58fe))
+* add extra logging to track issue. added mutex to add_to_running ([87c3241](https://github.com/rivenmedia/riven/commit/87c324189a1dd78fed0b06e502e10eba4ae1db58))
+* add hard reset to cli ([e3366a6](https://github.com/rivenmedia/riven/commit/e3366a630e0b2774cded15e7197187712e9561a4))
+* add parent object into stream ([16c1ceb](https://github.com/rivenmedia/riven/commit/16c1ceb3bd071be501d4436ba29e8ba90820c588))
+* include stream in db, rework blacklisting ([03c6023](https://github.com/rivenmedia/riven/commit/03c602362ac07122cd5e0153226a7136b1eb330a))
+* plex watchlist updated to work with new api changes. added db guards. improved trakt id detection. changed rd blacklisting to only blacklist on movie/episode items or on empty rd cache ([ce074b3](https://github.com/rivenmedia/riven/commit/ce074b3268f075365ad406af4cf629d1715458ec))
+* remove state logging where state is not available ([76fdd89](https://github.com/rivenmedia/riven/commit/76fdd8949f0c9620ad421c8b870e518823fcff04))
+* tidied push_event_queue. this func has been causing looping issues we're seeing. ([5c7943d](https://github.com/rivenmedia/riven/commit/5c7943d8b9255f49da01834c39cc901c401507c9))
+* update rollback ([e57d06c](https://github.com/rivenmedia/riven/commit/e57d06c4966b3e0178a56bfdce848872abf8b81a))
+* wrong symlink count at startup. corrected post symlink handling ([cbe9012](https://github.com/rivenmedia/riven/commit/cbe901260eeaa2465b93708134e715297ee0d998))
+
 ## [0.8.4](https://github.com/rivenmedia/riven/compare/v0.8.3...v0.8.4) (2024-07-25)
 
 
