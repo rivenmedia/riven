@@ -12,7 +12,7 @@ from sqlalchemy.exc import NoResultFound, IntegrityError, InvalidRequestError
 from utils.logger import logger
 from utils import alembic_dir
 
-from .db import db
+from .db import db, alembic
 
 
 def _ensure_item_exists_in_db(item: MediaItem) -> bool:
@@ -143,6 +143,8 @@ def hard_reset_database():
     logger.debug("Removing Alembic Directory")
     shutil.rmtree(alembic_dir, ignore_errors=True)
     os.makedirs(alembic_dir, exist_ok=True)
+    alembic.init(alembic_dir)
+    logger.debug("Alembic reinitialized")
 
     logger.debug("Hard Reset Complete")
 
