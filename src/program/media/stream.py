@@ -16,15 +16,16 @@ class Stream(db.Model):
     blacklisted: Mapped[bool] = mapped_column(sqlalchemy.Boolean, nullable=False)
 
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"))
-    parent = relationship("MediaItem", back_populates="streams", cascade="all, delete-orphan", single_parent=True)
+    parent: Mapped["MediaItem"] = relationship(lazy=False, back_populates="streams", foreign_keys="Stream.parent_id")
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: Torrent, parent):
         self.raw_title = torrent.raw_title
         self.infohash = torrent.infohash
         self.parsed_title = torrent.data.parsed_title
         self.rank = torrent.rank
         self.lev_ratio = torrent.lev_ratio
         self.blacklisted = False
+        self.parent = parent
 
     def __hash__(self):
         return self.infohash

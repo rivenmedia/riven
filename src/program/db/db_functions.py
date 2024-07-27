@@ -1,6 +1,7 @@
 import os
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.stream import Stream
 from program.types import Event
 from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
@@ -61,15 +62,19 @@ def _get_item_from_db(session, item: MediaItem):
     match type:
         case "movie":
             r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
+            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
             return r
         case "show":
             r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
+            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
             return r
         case "season":
             r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
+            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
             return r
         case "episode":
             r = session.execute(select(Episode).where(Episode._id==item._id).options(joinedload("*"))).unique().scalar_one()
+            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
             return r
         case _:
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
@@ -93,7 +98,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                     pass
                 item = _get_item_from_db(session, item)
                 
-                #session.merge(item)
+                # session.merge(item)
                 for res in fn(item):
                     if isinstance(res, list):
                         all_media_items = True

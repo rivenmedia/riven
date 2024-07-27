@@ -117,7 +117,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
         torrents = sort_torrents(torrents)
         torrents_dict = {}
         for torrent in torrents.values():
-            torrents_dict[torrent.infohash] = Stream(torrent)
+            torrents_dict[torrent.infohash] = Stream(torrent, item)
         return torrents_dict
 
     return {}
