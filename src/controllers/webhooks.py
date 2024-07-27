@@ -3,7 +3,7 @@ from typing import Any, Dict
 import pydantic
 from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
-from program.indexers.trakt import get_imdbid_from_tmdb
+from program.indexers.trakt import get_imdbid_from_tmdb, get_imdbid_from_tvdb
 from program.media.item import MediaItem
 from requests import RequestException
 from utils.logger import logger
@@ -37,13 +37,18 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     imdb_id = req.media.imdbId
     if not imdb_id:
         try:
-            imdb_id = get_imdbid_from_tmdb(req.media.tmdbId)
+            _type = req.media.media_type
+            if _type == "tv":
+                _type = "show"
+            imdb_id = get_imdbid_from_tmdb(req.media.tmdbId, type=_type)
+            if not imdb_id or not imdb_id.startswith("tt"):
+                imdb_id = get_imdbid_from_tvdb(req.media.tvdbId, type=_type)
+            if not imdb_id or not imdb_id.startswith("tt"):
+                logger.error(f"Failed to get imdb_id from Overseerr: {req.media.tmdbId}")
+                return {"success": False, "message": "Failed to get imdb_id from Overseerr", "title": req.subject}
         except RequestException:
-            logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
-            return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
-        if not imdb_id:
-            logger.error(f"Failed to get imdb_id from TMDB: {req.media.tmdbId}")
-            return {"success": False, "message": "Failed to get imdb_id from TMDB", "title": req.subject}
+            logger.error(f"Failed to get imdb_id from Overseerr: {req.media.tmdbId}")
+            return {"success": False, "message": "Failed to get imdb_id from Overseerr", "title": req.subject}
 
     overseerr: Overseerr = request.app.program.services[Overseerr]
     if not overseerr.initialized:

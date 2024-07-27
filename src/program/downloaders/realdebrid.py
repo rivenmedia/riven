@@ -103,6 +103,8 @@ class RealDebridDownloader:
     def run(self, item: MediaItem) -> bool:
         """Download media item from real-debrid.com"""
         return_value = False
+        if not item:
+            return return_value
         if self.is_cached(item) and not self._is_downloaded(item):
             self._download_item(item)
             return_value = True
@@ -129,7 +131,7 @@ class RealDebridDownloader:
 
     def is_cached(self, item: MediaItem) -> bool:
         """Check if item is cached on real-debrid.com"""
-        if not item.get("streams", {}):
+        if not item.get("streams", []):
             return False
 
         def _chunked(lst: List, n: int) -> Generator[List, None, None]:
@@ -140,9 +142,13 @@ class RealDebridDownloader:
         logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
 
         processed_stream_hashes = set()
-        filtered_streams = [stream.infohash for stream in item.streams if stream.infohash and stream.infohash not in processed_stream_hashes]
+        filtered_streams = [
+            stream.infohash for stream in item.streams
+            if stream.infohash and stream.infohash not in processed_stream_hashes
+            and not stream.blacklisted
+        ]
         if not filtered_streams:
-            logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
+            logger.log("NOT_FOUND", f"No streams found from filtering out processed and blacklisted hashes for: {item.log_string}")
             return False
 
         for stream_chunk in _chunked(filtered_streams, 5):
@@ -152,27 +158,34 @@ class RealDebridDownloader:
                 if response.is_ok and response.data and isinstance(response.data, dict):
                     if self._evaluate_stream_response(response.data, processed_stream_hashes, item):
                         return True
+                    processed_stream_hashes.update(stream_chunk)
             except Exception as e:
                 logger.exception(f"Error checking cache for streams: {str(e)}", exc_info=True)
                 continue
 
+        if item.type == "movie" or item.type == "episode":
+            for hash in filtered_streams:
+                stream = next((stream for stream in item.streams if stream.infohash == hash), None)
+                if stream and not stream.blacklisted:
+                    stream.blacklisted = True
+
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
         return False
 
-    def _evaluate_stream_response(self, data, processed_stream_hashes, item):
+    def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem) -> bool:
         """Evaluate the response data from the stream availability check."""
         for stream_hash, provider_list in data.items():
-            if stream_hash in processed_stream_hashes:
+            stream = next((stream for stream in item.streams if stream.infohash == stream_hash), None)
+            if not stream or stream.blacklisted:
                 continue
+
             if not provider_list or not provider_list.get("rd"):
+                stream.blacklisted = True
                 continue
-            processed_stream_hashes.add(stream_hash)
+
             if self._process_providers(item, provider_list, stream_hash):
                 logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
-            else:
-                stream = next(stream for stream in item.streams if stream.infohash == stream_hash)
-                stream.blacklisted = True
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:

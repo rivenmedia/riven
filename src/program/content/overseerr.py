@@ -61,7 +61,7 @@ class Overseerr:
 
         try:
             response = get(
-                self.settings.url + f"/api/v1/request?take={10000}&filter=approved",
+                self.settings.url + f"/api/v1/request?take={10000}&filter=approved&sort=added",
                 additional_headers=self.headers,
             )
         except (ConnectionError, RetryError, MaxRetryError) as e:
@@ -134,8 +134,11 @@ class Overseerr:
         for id_attr, fetcher in alternate_ids:
             external_id_value = getattr(response.data.externalIds, id_attr, None)
             if external_id_value:
+                _type = data.media_type
+                if _type == "tv":
+                    _type = "show"
                 try:
-                    new_imdb_id: Union[str, None] = fetcher(external_id_value)
+                    new_imdb_id: Union[str, None] = fetcher(external_id_value, type=_type)
                     if not new_imdb_id:
                         continue
                     return new_imdb_id

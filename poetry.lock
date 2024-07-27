@@ -1437,13 +1437,13 @@ dev = ["importlib-metadata", "tox"]
 
 [[package]]
 name = "pyright"
-version = "1.1.371"
+version = "1.1.373"
 description = "Command line wrapper for pyright"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyright-1.1.371-py3-none-any.whl", hash = "sha256:cce52e42ff73943243e7e5e24f2a59dee81b97d99f4e3cf97370b27e8a1858cd"},
-    {file = "pyright-1.1.371.tar.gz", hash = "sha256:777b508b92dda2db476214c400ce043aad8d8f3dd0e10d284c96e79f298308b5"},
+    {file = "pyright-1.1.373-py3-none-any.whl", hash = "sha256:b805413227f2c209f27b14b55da27fe5e9fb84129c9f1eb27708a5d12f6f000e"},
+    {file = "pyright-1.1.373.tar.gz", hash = "sha256:f41bcfc8b9d1802b09921a394d6ae1ce19694957b628bc657629688daf8a83ff"},
 ]
 
 [package.dependencies]
@@ -1455,13 +1455,13 @@ dev = ["twine (>=3.4.1)"]
 
 [[package]]
 name = "pytest"
-version = "8.3.1"
+version = "8.3.2"
 description = "pytest: simple powerful testing with Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pytest-8.3.1-py3-none-any.whl", hash = "sha256:e9600ccf4f563976e2c99fa02c7624ab938296551f280835ee6516df8bc4ae8c"},
-    {file = "pytest-8.3.1.tar.gz", hash = "sha256:7e8e5c5abd6e93cb1cc151f23e57adc31fcf8cfd2a3ff2da63e23f732de35db6"},
+    {file = "pytest-8.3.2-py3-none-any.whl", hash = "sha256:4ba08f9ae7dcf84ded419494d229b48d0903ea6407b030eaec46df5e6a73bba5"},
+    {file = "pytest-8.3.2.tar.gz", hash = "sha256:c132345d12ce551242c87269de812483f5bcc87cdbb4722e48487ba194f9fdce"},
 ]
 
 [package.dependencies]

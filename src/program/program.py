@@ -270,11 +270,11 @@ class Program(threading.Thread):
                 if not isinstance(event.item, (Show, Movie, Episode, Season)):
                     logger.log("NEW", f"Added {event.item.log_string} to the queue")
                 else:
-                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue" )
+                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
                 return True
 
-            logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
-            return False
+        logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+        return False
 
     def _pop_event_queue(self, event):
         with self.mutex:

@@ -1,6 +1,7 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Generator, List, Optional, Union
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -174,22 +175,49 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
     data = next((d for d in response.data if d.type in ["show", "movie", "season"]), None)
     return _map_item_from_data(getattr(data, data.type), data.type) if data else None
 
-def get_imdbid_from_tmdb(tmdb_id: str) -> Optional[str]:
+
+def get_imdbid_from_tmdb(tmdb_id: str, type: str = "movie") -> Optional[str]:
     """Wrapper for trakt.tv API search method."""
-    url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?extended=full"
+    url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}" # ?extended=full
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
-    imdb_id = get_imdb_id_from_list(response.data)
-    if imdb_id:
+    imdb_id = get_imdb_id_from_list(response.data, id_type="tmdb", _id=tmdb_id, type=type)
+    if imdb_id and imdb_id.startswith("tt"):
         return imdb_id
     logger.error(f"Failed to fetch imdb_id for tmdb_id: {tmdb_id}")
     return None
 
-def get_imdb_id_from_list(namespaces):
+
+def get_imdbid_from_tvdb(tvdb_id: str, type: str = "show") -> Optional[str]:
+    """Wrapper for trakt.tv API search method."""
+    url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}"
+    response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    if not response.is_ok or not response.data:
+        return None
+    imdb_id = get_imdb_id_from_list(response.data, id_type="tvdb", _id=tvdb_id, type=type)
+    if imdb_id and imdb_id.startswith("tt"):
+        return imdb_id
+    logger.error(f"Failed to fetch imdb_id for tvdb_id: {tvdb_id}")
+    return None
+
+
+def get_imdb_id_from_list(namespaces: List[SimpleNamespace], id_type: str = None, _id: str = None, type: str = None) -> Optional[str]:
+    """Get the imdb_id from the list of namespaces."""
+    if not any([id_type, _id, type]):
+        return None
+
     for ns in namespaces:
-        if ns.type == "movie":
-            return ns.movie.ids.imdb
-        elif ns.type == "show":
-            return ns.show.ids.imdb
+        if type == "movie" and hasattr(ns, 'movie') and hasattr(ns.movie, 'ids') and hasattr(ns.movie.ids, 'imdb'):
+            if str(getattr(ns.movie.ids, id_type)) == str(_id):
+                return ns.movie.ids.imdb
+        elif type == "show" and hasattr(ns, 'show') and hasattr(ns.show, 'ids') and hasattr(ns.show.ids, 'imdb'):
+            if str(getattr(ns.show.ids, id_type)) == str(_id):
+                return ns.show.ids.imdb
+        elif type == "season" and hasattr(ns, 'season') and hasattr(ns.season, 'ids') and hasattr(ns.season.ids, 'imdb'):
+            if str(getattr(ns.season.ids, id_type)) == str(_id):
+                return ns.season.ids.imdb
+        elif type == "episode" and hasattr(ns, 'episode') and hasattr(ns.episode, 'ids') and hasattr(ns.episode.ids, 'imdb'):
+            if str(getattr(ns.episode.ids, id_type)) == str(_id):
+                return ns.episode.ids.imdb
     return None

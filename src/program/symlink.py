@@ -255,14 +255,8 @@ class Symlinker:
                 logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
             return False
 
-        if not os.path.islink(destination):
-            logger.error(f"Symlink validation failed: {destination} is not a symlink for {item.log_string}")
-            return False
         if os.readlink(destination) != source:
             logger.error(f"Symlink validation failed: {destination} does not point to {source} for {item.log_string}")
-            return False
-        if not os.path.isfile(destination):
-            logger.error(f"Symlink validation failed: {destination} is not a valid file for {item.log_string}")
             return False
 
         item.set("symlinked", True)
