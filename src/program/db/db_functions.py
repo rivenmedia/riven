@@ -23,7 +23,7 @@ def _get_item_type_from_db(item: MediaItem) -> str:
                 return session.execute(select(MediaItem.type).where((MediaItem.imdb_id == item.imdb_id) & ((MediaItem.type == "show") | (MediaItem.type == "movie")))).scalar_one()
             return session.execute(select(MediaItem.type).where(MediaItem._id == item._id)).scalar_one()
         except NoResultFound as e:
-            logger.exception(f"No Result Found in db for {item.log_string} with id {item._id}: {e}")
+            logger.error(f"No Result Found in db for {item.log_string} with id {item._id}: {e}")
         except Exception as e:
             logger.exception(f"Failed to get item type from db for item: {item.log_string} with id {item._id} - {e}")
 
@@ -34,17 +34,18 @@ def _store_item(item: MediaItem):
                 session.merge(item)
                 session.commit()
             except IntegrityError as e:
-                logger.exception(f"IntegrityError: {e}. Attempting to update existing item.")
+                logger.error(f"IntegrityError: {e}. Attempting to update existing item.")
                 logger.warning(f"Attempting rollback of session for item: {item.log_string}")
                 session.rollback()
                 existing_item = session.query(MediaItem).filter_by(_id=item._id).one()
                 for key, value in item.__dict__.items():
-                    if key != '_sa_instance_state' and key != '_id':
-                        setattr(existing_item, key, value)
+                    if key != '_sa_instance_state':
+                        if getattr(existing_item, key) != value:
+                            setattr(existing_item, key, value)
                 logger.warning(f"Committing changes to existing item: {item.log_string}")  
                 session.commit()
             except InvalidRequestError as e:
-                logger.exception(f"InvalidRequestError: {e}. Could not update existing item.")
+                logger.error(f"InvalidRequestError: {e}. Could not update existing item.")
                 session.rollback()
             except Exception as e:
                 logger.exception(f"Failed to update existing item: {item.log_string} - {e}")
