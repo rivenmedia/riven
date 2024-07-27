@@ -109,7 +109,7 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
-def signal_handler():
+def signal_handler(signum, frame):
     logger.log("PROGRAM","Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)

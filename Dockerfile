@@ -41,7 +41,8 @@ RUN apk add --no-cache \
     musl-dev \
     libffi-dev \
     python3-dev \
-    libpq-dev
+    libpq-dev \ 
+    libtorrent
 
 # Install Poetry
 RUN pip install poetry==1.8.3
