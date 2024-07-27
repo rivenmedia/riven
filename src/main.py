@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from program.db.db_functions import hard_reset_database
 from utils.logger import logger
 
 
@@ -46,8 +47,17 @@ parser.add_argument(
     action="store_true",
     help="Ignore the cached metadata, create new data from scratch.",
 )
+parser.add_argument(
+    "--hard_reset_db",
+    action="store_true",
+    help="Hard reset the database, including deleting the Alembic directory.",
+)
 
 args = parser.parse_args()
+
+if args.hard_reset_db:
+    hard_reset_database()
+    exit(0)
 
 app = FastAPI(
     title="Riven",
