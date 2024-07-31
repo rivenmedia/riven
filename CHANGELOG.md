@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.2](https://github.com/rivenmedia/riven/compare/v0.9.1...v0.9.2) (2024-07-31)
+
+
+### Features
+
+* add ignore hash feature ([d8e565f](https://github.com/rivenmedia/riven/commit/d8e565f946e4bb75c6f4fa9736b36c59d3c8aef1))
+
+
+### Bug Fixes
+
+* moved blacklisting to an attr of item ([989bf8b](https://github.com/rivenmedia/riven/commit/989bf8bc56c0bc7271aa000de454ecaf784b6e3a))
+* removed lazy from mapped_column on blacklisted_streams ([aca5a0f](https://github.com/rivenmedia/riven/commit/aca5a0f07e9bea50583efb9fc8f4d093372dbd83))
+
 ## [0.9.1](https://github.com/rivenmedia/riven/compare/v0.9.0...v0.9.1) (2024-07-31)
 
 
