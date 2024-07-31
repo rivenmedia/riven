@@ -9,6 +9,7 @@ from program.settings.manager import settings_manager
 from program.settings.versions import models
 from RTN import RTN, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
+from utils.ignore import get_ignore_hashes
 from utils.logger import logger
 
 settings_model = settings_manager.settings.ranking
@@ -36,6 +37,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
     correct_title: str = item.get_top_title()
+    ignore_hashes: set = get_ignore_hashes()
 
     logger.log("SCRAPER", f"Processing {len(results)} results for {item.log_string}")
 
@@ -43,6 +45,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
         needed_seasons = [season.number for season in item.seasons]
 
     for infohash, raw_title in results.items():
+        if infohash in ignore_hashes:
+            logger.debug(f"Ignoring hash for torrent as it's in the ignore file: {infohash}")
+            continue
+
         if infohash in processed_infohashes:
             continue
 
