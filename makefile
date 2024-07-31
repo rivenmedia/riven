@@ -80,7 +80,7 @@ clean:
 	@rm -rf data/alembic/
 	@rm -rf data/*.db
 
-hard_reset:
+hard_reset: clean
 	@poetry run python src/main.py --hard_reset_db
 
 install:

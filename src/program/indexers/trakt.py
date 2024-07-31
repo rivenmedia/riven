@@ -28,9 +28,13 @@ class TraktIndexer:
                 for (episodea, episodeb) in zip(seasona.episodes, seasonb.episodes):
                     episodeb.set("update_folder", episodea.update_folder)
                     episodeb.set("symlinked", episodea.symlinked)
+                    episodeb.set("file", episodea.file)
+                    episodeb.set("folder", episodea.folder)
                     seasonb.set("is_anime", itema.is_anime)
                     episodeb.set("is_anime", itema.is_anime) 
         elif isinstance(itema, Movie) and isinstance(itemb, Movie):
+            itemb.set("file", itema.file)
+            itemb.set("folder", itema.folder)
             itemb.set("update_folder", itema.update_folder)
             itemb.set("symlinked", itema.symlinked)
             itemb.set("is_anime", itema.is_anime)

@@ -5,12 +5,10 @@ from typing import List, Optional, Self
 import sqlalchemy
 from program.db.db import db
 from program.media.state import States
-from RTN import Torrent, parse
-from sqlalchemy import orm
-from sqlalchemy.orm import Mapped, mapped_column, relationship, collections
+from RTN import parse
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .stream import Stream
 
-# from RTN.patterns import extract_episodes
 from utils.logger import logger
 
 
@@ -27,7 +25,7 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[List[Stream]] = relationship("Stream", back_populates="parent", cascade="all, delete-orphan")
+    streams: Mapped[List[Stream]] = relationship("Stream", back_populates='parent', lazy="select", cascade="all, delete-orphan")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -65,7 +63,7 @@ class MediaItem(db.Model):
         self.scraped_at  = None
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", {})
-        self.streams: Optional[list[Stream]] = []
+        self.streams: List[Stream] = []
 
         self.symlinked = False
         self.symlinked_at = None
@@ -230,6 +228,14 @@ class MediaItem(db.Model):
             return self.imdb_id == other.imdb_id
         return False
 
+    def copy(self, other):
+        if other is None:
+            return None
+        self._id = getattr(other, "_id", None)
+        self.imdb_id = getattr(other, "imdb_id", None)
+        if hasattr(self, "number"):
+            self.number = getattr(other, "number", None)
+        return self
 
     def get(self, key, default=None):
         """Get item attribute"""
@@ -269,7 +275,11 @@ class Movie(MediaItem):
         "polymorphic_identity": "movie",
         "polymorphic_load": "inline",
     }
-    
+
+    def copy(self, other):
+        super().copy(other)
+        return self
+
     def __init__(self, item):
         self.type = "movie"
         self.file = item.get("file", None)
@@ -282,158 +292,11 @@ class Movie(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-class Season(MediaItem):
-    """Season class"""
-    __tablename__ = "Season"
-    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
-    parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
-    episodes: Mapped[List["Episode"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Episode.parent_id")
-    __mapper_args__ = {
-        "polymorphic_identity": "season",
-        "polymorphic_load": "inline",
-    }
-    def store_state(self) -> None:
-        for episode in self.episodes:
-            episode.store_state()
-        self.last_state = self._determine_state().name
-    def __init__(self, item):
-        self.type = "season"
-        self.number = item.get("number", None)
-        self.episodes: list[Episode] = item.get("episodes", [])
-        self.item_id = self.number
-        self.parent = item.get("parent", None)
-        super().__init__(item)
-        if self.parent and isinstance(self.parent, Show):
-            self.is_anime = self.parent.is_anime
-
-    def _determine_state(self):
-        if len(self.episodes) > 0:
-            if all(episode.state == States.Completed for episode in self.episodes):
-                return States.Completed
-            if all(episode.state == States.Symlinked for episode in self.episodes):
-                return States.Symlinked
-            if all(episode.file and episode.folder for episode in self.episodes):
-                return States.Downloaded
-            if self.is_scraped():
-                return States.Scraped
-            if any(episode.state == States.Completed for episode in self.episodes):
-                return States.PartiallyCompleted
-            if any(episode.state == States.Indexed for episode in self.episodes):
-                return States.Indexed
-            if any(episode.state == States.Requested for episode in self.episodes):
-                return States.Requested
-        return States.Unknown
-
-    @property
-    def is_released(self) -> bool:
-        return any(episode.is_released for episode in self.episodes)
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.parent_id == other.parent_id
-        ):
-            return self.number == other.get("number", None)
-
-    def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
-
-    def fill_in_missing_children(self, other: Self):
-        existing_episodes = [s.number for s in self.episodes]
-        for e in other.episodes:
-            if e.number not in existing_episodes:
-                self.add_episode(e)
-
-    def get_episode_index_by_id(self, item_id):
-        """Find the index of an episode by its item_id."""
-        for i, episode in enumerate(self.episodes):
-            if episode.item_id == item_id:
-                return i
-        return None
-
-    def represent_children(self):
-        return [e.log_string for e in self.episodes]
-
-    def add_episode(self, episode):
-        """Add episode to season"""
-        if episode.number in [e.number for e in self.episodes]:
-            return
-
-        episode.is_anime = self.is_anime
-        self.episodes.append(episode)
-        episode.parent = self
-        self.episodes = sorted(self.episodes, key=lambda e: e.number)
-
-    @property
-    def log_string(self):
-        return self.parent.log_string + " S" + str(self.number).zfill(2)
-
-    def get_top_title(self) -> str:
-        return self.parent.title
-
-class Episode(MediaItem):
-    """Episode class"""
-    __tablename__ = "Episode"
-    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
-    parent: Mapped["Season"] = relationship(lazy=False, back_populates="episodes", foreign_keys="Episode.parent_id")
-
-    __mapper_args__ = {
-        "polymorphic_identity": "episode",
-        "polymorphic_load": "inline",
-    }
-
-    def __init__(self, item):
-        self.type = "episode"
-        self.number = item.get("number", None)
-        self.file = item.get("file", None)
-        self.item_id = self.number# , parent_id=item.get("parent_id"))
-        super().__init__(item)
-        if self.parent and isinstance(self.parent, Season):
-            self.is_anime = self.parent.parent.is_anime
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.item_id == other.item_id
-            and self.parent.parent.item_id == other.parent.parent.item_id
-        ):
-            return self.number == other.get("number", None)
-
-    def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
-
-    def get_file_episodes(self) -> List[int]:
-        if not self.file or not isinstance(self.file, str):
-            raise ValueError("The file attribute must be a non-empty string.")
-        # return list of episodes
-        return parse(self.file).episode
-
-    @property
-    def log_string(self):
-        return f"{self.parent.log_string}E{self.number:02}"
-
-    def get_top_title(self) -> str:
-        return self.parent.parent.title
-
-    def get_top_year(self) -> Optional[int]:
-        return self.parent.parent.year
-
-    def get_season_year(self) -> Optional[int]:
-        return self.parent.year
-
 class Show(MediaItem):
     """Show class"""
     __tablename__ = "Show"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
-    seasons: Mapped[List["Season"]] = relationship(lazy=False, back_populates="parent", single_parent=True, cascade="all, delete-orphan", foreign_keys="Season.parent_id")
+    seasons: Mapped[List["Season"]] = relationship(lazy=False, back_populates="parent", foreign_keys="Season.parent_id")
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -486,6 +349,15 @@ class Show(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
+    def copy(self, other):
+        super(Show, self).copy(other)
+        self.seasons = []
+        for season in other.seasons:
+            new_season = Season(item={}).copy(season, False)
+            new_season.parent = self
+            self.seasons.append(new_season)
+        return self
+
     def fill_in_missing_children(self, other: Self):
         existing_seasons = [s.number for s in self.seasons]
         for s in other.seasons:
@@ -526,6 +398,172 @@ class Show(MediaItem):
                 propagate(episode, self)
 
 
+class Season(MediaItem):
+    """Season class"""
+    __tablename__ = "Season"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
+    parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
+    episodes: Mapped[List["Episode"]] = relationship(lazy=False, back_populates="parent", foreign_keys="Episode.parent_id")
+    __mapper_args__ = {
+        "polymorphic_identity": "season",
+        "polymorphic_load": "inline",
+    }
+    
+    def store_state(self) -> None:
+        for episode in self.episodes:
+            episode.store_state()
+        self.last_state = self._determine_state().name
+
+    def __init__(self, item):
+        self.type = "season"
+        self.number = item.get("number", None)
+        self.episodes: list[Episode] = item.get("episodes", [])
+        self.item_id = self.number
+        self.parent = item.get("parent", None)
+        super().__init__(item)
+        if self.parent and isinstance(self.parent, Show):
+            self.is_anime = self.parent.is_anime
+
+    def _determine_state(self):
+        if len(self.episodes) > 0:
+            if all(episode.state == States.Completed for episode in self.episodes):
+                return States.Completed
+            if all(episode.state == States.Symlinked for episode in self.episodes):
+                return States.Symlinked
+            if all(episode.file and episode.folder for episode in self.episodes):
+                return States.Downloaded
+            if self.is_scraped():
+                return States.Scraped
+            if any(episode.state == States.Completed for episode in self.episodes):
+                return States.PartiallyCompleted
+            if any(episode.state == States.Indexed for episode in self.episodes):
+                return States.Indexed
+            if any(episode.state == States.Requested for episode in self.episodes):
+                return States.Requested
+        return States.Unknown
+
+    @property
+    def is_released(self) -> bool:
+        return any(episode.is_released for episode in self.episodes)
+
+    def __eq__(self, other):
+        if (
+            type(self) == type(other)
+            and self.parent_id == other.parent_id
+        ):
+            return self.number == other.get("number", None)
+
+    def __repr__(self):
+        return f"Season:{self.number}:{self.state.name}"
+
+    def __hash__(self):
+        return super().__hash__()
+
+    def copy(self, other, copy_parent=True):
+        super(Season, self).copy(other)
+        for episode in other.episodes:
+            new_episode = Episode(item={}).copy(episode, False)
+            new_episode.parent = self
+            self.episodes.append(new_episode)
+        if copy_parent and other.parent:
+            self.parent = Show(item={}).copy(other.parent)
+        return self
+
+    def fill_in_missing_children(self, other: Self):
+        existing_episodes = [s.number for s in self.episodes]
+        for e in other.episodes:
+            if e.number not in existing_episodes:
+                self.add_episode(e)
+
+    def get_episode_index_by_id(self, item_id):
+        """Find the index of an episode by its item_id."""
+        for i, episode in enumerate(self.episodes):
+            if episode.item_id == item_id:
+                return i
+        return None
+
+    def represent_children(self):
+        return [e.log_string for e in self.episodes]
+
+    def add_episode(self, episode):
+        """Add episode to season"""
+        if episode.number in [e.number for e in self.episodes]:
+            return
+
+        episode.is_anime = self.is_anime
+        self.episodes.append(episode)
+        episode.parent = self
+        self.episodes = sorted(self.episodes, key=lambda e: e.number)
+
+    @property
+    def log_string(self):
+        return self.parent.log_string + " S" + str(self.number).zfill(2)
+
+    def get_top_title(self) -> str:
+        return self.parent.title
+
+
+class Episode(MediaItem):
+    """Episode class"""
+    __tablename__ = "Episode"
+    _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
+    parent: Mapped["Season"] = relationship(lazy=False, back_populates="episodes", foreign_keys="Episode.parent_id")
+
+    __mapper_args__ = {
+        "polymorphic_identity": "episode",
+        "polymorphic_load": "inline",
+    }
+
+    def __init__(self, item):
+        self.type = "episode"
+        self.number = item.get("number", None)
+        self.file = item.get("file", None)
+        self.item_id = self.number# , parent_id=item.get("parent_id"))
+        super().__init__(item)
+        if self.parent and isinstance(self.parent, Season):
+            self.is_anime = self.parent.parent.is_anime
+
+    def __eq__(self, other):
+        if (
+            type(self) == type(other)
+            and self.item_id == other.item_id
+            and self.parent.parent.item_id == other.parent.parent.item_id
+        ):
+            return self.number == other.get("number", None)
+
+    def __repr__(self):
+        return f"Episode:{self.number}:{self.state.name}"
+
+    def __hash__(self):
+        return super().__hash__()
+
+    def copy(self, other, copy_parent=True):
+        super(Episode, self).copy(other)
+        if copy_parent and other.parent:
+            self.parent = Season(item={}).copy(other.parent)
+        return self
+
+    def get_file_episodes(self) -> List[int]:
+        if not self.file or not isinstance(self.file, str):
+            raise ValueError("The file attribute must be a non-empty string.")
+        # return list of episodes
+        return parse(self.file).episode
+
+    @property
+    def log_string(self):
+        return f"{self.parent.log_string}E{self.number:02}"
+
+    def get_top_title(self) -> str:
+        return self.parent.parent.title
+
+    def get_top_year(self) -> Optional[int]:
+        return self.parent.parent.year
+
+    def get_season_year(self) -> Optional[int]:
+        return self.parent.year
+
 
 def _set_nested_attr(obj, key, value):
     if "." in key:
@@ -541,3 +579,19 @@ def _set_nested_attr(obj, key, value):
         obj[key] = value
     else:
         setattr(obj, key, value)
+
+
+def copy_item(item):
+    """Copy an item"""
+    if isinstance(item, Movie):
+        return Movie(item={}).copy(item)
+    elif isinstance(item, Show):
+        return Show(item={}).copy(item)
+    elif isinstance(item, Season):
+        return Season(item={}).copy(item)
+    elif isinstance(item, Episode):
+        return Episode(item={}).copy(item)
+    elif isinstance(item, MediaItem):
+        return MediaItem(item={}).copy(item)
+    else:
+        raise ValueError(f"Cannot copy item of type {type(item)}")

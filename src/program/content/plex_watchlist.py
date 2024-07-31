@@ -101,7 +101,7 @@ class PlexWatchlist:
                     guid_id = guid_text.split("//")[-1] if guid_text else ""
                     if not guid_id or guid_id in self.recurring_items:
                         continue
-                    if guid_id.startswith("tt") and guid_id not in self.recurring_items:
+                    if guid_id and guid_id.startswith("tt") and guid_id not in self.recurring_items:
                         yield guid_id
                     elif guid_id:
                         imdb_id: str = get_imdbid_from_tvdb(guid_id)
@@ -122,16 +122,19 @@ class PlexWatchlist:
         # response = get(url)
         items = self.account.watchlist()
         for item in items:
-            if hasattr(item, "guids") and item.guids:
-                imdb_id = next((guid.id.split("//")[-1] for guid in item.guids if guid.id.startswith("imdb://")), None)
-                if imdb_id and imdb_id in self.recurring_items:
-                    continue
-                elif imdb_id.startswith("tt"):
-                    yield imdb_id
+            try:
+                if hasattr(item, "guids") and item.guids:
+                    imdb_id: str = next((guid.id.split("//")[-1] for guid in item.guids if guid.id.startswith("imdb://")), "")
+                    if not imdb_id or imdb_id in self.recurring_items:
+                        continue
+                    elif imdb_id.startswith("tt"):
+                        yield imdb_id
+                    else:
+                        logger.log("NOT_FOUND", f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}")
                 else:
-                    logger.log("NOT_FOUND", f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}")
-            else:
-                logger.log("NOT_FOUND", f"{item.title} ({item.year}) is missing guids attribute from Plex")
+                    logger.log("NOT_FOUND", f"{item.title} ({item.year}) is missing guids attribute from Plex")
+            except Exception as e:
+                logger.error(f"An unexpected error occurred while fetching Plex watchlist item {item.log_string}: {e}")
 
     @staticmethod
     def _ratingkey_to_imdbid(ratingKey: str) -> str:

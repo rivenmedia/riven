@@ -81,9 +81,6 @@ class Scraping:
             return
 
         sorted_streams = self.scrape(item)
-
-        # Set the streams and yield the item
-
         for stream in sorted_streams.values():
             if stream not in item.streams:
                 item.streams.append(stream)

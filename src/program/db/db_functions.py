@@ -6,9 +6,8 @@ import alembic
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
 from program.types import Event
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import joinedload
-from sqlalchemy.exc import NoResultFound, IntegrityError, InvalidRequestError
 from utils.logger import logger
 from utils import alembic_dir
 
@@ -19,12 +18,12 @@ def _ensure_item_exists_in_db(item: MediaItem) -> bool:
     if isinstance(item, (Movie, Show)):
         with db.Session() as session:
             return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == item.imdb_id)).scalar_one() != 0
-    return item._id is not None
+    return bool(item and item._id)
 
 def _get_item_type_from_db(item: MediaItem) -> str:
     with db.Session() as session:
         if item._id is None:
-            return session.execute(select(MediaItem.type).where( (MediaItem.imdb_id==item.imdb_id ) & ( (MediaItem.type == "show") | (MediaItem.type == "movie") ) )).scalar_one()
+            return session.execute(select(MediaItem.type).where((MediaItem.imdb_id==item.imdb_id) & (MediaItem.type.in_(["show", "movie"])))).scalar_one()
         return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
 
 def _store_item(item: MediaItem):
@@ -39,8 +38,8 @@ def _store_item(item: MediaItem):
 def _get_item_from_db(session, item: MediaItem):
     if not _ensure_item_exists_in_db(item):
         return None
-    type = _get_item_type_from_db(item)
     session.expire_on_commit = False
+    type = _get_item_type_from_db(item)
     match type:
         case "movie":
             r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
@@ -62,8 +61,32 @@ def _get_item_from_db(session, item: MediaItem):
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
             return None
 
+def _remove_item_from_db(imdb_id):
+    try:
+        with db.Session() as session:
+            item = session.execute(select(MediaItem).where(MediaItem.imdb_id == imdb_id)).unique().scalar_one()
+            item_type = None
+            if item.type == "movie":
+                item_type = Movie
+            elif item.type == "show":
+                item_type = Show
+            elif item.type == "season":
+                item_type = Season
+            elif item.type == "episode":
+                item_type = Episode
+            if item:
+                session.execute(delete(Stream).where(Stream.parent_id == item._id))
+                session.execute(delete(item_type).where(item_type._id == item._id))
+                session.execute(delete(MediaItem.__table__).where(MediaItem._id == item._id))
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error("Failed to remove item from imdb_id, " + str(e))
+        return False
+
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
-    if _ensure_item_exists_in_db(item) is False and isinstance(item, (Show, Movie, Season, Episode)):
+    if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
             session.add(item)
             session.commit()
@@ -124,6 +147,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
         return
 
 def hard_reset_database():
+    """Resets the database to a fresh state."""
     logger.debug("Resetting Database")
     
     # Drop all tables
@@ -151,4 +175,3 @@ def hard_reset_database():
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
-    del os.environ["HARD_RESET"]

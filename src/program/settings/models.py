@@ -341,6 +341,12 @@ class LoggingModel(Observable):
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
 
+class NotificationsModel(Observable):
+    enabled: bool = False
+    title: str = "Riven completed something!"
+    on_item_type: List[str] = ["movie", "show", "season"]
+    service_urls: List[str] = []
+
 
 class AppModel(Observable):
     version: str = get_version()
@@ -357,6 +363,7 @@ class AppModel(Observable):
     ranking: RTNSettingsModel = RTNSettingsModel()
     indexer: IndexerModel = IndexerModel()
     database: DatabaseModel = DatabaseModel()
+    notifications: NotificationsModel = NotificationsModel()
 
     def __init__(self, **data: Any):
         current_version = get_version()

@@ -79,13 +79,15 @@ async def get_items(
             )
 
     if type:
-        type_lower = type.lower()
-        if type_lower not in ["movie", "show", "season", "episode"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
-            )
-        query = query.where(MediaItem.type == type_lower)
+        if "," in type:
+            types = type.split(",")
+            for type in types:
+                if type not in ["movie", "show", "season", "episode"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
+                    )
+            query = query.where(MediaItem.type.in_(types))
 
     if sort and not search:
         if sort.lower() == "asc":
@@ -117,26 +119,24 @@ async def get_items(
 @router.get("/extended/{item_id}")
 async def get_extended_item_info(_: Request, item_id: str):
     with db.Session() as session:
-        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
+        item = session.execute(select(MediaItem).where(MediaItem.imdb_id == item_id)).unique().scalar_one_or_none()
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
         return {"success": True, "item": item.to_extended_dict()}
 
 
-@router.post("/add/imdb/{imdb_id}")
-@router.post("/add/imdb/")
+@router.post("/add")
 async def add_items(
-    request: Request, imdb_id: Optional[str] = None, imdb_ids: Optional[IMDbIDs] = None
+    request: Request, imdb_ids: str = None
 ):
-    if imdb_id:
-        imdb_ids = IMDbIDs(imdb_ids=[imdb_id])
-    elif (
-        not imdb_ids or not imdb_ids.imdb_ids or any(not id for id in imdb_ids.imdb_ids)
-    ):
+
+    if not imdb_ids:
         raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
 
+    ids = imdb_ids.split(",")
+
     valid_ids = []
-    for id in imdb_ids.imdb_ids:
+    for id in ids:
         if not id.startswith("tt"):
             logger.warning(f"Invalid IMDb ID {id}, skipping")
         else:
@@ -152,54 +152,15 @@ async def add_items(
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 
 
-@router.delete("/remove/")
+@router.delete("/remove")
 async def remove_item(
-    request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None
+    _: Request, imdb_id: str
 ):
-    if item_id:
-        item = request.app.program.media_items.get(item_id)
-        id_type = "ID"
-    elif imdb_id:
-        item = next(
-            (i for i in request.app.program.media_items if i.imdb_id == imdb_id), None
-        )
-        id_type = "IMDb ID"
-    else:
-        raise HTTPException(status_code=400, detail="No item ID or IMDb ID provided")
-
-    if not item:
-        logger.error(f"Item with {id_type} {item_id or imdb_id} not found")
-        return {
-            "success": False,
-            "message": f"Item with {id_type} {item_id or imdb_id} not found. No action taken.",
-        }
-
-    try:
-        # Remove the item from the media items container
-        request.app.program.media_items.remove([item])
-        logger.log("API", f"Removed item with {id_type} {item_id or imdb_id}")
-
-        # Remove the symlinks associated with the item
-        symlinker = request.app.program.service[Symlinker]
-        symlinker.delete_item_symlinks(item)
-        logger.log(
-            "API", f"Removed symlink for item with {id_type} {item_id or imdb_id}"
-        )
-
-        # Save and reload the media items to ensure consistency
-        symlinker.save_and_reload_media_items(request.app.program.media_items)
-        logger.log(
-            "API",
-            f"Saved and reloaded media items after removing item with {id_type} {item_id or imdb_id}",
-        )
-
-        return {
-            "success": True,
-            "message": f"Successfully removed item with {id_type} {item_id or imdb_id}.",
-        }
-    except Exception as e:
-        logger.error(f"Failed to remove item with {id_type} {item_id or imdb_id}: {e}")
-        raise HTTPException from e(status_code=500, detail="Internal server error")
+    if not imdb_id:
+        raise HTTPException(status_code=400, detail="No IMDb ID provided")
+    if DB._remove_item_from_db(imdb_id):
+        return {"success": True, "message": f"Removed item with imdb_id {imdb_id}"}
+    return {"success": False, "message": f"No item with imdb_id ({imdb_id}) found"}
 
 
 @router.get("/imdb/{imdb_id}")
@@ -238,23 +199,3 @@ async def get_imdb_info(
             raise HTTPException(status_code=404, detail="Item not found")
 
         return {"success": True, "item": item.to_extended_dict()}
-
-
-@router.get("/incomplete")
-async def get_incomplete_items(request: Request):
-    if not hasattr(request.app, "program"):
-        logger.error("Program not found in the request app")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-    with db.Session() as session:
-        incomplete_items = session.execute(
-            select(MediaItem).where(MediaItem.last_state != "Completed")
-        ).unique().scalars().all()
-
-        if not incomplete_items:
-            return {"success": True, "incomplete_items": []}
-
-        return {
-            "success": True,
-            "incomplete_items": [item.to_dict() for item in incomplete_items],
-        }

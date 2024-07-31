@@ -13,7 +13,7 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktCont
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show, copy_item
 from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -21,6 +21,7 @@ from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
+from utils.notifications import notify_on_complete
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -185,13 +186,29 @@ class Program(threading.Thread):
         logger.success("Riven is running!")
 
     def _retry_library(self) -> None:
-        """Retry any items that are in an incomplete state."""
+        count = 0
         with db.Session() as session:
-            items_to_submit = session.execute(select(Show).where(MediaItem.last_state!="Completed" ).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
-            items_to_submit = items_to_submit + session.execute(select(Movie).where(MediaItem.last_state!="Completed" ).order_by(MediaItem.scraped_at.desc())).unique().scalars().all()
-            logger.log("PROGRAM", f"Found {len(items_to_submit)} items to retry")
-            for item in items_to_submit:
-                self._push_event_queue(Event(emitted_by=self.__class__, item=item))
+            count = session.execute(
+                select(func.count(MediaItem._id))
+                .where(MediaItem.type.in_(["movie", "show"]))
+                .where(MediaItem.last_state != "Completed")
+            ).scalar_one()
+        logger.log("PROGRAM", f"Found {count} items to retry")
+
+        number_of_rows_per_page = 10
+        for page_number in range(0, (count // number_of_rows_per_page) + 1):
+            with db.Session() as session:
+                items_to_submit = session.execute(
+                    select(MediaItem)
+                    .where(MediaItem.type.in_(["movie", "show"]))
+                    .where(MediaItem.last_state != "Completed")
+                    .order_by(MediaItem.requested_at.desc())
+                    .limit(number_of_rows_per_page)
+                    .offset(page_number * number_of_rows_per_page)
+                ).unique().scalars().all()
+
+                for item in items_to_submit:
+                    self._push_event_queue(Event(emitted_by=self.__class__, item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -242,43 +259,44 @@ class Program(threading.Thread):
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if (not event.item in self.queued_items and not event.item in self.running_items):
-                if hasattr(event.item, "_id"):
-                    if event.item.type == "show":
-                        for s in event.item.seasons:
-                            if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
-                                return False
-                            for e in s.episodes:
-                                if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                                    return False
+            if event.item in self.queued_items or event.item in self.running_items:
+                logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+                return False
 
-                    elif event.item.type == "season":
-                        for e in event.item.episodes:
+            if isinstance(event.item, MediaItem) and hasattr(event.item, "_id"):
+                if event.item.type == "show":
+                    for s in event.item.seasons:
+                        if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
+                            return False
+                        for e in s.episodes:
                             if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
                                 return False
-                            
-                    elif hasattr(event.item, "parent"):
-                        parent = event.item.parent
-                        if self._id_in_queue(parent._id) or self._id_in_running_items(parent._id):
-                            return False
-                        elif hasattr(parent, "parent") and self._id_in_queue(parent.parent._id) or self._id_in_running_items(parent.parent._id):
+
+                elif event.item.type == "season":
+                    for e in event.item.episodes:
+                        if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
                             return False
 
-                self.queued_items.append(event.item)
-                self.event_queue.put(event)
+                elif hasattr(event.item, "parent"):
+                    parent = event.item.parent
+                    if self._id_in_queue(parent._id) or self._id_in_running_items(parent._id):
+                        return False
+                    elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_items(parent.parent._id)):
+                        return False
 
-                if not isinstance(event.item, (Show, Movie, Episode, Season)):
-                    logger.log("NEW", f"Added {event.item.log_string} to the queue")
-                else:
-                    logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
-                return True
+            if not isinstance(event.item, (Show, Movie, Episode, Season)):
+                logger.log("NEW", f"Added {event.item.log_string} to the queue")
+            else:
+                logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
 
-        logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
-        return False
+            event.item = copy_item(event.item)
+            self.queued_items.append(event.item)
+            self.event_queue.put(event)
+            return True
 
     def _pop_event_queue(self, event):
         with self.mutex:
-            DB._store_item(event.item)
+            # DB._store_item(event.item)  # possibly causing duplicates
             self.queued_items.remove(event.item)
 
     def _remove_from_running_items(self, item, service_name=""):
@@ -293,9 +311,9 @@ class Program(threading.Thread):
         with self.mutex:
             if item not in self.running_items:
                 if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
-                    self.running_items.append(item)
+                    self.running_items.append(copy_item(item))
                 elif not isinstance(item, MediaItem):
-                    self.running_items.append(item)
+                    self.running_items.append(copy_item(item))
                 logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
@@ -369,7 +387,7 @@ class Program(threading.Thread):
         logger.debug("Total allocated size: %.1f KiB" % (total / 1024))
 
     def dump_tracemalloc(self):
-        if self.enable_trace and time.monotonic() - self.malloc_time > 60:
+        if time.monotonic() - self.malloc_time > 60:
             self.malloc_time = time.monotonic()
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
@@ -382,11 +400,13 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.event_queue.get(timeout=10)
-                self.dump_tracemalloc()
+                if self.enable_trace:
+                    self.dump_tracemalloc()
                 self.add_to_running(event.item, "program.run")
                 self._pop_event_queue(event)
             except Empty:
-                self.dump_tracemalloc()
+                if self.enable_trace:
+                    self.dump_tracemalloc()
                 continue
 
             with db.Session() as session:
@@ -395,8 +415,12 @@ class Program(threading.Thread):
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
-                if updated_item and isinstance(existing_item, (Movie, Show)) and updated_item.state == States.Symlinked:
-                    logger.success(f"Item has been completed: {updated_item.log_string}")
+                if updated_item and isinstance(existing_item, MediaItem) and updated_item.state == States.Symlinked:
+                    if updated_item.type in ["show", "movie"]:
+                        logger.success(f"Item has been completed: {updated_item.log_string}")
+
+                    if settings_manager.settings.notifications.enabled:
+                            notify_on_complete(updated_item)
 
                 self._remove_from_running_items(event.item, "program.run")
 

@@ -35,7 +35,7 @@ class SymlinkLibrary:
             return False
         return True
 
-    def run(self) -> MediaItem:
+    def run(self):
         """
         Create a library from the symlink paths. Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in.
@@ -65,7 +65,10 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
         if not imdb_id or not title:
             logger.error(f"Can't extract {item_type} imdb_id or title at path {path / filename}")
             continue
+
         item = item_class({"imdb_id": imdb_id.group(), "title": title.group(1)})
+        resolve_symlink_and_set_attrs(item, path / filename)
+
         if settings_manager.settings.force_refresh:
             item.set("symlinked", True)
             item.set("update_folder", str(path))
@@ -76,6 +79,11 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
             item.is_anime = True
         yield item
 
+def resolve_symlink_and_set_attrs(item, path: Path) -> Path:
+    # Resolve the symlink path
+    resolved_path = (path).resolve()
+    item.set("file", str(resolved_path.stem))
+    item.set("folder", str(resolved_path.parent.stem))
 
 def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
     """Process shows in the given directory and yield Show instances."""
@@ -101,7 +109,9 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                     # Delete the episode since it can't be indexed
                     os.remove(directory / show / season / episode)
                     continue
+
                 episode_item = Episode({"number": int(episode_number.group(1))})
+                resolve_symlink_and_set_attrs(episode_item, Path(directory) / show / season / episode)
                 if settings_manager.settings.force_refresh:
                     episode_item.set("symlinked", True)
                     episode_item.set("update_folder", str(Path(directory) / show / season / episode))
