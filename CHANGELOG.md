@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.1](https://github.com/rivenmedia/riven/compare/v0.9.0...v0.9.1) (2024-07-31)
+
+
+### Bug Fixes
+
+* add libtorrent to docker image ([af88478](https://github.com/rivenmedia/riven/commit/af88478add731a351420595aafb2577bf721d7c0))
+* merged changes with db fixes ([f3103b6](https://github.com/rivenmedia/riven/commit/f3103b6f9dda4d078be32ccd5fad09f5d041bbce))
+
+
+### Documentation
+
+* Update ElfHosted details in README ([#578](https://github.com/rivenmedia/riven/issues/578)) ([6047b96](https://github.com/rivenmedia/riven/commit/6047b96edcbbdd5fcaf2f73ecdba9c6c6f0c93a2))
+
 ## [0.9.0](https://github.com/rivenmedia/riven/compare/v0.8.4...v0.9.0) (2024-07-27)
 
 
