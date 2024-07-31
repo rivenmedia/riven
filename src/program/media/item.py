@@ -26,7 +26,7 @@ class MediaItem(db.Model):
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
     streams: Mapped[List[Stream]] = relationship("Stream", back_populates='parent', lazy="select", cascade="all, delete-orphan")
-    blacklisted_streams: Mapped[Optional[List[Stream]]] = mapped_column(sqlalchemy.JSON, lazy="select", nullable=True)
+    blacklisted_streams: Mapped[Optional[List[Stream]]] = mapped_column(sqlalchemy.JSON, nullable=True)
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
