@@ -45,10 +45,6 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
         needed_seasons = [season.number for season in item.seasons]
 
     for infohash, raw_title in results.items():
-        if infohash in ignore_hashes:
-            logger.debug(f"Ignoring hash for torrent as it's in the ignore file: {infohash}")
-            continue
-
         if infohash in processed_infohashes:
             continue
 
@@ -123,7 +119,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
         torrents = sort_torrents(torrents)
         torrents_dict = {}
         for torrent in torrents.values():
-            torrents_dict[torrent.infohash] = Stream(torrent)
+            stream = Stream(torrent)
+            if torrent.infohash in ignore_hashes:
+                logger.debug(f"Marking Torrent {torrent.infohash} as blacklisted for item {item.log_string}")
+                item.blacklisted_streams.append(stream)
+                continue
+            torrents_dict[torrent.infohash] = stream
         return torrents_dict
 
     return {}
