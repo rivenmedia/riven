@@ -45,8 +45,8 @@ class Program(threading.Thread):
         self.initialized = False
         self.event_queue = Queue()
         self.services = {}
-        self.queued_items = []
-        self.running_items = []
+        self.queued_events = []
+        self.running_events = []
         self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
         self.sql_Session = db.Session
@@ -208,7 +208,7 @@ class Program(threading.Thread):
                 ).unique().scalars().all()
 
                 for item in items_to_submit:
-                    self._push_event_queue(Event(emitted_by=self.__class__, item=item))
+                    self._push_event_queue(Event(emitted_by="RetryLibrary", item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -252,85 +252,89 @@ class Program(threading.Thread):
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def _id_in_queue(self, id):
-        return any(i._id == id for i in self.queued_items)
+        return any(event.item._id == id for event in self.queued_events)
 
-    def _id_in_running_items(self, id):
-        return any(i._id == id for i in self.running_items)
+    def _id_in_running_events(self, id):
+        return any(event.item._id == id for event in self.running_events)
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if event.item in self.queued_items or event.item in self.running_items:
-                logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
+            if any(qi.item.imdb_id == event.item.imdb_id and qi.emitted_by == event.emitted_by for qi in self.queued_events):
+                logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
+                return False
+            elif any(ri.item.imdb_id == event.item.imdb_id and ri.emitted_by == event.emitted_by for ri in self.running_events):
+                logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
 
             if isinstance(event.item, MediaItem) and hasattr(event.item, "_id"):
                 if event.item.type == "show":
                     for s in event.item.seasons:
-                        if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
+                        if self._id_in_queue(s._id) or self._id_in_running_events(s._id):
                             return False
                         for e in s.episodes:
-                            if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                            if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
                                 return False
 
                 elif event.item.type == "season":
                     for e in event.item.episodes:
-                        if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
+                        if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
                             return False
 
                 elif hasattr(event.item, "parent"):
                     parent = event.item.parent
-                    if self._id_in_queue(parent._id) or self._id_in_running_items(parent._id):
+                    if self._id_in_queue(parent._id) or self._id_in_running_events(parent._id):
                         return False
-                    elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_items(parent.parent._id)):
+                    elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_events(parent.parent._id)):
                         return False
 
             if not isinstance(event.item, (Show, Movie, Episode, Season)):
                 logger.log("NEW", f"Added {event.item.log_string} to the queue")
             else:
                 logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
-
-            event.item = copy_item(event.item)
-            self.queued_items.append(event.item)
+            if not isinstance(event.item, MediaItem):
+                event.item = copy_item(event.item)
+            self.queued_events.append(event)
             self.event_queue.put(event)
             return True
 
     def _pop_event_queue(self, event):
         with self.mutex:
             # DB._store_item(event.item)  # possibly causing duplicates
-            self.queued_items.remove(event.item)
+            self.queued_events.remove(event)
 
-    def _remove_from_running_items(self, item, service_name=""):
+    def _remove_from_running_events(self, item, service_name=""):
         with self.mutex:
-            if item in self.running_items:
-                self.running_items.remove(item)
+            event = next((event for event in self.running_events if event.item._id == item._id), None)
+            if event:
+                self.running_events.remove(event)
                 logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
 
-    def add_to_running(self, item, service_name):
-        if item is None:
+    def add_to_running(self, e):
+        if e.item is None:
             return
         with self.mutex:
-            if item not in self.running_items:
-                if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
-                    self.running_items.append(copy_item(item))
-                elif not isinstance(item, MediaItem):
-                    self.running_items.append(copy_item(item))
-                logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
+            if all(event.item._id != e.item._id for event in self.running_events):
+                if isinstance(e.item, MediaItem) and not self._id_in_running_events(e.item._id):
+                    self.running_events.append(e)
+                elif not isinstance(e.item, MediaItem):
+                    self.running_events.append(e)
+                logger.log("PROGRAM", f"Item {e.item.log_string} started running section { e.emitted_by.__name__ if type(e.emitted_by) != str else e.emitted_by}" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
         try:
-            for _item in future.result():
-                pass
+            for i in future.result():
+                if i is not None:
+                    self._remove_from_running_events(i, service.__name__)
+                    self._push_event_queue(Event(emitted_by=service, item=i))
             if orig_item is not None:
                 logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
-            else:
-                logger.log("PROGRAM", f"Service {service.__name__} finished running.")
         except TimeoutError:
             logger.debug("Service {service.__name__} timeout waiting for result on {orig_item.log_string}")
-            self._remove_from_running_items(orig_item, service.__name__)
+            self._remove_from_running_events(orig_item, service.__name__)
         except Exception:
             logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
-            self._remove_from_running_items(orig_item, service.__name__)
+            self._remove_from_running_events(orig_item, service.__name__)
 
     def _submit_job(self, service: Service, item: MediaItem | None) -> None:
         if item and service:
@@ -402,7 +406,7 @@ class Program(threading.Thread):
                 event: Event = self.event_queue.get(timeout=10)
                 if self.enable_trace:
                     self.dump_tracemalloc()
-                self.add_to_running(event.item, "program.run")
+                self.add_to_running(event)
                 self._pop_event_queue(event)
             except Empty:
                 if self.enable_trace:
@@ -411,25 +415,25 @@ class Program(threading.Thread):
 
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
-                updated_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
+                processed_item, next_service, items_to_submit = process_event(
+                    existing_item, event.emitted_by, event.item
                 )
 
-                if updated_item and isinstance(existing_item, MediaItem) and updated_item.state == States.Symlinked:
-                    if updated_item.type in ["show", "movie"]:
-                        logger.success(f"Item has been completed: {updated_item.log_string}")
+                if processed_item and processed_item.state == States.Completed:
+                    if processed_item.type in ["show", "movie"]:
+                        logger.success(f"Item has been completed: {processed_item.log_string}")
 
                     if settings_manager.settings.notifications.enabled:
-                            notify_on_complete(updated_item)
+                            notify_on_complete(processed_item)
 
-                self._remove_from_running_items(event.item, "program.run")
+                self._remove_from_running_events(event.item, "program.run")
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
-                        self.add_to_running(item_to_submit, next_service.__name__)
+                        self.add_to_running(Event(next_service.__name__, item_to_submit))
                         self._submit_job(next_service, item_to_submit)
-                if isinstance(existing_item, MediaItem):
-                    existing_item.store_state()
+                if isinstance(processed_item, MediaItem):
+                    processed_item.store_state()
                 session.commit()
 
     def stop(self):
@@ -446,9 +450,10 @@ class Program(threading.Thread):
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def add_to_queue(self, item: MediaItem) -> bool:
+    def add_to_queue(self, item: MediaItem, emitted_by="Manual") -> bool:
         """Add item to the queue for processing."""
-        return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
+        logger.log("PROGRAM", f"Adding {item.log_string} to the queue.")
+        return self._push_event_queue(Event(emitted_by=emitted_by, item=item))
 
     def clear_queue(self):
         """Clear the event queue."""

@@ -84,6 +84,7 @@ def resolve_symlink_and_set_attrs(item, path: Path) -> Path:
     resolved_path = (path).resolve()
     item.set("file", str(resolved_path.stem))
     item.set("folder", str(resolved_path.parent.stem))
+    item.set("symlink_path", str(path))
 
 def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
     """Process shows in the given directory and yield Show instances."""

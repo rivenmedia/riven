@@ -22,22 +22,22 @@ class TraktIndexer:
         self.initialized = True
         self.settings = settings_manager.settings.indexer
 
+    def copy_attributes(self, source, target):
+        """Copy attributes from source to target."""
+        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path"]
+        for attr in attributes:
+            target.set(attr, getattr(source, attr, None))
+
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
+        """Copy attributes from itema to itemb recursively."""
         if isinstance(itema, Show) and isinstance(itemb, Show):
-            for (seasona, seasonb) in zip(itema.seasons, itemb.seasons):
-                for (episodea, episodeb) in zip(seasona.episodes, seasonb.episodes):
-                    episodeb.set("update_folder", episodea.update_folder)
-                    episodeb.set("symlinked", episodea.symlinked)
-                    episodeb.set("file", episodea.file)
-                    episodeb.set("folder", episodea.folder)
-                    seasonb.set("is_anime", itema.is_anime)
-                    episodeb.set("is_anime", itema.is_anime) 
-        elif isinstance(itema, Movie) and isinstance(itemb, Movie):
-            itemb.set("file", itema.file)
-            itemb.set("folder", itema.folder)
-            itemb.set("update_folder", itema.update_folder)
-            itemb.set("symlinked", itema.symlinked)
+            for seasona, seasonb in zip(itema.seasons, itemb.seasons):
+                for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
+                    self.copy_attributes(episodea, episodeb)
+                seasonb.set("is_anime", itema.is_anime)
             itemb.set("is_anime", itema.is_anime)
+        elif isinstance(itema, Movie) and isinstance(itemb, Movie):
+            self.copy_attributes(itema, itemb)
         return itemb
             
     def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
