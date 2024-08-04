@@ -75,6 +75,8 @@ class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
     separate_anime_dirs: bool = False
+    repair_symlinks: bool = False
+    repair_interval: float = 6 # hours
 
 
 # Content Services
@@ -347,6 +349,34 @@ class NotificationsModel(Observable):
     on_item_type: List[str] = ["movie", "show", "season"]
     service_urls: List[str] = []
 
+class SubliminalConfig(Observable):
+    enabled: bool = False
+    languages: List[str] = ["eng"]
+    providers: dict = {
+        "addic7ed": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "napiprojekt": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlesvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlescomvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        }
+    }
+
+class PostProcessing(Observable):
+    subliminal: SubliminalConfig = SubliminalConfig()
 
 class AppModel(Observable):
     version: str = get_version()
@@ -364,6 +394,7 @@ class AppModel(Observable):
     indexer: IndexerModel = IndexerModel()
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
+    post_processing: PostProcessing = PostProcessing()
 
     def __init__(self, **data: Any):
         current_version = get_version()

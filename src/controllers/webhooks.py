@@ -50,7 +50,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
             logger.error(f"Failed to get imdb_id from Overseerr: {req.media.tmdbId}")
             return {"success": False, "message": "Failed to get imdb_id from Overseerr", "title": req.subject}
 
-    overseerr: Overseerr = request.app.program.services[Overseerr]
+    overseerr: Overseerr = request.app.program.all_services[Overseerr]
     if not overseerr.initialized:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized", "title": req.subject}
@@ -63,7 +63,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
 
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
-        request.app.program.add_to_queue(new_item)
+        request.app.program.em.add_item(new_item)
     except Exception:
         logger.error(f"Failed to create item from imdb_id: {imdb_id}")
         return {"success": False, "message": "Failed to create item from imdb_id", "title": req.subject}

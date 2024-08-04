@@ -10,6 +10,7 @@ from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from sqlalchemy import func, select
+from loguru import logger
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -70,7 +71,7 @@ async def get_torbox_user():
 async def get_services(request: Request):
     data = {}
     if hasattr(request.app.program, "services"):
-        for service in request.app.program.services.values():
+        for service in request.app.program.all_services.values():
             data[service.key] = service.initialized
             if not hasattr(service, "services"):
                 continue
@@ -136,28 +137,21 @@ async def get_stats(_: Request):
 
         return {"success": True, "data": payload}
 
-@router.get("/scrape/{item_id:path}")
-async def scrape_item(item_id: str, request: Request):
-    with db.Session() as session:
-        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
-        if item is None:
-            raise HTTPException(status_code=404, detail="Item not found")
-        
-        scraper = request.app.program.services.get(Scraping)
-        if scraper is None:
-            raise HTTPException(status_code=404, detail="Scraping service not found")
+@router.get("/logs")
+async def get_logs():
+    log_file_path = None
+    for handler in logger._core.handlers.values():
+        if ".log" in handler._name:
+            log_file_path = handler._sink._path
+            break
 
-        time_now = time.time()
-        scraped_results = scraper.scrape(item, log=False)
-        time_end = time.time()
-        duration = time_end - time_now
+    if not log_file_path:
+        return {"success": False, "message": "Log file handler not found"}
 
-        results = {}
-        for hash, torrent in scraped_results.items():
-            results[hash] = {
-                "title": torrent.data.parsed_title,
-                "raw_title": torrent.raw_title,
-                "rank": torrent.rank,
-            }
-
-        return {"success": True, "total": len(results), "duration": round(duration, 3), "results": results}
+    try:
+        with open(log_file_path, 'r') as log_file:
+            log_contents = log_file.read()
+        return {"success": True, "logs": log_contents}
+    except Exception as e:
+        logger.error(f"Failed to read log file: {e}")
+        return {"success": False, "message": str(e)}

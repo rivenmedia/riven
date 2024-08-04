@@ -25,7 +25,7 @@ class Symlinker:
         library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
 
-    def __init__(self, media_items=None):
+    def __init__(self):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
         self.rclone_path = self.settings.rclone_path
@@ -88,10 +88,8 @@ class Symlinker:
 
     def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
-        if not item:
-            logger.error("Invalid item sent to Symlinker: None")
-            return
-
+        if not Symlinker.should_submit(item):
+            yield item
         try:
             if isinstance(item, Show):
                 self._symlink_show(item)
@@ -103,8 +101,7 @@ class Symlinker:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
         item.set("symlinked_times", item.symlinked_times + 1)
-        if self.should_submit(item):
-            yield item
+        yield item
 
     @staticmethod
     def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:
@@ -266,6 +263,7 @@ class Symlinker:
         item.set("symlinked", True)
         item.set("symlinked_at", datetime.now())
         item.set("symlinked_times", item.symlinked_times + 1)
+        item.set("symlink_path", destination)
         return True
 
     def _create_item_folders(self, item: Union[Movie, Show, Season, Episode], filename: str) -> str:
@@ -332,7 +330,7 @@ class Symlinker:
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
-                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
+                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
         return filename
 
     def delete_item_symlinks(self, id: int) -> bool:
@@ -379,17 +377,17 @@ class Symlinker:
                     logger.debug(f"Deleted symlink for {item.log_string}")
 
                     if isinstance(item, (Movie, Episode)):
-                        reset_symlinked(item, reset_times=True)
+                        item.reset(True)
                     elif isinstance(item, Show):
                         for season in item.seasons:
                             for episode in season.episodes:
-                                reset_symlinked(episode, reset_times=True)
-                            reset_symlinked(season, reset_times=True)
-                        reset_symlinked(item, reset_times=True)
+                                episode.reset(True)
+                            season.reset(True)
+                        item.reset(True)
                     elif isinstance(item, Season):
                         for episode in item.episodes:
-                            reset_symlinked(episode, reset_times=True)
-                        reset_symlinked(item, reset_times=True)
+                            episode.reset(True)
+                        item.reset(True)
 
                     item.store_state()
                     session.commit()
@@ -450,7 +448,7 @@ def quick_file_check(item: Union[Movie, Episode]) -> bool:
                 return True
 
     if item.symlinked_times >= 3:
-        reset_symlinked(item, reset_times=True)
+        item.reset()
         logger.log("SYMLINKER", f"Reset item {item.log_string} back to scrapable after 3 failed attempts")
 
     return False
@@ -475,26 +473,3 @@ def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
     except Exception as e:
         logger.error(f"Error occurred while searching for file {filename} in {rclone_path}: {e}")
     return False
-
-def reset_symlinked(item: MediaItem, reset_times: bool = True) -> None:
-    """Reset item attributes for rescraping."""
-    item.set("file", None)
-    item.set("folder", None)
-    item.set("alternative_folder", None)
-
-    if hasattr(item, "active_stream") and "hash" in item.active_stream:
-        hash_to_blacklist = item.active_stream["hash"]
-        stream: Stream = next((stream for stream in item.streams if stream.infohash == hash_to_blacklist), None)
-        if stream:
-            stream.blacklisted = True
-
-    item.set("active_stream", {})
-    item.set("symlinked", False)
-    item.set("symlinked_at", None)
-    item.set("update_folder", None)
-
-    if reset_times:
-        item.set("symlinked_times", 0)
-        item.set("scraped_times", 0)
-
-    logger.debug(f"Item {item.log_string} reset for rescraping")

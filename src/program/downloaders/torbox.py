@@ -4,8 +4,11 @@ from pathlib import Path
 from posixpath import splitext
 from typing import Generator
 
+from program.db.db import db
+from program.db.db_functions import load_streams_in_pages, get_stream_count
 from program.media.item import MediaItem
 from program.media.state import States
+from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN import parse
@@ -70,32 +73,63 @@ class TorBoxDownloader:
     def run(self, item: MediaItem) -> bool:
         """Download media item from torbox.app"""
         return_value = False
-        cached_hashes = self.get_torrent_cached([stream.infohash for stream in item.streams])
-        if cached_hashes:
-            for cache in cached_hashes.values():
-                item.active_stream = cache
-                if self.find_required_files(item, cache["files"]):
-                    logger.log(
-                        "DEBRID", f"Item is cached, proceeding with: {item.log_string}"
-                    )
-                    item.set(
-                        "active_stream",
-                        {"hash": cache["hash"], "files": cache["files"], "id": None},
-                    )
-                    self.download(item)
-                    return_value = True
-                    break
+        stream_count = get_stream_count(item._id)
+        processed_stream_hashes = set()  # Track processed stream hashes
+        stream_hashes = {}
+    
+        number_of_rows_per_page = 5
+        total_pages = (stream_count // number_of_rows_per_page) + 1
+    
+        for page_number in range(total_pages):
+            with db.Session() as session:
+                for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
+                    stream_hash_lower = infohash.lower()
+    
+                    if stream_hash_lower in processed_stream_hashes:
+                        continue
+    
+                    processed_stream_hashes.add(stream_hash_lower)
+                    stream_hashes[stream_hash_lower] = stream
+    
+                cached_hashes = self.get_torrent_cached(list(stream_hashes.keys()))
+                if cached_hashes:
+                    for cache in cached_hashes.values():
+                        item.active_stream = cache
+                        if self.find_required_files(item, cache["files"]):
+                            logger.log(
+                                "DEBRID", f"Item is cached, proceeding with: {item.log_string}"
+                            )
+                            item.set(
+                                "active_stream",
+                                {"hash": cache["hash"], "files": cache["files"], "id": None},
+                            )
+                            self.download(item)
+                            return_value = True
+                            break
+                        else:
+                            stream = stream_hashes.get(cache["hash"].lower())
+                            if stream:
+                                stream.blacklisted = True
                 else:
-                    stream = next(stream for stream in item.streams if stream.infohash == cache["hash"])
-                    stream.blacklisted = True
-        else:
-            logger.log("DEBRID", f"Item is not cached: {item.log_string}")
-            for stream in item.streams:
-                logger.log(
-                    "DEBUG", f"Blacklisting hash ({stream.infohash}) for item: {item.log_string}"
-                )
-                stream.blacklisted = True
+                    logger.log("DEBRID", f"Item is not cached: {item.log_string}")
+                    for stream in stream_hashes.values():
+                        logger.log(
+                            "DEBUG", f"Blacklisting uncached hash ({stream.infohash}) for item: {item.log_string}"
+                        )
+                        stream.blacklisted = True
+    
         return return_value
+
+    def get_cached_hashes(self, item: MediaItem, streams: list[str: Stream]) -> list[str]:
+        """Check if the item is cached in torbox.app"""
+        cached_hashes = self.get_torrent_cached(streams)
+        return {stream: cached_hashes[stream]["files"] for stream in streams if stream in cached_hashes}
+
+    def download_cached(self, item: MediaItem, stream: str) -> None:
+        """Download the cached item from torbox.app"""
+        cache = self.get_torrent_cached([stream])[stream]
+        item.active_stream = cache
+        self.download(item)
 
     def find_required_files(self, item, container):
 

@@ -1,61 +1,63 @@
+import asyncio
 import linecache
 import os
 import threading
 import time
-import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
-from multiprocessing import Lock
-from queue import Empty, Queue
+from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media.item import Episode, MediaItem, Movie, Season, Show, copy_item
+from program.libraries.symlink import fix_broken_symlinks
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.post_processing import PostProcessing
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
+from utils.event_manager import EventManager
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
+from utils.event_manager import EventManager
+import utils.websockets.manager as ws_manager
 
 from .state_transition import process_event
 from .symlink import Symlinker
-from .types import Event, Service
+from .types import Event
 
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-import program.db.db_functions as DB
-from program.db.db import db, run_migrations
 from sqlalchemy import func, select
+
+import program.db.db_functions as DB
+from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
+from sqlalchemy import func, select, text
 
 
 class Program(threading.Thread):
     """Program class"""
 
-    def __init__(self, args):
+    def __init__(self):
         super().__init__(name="Riven")
-        self.running = False
-        self.startup_args = args
         self.initialized = False
-        self.event_queue = Queue()
+        self.running = False
         self.services = {}
-        self.queued_items = []
-        self.running_items = []
-        self.mutex = Lock()
         self.enable_trace = settings_manager.settings.tracemalloc
-        self.sql_Session = db.Session
+        self.em = EventManager()
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
             self.last_snapshot = None
 
     def initialize_services(self):
+    
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -63,48 +65,50 @@ class Program(threading.Thread):
             Mdblist: Mdblist(),
             TraktContent: TraktContent(),
         }
-        self.indexing_services = {TraktIndexer: TraktIndexer()}
-        self.processing_services = {
+
+        self.services = {
+            TraktIndexer: TraktIndexer(),
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
             Downloader: Downloader(),
-        }
-        # Depends on Symlinker having created the file structure so needs
-        # to run after it
-        self.library_services = {
+            # Depends on Symlinker having created the file structure so needs
+            # to run after it
             SymlinkLibrary: SymlinkLibrary(),
+            PostProcessing: PostProcessing(),
         }
-        if not any(s.initialized for s in self.requesting_services.values()):
-            logger.error("No Requesting service initialized, you must enable at least one.")
-        if not self.processing_services.get(Scraping).initialized:
-            logger.error("No Scraping service initialized, you must enable at least one.")
-        if not self.processing_services.get(Downloader).initialized:
-            logger.error("No Downloader service initialized, you must enable at least one.")
-        if not self.processing_services.get(Updater).initialized:
-            logger.error("No Updater service initialized, you must enable at least one.")
 
-        self.services = {
-            **self.library_services,
-            **self.indexing_services,
+        self.all_services = {
             **self.requesting_services,
-            **self.processing_services,
+            **self.services
         }
+
+        if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
+            logger.warning("No content services initialized, items need to be added manually.")
+        if not self.services[Scraping].initialized:
+            logger.error("No Scraping service initialized, you must enable at least one.")
+        if not self.services[Downloader].initialized:
+            logger.error("No Downloader service initialized, you must enable at least one.")
+        if not self.services[Updater].initialized:
+            logger.error("No Updater service initialized, you must enable at least one.")
 
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
+    
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
-        return all(
-            (
-                any(s.initialized for s in self.requesting_services.values()),
-                any(s.initialized for s in self.library_services.values()),
-                any(s.initialized for s in self.indexing_services.values()),
-                all(s.initialized for s in self.processing_services.values()),
-                self.processing_services[Downloader].initialized,
-            )
-        )
+        return all(s.initialized for s in self.services.values())
+    
+    def validate_database(self) -> bool:
+        """Validate that the database is accessible."""
+        try:
+            with db.Session() as session:
+                session.execute(text("SELECT 1"))
+                return True
+        except Exception:
+            logger.error(f"Database connection failed. Is the database running?")
+            return False
 
     def start(self):
         latest_version = get_version()
@@ -117,28 +121,27 @@ class Program(threading.Thread):
             logger.log("PROGRAM", "Settings file not found, creating default settings")
             settings_manager.save()
 
-        try:
-            self.initialize_services()
-            scrub_logs()
-        except Exception as e:
-            logger.exception(f"Failed to initialize services: {e}")
+        self.initialize_services()
+        scrub_logs()
 
         max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
         if max_worker_env_vars:
             for var in max_worker_env_vars:
                 logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
 
-        logger.log("PROGRAM", "----------------------------------------------")
-        logger.log("PROGRAM", "Riven is waiting for configuration to start!")
-        logger.log("PROGRAM", "----------------------------------------------")
+        if not self.validate():
+            logger.log("PROGRAM", "----------------------------------------------")
+            logger.error("Riven is waiting for configuration to start!")
+            logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
-
-        self.initialized = True
-        logger.log("PROGRAM", "Riven started!")
+            
+        if not self.validate_database():
+            return
 
         run_migrations()
+        
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
@@ -182,8 +185,9 @@ class Program(threading.Thread):
 
         super().start()
         self.scheduler.start()
-        self.running = True
         logger.success("Riven is running!")
+        ws_manager.send_health_update("running")
+        self.initialized = True
 
     def _retry_library(self) -> None:
         count = 0
@@ -199,22 +203,48 @@ class Program(threading.Thread):
         for page_number in range(0, (count // number_of_rows_per_page) + 1):
             with db.Session() as session:
                 items_to_submit = session.execute(
-                    select(MediaItem)
+                    select(
+                        MediaItem._id,
+                        MediaItem.type,
+                        MediaItem.last_state,
+                        MediaItem.requested_at,
+                        MediaItem.imdb_id
+                    )
                     .where(MediaItem.type.in_(["movie", "show"]))
                     .where(MediaItem.last_state != "Completed")
                     .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
-                ).unique().scalars().all()
-
-                for item in items_to_submit:
-                    self._push_event_queue(Event(emitted_by=self.__class__, item=item))
+                ).all()
+        
+                session.expunge_all()
+                session.close()
+        
+                for item_data in items_to_submit:
+                    item = MediaItem(None)
+                    item._id = item_data[0]
+                    item.type = item_data[1]
+                    item.last_state = item_data[2]
+                    item.requested_at = item_data[3]
+                    item.imdb_id = item_data[4]
+                    self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
+
+        if settings_manager.settings.symlink.repair_symlinks:
+            scheduled_functions[fix_broken_symlinks] = {
+                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval, 
+                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
+            }
+
+        if settings_manager.settings.post_processing.subliminal.enabled:
+            pass
+            # scheduled_functions[self._download_subtitles] = {"interval": 60 * 60 * 24}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
@@ -231,7 +261,7 @@ class Program(threading.Thread):
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_services = {**self.requesting_services, **self.library_services}
+        scheduled_services = {**self.requesting_services, SymlinkLibrary: self.services[SymlinkLibrary]}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 continue
@@ -239,10 +269,10 @@ class Program(threading.Thread):
                 continue
 
             self.scheduler.add_job(
-                self._submit_job,
+                self.em.submit_job,
                 "interval",
                 seconds=update_interval,
-                args=[service_cls, None],
+                args=[service_cls, self],
                 id=f"{service_cls.__name__}_update",
                 max_instances=1,
                 replace_existing=True,
@@ -250,120 +280,6 @@ class Program(threading.Thread):
                 coalesce=False,
             )
             logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
-
-    def _id_in_queue(self, id):
-        return any(i._id == id for i in self.queued_items)
-
-    def _id_in_running_items(self, id):
-        return any(i._id == id for i in self.running_items)
-
-    def _push_event_queue(self, event):
-        with self.mutex:
-            if event.item in self.queued_items or event.item in self.running_items:
-                logger.debug(f"Item {event.item.log_string} is already in the queue or running, skipping.")
-                return False
-
-            if isinstance(event.item, MediaItem) and hasattr(event.item, "_id"):
-                if event.item.type == "show":
-                    for s in event.item.seasons:
-                        if self._id_in_queue(s._id) or self._id_in_running_items(s._id):
-                            return False
-                        for e in s.episodes:
-                            if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                                return False
-
-                elif event.item.type == "season":
-                    for e in event.item.episodes:
-                        if self._id_in_queue(e._id) or self._id_in_running_items(e._id):
-                            return False
-
-                elif hasattr(event.item, "parent"):
-                    parent = event.item.parent
-                    if self._id_in_queue(parent._id) or self._id_in_running_items(parent._id):
-                        return False
-                    elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_items(parent.parent._id)):
-                        return False
-
-            if not isinstance(event.item, (Show, Movie, Episode, Season)):
-                logger.log("NEW", f"Added {event.item.log_string} to the queue")
-            else:
-                logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
-
-            event.item = copy_item(event.item)
-            self.queued_items.append(event.item)
-            self.event_queue.put(event)
-            return True
-
-    def _pop_event_queue(self, event):
-        with self.mutex:
-            # DB._store_item(event.item)  # possibly causing duplicates
-            self.queued_items.remove(event.item)
-
-    def _remove_from_running_items(self, item, service_name=""):
-        with self.mutex:
-            if item in self.running_items:
-                self.running_items.remove(item)
-                logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
-
-    def add_to_running(self, item, service_name):
-        if item is None:
-            return
-        with self.mutex:
-            if item not in self.running_items:
-                if isinstance(item, MediaItem) and not self._id_in_running_items(item._id):
-                    self.running_items.append(copy_item(item))
-                elif not isinstance(item, MediaItem):
-                    self.running_items.append(copy_item(item))
-                logger.log("PROGRAM", f"Item {item.log_string} started running section {service_name}" )
-
-    def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
-        """Callback to add the results from a future emitted by a service to the event queue."""
-        try:
-            for _item in future.result():
-                pass
-            if orig_item is not None:
-                logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
-            else:
-                logger.log("PROGRAM", f"Service {service.__name__} finished running.")
-        except TimeoutError:
-            logger.debug("Service {service.__name__} timeout waiting for result on {orig_item.log_string}")
-            self._remove_from_running_items(orig_item, service.__name__)
-        except Exception:
-            logger.exception(f"Service {service.__name__} failed with exception {traceback.format_exc()}")
-            self._remove_from_running_items(orig_item, service.__name__)
-
-    def _submit_job(self, service: Service, item: MediaItem | None) -> None:
-        if item and service:
-            if service.__name__ == "TraktIndexer":
-                logger.log("NEW", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
-            else:
-                logger.log("PROGRAM", f"Submitting service {service.__name__} to the pool with {getattr(item, 'log_string', None) or item.item_id}")
-
-        # Check if the executor has been shut down
-        if not self.running:
-            logger.log("PROGRAM", "Waiting for executor to start before submitting jobs")
-            return
-
-        # Instead of using the one executor, loop over the list of self.executors, if one is found with the service.__name__ then use that one
-        # If one is not found with the service.__name__ then create a new one and append it to the list
-        # This will allow for multiple services to run at the same time
-        found = False
-        cur_executor = None
-        for executor in self.executors:
-            if executor["_name_prefix"] == service.__name__:
-                found = True
-                cur_executor = executor["_executor"]
-                break
-
-        if not found:
-            max_workers = int(os.environ[service.__name__.upper() +"_MAX_WORKERS"]) if service.__name__.upper() + "_MAX_WORKERS" in os.environ else 1
-            new_executor = ThreadPoolExecutor(thread_name_prefix=f"Worker_{service.__name__}", max_workers=max_workers )
-            self.executors.append({ "_name_prefix": service.__name__, "_executor": new_executor })
-            cur_executor = new_executor
-        fn = self.services[service].run
-        func = DB._run_thread_with_db_item #func = self.services[service].run # self._run_thread_with_db_item
-        future = cur_executor.submit(func, fn, service, self, item)  #cur_executor.submit(func) if item is None else cur_executor.submit(func, item)
-        future.add_done_callback(lambda f: self._process_future_item(f, service, item))
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
@@ -393,70 +309,53 @@ class Program(threading.Thread):
             self.display_top_allocators(snapshot)
 
     def run(self):
-        while self.running:
+        while self.initialized:
             if not self.validate():
                 time.sleep(1)
                 continue
 
             try:
-                event: Event = self.event_queue.get(timeout=10)
+                event: Event = self.em.next()
+                self.em.add_event_to_running(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
-                self.add_to_running(event.item, "program.run")
-                self._pop_event_queue(event)
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
                 continue
 
+
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
-                updated_item, next_service, items_to_submit = process_event(
+                processed_item, next_service, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
-                if updated_item and isinstance(existing_item, MediaItem) and updated_item.state == States.Symlinked:
-                    if updated_item.type in ["show", "movie"]:
-                        logger.success(f"Item has been completed: {updated_item.log_string}")
+                if processed_item and processed_item.state == States.Completed:
+                    if processed_item.type in ["show", "movie"]:
+                        logger.success(f"Item has been completed: {processed_item.log_string}")
 
                     if settings_manager.settings.notifications.enabled:
-                            notify_on_complete(updated_item)
+                            notify_on_complete(processed_item)
 
-                self._remove_from_running_items(event.item, "program.run")
+                self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
-                        self.add_to_running(item_to_submit, next_service.__name__)
-                        self._submit_job(next_service, item_to_submit)
-                if isinstance(existing_item, MediaItem):
-                    existing_item.store_state()
+                        self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
+                        self.em.submit_job(next_service, self, item_to_submit)
+                if isinstance(processed_item, MediaItem):
+                    processed_item.store_state()
                 session.commit()
 
     def stop(self):
-        if not self.running:
+        if not self.initialized:
             return
 
-        self.running = False
-        self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
             for executor in self.executors:
-                if not getattr(executor["_executor"], "_shutdown", False):
+                if not executor["_executor"]._shutdown:
                     executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler") and getattr(self.scheduler, "running", False):
+        if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
-
-    def add_to_queue(self, item: MediaItem) -> bool:
-        """Add item to the queue for processing."""
-        return self._push_event_queue(Event(emitted_by=self.__class__, item=item))
-
-    def clear_queue(self):
-        """Clear the event queue."""
-        logger.log("PROGRAM", "Clearing the event queue. Please wait.")
-        while not self.event_queue.empty():
-            try:
-                self.event_queue.get_nowait()
-                self.event_queue.task_done()
-            except Empty:
-                break
-        logger.log("PROGRAM", "Cleared the event queue")
