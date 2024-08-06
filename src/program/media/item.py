@@ -70,6 +70,7 @@ class MediaItem(db.Model):
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", {})
         self.streams: List[Stream] = []
+        self.blacklisted_streams: List[Stream] = []
 
         self.symlinked = False
         self.symlinked_at = None
