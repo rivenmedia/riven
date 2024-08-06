@@ -13,8 +13,10 @@ from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktCont
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media.item import Episode, MediaItem, Movie, Season, Show, copy_item
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.post_processing import PostProcessing
+from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
@@ -89,6 +91,7 @@ class Program(threading.Thread):
             **self.indexing_services,
             **self.requesting_services,
             **self.processing_services,
+            PostProcessing: PostProcessing(),
         }
 
         if self.enable_trace:
@@ -210,11 +213,18 @@ class Program(threading.Thread):
                 for item in items_to_submit:
                     self._push_event_queue(Event(emitted_by="RetryLibrary", item=item))
 
+    def _download_subtitles(self) -> None:
+        if settings_manager.settings.post_processing.subliminal.enabled:
+            self.services[PostProcessing].services[Subliminal].scan_files_and_download()
+
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
         }
+        if settings_manager.settings.post_processing.subliminal.enabled:
+            pass
+            # scheduled_functions[self._download_subtitles] = {"interval": 60 * 60 * 24}
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,
@@ -259,10 +269,10 @@ class Program(threading.Thread):
 
     def _push_event_queue(self, event):
         with self.mutex:
-            if any(qi.item.imdb_id == event.item.imdb_id and qi.emitted_by == event.emitted_by for qi in self.queued_events):
+            if any(event.item.imdb_id and qi.item.imdb_id == event.item.imdb_id for qi in self.queued_events):
                 logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
                 return False
-            elif any(ri.item.imdb_id == event.item.imdb_id and ri.emitted_by == event.emitted_by for ri in self.running_events):
+            elif any(event.item.imdb_id and ri.item.imdb_id == event.item.imdb_id for ri in self.running_events):
                 logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
 
@@ -291,8 +301,6 @@ class Program(threading.Thread):
                 logger.log("NEW", f"Added {event.item.log_string} to the queue")
             else:
                 logger.log("DISCOVERY", f"Re-added {event.item.log_string} to the queue")
-            if not isinstance(event.item, MediaItem):
-                event.item = copy_item(event.item)
             self.queued_events.append(event)
             self.event_queue.put(event)
             return True
@@ -304,7 +312,7 @@ class Program(threading.Thread):
 
     def _remove_from_running_events(self, item, service_name=""):
         with self.mutex:
-            event = next((event for event in self.running_events if event.item._id == item._id), None)
+            event = next((event for event in self.running_events if item._id and event.item._id == item._id or item.imdb_id and event.item.imdb_id == item.imdb_id), None)
             if event:
                 self.running_events.remove(event)
                 logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
@@ -314,11 +322,10 @@ class Program(threading.Thread):
             return
         with self.mutex:
             if all(event.item._id != e.item._id for event in self.running_events):
-                if isinstance(e.item, MediaItem) and not self._id_in_running_events(e.item._id):
+                emitted_by = e.emitted_by.__name__ if type(e.emitted_by) != str else e.emitted_by
+                if isinstance(e.item, MediaItem) and not self._id_in_running_events(e.item._id) or not isinstance(e.item, MediaItem):
                     self.running_events.append(e)
-                elif not isinstance(e.item, MediaItem):
-                    self.running_events.append(e)
-                logger.log("PROGRAM", f"Item {e.item.log_string} started running section { e.emitted_by.__name__ if type(e.emitted_by) != str else e.emitted_by}" )
+                logger.log("PROGRAM", f"Item {e.item.log_string} started running section { emitted_by }" )
 
     def _process_future_item(self, future: Future, service: Service, orig_item: MediaItem) -> None:
         """Callback to add the results from a future emitted by a service to the event queue."""
@@ -327,8 +334,6 @@ class Program(threading.Thread):
                 if i is not None:
                     self._remove_from_running_events(i, service.__name__)
                     self._push_event_queue(Event(emitted_by=service, item=i))
-            if orig_item is not None:
-                logger.log("PROGRAM", f"Service {service.__name__} finished running on {orig_item.log_string}")
         except TimeoutError:
             logger.debug("Service {service.__name__} timeout waiting for result on {orig_item.log_string}")
             self._remove_from_running_events(orig_item, service.__name__)
@@ -416,7 +421,7 @@ class Program(threading.Thread):
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
                 processed_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, event.item
+                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
                 if processed_item and processed_item.state == States.Completed:

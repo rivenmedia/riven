@@ -145,7 +145,7 @@ class RealDebridDownloader:
         filtered_streams = [
             stream.infohash for stream in item.streams
             if stream.infohash and stream.infohash not in processed_stream_hashes
-            and not stream.blacklisted
+            and not item.is_stream_blacklisted(stream)
         ]
         if not filtered_streams:
             logger.log("NOT_FOUND", f"No streams found from filtering out processed and blacklisted hashes for: {item.log_string}")
@@ -166,8 +166,9 @@ class RealDebridDownloader:
         if item.type == "movie" or item.type == "episode":
             for hash in filtered_streams:
                 stream = next((stream for stream in item.streams if stream.infohash == hash), None)
-                if stream and not stream.blacklisted:
-                    stream.blacklisted = True
+                if stream and not item.is_stream_blacklisted(stream):
+                    item.blacklist_stream(stream)
+                    logger.debug(f"Blacklisted stream for {item.log_string} with hash: {hash}")
 
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
         return False
@@ -176,11 +177,12 @@ class RealDebridDownloader:
         """Evaluate the response data from the stream availability check."""
         for stream_hash, provider_list in data.items():
             stream = next((stream for stream in item.streams if stream.infohash == stream_hash), None)
-            if not stream or stream.blacklisted:
+            if not stream or item.is_stream_blacklisted(stream):
                 continue
 
             if not provider_list or not provider_list.get("rd"):
-                stream.blacklisted = True
+                item.blacklist_stream(stream)
+                logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
                 continue
 
             if self._process_providers(item, provider_list, stream_hash):

@@ -446,7 +446,7 @@ def quick_file_check(item: Union[Movie, Episode]) -> bool:
                 return True
 
     if item.symlinked_times >= 3:
-        item.reset(True)
+        item.reset()
         logger.log("SYMLINKER", f"Reset item {item.log_string} back to scrapable after 3 failed attempts")
 
     return False
