@@ -21,8 +21,8 @@ services:
       - PGID=1000
       - ORIGIN=http://localhost:3000  # Set to IP or FQDN of the server
       - BACKEND_URL=http://riven:8080
-      - DIALECT=sqlite # or postgres
-      - DATABASE_URL=/path/to/media.db # or postgres://user:password@localhost:5432/media
+      - DIALECT=postgres
+      - DATABASE_URL=postgres://postgres:postgres@riven-db/riven
       - TZ=America/New_York
     depends_on:
       riven:
