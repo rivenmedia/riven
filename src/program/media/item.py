@@ -10,7 +10,9 @@ from program.db.db import db
 from program.media.state import States
 from RTN import parse
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .stream import Stream
+
+from program.media.subtitle import Subtitle
+from .stream import  Stream, StreamRelation
 from controllers.ws import manager
 
 from utils.logger import logger
@@ -29,8 +31,8 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[List[Stream]] = relationship("Stream", back_populates='parent', lazy="select", cascade="all, delete-orphan")
-    blacklisted_streams: Mapped[Optional[List[Stream]]] = mapped_column(sqlalchemy.JSON, default=[])
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents")
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -54,6 +56,7 @@ class MediaItem(db.Model):
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
+    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -104,12 +107,27 @@ class MediaItem(db.Model):
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
+        #Post processing
+        self.subtitles = item.get("subtitles", [])
+
     def store_state(self) -> None:
         if self.last_state != self._determine_state().name:
             asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
         self.last_state = self._determine_state().name
-
         
+    def is_stream_blacklisted(self, stream: Stream):
+        """Check if a stream is blacklisted for this item."""
+        return stream in self.blacklisted_streams
+
+    def blacklist_stream(self, stream: Stream):
+        """Blacklist a stream for this item."""
+        if stream in self.streams:
+            self.streams.remove(stream)
+            self.blacklisted_streams.append(stream)
+            logger.debug(f"Stream {stream.infohash} blacklisted for {self.log_string}")
+            return True
+        return False
+
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
@@ -168,8 +186,7 @@ class MediaItem(db.Model):
 
     def is_scraped(self):
         return (len(self.streams) > 0 
-                and
-                any(stream.blacklisted == False for stream in self.streams))
+                and any(not stream in self.blacklisted_streams for stream in self.streams))
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""
@@ -214,7 +231,8 @@ class MediaItem(db.Model):
         dict["active_stream"] = (
             self.active_stream if hasattr(self, "active_stream") else None
         )
-        dict["streams"] = self.streams if hasattr(self, "streams") else None
+        dict["streams"] = getattr(self, "streams", [])
+        dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
         dict["number"] = self.number if hasattr(self, "number") else None
         dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
         dict["symlinked_at"] = (
@@ -230,6 +248,7 @@ class MediaItem(db.Model):
         dict["file"] = self.file if hasattr(self, "file") else None
         dict["folder"] = self.folder if hasattr(self, "folder") else None
         dict["symlink_path"] = self.symlink_path if hasattr(self, "symlink_path") else None
+        dict["subtitles"] = getattr(self, "subtitles", [])
         return dict
 
     def __iter__(self):
@@ -277,17 +296,20 @@ class MediaItem(db.Model):
             if Path(self.symlink_path).exists():
                 Path(self.symlink_path).unlink()
             self.set("symlink_path", None)
+    
+        for subtitle in self.subtitles:
+            subtitle.remove()
 
         self.set("file", None)
         self.set("folder", None)
         self.set("alternative_folder", None)
 
         if hasattr(self, "active_stream"):
-            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream), None)
+            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
             if stream:
-                stream.blacklisted = True
+                self.blacklist_stream(stream)
 
-        self.set("active_stream", None)
+        self.set("active_stream", {})
         self.set("symlinked", False)
         self.set("symlinked_at", None)
         self.set("update_folder", None)

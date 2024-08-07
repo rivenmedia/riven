@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
 from utils.logger import logger
 
@@ -54,12 +55,14 @@ class SymlinkLibrary:
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
     """Process items in the given directory and yield MediaItem instances."""
     items = [
-        (Path(root), files[0])
-        for root, _, files
-        in os.walk(directory)
-        if files
+        (Path(root), file)
+        for root, _, files in os.walk(directory)
+        for file in files
+        if not file.endswith('.srt')
     ]
     for path, filename in items:
+        if filename.endswith(".srt"):
+            continue
         imdb_id = re.search(r"(tt\d+)", filename)
         title = re.search(r"(.+)?( \()", filename)
         if not imdb_id or not title:
@@ -68,6 +71,7 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
 
         item = item_class({"imdb_id": imdb_id.group(), "title": title.group(1)})
         resolve_symlink_and_set_attrs(item, path / filename)
+        find_subtitles(item, path / filename)
 
         if settings_manager.settings.force_refresh:
             item.set("symlinked", True)
@@ -82,9 +86,17 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
 def resolve_symlink_and_set_attrs(item, path: Path) -> Path:
     # Resolve the symlink path
     resolved_path = (path).resolve()
-    item.set("file", str(resolved_path.stem))
-    item.set("folder", str(resolved_path.parent.stem))
-    item.set("symlink_path", str(path))
+    item.file = str(resolved_path.stem)
+    item.folder = str(resolved_path.parent.stem)
+    item.symlink_path = str(path)
+
+def find_subtitles(item, path: Path):
+    # Scan for subtitle files
+    for file in os.listdir(path.parent):
+        if file.startswith(Path(item.symlink_path).stem) and file.endswith(".srt"):
+            lang_code = file.split(".")[1]
+            item.subtitles.append(Subtitle({lang_code: (path.parent / file).__str__()}))
+            logger.debug(f"Found subtitle file {file}.")
 
 def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
     """Process shows in the given directory and yield Show instances."""
@@ -113,6 +125,7 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
 
                 episode_item = Episode({"number": int(episode_number.group(1))})
                 resolve_symlink_and_set_attrs(episode_item, Path(directory) / show / season / episode)
+                find_subtitles(episode_item, Path(directory) / show / season / episode)
                 if settings_manager.settings.force_refresh:
                     episode_item.set("symlinked", True)
                     episode_item.set("update_folder", str(Path(directory) / show / season / episode))
@@ -121,7 +134,6 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
                     episode_item.set("update_folder", "updated")
                 if is_anime:
                     episode_item.is_anime = True
-                #season_item.add_episode(episode_item)
                 episodes[int(episode_number.group(1))] = episode_item
             if len(episodes) > 0:
                 for i in range(1, max(episodes.keys())+1):

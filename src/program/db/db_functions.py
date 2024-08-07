@@ -4,7 +4,7 @@ import shutil
 import alembic
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.stream import Stream
+from program.media.stream import Stream, StreamRelation
 from program.types import Event
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import joinedload
@@ -42,20 +42,32 @@ def _get_item_from_db(session, item: MediaItem):
     type = _get_item_type_from_db(item)
     match type:
         case "movie":
-            r = session.execute(select(Movie).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
+            r = session.execute(
+                select(Movie)
+                .where(MediaItem.imdb_id == item.imdb_id)
+                .options(joinedload("*"))
+            ).unique().scalar_one()
             return r
         case "show":
-            r = session.execute(select(Show).where(MediaItem.imdb_id==item.imdb_id).options(joinedload("*"))).unique().scalar_one()
-            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
+            r = session.execute(
+                select(Show)
+                .where(MediaItem.imdb_id == item.imdb_id)
+                .options(joinedload("*"))
+            ).unique().scalar_one()
             return r
         case "season":
-            r = session.execute(select(Season).where(Season._id==item._id).options(joinedload("*"))).unique().scalar_one()
-            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
+            r = session.execute(
+                select(Season)
+                .where(Season._id == item._id)
+                .options(joinedload("*"))
+            ).unique().scalar_one()
             return r
         case "episode":
-            r = session.execute(select(Episode).where(Episode._id==item._id).options(joinedload("*"))).unique().scalar_one()
-            r.streams = session.execute(select(Stream).where(Stream.parent_id==item._id).options(joinedload("*"))).unique().scalars().all()
+            r = session.execute(
+                select(Episode)
+                .where(Episode._id == item._id)
+                .options(joinedload("*"))
+            ).unique().scalar_one()
             return r
         case _:
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
@@ -123,8 +135,8 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
         for i in fn():
             if isinstance(i, (Show, Movie, Season, Episode)):
                 with db.Session() as session:
-                    _check_for_and_run_insertion_required(session, i)
-            yield i
+                    if _check_for_and_run_insertion_required(session, i):
+                        yield i
         return
 
 def hard_reset_database():

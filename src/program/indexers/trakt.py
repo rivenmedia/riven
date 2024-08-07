@@ -24,7 +24,7 @@ class TraktIndexer:
 
     def copy_attributes(self, source, target):
         """Copy attributes from source to target."""
-        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path"]
+        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles"]
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 

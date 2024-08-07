@@ -1,23 +1,26 @@
-from copy import copy
 from typing import Optional
 
 import Levenshtein
 import program.db.db_functions as DB
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
-from program.downloaders import Downloader
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import func, select
-from program.media.stream import Stream
-from program.scrapers import Scraping
 from utils.logger import logger
+from sqlalchemy.orm import joinedload
 
 router = APIRouter(
     prefix="/items",
     tags=["items"],
     responses={404: {"description": "Not found"}},
 )
+
+def handle_ids(ids: str) -> list[int]:
+    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No item ID provided")
+    return ids
 
 @router.get("/states")
 async def get_states():
@@ -152,17 +155,13 @@ async def add_items(
 async def reset_items(
     request: Request, ids: str
 ):
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-    if not ids:
-        raise HTTPException(status_code=400, detail="No item ID provided")
+    ids = handle_ids(ids)
     with db.Session() as session:
         items = []
         for id in ids:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-            item.streams = session.execute(select(Stream).where(Stream.parent_id == item._id)).scalars().all()
+            item = session.execute(select(MediaItem).where(MediaItem._id == id).options(joinedload("*"))).unique().scalar_one()
             items.append(item)
         for item in items:
-            request.app.program._remove_from_running_events(item)
             if item.type == "show":
                 for season in item.seasons:
                     for episode in season.episodes:
@@ -184,9 +183,7 @@ async def reset_items(
 async def retry_items(
     request: Request, ids: str
 ):
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-    if not ids:
-        raise HTTPException(status_code=400, detail="No item ID provided")
+    ids = handle_ids(ids)
     with db.Session() as session:
         items = []
         for id in ids:
@@ -204,9 +201,7 @@ async def retry_items(
 async def remove_item(
     _: Request, ids: str
 ):
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-    if not ids:
-        raise HTTPException(status_code=400, detail="No item ID provided")
+    ids = handle_ids(ids)
     for id in ids:
         DB._remove_item_from_db(id)
     return {"success": True, "message": f"Removed item with id {id}"}
