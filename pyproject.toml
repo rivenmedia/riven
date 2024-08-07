@@ -32,6 +32,7 @@ sqla-wrapper = "^6.0.0"
 alembic = "^1.13.2"
 psycopg2-binary = "^2.9.9"
 apprise = "^1.8.1"
+subliminal = "^2.2.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

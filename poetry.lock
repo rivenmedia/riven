@@ -117,6 +117,38 @@ doc = ["doc8", "sphinx (>=7.0.0)", "sphinx-autobuild", "sphinx-autodoc-typehints
 test = ["dateparser (==1.*)", "pre-commit", "pytest", "pytest-cov", "pytest-mock", "pytz (==2021.1)", "simplejson (==3.*)"]
 
 [[package]]
+name = "babelfish"
+version = "0.6.1"
+description = "A module to work with countries and languages"
+optional = false
+python-versions = "<4.0,>=3.8"
+files = [
+    {file = "babelfish-0.6.1-py3-none-any.whl", hash = "sha256:512f1501d4c8f7d38f0921f48660be7542de1a7b24abb6a6a65324a670150293"},
+    {file = "babelfish-0.6.1.tar.gz", hash = "sha256:decb67a4660888d48480ab6998309837174158d0f1aa63bebb1c2e11aab97aab"},
+]
+
+[[package]]
+name = "beautifulsoup4"
+version = "4.12.3"
+description = "Screen-scraping library"
+optional = false
+python-versions = ">=3.6.0"
+files = [
+    {file = "beautifulsoup4-4.12.3-py3-none-any.whl", hash = "sha256:b80878c9f40111313e55da8ba20bdba06d8fa3969fc68304167741bbf9e082ed"},
+    {file = "beautifulsoup4-4.12.3.tar.gz", hash = "sha256:74e3d1928edc070d21748185c46e3fb33490f22f52a3addee9aee0f4f7781051"},
+]
+
+[package.dependencies]
+soupsieve = ">1.2"
+
+[package.extras]
+cchardet = ["cchardet"]
+chardet = ["chardet"]
+charset-normalizer = ["charset-normalizer"]
+html5lib = ["html5lib"]
+lxml = ["lxml"]
+
+[[package]]
 name = "cachetools"
 version = "5.4.0"
 description = "Extensible memoizing collections and decorators"
@@ -136,6 +168,17 @@ python-versions = ">=3.6"
 files = [
     {file = "certifi-2024.7.4-py3-none-any.whl", hash = "sha256:c198e21b1289c2ab85ee4e67bb4b4ef3ead0892059901a8d5b622f24a1101e90"},
     {file = "certifi-2024.7.4.tar.gz", hash = "sha256:5a1e7645bc0ec61a09e26c36f6106dd4cf40c6db3a1fb6352b0244e7fb057c7b"},
+]
+
+[[package]]
+name = "chardet"
+version = "5.2.0"
+description = "Universal encoding detector for Python 3"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "chardet-5.2.0-py3-none-any.whl", hash = "sha256:e1cf59446890a00105fe7b7912492ea04b6e6f06d4b742b2c788469e34c82970"},
+    {file = "chardet-5.2.0.tar.gz", hash = "sha256:1b3b6ff479a8c414bc3fa2c0852995695c4a026dcd6d0633b2dd092ca39c1cf7"},
 ]
 
 [[package]]
@@ -252,6 +295,25 @@ files = [
 colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
+name = "click-option-group"
+version = "0.5.6"
+description = "Option groups missing in Click"
+optional = false
+python-versions = ">=3.6,<4"
+files = [
+    {file = "click-option-group-0.5.6.tar.gz", hash = "sha256:97d06703873518cc5038509443742b25069a3c7562d1ea72ff08bfadde1ce777"},
+    {file = "click_option_group-0.5.6-py3-none-any.whl", hash = "sha256:38a26d963ee3ad93332ddf782f9259c5bdfe405e73408d943ef5e7d0c3767ec7"},
+]
+
+[package.dependencies]
+Click = ">=7.0,<9"
+
+[package.extras]
+docs = ["Pallets-Sphinx-Themes", "m2r2", "sphinx"]
+tests = ["pytest"]
+tests-cov = ["coverage", "coveralls", "pytest", "pytest-cov"]
+
+[[package]]
 name = "codecov"
 version = "2.1.13"
 description = "Hosted coverage reports for GitHub, Bitbucket and Gitlab"
@@ -362,6 +424,17 @@ files = [
 toml = ["tomli"]
 
 [[package]]
+name = "decorator"
+version = "5.1.1"
+description = "Decorators for Humans"
+optional = false
+python-versions = ">=3.5"
+files = [
+    {file = "decorator-5.1.1-py3-none-any.whl", hash = "sha256:b8c3f85900b9dc423225913c5aace94729fe1fa9763b38939a95226f02d37186"},
+    {file = "decorator-5.1.1.tar.gz", hash = "sha256:637996211036b6385ef91435e4fae22989472f9d571faba8927ba8253acbc330"},
+]
+
+[[package]]
 name = "deprecated"
 version = "1.2.14"
 description = "Python @deprecated decorator to deprecate old python classes, functions or methods."
@@ -392,6 +465,40 @@ files = [
 [package.extras]
 graph = ["objgraph (>=1.7.2)"]
 profile = ["gprof2dot (>=2022.7.29)"]
+
+[[package]]
+name = "dogpile-cache"
+version = "1.3.3"
+description = "A caching front-end based on the Dogpile lock."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "dogpile.cache-1.3.3-py3-none-any.whl", hash = "sha256:5e211c4902ebdf88c678d268e22454b41e68071632daa9402d8ee24e825ed8ca"},
+    {file = "dogpile.cache-1.3.3.tar.gz", hash = "sha256:f84b8ed0b0fb297d151055447fa8dcaf7bae566d4dbdefecdcc1f37662ab588b"},
+]
+
+[package.dependencies]
+decorator = ">=4.0.0"
+stevedore = ">=3.0.0"
+
+[package.extras]
+pifpaf = ["pifpaf (>=2.5.0)", "setuptools"]
+
+[[package]]
+name = "enzyme"
+version = "0.5.2"
+description = "Video metadata parser"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "enzyme-0.5.2-py3-none-any.whl", hash = "sha256:5a85306c136368d78f299bb74bf0c5f5d37e2689adc5caec5aba5ee2f029296b"},
+    {file = "enzyme-0.5.2.tar.gz", hash = "sha256:7cf779148d9e66eb2838603eace140c53c3cefc8b8fe5d4d5a03a5fb5d57b3c1"},
+]
+
+[package.extras]
+dev = ["doc8", "mypy", "ruff", "tox", "typos", "validate-pyproject"]
+docs = ["myst-parser", "sphinx", "sphinx-rtd-theme"]
+test = ["PyYAML", "importlib-metadata (>=4.6)", "mypy", "pytest (>=6.0)", "requests"]
 
 [[package]]
 name = "fastapi"
@@ -482,6 +589,26 @@ files = [
 [package.extras]
 docs = ["Sphinx", "furo"]
 test = ["objgraph", "psutil"]
+
+[[package]]
+name = "guessit"
+version = "3.8.0"
+description = "GuessIt - a library for guessing information from video filenames."
+optional = false
+python-versions = "*"
+files = [
+    {file = "guessit-3.8.0-py3-none-any.whl", hash = "sha256:eb5747b1d0fbca926562c1e5894dbc3f6507c35e8c0bd9e38148401cd9579d83"},
+    {file = "guessit-3.8.0.tar.gz", hash = "sha256:6619fcbbf9a0510ec8c2c33744c4251cad0507b1d573d05c875de17edc5edbed"},
+]
+
+[package.dependencies]
+babelfish = ">=0.6.0"
+python-dateutil = "*"
+rebulk = ">=3.2.0"
+
+[package.extras]
+dev = ["mkdocs", "mkdocs-material", "pyinstaller", "python-semantic-release", "tox", "twine", "wheel"]
+test = ["PyYAML", "pylint", "pytest", "pytest-benchmark", "pytest-cov", "pytest-mock"]
 
 [[package]]
 name = "h11"
@@ -1185,6 +1312,33 @@ arrow = ">=1.3.0,<2.0.0"
 regex = ">=2023.12.25,<2024.0.0"
 
 [[package]]
+name = "pbr"
+version = "6.0.0"
+description = "Python Build Reasonableness"
+optional = false
+python-versions = ">=2.6"
+files = [
+    {file = "pbr-6.0.0-py2.py3-none-any.whl", hash = "sha256:4a7317d5e3b17a3dccb6a8cfe67dab65b20551404c52c8ed41279fa4f0cb4cda"},
+    {file = "pbr-6.0.0.tar.gz", hash = "sha256:d1377122a5a00e2f940ee482999518efe16d745d423a670c27773dfbc3c9a7d9"},
+]
+
+[[package]]
+name = "platformdirs"
+version = "4.2.2"
+description = "A small Python package for determining appropriate platform-specific dirs, e.g. a `user data dir`."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "platformdirs-4.2.2-py3-none-any.whl", hash = "sha256:2d7a1657e36a80ea911db832a8a6ece5ee53d8de21edd5cc5879af6530b1bfee"},
+    {file = "platformdirs-4.2.2.tar.gz", hash = "sha256:38b7b51f512eed9e84a22788b4bce1de17c0adb134d6becb09836e37d8654cd3"},
+]
+
+[package.extras]
+docs = ["furo (>=2023.9.10)", "proselint (>=0.13)", "sphinx (>=7.2.6)", "sphinx-autodoc-typehints (>=1.25.2)"]
+test = ["appdirs (==1.4.4)", "covdefaults (>=2.3)", "pytest (>=7.4.3)", "pytest-cov (>=4.1)", "pytest-mock (>=3.12)"]
+type = ["mypy (>=1.8)"]
+
+[[package]]
 name = "plexapi"
 version = "4.15.15"
 description = "Python bindings for the Plex API."
@@ -1524,6 +1678,17 @@ all = ["twine (>=3.4.1)"]
 dev = ["twine (>=3.4.1)"]
 
 [[package]]
+name = "pysubs2"
+version = "1.7.3"
+description = "A library for editing subtitle files"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pysubs2-1.7.3-py3-none-any.whl", hash = "sha256:de438c868d2c656781c4a78f220ec3a6fd6d52be49266c81fe912d2527002d44"},
+    {file = "pysubs2-1.7.3.tar.gz", hash = "sha256:b0130f373390736754531be4e68a0fa521e825fa15cc8ff506e4f8ca2c17459a"},
+]
+
+[[package]]
 name = "pytest"
 version = "8.3.2"
 description = "pytest: simple powerful testing with Python"
@@ -1766,6 +1931,33 @@ files = [
 full = ["numpy"]
 
 [[package]]
+name = "rarfile"
+version = "4.2"
+description = "RAR archive reader for Python"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "rarfile-4.2-py3-none-any.whl", hash = "sha256:8757e1e3757e32962e229cab2432efc1f15f210823cc96ccba0f6a39d17370c9"},
+    {file = "rarfile-4.2.tar.gz", hash = "sha256:8e1c8e72d0845ad2b32a47ab11a719bc2e41165ec101fd4d3fe9e92aa3f469ef"},
+]
+
+[[package]]
+name = "rebulk"
+version = "3.2.0"
+description = "Rebulk - Define simple search patterns in bulk to perform advanced matching on any string."
+optional = false
+python-versions = "*"
+files = [
+    {file = "rebulk-3.2.0-py3-none-any.whl", hash = "sha256:6bc31ae4b37200623c5827d2f539f9ec3e52b50431322dad8154642a39b0a53e"},
+    {file = "rebulk-3.2.0.tar.gz", hash = "sha256:0d30bf80fca00fa9c697185ac475daac9bde5f646ce3338c9ff5d5dc1ebdfebc"},
+]
+
+[package.extras]
+dev = ["pylint", "pytest", "tox"]
+native = ["regex"]
+test = ["pylint", "pytest"]
+
+[[package]]
 name = "regex"
 version = "2023.12.25"
 description = "Alternative regular expression module, to replace re."
@@ -1973,6 +2165,17 @@ files = [
 ]
 
 [[package]]
+name = "soupsieve"
+version = "2.5"
+description = "A modern CSS selector implementation for Beautiful Soup."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "soupsieve-2.5-py3-none-any.whl", hash = "sha256:eaa337ff55a1579b6549dc679565eac1e3d000563bcb1c8ab0d0fefbc0c2cdc7"},
+    {file = "soupsieve-2.5.tar.gz", hash = "sha256:5663d5a7b3bfaeee0bc4372e7fc48f9cff4940b3eec54a6451cc5299f1097690"},
+]
+
+[[package]]
 name = "sqla-wrapper"
 version = "6.0.0"
 description = "A framework-independent modern wrapper for SQLAlchemy & Alembic"
@@ -2075,6 +2278,16 @@ pymysql = ["pymysql"]
 sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
+name = "srt"
+version = "3.5.3"
+description = "A tiny library for parsing, modifying, and composing SRT files."
+optional = false
+python-versions = ">=2.7"
+files = [
+    {file = "srt-3.5.3.tar.gz", hash = "sha256:4884315043a4f0740fd1f878ed6caa376ac06d70e135f306a6dc44632eed0cc0"},
+]
+
+[[package]]
 name = "starlette"
 version = "0.37.2"
 description = "The little ASGI library that shines."
@@ -2090,6 +2303,64 @@ anyio = ">=3.4.0,<5"
 
 [package.extras]
 full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.7)", "pyyaml"]
+
+[[package]]
+name = "stevedore"
+version = "5.2.0"
+description = "Manage dynamic plugins for Python applications"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "stevedore-5.2.0-py3-none-any.whl", hash = "sha256:1c15d95766ca0569cad14cb6272d4d31dae66b011a929d7c18219c176ea1b5c9"},
+    {file = "stevedore-5.2.0.tar.gz", hash = "sha256:46b93ca40e1114cea93d738a6c1e365396981bb6bb78c27045b7587c9473544d"},
+]
+
+[package.dependencies]
+pbr = ">=2.0.0,<2.1.0 || >2.1.0"
+
+[[package]]
+name = "subliminal"
+version = "2.2.1"
+description = "Subtitles, faster than your thoughts"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "subliminal-2.2.1-py3-none-any.whl", hash = "sha256:421a71f2e3f604e5dffb551b2a51d14500c7615d7eaf16c23e713d7ad295504c"},
+    {file = "subliminal-2.2.1.tar.gz", hash = "sha256:2ed6024a07bbb3c68fe3db76374244ad91adfca9d93fc24d3ddb9ef61825756e"},
+]
+
+[package.dependencies]
+babelfish = ">=0.6.1"
+beautifulsoup4 = ">=4.4.0"
+chardet = ">=5.0"
+click = ">=8.0"
+click-option-group = ">=0.5.6"
+"dogpile.cache" = ">=1.0"
+enzyme = ">=0.5.0"
+guessit = ">=3.0.0"
+platformdirs = ">=3"
+pysubs2 = ">=1.7"
+rarfile = ">=2.7"
+requests = ">=2.0"
+srt = ">=3.5"
+stevedore = ">=3.0"
+tomli = ">=2"
+
+[package.extras]
+dev = ["doc8", "mypy", "ruff", "tox", "typos", "validate-pyproject"]
+docs = ["sphinx", "sphinx-rtd-theme", "sphinxcontrib-programoutput"]
+test = ["importlib-metadata (>=4.6)", "lxml", "mypy", "pytest (>=6.0)", "pytest-cov", "pytest-flakes", "sympy", "vcrpy (>=1.6.1)"]
+
+[[package]]
+name = "tomli"
+version = "2.0.1"
+description = "A lil' TOML parser"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "tomli-2.0.1-py3-none-any.whl", hash = "sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc"},
+    {file = "tomli-2.0.1.tar.gz", hash = "sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f"},
+]
 
 [[package]]
 name = "types-python-dateutil"
@@ -2517,4 +2788,4 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "eaf786c256897ebfe5cbf964c2d45021584ac08a8a58225abdd7ab2ab0e9691c"
+content-hash = "756aa9675caaf95b6e9ac74cdbe1593c337df9557ad0395bb0dfcb6e77a18e0c"
