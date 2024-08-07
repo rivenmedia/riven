@@ -125,6 +125,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                     session.expunge_all()
                     yield res
             else:
+                #Content services
                 for i in fn(input_item):
                     if isinstance(i, (MediaItem)):
                         with db.Session() as session:
@@ -133,10 +134,10 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
         return
     else:
         for i in fn():
-            if isinstance(i, (Show, Movie, Season, Episode)):
+            if isinstance(i, (MediaItem)):
                 with db.Session() as session:
-                    if _check_for_and_run_insertion_required(session, i):
-                        yield i
+                    _check_for_and_run_insertion_required(session, i)
+                yield i
         return
 
 def hard_reset_database():

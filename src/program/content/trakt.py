@@ -103,23 +103,10 @@ class TraktContent:
                 self.items_already_seen.add(imdb_id)
                 new_items_count += 1
 
-                if source == "Popular":
-                    media_item = MediaItem({
+                yield MediaItem({
                         "imdb_id": imdb_id,
                         "requested_by": self.key
                     })
-                elif item_type == "movie":
-                    media_item = Movie({
-                        "imdb_id": imdb_id,
-                        "requested_by": self.key
-                    })
-                else:
-                    media_item = Show({
-                        "imdb_id": imdb_id,
-                        "requested_by": self.key
-                    })
-
-                yield media_item
 
             if new_items_count > 0:
                 logger.log("TRAKT", f"New items fetched from {source}: {new_items_count}")
