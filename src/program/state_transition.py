@@ -58,7 +58,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 if Scraping.can_we_scrape(item):
                     items_to_submit = [item]
                 else:
-                    for episode in item.seasons:
+                    for episode in item.episodes:
                         if episode.state in [States.Indexed, States.PartiallyCompleted] and Scraping.can_we_scrape(episode):
                             items_to_submit.append(episode)
                         elif episode.state == States.Scraped:
