@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 import Levenshtein
@@ -142,8 +143,8 @@ async def add_items(
         raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
 
     for id in valid_ids:
-        item = MediaItem({"imdb_id": id, "requested_by": "riven"})
-        request.app.program.add_to_queue(item)
+        item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+        request.app.program._push_event_queue(item)
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 

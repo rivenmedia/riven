@@ -9,7 +9,8 @@ from loguru import logger
 
 class Subliminal:
     def __init__(self):
-        region.configure('dogpile.cache.dbm', arguments={'filename': f'{root_dir}/data/subliminal.dbm'})
+        if not region.is_configured:
+            region.configure('dogpile.cache.dbm', arguments={'filename': f'{root_dir}/data/subliminal.dbm'})
         self.settings = settings_manager.settings.post_processing.subliminal
         self.languages = set(create_language_from_string(lang) for lang in self.settings.languages)
         self.initialized = self.enabled

@@ -80,8 +80,9 @@ async def set_all_settings(new_settings: Dict[str, Any]):
 
     # Validate and save the updated settings
     try:
-        settings_manager.settings = settings_manager.settings.model_validate(current_settings)
-        await save_settings()
+        updated_settings = settings_manager.settings.model_validate(current_settings)
+        settings_manager.load(settings_dict=updated_settings.model_dump())
+        settings_manager.save()  # Ensure the changes are persisted
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
