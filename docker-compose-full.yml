@@ -156,3 +156,77 @@ services:
       retries: 10
     volumes:
       - elastic_data:/usr/share/elasticsearch/data:rw
+
+  ## Plex Authentication (optional authentication service)
+
+  plex_authentication:
+    image: ghcr.io/westsurname/scripts/plex_authentication:latest
+    container_name: plex_authentication_service
+    restart: unless-stopped
+    volumes:
+      - ./shared/tokens.json:/app/shared/tokens.json
+      - request_sockets:/app/sockets
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - PLEX_HOST=https://plex.tv/
+      - PLEX_METADATA_HOST=https://metadata.provider.plex.tv/
+      - PLEX_SERVER_HOST=http://plex:32400
+      - PLEX_SERVER_MACHINE_ID=xxxxx # set your plex machine id
+      - PLEX_SERVER_API_KEY=xxxxx # set your plex token
+      - PLEX_SERVER_MOVIE_LIBRARY_ID=0 # set your plex movie library id
+      - PLEX_SERVER_TV_SHOW_LIBRARY_ID=0 # set your plex tv show library id
+      - OVERSEERR_HOST=http://overseerr:5055
+      - OVERSEERR_API_KEY=xxxxx # set your overseerr token
+      - WATCHLIST_PLEX_PRODUCT="Plex Request Authentication"
+      - WATCHLIST_PLEX_VERSION="1.0.0"
+      - WATCHLIST_PLEX_CLIENT_IDENTIFIER="576101fc-b425-4685-91cb-5d3c1671fd2b"
+
+  ## Plex Request (optional request service)
+
+  plex_request:
+    image: ghcr.io/westsurname/scripts/plex_request:latest
+    container_name: plex_request_service
+    restart: unless-stopped
+    volumes:
+      - ./shared/tokens.json:/app/shared/tokens.json
+      - request_sockets:/app/sockets
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - PLEX_HOST=https://plex.tv/
+      - PLEX_METADATA_HOST=https://metadata.provider.plex.tv/
+      - PLEX_SERVER_HOST=http://plex:32400
+      - PLEX_SERVER_MACHINE_ID=xxxxx # set your plex machine id
+      - PLEX_SERVER_API_KEY=xxxxx # set your plex token
+      - PLEX_SERVER_MOVIE_LIBRARY_ID=0 # set your plex movie library id
+      - PLEX_SERVER_TV_SHOW_LIBRARY_ID=0 # set your plex tv show library id
+      - OVERSEERR_HOST=http://overseerr:5055
+      - OVERSEERR_API_KEY=xxxxx # set your overseerr token
+      - WATCHLIST_PLEX_PRODUCT="Plex Request Authentication"
+      - WATCHLIST_PLEX_VERSION="1.0.0"
+      - WATCHLIST_PLEX_CLIENT_IDENTIFIER="576101fc-b425-4685-91cb-5d3c1671fd2b"
+    depends_on:
+      - plex
+      - plex_authentication
+
+  ## Plex Request Nginx (optional reverse proxy for for Plex to enable Plex Request)
+
+  plex_request_nginx:
+    image: ghcr.io/westsurname/scripts/plex_request_nginx:latest
+    container_name: plex_request_nginx_service
+    restart: unless-stopped
+    volumes:
+      - request_sockets:/app/sockets
+    ports:
+      - 8012:8000
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    depends_on:
+      - plex
+      - plex_request
+      - plex_authentication
