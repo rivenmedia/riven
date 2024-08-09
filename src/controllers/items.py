@@ -8,6 +8,7 @@ from program.db.db import db
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import func, select
+from program.types import Event
 from utils.logger import logger
 from sqlalchemy.orm import joinedload
 
@@ -144,7 +145,7 @@ async def add_items(
 
     for id in valid_ids:
         item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
-        request.app.program._push_event_queue(item)
+        request.app.program._push_event_queue(Event("Manual", item))
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 
