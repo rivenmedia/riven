@@ -1,5 +1,5 @@
 from copy import copy
-from typing import Any, List
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from program.settings.manager import settings_manager
@@ -64,6 +64,32 @@ async def get_settings(paths: str):
         "data": data,
     }
 
+
+@router.post("/set/all")
+async def set_all_settings(new_settings: Dict[str, Any]):
+    current_settings = settings_manager.settings.model_dump()
+
+    def update_settings(current_obj, new_obj):
+        for key, value in new_obj.items():
+            if isinstance(value, dict) and key in current_obj:
+                update_settings(current_obj[key], value)
+            else:
+                current_obj[key] = value
+
+    update_settings(current_settings, new_settings)
+
+    # Validate and save the updated settings
+    try:
+        updated_settings = settings_manager.settings.model_validate(current_settings)
+        settings_manager.load(settings_dict=updated_settings.model_dump())
+        settings_manager.save()  # Ensure the changes are persisted
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "success": True,
+        "message": "All settings updated successfully!",
+    }
 
 @router.post("/set")
 async def set_settings(settings: List[SetSettings]):

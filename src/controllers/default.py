@@ -135,29 +135,3 @@ async def get_stats(_: Request):
         payload["states"] = states
 
         return {"success": True, "data": payload}
-
-@router.get("/scrape/{item_id:path}")
-async def scrape_item(item_id: str, request: Request):
-    with db.Session() as session:
-        item = DB._get_item_from_db(session, MediaItem({"imdb_id":str(item_id)}))
-        if item is None:
-            raise HTTPException(status_code=404, detail="Item not found")
-        
-        scraper = request.app.program.services.get(Scraping)
-        if scraper is None:
-            raise HTTPException(status_code=404, detail="Scraping service not found")
-
-        time_now = time.time()
-        scraped_results = scraper.scrape(item, log=False)
-        time_end = time.time()
-        duration = time_end - time_now
-
-        results = {}
-        for hash, torrent in scraped_results.items():
-            results[hash] = {
-                "title": torrent.data.parsed_title,
-                "raw_title": torrent.raw_title,
-                "rank": torrent.rank,
-            }
-
-        return {"success": True, "total": len(results), "duration": round(duration, 3), "results": results}

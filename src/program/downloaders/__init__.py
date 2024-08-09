@@ -16,6 +16,10 @@ class Downloader:
             AllDebridDownloader: AllDebridDownloader(),
         }
         self.initialized = self.validate()
+        
+    @property
+    def service(self):
+        return next(service for service in self.services.values() if service.initialized)
 
     def validate(self):
         initialized_services = [service for service in self.services.values() if service.initialized]
@@ -25,12 +29,5 @@ class Downloader:
         return len(initialized_services) == 1
 
     def run(self, item: MediaItem):
-        for service in self.services.values():
-            if service.initialized:
-                downloaded = service.run(item)
-                if not downloaded:
-                    if item.type == "show":
-                        yield [season for season in item.seasons]
-                    elif item.type == "season":
-                        yield [episode for episode in item.episodes]
+        self.service.run(item)
         yield item

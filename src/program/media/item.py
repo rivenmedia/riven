@@ -1,13 +1,19 @@
 """MediaItem class"""
 from datetime import datetime
+import json
+from pathlib import Path
 from typing import List, Optional, Self
+import asyncio
 
 import sqlalchemy
 from program.db.db import db
 from program.media.state import States
 from RTN import parse
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .stream import Stream
+
+from program.media.subtitle import Subtitle
+from .stream import  Stream, StreamRelation
+from controllers.ws import manager
 
 from utils.logger import logger
 
@@ -24,12 +30,13 @@ class MediaItem(db.Model):
     indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Optional[dict[str, str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[List[Stream]] = relationship("Stream", back_populates='parent', lazy="select", cascade="all, delete-orphan")
-    blacklisted_streams: Mapped[Optional[List[Stream]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    active_stream: Mapped[Optional[dict[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents")
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    symlink_path: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -49,6 +56,7 @@ class MediaItem(db.Model):
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
+    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -65,6 +73,7 @@ class MediaItem(db.Model):
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", {})
         self.streams: List[Stream] = []
+        self.blacklisted_streams: List[Stream] = []
 
         self.symlinked = False
         self.symlinked_at = None
@@ -98,9 +107,27 @@ class MediaItem(db.Model):
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
+        #Post processing
+        self.subtitles = item.get("subtitles", [])
+
     def store_state(self) -> None:
+        if self.last_state != self._determine_state().name:
+            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
         self.last_state = self._determine_state().name
         
+    def is_stream_blacklisted(self, stream: Stream):
+        """Check if a stream is blacklisted for this item."""
+        return stream in self.blacklisted_streams
+
+    def blacklist_stream(self, stream: Stream):
+        """Blacklist a stream for this item."""
+        if stream in self.streams:
+            self.streams.remove(stream)
+            self.blacklisted_streams.append(stream)
+            logger.debug(f"Stream {stream.infohash} blacklisted for {self.log_string}")
+            return True
+        return False
+
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
@@ -159,13 +186,12 @@ class MediaItem(db.Model):
 
     def is_scraped(self):
         return (len(self.streams) > 0 
-                and 
-                all(stream.blacklisted == False for stream in self.streams))
+                and any(not stream in self.blacklisted_streams for stream in self.streams))
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""
         return {
-            "item_id": str(self.item_id),
+            "id": str(self._id),
             "title": self.title,
             "type": self.__class__.__name__,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
@@ -173,13 +199,13 @@ class MediaItem(db.Model):
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "state": self.state.value,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
-            "aired_at": self.aired_at,
+            "aired_at": str(self.aired_at),
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,
-            "scraped_at": self.scraped_at,
+            "scraped_at": str(self.scraped_at),
             "scraped_times": self.scraped_times,
         }
 
@@ -205,6 +231,9 @@ class MediaItem(db.Model):
         dict["active_stream"] = (
             self.active_stream if hasattr(self, "active_stream") else None
         )
+        dict["streams"] = getattr(self, "streams", [])
+        dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
+        dict["number"] = self.number if hasattr(self, "number") else None
         dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
         dict["symlinked_at"] = (
             self.symlinked_at if hasattr(self, "symlinked_at") else None
@@ -218,6 +247,8 @@ class MediaItem(db.Model):
         )
         dict["file"] = self.file if hasattr(self, "file") else None
         dict["folder"] = self.folder if hasattr(self, "folder") else None
+        dict["symlink_path"] = self.symlink_path if hasattr(self, "symlink_path") else None
+        dict["subtitles"] = getattr(self, "subtitles", [])
         return dict
 
     def __iter__(self):
@@ -225,8 +256,8 @@ class MediaItem(db.Model):
             yield attr
 
     def __eq__(self, other):
-        if isinstance(other, type(self)):
-            return self.imdb_id == other.imdb_id
+        if type(other) == type(self):
+            return self._id == other._id
         return False
 
     def copy(self, other):
@@ -258,6 +289,37 @@ class MediaItem(db.Model):
 
     def __hash__(self):
         return hash(self.item_id)
+    
+    def reset(self, reset_times: bool = True):
+        """Reset item attributes for rescraping."""
+        if self.symlink_path:
+            if Path(self.symlink_path).exists():
+                Path(self.symlink_path).unlink()
+            self.set("symlink_path", None)
+    
+        for subtitle in self.subtitles:
+            subtitle.remove()
+
+        self.set("file", None)
+        self.set("folder", None)
+        self.set("alternative_folder", None)
+
+        if hasattr(self, "active_stream"):
+            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
+            if stream:
+                self.blacklist_stream(stream)
+
+        self.set("active_stream", {})
+        self.set("symlinked", False)
+        self.set("symlinked_at", None)
+        self.set("update_folder", None)
+        self.set("scraped_at", None)
+
+        if reset_times:
+            self.set("symlinked_times", 0)
+            self.set("scraped_times", 0)
+
+        logger.debug(f"Item {self.log_string} reset for rescraping")
 
     @property
     def log_string(self):
@@ -322,17 +384,17 @@ class Show(MediaItem):
     def _determine_state(self):
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
+        if any(
+            season.state in (States.Completed, States.PartiallyCompleted)
+            for season in self.seasons
+        ):
+            return States.PartiallyCompleted
         if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
         if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
-            return States.PartiallyCompleted
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if any(season.state == States.Requested for season in self.seasons):
@@ -342,6 +404,8 @@ class Show(MediaItem):
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
+        if self.last_state != self._determine_state().name:
+            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
         self.last_state = self._determine_state().name
 
     def __repr__(self):
@@ -414,6 +478,8 @@ class Season(MediaItem):
     def store_state(self) -> None:
         for episode in self.episodes:
             episode.store_state()
+        if self.last_state != self._determine_state().name:
+            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
         self.last_state = self._determine_state().name
 
     def __init__(self, item):
@@ -430,14 +496,14 @@ class Season(MediaItem):
         if len(self.episodes) > 0:
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
+            if any(episode.state == States.Completed for episode in self.episodes):
+                return States.PartiallyCompleted
             if all(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
             if all(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
-            if any(episode.state == States.Completed for episode in self.episodes):
-                return States.PartiallyCompleted
             if any(episode.state == States.Indexed for episode in self.episodes):
                 return States.Indexed
             if any(episode.state == States.Requested for episode in self.episodes):
@@ -447,13 +513,6 @@ class Season(MediaItem):
     @property
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.parent_id == other.parent_id
-        ):
-            return self.number == other.get("number", None)
 
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
@@ -525,14 +584,6 @@ class Episode(MediaItem):
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.item_id == other.item_id
-            and self.parent.parent.item_id == other.parent.parent.item_id
-        ):
-            return self.number == other.get("number", None)
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.name}"

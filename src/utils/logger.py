@@ -1,5 +1,6 @@
 """Logging utils"""
 
+import asyncio
 import os
 import sys
 from datetime import datetime
@@ -8,6 +9,7 @@ from loguru import logger
 from program.settings.manager import settings_manager
 from rich.console import Console
 from utils import data_dir_path
+from controllers.ws import manager
 
 LOG_ENABLED: bool = settings_manager.settings.log
 
@@ -98,7 +100,16 @@ def setup_logger(level):
             "backtrace": False, 
             "diagnose": True,
             "enqueue": True,
-        }
+        },
+        # maybe later
+        # {
+        # "sink": manager.send_log_message,
+        # "level": level.upper() or "INFO",
+        # "format": log_format,
+        # "backtrace": False,
+        # "diagnose": False,
+        # "enqueue": True,
+        # }
     ])
 
 

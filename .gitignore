@@ -1,6 +1,7 @@
 data/
 logs/
 settings.json
+ignore.txt
 .vscode
 .git
 makefile

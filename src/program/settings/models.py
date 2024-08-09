@@ -347,6 +347,17 @@ class NotificationsModel(Observable):
     on_item_type: List[str] = ["movie", "show", "season"]
     service_urls: List[str] = []
 
+class SubliminalConfig(Observable):
+    enabled: bool = False
+    languages: List[str] = ["eng"]
+    # providers: List[str] = ["opensubtitles"]
+    # min_score: int = 7
+    # max_age: int = 30  
+    # timeout: int = 30
+    # ratelimit: bool = True
+
+class PostProcessing(Observable):
+    subliminal: SubliminalConfig = SubliminalConfig()
 
 class AppModel(Observable):
     version: str = get_version()
@@ -364,6 +375,7 @@ class AppModel(Observable):
     indexer: IndexerModel = IndexerModel()
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
+    post_processing: PostProcessing = PostProcessing()
 
     def __init__(self, **data: Any):
         current_version = get_version()

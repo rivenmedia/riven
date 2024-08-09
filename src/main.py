@@ -10,6 +10,7 @@ import uvicorn
 from controllers.actions import router as actions_router
 from controllers.default import router as default_router
 from controllers.items import router as items_router
+from controllers.ws import router as ws_router
 
 # from controllers.metrics import router as metrics_router
 from controllers.settings import router as settings_router
@@ -86,6 +87,7 @@ app.include_router(items_router)
 app.include_router(webhooks_router)
 app.include_router(tmdb_router)
 app.include_router(actions_router)
+app.include_router(ws_router)
 # app.include_router(metrics_router)
 
 

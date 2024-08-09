@@ -71,26 +71,16 @@ class Scraping:
 
     def run(self, item: Union[Show, Season, Episode, Movie]) -> Generator[Union[Show, Season, Episode, Movie], None, None]:
         """Scrape an item."""
-        if not item or not self.can_we_scrape(item):
-            yield self.yield_incomplete_children(item)
-            return
+        if self.can_we_scrape(item):
+            sorted_streams = self.scrape(item)
+            for stream in sorted_streams.values():
+                if stream not in item.streams:
+                    item.streams.append(stream)
+            item.set("scraped_at", datetime.now())
+            item.set("scraped_times", item.scraped_times + 1)
 
-        partial_state = self.partial_state(item)
-        if partial_state is not False:
-            yield partial_state
-            return
-
-        sorted_streams = self.scrape(item)
-        for stream in sorted_streams.values():
-            if stream not in item.streams:
-                item.streams.append(stream)
-        item.set("scraped_at", datetime.now())
-        item.set("scraped_times", item.scraped_times + 1)
-
-        if not item.get("streams", {}):
+        if not item.get("streams", []):
             logger.log("NOT_FOUND", f"Scraping returned no good results for {item.log_string}")
-            yield self.yield_incomplete_children(item)
-            return
 
         yield item
 
@@ -137,7 +127,10 @@ class Scraping:
     @classmethod
     def can_we_scrape(cls, item: MediaItem) -> bool:
         """Check if we can scrape an item."""
-        return item.is_released and cls.should_submit(item)
+        if item.is_released and cls.should_submit(item):
+            return True
+        logger.debug(f"Conditions not met, will not scrape {item.log_string}")
+        return False
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
