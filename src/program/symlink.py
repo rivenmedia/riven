@@ -25,7 +25,7 @@ class Symlinker:
         library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
     """
 
-    def __init__(self, media_items=None):
+    def __init__(self):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
         self.rclone_path = self.settings.rclone_path

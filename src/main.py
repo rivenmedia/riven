@@ -1,4 +1,3 @@
-import argparse
 import contextlib
 import signal
 import sys
@@ -12,7 +11,6 @@ from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.ws import router as ws_router
 
-# from controllers.metrics import router as metrics_router
 from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
 from controllers.webhooks import router as webhooks_router
@@ -21,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from program.db.db_functions import hard_reset_database
+from utils.cli import handle_args
 from utils.logger import logger
 
 
@@ -41,24 +39,7 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             )
         return response
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--ignore_cache",
-    action="store_true",
-    help="Ignore the cached metadata, create new data from scratch.",
-)
-parser.add_argument(
-    "--hard_reset_db",
-    action="store_true",
-    help="Hard reset the database, including deleting the Alembic directory.",
-)
-
-args = parser.parse_args()
-
-if args.hard_reset_db:
-    hard_reset_database()
-    exit(0)
+args = handle_args()
 
 app = FastAPI(
     title="Riven",
@@ -88,7 +69,6 @@ app.include_router(webhooks_router)
 app.include_router(tmdb_router)
 app.include_router(actions_router)
 app.include_router(ws_router)
-# app.include_router(metrics_router)
 
 
 class Server(uvicorn.Server):
