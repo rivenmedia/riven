@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/rivenmedia/riven/compare/v0.9.2...v0.10.0) (2024-08-11)
+
+
+### Features
+
+* release 0.9.3 ([a072821](https://github.com/rivenmedia/riven/commit/a072821c3d1ee82e8580494906881338f30d8691))
+
 ## [0.9.2](https://github.com/rivenmedia/riven/compare/v0.9.1...v0.9.2) (2024-07-31)
 
 
