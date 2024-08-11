@@ -150,7 +150,7 @@ def hard_reset_database():
     
     # Drop the alembic_version table
     with db.engine.connect() as connection:
-        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
     logger.debug("Alembic table dropped")
     
     # Recreate all tables
