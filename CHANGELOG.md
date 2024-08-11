@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/rivenmedia/riven/compare/v0.10.0...v0.10.1) (2024-08-11)
+
+
+### Bug Fixes
+
+* add cascade drop on alembic table ([b110cac](https://github.com/rivenmedia/riven/commit/b110cac68b24a92ee196317b7a4df3a5718d475e))
+
 ## [0.10.0](https://github.com/rivenmedia/riven/compare/v0.9.2...v0.10.0) (2024-08-11)
 
 
