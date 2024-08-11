@@ -1,15 +1,16 @@
-from typing import List, Optional
+from datetime import datetime
+from typing import Optional
 
 import Levenshtein
 import program.db.db_functions as DB
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
-from program.media.item import Episode, MediaItem, Season
+from program.media.item import MediaItem
 from program.media.state import States
-from program.symlink import Symlinker
-from pydantic import BaseModel
 from sqlalchemy import func, select
+from program.types import Event
 from utils.logger import logger
+from sqlalchemy.orm import joinedload
 
 router = APIRouter(
     prefix="/items",
@@ -17,10 +18,11 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-
-class IMDbIDs(BaseModel):
-    imdb_ids: Optional[List[str]] = None
-
+def handle_ids(ids: str) -> list[int]:
+    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No item ID provided")
+    return ids
 
 @router.get("/states")
 async def get_states():
@@ -28,7 +30,6 @@ async def get_states():
         "success": True,
         "states": [state for state in States],
     }
-
 
 @router.get(
     "",
@@ -43,6 +44,7 @@ async def get_items(
     state: Optional[str] = None,
     sort: Optional[str] = "desc",
     search: Optional[str] = None,
+    extended: Optional[bool] = False,
 ):
     if page < 1:
         raise HTTPException(status_code=400, detail="Page number must be 1 or greater.")
@@ -85,9 +87,10 @@ async def get_items(
                 if type not in ["movie", "show", "season", "episode"]:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
-                    )
-            query = query.where(MediaItem.type.in_(types))
+                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']")
+        else:
+            types=[type]
+        query = query.where(MediaItem.type.in_(types))
 
     if sort and not search:
         if sort.lower() == "asc":
@@ -108,7 +111,7 @@ async def get_items(
 
         return {
             "success": True,
-            "items": [item.to_dict() for item in items],
+            "items": [item.to_extended_dict() if extended else item.to_dict() for item in items],
             "page": page,
             "limit": limit,
             "total_items": total_items,
@@ -116,16 +119,11 @@ async def get_items(
         }
 
 
-@router.get("/extended/{item_id}")
-async def get_extended_item_info(_: Request, item_id: str):
-    with db.Session() as session:
-        item = session.execute(select(MediaItem).where(MediaItem.imdb_id == item_id)).unique().scalar_one_or_none()
-        if item is None:
-            raise HTTPException(status_code=404, detail="Item not found")
-        return {"success": True, "item": item.to_extended_dict()}
-
-
-@router.post("/add")
+@router.post(
+        "/add",
+        summary="Add Media Items",
+        description="Add media items with bases on imdb IDs",
+)
 async def add_items(
     request: Request, imdb_ids: str = None
 ):
@@ -146,56 +144,105 @@ async def add_items(
         raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
 
     for id in valid_ids:
-        item = MediaItem({"imdb_id": id, "requested_by": "riven"})
-        request.app.program.add_to_queue(item)
+        item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+        request.app.program._push_event_queue(Event("Manual", item))
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 
-
-@router.delete("/remove")
-async def remove_item(
-    _: Request, imdb_id: str
+@router.post(
+        "/reset",
+        summary="Reset Media Items",
+        description="Reset media items with bases on item IDs",
+)
+async def reset_items(
+    request: Request, ids: str
 ):
-    if not imdb_id:
-        raise HTTPException(status_code=400, detail="No IMDb ID provided")
-    if DB._remove_item_from_db(imdb_id):
-        return {"success": True, "message": f"Removed item with imdb_id {imdb_id}"}
-    return {"success": False, "message": f"No item with imdb_id ({imdb_id}) found"}
-
-
-@router.get("/imdb/{imdb_id}")
-async def get_imdb_info(
-    _: Request,
-    imdb_id: str,
-    season: Optional[int] = None,
-    episode: Optional[int] = None,
-):
-    """
-    Get the item with the given IMDb ID.
-    If the season and episode are provided, get the item with the given season and episode.
-    """
+    ids = handle_ids(ids)
     with db.Session() as session:
-        if season is not None and episode is not None:
-            item = session.execute(
-                select(Episode).where(
-                    (Episode.imdb_id == imdb_id) &
-                    (Episode.season_number == season) &
-                    (Episode.episode_number == episode)
-                )
-            ).scalar_one_or_none()
-        elif season is not None:
-            item = session.execute(
-                select(Season).where(
-                    (Season.imdb_id == imdb_id) &
-                    (Season.season_number == season)
-                )
-            ).scalar_one_or_none()
-        else:
-            item = session.execute(
-                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
-            ).scalar_one_or_none()
+        items = []
+        for id in ids:
+            item = session.execute(select(MediaItem).where(MediaItem._id == id).options(joinedload("*"))).unique().scalar_one()
+            items.append(item)
+        for item in items:
+            if item.type == "show":
+                for season in item.seasons:
+                    for episode in season.episodes:
+                        episode.reset()
+                    season.reset()
+            elif item.type == "season":
+                for episode in item.episodes:
+                    episode.reset()
+            item.reset()
 
-        if item is None:
-            raise HTTPException(status_code=404, detail="Item not found")
+        session.commit()
+    return {"success": True, "message": f"Reset items with id {ids}"}
 
-        return {"success": True, "item": item.to_extended_dict()}
+@router.post(
+        "/retry",
+        summary="Retry Media Items",
+        description="Retry media items with bases on item IDs",
+)
+async def retry_items(
+    request: Request, ids: str
+):
+    ids = handle_ids(ids)
+    with db.Session() as session:
+        items = []
+        for id in ids:
+            items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
+        for item in items:
+            request.app.program._remove_from_running_events(item)
+            request.app.program.add_to_queue(item)
+
+    return {"success": True, "message": f"Retried items with id {ids}"}
+
+@router.delete(
+        "",
+        summary="Remove Media Items",
+        description="Remove media items with bases on item IDs",)
+async def remove_item(
+    _: Request, ids: str
+):
+    ids = handle_ids(ids)
+    for id in ids:
+        DB._remove_item_from_db(id)
+    return {"success": True, "message": f"Removed item with id {id}"}
+
+# These require downloaders to be refactored
+
+# @router.get("/cached")
+# async def manual_scrape(request: Request, ids: str):
+#     scraper = request.app.program.services.get(Scraping)
+#     downloader = request.app.program.services.get(Downloader).service
+#     if downloader.__class__.__name__ not in ["RealDebridDownloader", "TorBoxDownloader"]:
+#         raise HTTPException(status_code=400, detail="Only Real-Debrid is supported for manual scraping currently")
+#     ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+#     if not ids:
+#         raise HTTPException(status_code=400, detail="No item ID provided")
+#     with db.Session() as session:
+#         items = []
+#         return_dict = {}
+#         for id in ids:
+#             items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
+#     if any(item for item in items if item.type in ["Season", "Episode"]):
+#         raise HTTPException(status_code=400, detail="Only shows and movies can be manually scraped currently")
+#     for item in items:
+#         new_item = item.__class__({})
+#         # new_item.parent = item.parent
+#         new_item.copy(item)
+#         new_item.copy_other_media_attr(item)
+#         scraped_results = scraper.scrape(new_item, log=False)
+#         cached_hashes = downloader.get_cached_hashes(new_item, scraped_results)
+#         for hash, stream in scraped_results.items():
+#             return_dict[hash] = {"cached": hash in cached_hashes, "name": stream.raw_title}
+#         return {"success": True, "data": return_dict}
+
+# @router.post("/download")
+# async def download(request: Request, id: str, hash: str):
+#     downloader = request.app.program.services.get(Downloader).service
+#     with db.Session() as session:
+#         item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
+#         item.reset(True)
+#         downloader.download_cached(item, hash)
+#         request.app.program.add_to_queue(item)
+#         return {"success": True, "message": f"Downloading {item.title} with hash {hash}"}

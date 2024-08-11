@@ -6,6 +6,7 @@ from typing import Generator
 
 from program.media.item import MediaItem
 from program.media.state import States
+from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN import parse
@@ -92,10 +93,21 @@ class TorBoxDownloader:
             logger.log("DEBRID", f"Item is not cached: {item.log_string}")
             for stream in item.streams:
                 logger.log(
-                    "DEBUG", f"Blacklisting hash ({stream.infohash}) for item: {item.log_string}"
+                    "DEBUG", f"Blacklisting uncached hash ({stream.infohash}) for item: {item.log_string}"
                 )
                 stream.blacklisted = True
         return return_value
+    
+    def get_cached_hashes(self, item: MediaItem, streams: list[str]) -> list[str]:
+        """Check if the item is cached in torbox.app"""
+        cached_hashes = self.get_torrent_cached(streams)
+        return {stream: cached_hashes[stream]["files"] for stream in streams if stream in cached_hashes}
+
+    def download_cached(self, item: MediaItem, stream: str) -> None:
+        """Download the cached item from torbox.app"""
+        cache = self.get_torrent_cached([stream])[stream]
+        item.active_stream = cache
+        self.download(item)
 
     def find_required_files(self, item, container):
 

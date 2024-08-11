@@ -19,7 +19,7 @@ uvicorn = {extras = ["standard"], version = "^0.27.1"}
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
 coverage = "^7.5.4"
-rank-torrent-name = "^0.2.13"
+rank-torrent-name = "0.2.23"
 cachetools = "^5.3.3"
 loguru = "^0.7.2"
 rich = "^13.7.1"
@@ -32,6 +32,7 @@ sqla-wrapper = "^6.0.0"
 alembic = "^1.13.2"
 psycopg2-binary = "^2.9.9"
 apprise = "^1.8.1"
+subliminal = "^2.2.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
