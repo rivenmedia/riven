@@ -117,7 +117,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                 for res in fn(input_item):
                     if not isinstance(res, MediaItem):
                         logger.log("PROGRAM", f"Service {service.__name__} emitted {res} from input item {input_item} of type {type(res).__name__}, backing off.")
-                        program._remove_from_running_events(input_item, service.__name__)
+                        program.em.remove_item_from_running(input_item)
 
                     input_item.store_state()
                     session.commit()

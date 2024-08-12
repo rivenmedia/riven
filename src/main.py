@@ -6,7 +6,6 @@ import time
 import traceback
 
 import uvicorn
-from controllers.actions import router as actions_router
 from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.ws import router as ws_router
@@ -51,7 +50,7 @@ app = FastAPI(
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
 )
-app.program = Program(args)
+app.program = Program()
 
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
@@ -67,7 +66,6 @@ app.include_router(settings_router)
 app.include_router(items_router)
 app.include_router(webhooks_router)
 app.include_router(tmdb_router)
-app.include_router(actions_router)
 app.include_router(ws_router)
 
 
