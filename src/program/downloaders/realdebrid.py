@@ -367,16 +367,28 @@ class RealDebridDownloader:
                         if episode_number in needed_episodes:
                             matched_files.setdefault(episode_number, []).append(file["filename"])
 
-        if any(matched_files.values()):
-            for ep_num, filenames in matched_files.items():
-                for filename in filenames:
-                    if not filename or "sample" in filename.lower():
-                        continue
-                    ep = next(episode for episode in item.episodes if episode.number == ep_num)
-                    ep.set("folder", item.active_stream.get("name"))
-                    ep.set("alternative_folder", item.active_stream.get("alternative_name"))
-                    ep.set("file", filename)
-            return True
+        if self.settings.require_full_packs:
+            if set(needed_episodes).issubset(matched_files):
+                for ep_num, filenames in matched_files.items():
+                    for filename in filenames:
+                        if not filename or "sample" in filename.lower():
+                            continue
+                        ep = next(episode for episode in item.episodes if episode.number == ep_num)
+                        ep.set("folder", item.active_stream.get("name"))
+                        ep.set("alternative_folder", item.active_stream.get("alternative_name"))
+                        ep.set("file", filename)
+                return True
+        else:
+            if any(matched_files.values()):
+                for ep_num, filenames in matched_files.items():
+                    for filename in filenames:
+                        if not filename or "sample" in filename.lower():
+                            continue
+                        ep = next(episode for episode in item.episodes if episode.number == ep_num)
+                        ep.set("folder", item.active_stream.get("name"))
+                        ep.set("alternative_folder", item.active_stream.get("alternative_name"))
+                        ep.set("file", filename)
+                return True
         return False
 
     def _is_wanted_show(self, container: dict, item: Show) -> bool:
@@ -433,19 +445,33 @@ class RealDebridDownloader:
                             if episode_number in episodes:
                                 # Store the matched file for this episode
                                 matched_files.setdefault((season_number, episode_number), []).append(file["filename"])
-
-        if any(matched_files.values()):
-            for key, filenames in matched_files.items():
-                season_number, episode_number = key
-                for filename in filenames:
-                    if not filename or "sample" in filename.lower():
-                        continue
-                    season = next(season for season in item.seasons if season.number == season_number)
-                    episode = next(episode for episode in season.episodes if episode.number == episode_number)
-                    episode.set("folder", item.active_stream.get("name"))
-                    episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                    episode.set("file", filename)
-            return True
+        if self.settings.require_full_packs:
+            needed_episodes_set = {(season, episode) for season, episodes in needed_episodes.items() for episode in episodes}
+            if needed_episodes_set.issubset(matched_files.keys()):
+                for key, filenames in matched_files.items():
+                    season_number, episode_number = key
+                    for filename in filenames:
+                        if not filename or "sample" in filename.lower():
+                            continue
+                        season = next(season for season in item.seasons if season.number == season_number)
+                        episode = next(episode for episode in season.episodes if episode.number == episode_number)
+                        episode.set("folder", item.active_stream.get("name"))
+                        episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                        episode.set("file", filename)
+                return True
+        else:
+            if any(matched_files.values()):
+                for key, filenames in matched_files.items():
+                    season_number, episode_number = key
+                    for filename in filenames:
+                        if not filename or "sample" in filename.lower():
+                            continue
+                        season = next(season for season in item.seasons if season.number == season_number)
+                        episode = next(episode for episode in season.episodes if episode.number == episode_number)
+                        episode.set("folder", item.active_stream.get("name"))
+                        episode.set("alternative_folder", item.active_stream.get("alternative_name", None))
+                        episode.set("file", filename)
+                return True
         return False
 
     def _is_downloaded(self, item: MediaItem) -> bool:

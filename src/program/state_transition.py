@@ -71,11 +71,34 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     elif item.state == States.Scraped:
         next_service = Downloader
         items_to_submit = []
+        append_item = True
         if item.type == "show":
-            items_to_submit = [s for s in item.seasons if s.state == States.Downloaded]
+            if Downloader.should_submit(item):
+                items_to_submit = [s for s in item.seasons if s.state == States.Downloaded]
+            else:
+                append_item = False
+                for season in item.seasons:
+                    if season.state in [States.Indexed, States.PartiallyCompleted] and Scraping.can_we_scrape(season):
+                        next_service = Scraping
+                        items_to_submit.append(season)
+                    elif season.state == States.Scraped:
+                        items_to_submit.append(season)
         if item.type == "season":
-            items_to_submit = [e for e in item.episodes if e.state == States.Downloaded]
-        items_to_submit.append(item)
+            if Downloader.should_submit(item):
+                items_to_submit = [e for e in item.episodes if e.state == States.Downloaded]
+            else:
+                append_item = False
+                for episode in item.episodes:
+                    if episode.state in [States.Indexed, States.PartiallyCompleted] and Scraping.can_we_scrape(episode):
+                        next_service = Scraping
+                        items_to_submit.append(episode)
+                    elif episode.state == States.Scraped:
+                        items_to_submit.append(episode)
+                    elif episode.state == States.Downloaded:
+                        next_service = Symlinker
+                        items_to_submit.append(episode)
+        if append_item:
+            items_to_submit.append(item)
 
     elif item.state == States.Downloaded:
         next_service = Symlinker
