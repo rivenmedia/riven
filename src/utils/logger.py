@@ -9,7 +9,7 @@ from loguru import logger
 from program.settings.manager import settings_manager
 from rich.console import Console
 from utils import data_dir_path
-from controllers.ws import manager
+from controllers.ws import WebSocketHandler
 
 LOG_ENABLED: bool = settings_manager.settings.log
 
@@ -111,6 +111,8 @@ def setup_logger(level):
         # "enqueue": True,
         # }
     ])
+
+    logger.add(WebSocketHandler(), format=log_format)
 
 
 def scrub_logs():

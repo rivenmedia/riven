@@ -1,6 +1,24 @@
+import asyncio
 import json
+import logging
 from loguru import logger
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+class WebSocketHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord):
+        event_loop = None
+        try:
+            event_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            pass
+        try:
+            message = self.format(record)
+            if event_loop and event_loop.is_running():
+                asyncio.create_task(manager.send_log_message(message))
+            else:
+                asyncio.run(manager.send_log_message(message))
+        except Exception:
+            self.handleError(record)
 
 router = APIRouter(
     prefix="/ws",
