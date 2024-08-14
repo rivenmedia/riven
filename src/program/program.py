@@ -306,7 +306,7 @@ class Program(threading.Thread):
                     if settings_manager.settings.notifications.enabled:
                             notify_on_complete(processed_item)
 
-                self.em._running_events.remove(event)
+                self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
