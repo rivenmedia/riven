@@ -1,12 +1,20 @@
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from sqla_wrapper import Session
+
+from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
 from utils.logger import logger
 
+imdbid_pattern = re.compile(r"tt\d+")
+season_pattern = re.compile(r"s(\d+)")
+episode_pattern = re.compile(r"e(\d+)")
 
 class SymlinkLibrary:
     def __init__(self):
@@ -143,3 +151,155 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Sh
             for i in range(1, max(seasons.keys())+1):
                 show_item.add_season(seasons.get(i, Season({"number": i})))
         yield show_item
+
+
+def build_file_map(directory: str) -> dict[str, str]:
+    """Build a map of filenames to their full paths in the directory."""
+    file_map = {}
+
+    def scan_dir(path):
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if entry.is_file():
+                    file_map[entry.name] = entry.path
+                elif entry.is_dir():
+                    scan_dir(entry.path)
+
+    scan_dir(directory)
+    return file_map
+
+def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
+    """Find all broken symlinks in the directory."""
+    broken_symlinks = []
+    for root, dirs, files in os.walk(directory):
+        for name in files + dirs:
+            full_path = os.path.join(root, name)
+            if os.path.islink(full_path):
+                target = os.readlink(full_path)
+                if not os.path.exists(os.path.realpath(full_path)):
+                    broken_symlinks.append((full_path, target))
+    return broken_symlinks
+
+def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
+    """Find and fix all broken symlinks in the library path using files from the rclone path."""
+    broken_symlinks = []
+    missing_files = 0
+
+    def check_and_fix_symlink(symlink_path, file_map):
+        """Check and fix a single symlink."""
+        nonlocal missing_files
+
+        target_path = os.readlink(symlink_path)
+        filename = os.path.basename(target_path)
+        dirname = os.path.dirname(target_path).split("/")[-1]
+        correct_path = file_map.get(filename)
+
+        with db.Session() as session:
+            items = get_items_from_filepath(session, symlink_path)
+            if not items:
+                logger.log("NOT_FOUND", f"Could not find item in database for path: {symlink_path}")
+                return
+
+            if correct_path:
+                os.remove(symlink_path)
+                os.symlink(correct_path, symlink_path)
+                for item in items:
+                    item = session.merge(item)
+                    item.file = filename
+                    item.folder = dirname
+                    item.symlinked = True
+                    item.symlink_path = correct_path
+                    item.update_folder = correct_path
+                    item.store_state()
+                    session.merge(item)
+                    logger.log("FILES", f"Retargeted broken symlink for {item.log_string} with correct path: {correct_path}")
+            else:
+                os.remove(symlink_path)
+                for item in items:
+                    item = session.merge(item)
+                    item.reset(session=session, reset_times=True)
+                    item.store_state()
+                    session.merge(item)
+                missing_files += 1
+                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path")
+
+            session.commit()
+            logger.log("FILES", f"Saved {len(broken_symlinks)} items to the database.")
+
+    def process_directory(directory, file_map):
+        """Process a single directory for broken symlinks."""
+        broken_symlinks = find_broken_symlinks(directory)
+        logger.log("FILES", f"Found {len(broken_symlinks)} broken symlinks in {directory}")
+        if not broken_symlinks:
+            return
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(check_and_fix_symlink, symlink_path, file_map) for symlink_path in broken_symlinks]
+            for future in as_completed(futures):
+                future.result()
+
+    start_time = time.time()
+    logger.log("FILES", f"Finding and fixing broken symlinks in {library_path} using files from {rclone_path}")
+
+    file_map = build_file_map(rclone_path)
+    if not file_map:
+        logger.log("FILES", f"No files found in rclone_path: {rclone_path}. Aborting fix_broken_symlinks.")
+        return
+
+    logger.log("FILES", f"Built file map for {rclone_path}")
+
+    top_level_dirs = [os.path.join(library_path, d) for d in os.listdir(library_path) if os.path.isdir(os.path.join(library_path, d))]
+    logger.log("FILES", f"Found top-level directories: {top_level_dirs}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_directory, directory, file_map) for directory in top_level_dirs]
+        if not futures:
+            logger.log("FILES", f"No directories found in {library_path}. Aborting fix_broken_symlinks.")
+            return
+        for future in as_completed(futures):
+            future.result()
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    logger.log("FILES", f"Finished processing {len(broken_symlinks)} and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
+    logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
+
+def get_items_from_filepath(session: Session, filepath: str) -> list[Movie] | list[Episode]:
+    """Get items that match the imdb_id or season and episode from a file in library_path"""
+    imdb_id_match = imdbid_pattern.search(filepath)
+    season_number_match = season_pattern.search(filepath)
+    episode_number_match = episode_pattern.search(filepath)
+
+    if not imdb_id_match:
+        logger.log("NOT_FOUND", f"Path missing imdb_id: {filepath}")
+        return []
+
+    imdb_id = imdb_id_match.group()
+    season_number = int(season_number_match.group(1)) if season_number_match else None
+    episode_number = int(episode_number_match.group(1)) if episode_number_match else None
+
+    with session:
+        items = []
+        if season_number and episode_number:
+            episode_numbers = [int(num) for num in re.findall(r"e(\d+)", filepath, re.IGNORECASE)]
+            for ep_num in episode_numbers:
+                query = (
+                    session.query(Episode)
+                    .join(Season, Episode.parent_id == Season._id)
+                    .join(Show, Season.parent_id == Show._id)
+                    .filter(Show.imdb_id == imdb_id, Season.number == season_number, Episode.number == ep_num)
+                )
+                episode_item = query.with_entities(Episode).first()
+                if episode_item:
+                    items.append(episode_item)
+        else:
+            query = session.query(Movie).filter_by(imdb_id=imdb_id)
+            movie_item = query.first()
+            if movie_item:
+                items.append(movie_item)
+
+        if len(items) > 1:
+            logger.log("FILES", f"Found multiple items in database for path: {filepath}")
+            for item in items:
+                logger.log("FILES", f"Found (multiple) {item.log_string} from filepath: {filepath}")
+        return items

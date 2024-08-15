@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import List, Optional, Self
 import asyncio
+from sqla_wrapper import Session
 
 import sqlalchemy
 from program.db.db import db
@@ -290,24 +291,30 @@ class MediaItem(db.Model):
     def __hash__(self):
         return hash(self.item_id)
     
-    def reset(self, reset_times: bool = True):
+    def reset(self, session: Session = None, reset_times: bool = True):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
                 Path(self.symlink_path).unlink()
             self.set("symlink_path", None)
-    
-        for subtitle in self.subtitles:
-            subtitle.remove()
+
+        try:
+            for subtitle in self.subtitles:
+                subtitle.remove()
+        except Exception as e:
+            logger.error(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
         self.set("file", None)
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if hasattr(self, "active_stream"):
-            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
-            if stream:
-                self.blacklist_stream(stream)
+        try:
+            if hasattr(self, "active_stream") and self.active_stream:
+                stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream.get("hash")), None)
+                if stream:
+                    self.blacklist_stream(stream)
+        except Exception as e:
+            logger.error(f"Failed to blacklist active stream for {self.log_string}: {str(e)}")
 
         self.set("active_stream", {})
         self.set("symlinked", False)

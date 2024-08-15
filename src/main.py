@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from program.settings.models import get_version
 from utils.cli import handle_args
 from utils.logger import logger
 
@@ -43,7 +44,7 @@ args = handle_args()
 app = FastAPI(
     title="Riven",
     summary="A media management system.",
-    version="0.7.x",
+    version=get_version(),
     redoc_url=None,
     license_info={
         "name": "GPL-3.0",

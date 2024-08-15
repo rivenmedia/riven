@@ -2,11 +2,9 @@ import linecache
 import os
 import threading
 import time
-import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
+
 from datetime import datetime
-from multiprocessing import Lock
-from queue import Empty, Queue
+from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -16,11 +14,11 @@ from program.libraries import SymlinkLibrary
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.post_processing import PostProcessing
-from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
+from program.libraries.symlink import fix_broken_symlinks
 from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
@@ -28,7 +26,7 @@ from utils.event_manager import EventManager
 
 from .state_transition import process_event
 from .symlink import Symlinker
-from .types import Event, Service
+from .types import Event
 
 if settings_manager.settings.tracemalloc:
     import tracemalloc
@@ -44,6 +42,7 @@ class Program(threading.Thread):
     def __init__(self):
         super().__init__(name="Riven")
         self.initialized = False
+        self.running = False
         self.services = {}
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
@@ -208,8 +207,13 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
+        library_path = settings_manager.settings.symlink.library_path
+        rclone_path = settings_manager.settings.symlink.rclone_path
+        symlink_fix_interval = 30 # settings_manager.settings.symlink.symlink_fix_interval
+
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            fix_broken_symlinks: {"interval": 60 * symlink_fix_interval, "args": [library_path, rclone_path]},
         }
         if settings_manager.settings.post_processing.subliminal.enabled:
             pass
@@ -321,11 +325,10 @@ class Program(threading.Thread):
             return
 
         self.running = False
-        self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
             for executor in self.executors:
-                if not getattr(executor["_executor"], "_shutdown", False):
+                if not executor["_executor"]._shutdown:
                     executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler") and getattr(self.scheduler, "running", False):
+        if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
