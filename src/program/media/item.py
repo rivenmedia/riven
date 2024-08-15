@@ -291,6 +291,18 @@ class MediaItem(db.Model):
         return hash(self.item_id)
     
     def reset(self, reset_times: bool = True):
+        """Reset item attributes."""
+        if self.type == "show":
+            for season in self.seasons:
+                for episode in season.episodes:
+                    episode._reset(reset_times)
+                season._reset(reset_times)
+        elif self.type == "season":
+            for episode in self.episodes:
+                episode._reset(reset_times)
+        self._reset(reset_times)
+
+    def _reset(self, reset_times: bool = True):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
