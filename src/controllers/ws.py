@@ -33,7 +33,11 @@ class ConnectionManager:
         await websocket.accept()
         logger.debug("Frontend connected!")
         self.active_connections.append(websocket)
-        await websocket.send_json({"type": "health", "status": "running"})
+        if websocket.app.program.initialized:
+            status = "running"
+        else:
+            status = "paused"
+        await websocket.send_json({"type": "health", "status": status})
 
     def disconnect(self, websocket: WebSocket):
         logger.debug("Frontend disconnected!")
