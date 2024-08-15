@@ -316,7 +316,7 @@ class MediaItem(db.Model):
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if hasattr(self, "active_stream"):
+        if hasattr(self, "active_stream") and self.active_stream.get("hash", False):
             stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
             if stream:
                 self.blacklist_stream(stream)
