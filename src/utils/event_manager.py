@@ -98,8 +98,8 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from both the queue and the running events.
         """
-        self.remove_event_from_queue(item)
-        self.remove_event_from_running(item)
+        self.remove_item_from_queue(item)
+        self.remove_item_from_running(item)
 
     def submit_job(self, service, program, item=None):
         """

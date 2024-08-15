@@ -185,7 +185,7 @@ async def retry_items(
             items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
         for item in items:
             request.app.program.em.cancel_job(item)
-            request.app.program.add_item(item)
+            request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Retried items with id {ids}"}
 
