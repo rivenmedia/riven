@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/rivenmedia/riven/compare/v0.10.1...v0.10.2) (2024-08-15)
+
+
+### Bug Fixes
+
+* correct attribute names in zilean scraper ([6e26304](https://github.com/rivenmedia/riven/commit/6e26304f89cfb5456714d424cf8e6b75c8a4a3bc))
+
 ## [0.10.1](https://github.com/rivenmedia/riven/compare/v0.10.0...v0.10.1) (2024-08-11)
 
 
