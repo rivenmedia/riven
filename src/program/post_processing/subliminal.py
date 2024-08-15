@@ -36,10 +36,13 @@ class Subliminal:
     def get_subtitles(self, item):
         if item.type in ["movie", "episode"]:
             real_name = pathlib.Path(item.symlink_path).resolve().name
-            video = Video.fromname(real_name)
-            video.symlink_path = item.symlink_path
-            video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, pathlib.Path(item.symlink_path).parent)
-            return download_best_subtitles([video], self.languages)
+            try:
+                video = Video.fromname(real_name)
+                video.symlink_path = item.symlink_path
+                video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, pathlib.Path(item.symlink_path).parent)
+                return download_best_subtitles([video], self.languages)
+            except ValueError:
+                logger.error(f"Could not parse video name: {real_name}")
         return {}
 
     def save_subtitles(self, subtitles, item):
