@@ -88,6 +88,8 @@ class Symlinker:
 
     def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
+        if not Symlinker.should_submit(item):
+            yield item
         try:
             if isinstance(item, Show):
                 self._symlink_show(item)
@@ -328,7 +330,7 @@ class Symlinker:
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
-                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string} - {item.title}"
+                filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
         return filename
 
     def delete_item_symlinks(self, id: int) -> bool:

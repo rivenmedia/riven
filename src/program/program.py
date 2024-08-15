@@ -1,3 +1,4 @@
+import asyncio
 import linecache
 import os
 import threading
@@ -25,6 +26,7 @@ from utils import data_dir_path
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
 from utils.event_manager import EventManager
+from controllers.ws import manager as ws_manager
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -182,6 +184,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
+        asyncio.run(ws_manager.send_health_update("running"))
         self.initialized = True
 
     def _retry_library(self) -> None:
@@ -287,7 +290,7 @@ class Program(threading.Thread):
                 continue
 
             try:
-                event: Event = self.em.next(timeout=10)
+                event: Event = self.em.next()
                 self.em._running_events.append(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
@@ -320,11 +323,9 @@ class Program(threading.Thread):
                 session.commit()
 
     def stop(self):
-        if not self.running:
+        if not self.initialized:
             return
 
-        self.running = False
-        self.clear_queue()  # Clear the queue when stopping
         if hasattr(self, "executors"):
             for executor in self.executors:
                 if not getattr(executor["_executor"], "_shutdown", False):

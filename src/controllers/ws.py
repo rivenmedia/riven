@@ -46,6 +46,9 @@ class ConnectionManager:
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
+    async def send_health_update(self, status: str):
+        await self.broadcast({"type": "health", "status": status})
+
     async def send_log_message(self, message: str):
         await self.broadcast({"type": "log", "message": message})
 
