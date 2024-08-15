@@ -2,15 +2,16 @@ import linecache
 import os
 import threading
 import time
-
 from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
+from program.libraries.symlink import fix_broken_symlinks
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.post_processing import PostProcessing
@@ -18,11 +19,10 @@ from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
-from program.libraries.symlink import fix_broken_symlinks
 from utils import data_dir_path
+from utils.event_manager import EventManager
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
-from utils.event_manager import EventManager
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -31,9 +31,10 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
+from sqlalchemy import func, select
+
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations
-from sqlalchemy import func, select
 
 
 class Program(threading.Thread):
