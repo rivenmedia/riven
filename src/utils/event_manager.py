@@ -116,7 +116,7 @@ class EventManager:
         logger.debug(log_message)
         
         executor = self._find_or_create_executor(service)
-        future = executor.submit(_run_thread_with_db_item, program.services[service].run, service, program, item)
+        future = executor.submit(_run_thread_with_db_item, program.all_services[service].run, service, program, item)
         if item:
             future.item = item
         self._futures.append(future)

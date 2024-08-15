@@ -73,6 +73,12 @@ class Program(threading.Thread):
             SymlinkLibrary: SymlinkLibrary(),
             PostProcessing: PostProcessing(),
         }
+
+        self.all_services = {
+            **self.requesting_services,
+            **self.services
+        }
+
         if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
             logger.warning("No content services initialized, items need to be added manually.")
         if not self.services[Scraping].initialized:

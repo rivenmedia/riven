@@ -71,7 +71,7 @@ async def get_torbox_user():
 async def get_services(request: Request):
     data = {}
     if hasattr(request.app.program, "services"):
-        for service in request.app.program.services.values():
+        for service in request.app.program.all_services.values():
             data[service.key] = service.initialized
             if not hasattr(service, "services"):
                 continue
