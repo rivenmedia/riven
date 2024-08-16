@@ -165,18 +165,18 @@ class RealDebridDownloader:
 
         if item.type == "movie" or item.type == "episode":
             for hash in filtered_streams:
-                stream = next((stream for stream in item.streams if stream.infohash == hash), None)
+                stream = next((stream for stream in item.streams if stream.infohash.lower() == hash.lower()), None)
                 if stream and not item.is_stream_blacklisted(stream):
                     item.blacklist_stream(stream)
                     logger.debug(f"Blacklisted stream for {item.log_string} with hash: {hash}")
 
-        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
+        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)} streams")
         return False
 
     def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem) -> bool:
         """Evaluate the response data from the stream availability check."""
         for stream_hash, provider_list in data.items():
-            stream = next((stream for stream in item.streams if stream.infohash == stream_hash), None)
+            stream = next((stream for stream in item.streams if stream.infohash.lower() == stream_hash.lower()), None)
             if not stream or item.is_stream_blacklisted(stream):
                 continue
 
