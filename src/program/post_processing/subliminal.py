@@ -1,6 +1,6 @@
 import os
 import pathlib
-from subliminal import download_best_subtitles, region, Video, save_subtitles
+from subliminal import region, Video, save_subtitles, ProviderPool
 from babelfish import Language
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
@@ -10,9 +10,19 @@ from loguru import logger
 class Subliminal:
     def __init__(self):
         self.key = "subliminal"
+        self.settings = settings_manager.settings.post_processing.subliminal
+        providers = ['gestdown','opensubtitles','opensubtitlescom','podnapisi','tvsubtitles']
+        provider_config = {}
+        for provider in self.settings.providers.keys():
+            if self.settings.providers[provider]["enabled"]:
+                value = self.settings.providers[provider]
+                provider_config[provider] = {"username": value["username"], "password": value["password"]}
+                providers.append(provider)
+        self.pool = ProviderPool(providers=providers,provider_configs=provider_config)
+        for provider in self.pool.providers:
+            self.pool[provider].initialize()
         if not region.is_configured:
             region.configure('dogpile.cache.dbm', arguments={'filename': f'{root_dir}/data/subliminal.dbm'})
-        self.settings = settings_manager.settings.post_processing.subliminal
         self.languages = set(create_language_from_string(lang) for lang in self.settings.languages)
         self.initialized = self.enabled
         
@@ -40,27 +50,27 @@ class Subliminal:
                 video = Video.fromname(real_name)
                 video.symlink_path = item.symlink_path
                 video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, pathlib.Path(item.symlink_path).parent)
-                return download_best_subtitles([video], self.languages)
+                return video, self.pool.download_best_subtitles(self.pool.list_subtitles(video, self.languages), video, self.languages)
             except ValueError:
                 logger.error(f"Could not parse video name: {real_name}")
         return {}
 
-    def save_subtitles(self, subtitles, item):
-        for video, subtitle in subtitles.items():
+    def save_subtitles(self, video, subtitles, item):
+        for subtitle in subtitles:
             original_name = video.name
             video.name = pathlib.Path(video.symlink_path)
-            saved = save_subtitles(video, subtitle)
+            saved = save_subtitles(video, [subtitle])
             for subtitle in saved:
                 logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(item.symlink_path).stem}")
             video.name = original_name
             
 
     def run(self, item):
-        subtitles = self.get_subtitles(item)
+        video, subtitles = self.get_subtitles(item)
         for language in self.languages:
             key = str(language)
             item.subtitles.append(Subtitle({key: None}))
-        self.save_subtitles(subtitles, item)
+        self.save_subtitles(video, subtitles, item)
         self.update_item(item)
         
     def update_item(self, item):

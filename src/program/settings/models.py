@@ -352,11 +352,28 @@ class NotificationsModel(Observable):
 class SubliminalConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
-    # providers: List[str] = ["opensubtitles"]
-    # min_score: int = 7
-    # max_age: int = 30  
-    # timeout: int = 30
-    # ratelimit: bool = True
+    providers: dict = {
+        "addic7ed": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "napiprojekt": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlesvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlescomvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        }
+    }
 
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
