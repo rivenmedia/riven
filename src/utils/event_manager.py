@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 from queue import Empty
 import os
+from threading import Lock
 import time
 import traceback
 from subliminal import Episode, Movie
@@ -20,6 +21,7 @@ class EventManager:
         self._futures = []
         self._queued_events = []
         self._running_events = []
+        self.mutex = Lock()
     
     def _find_or_create_executor(self, service_cls) -> concurrent.futures.ThreadPoolExecutor:
         """
@@ -73,9 +75,10 @@ class EventManager:
         Args:
             event (Event): The event to add to the queue.
         """
-        self._queued_events.append(event)
-        ws_manager.send_event_update(self._running_events, self._queued_events)
-        logger.debug(f"Added {event.item.log_string} to the queue.")
+        with self.mutex:
+            self._queued_events.append(event)
+            ws_manager.send_event_update(self._running_events, self._queued_events)
+            logger.debug(f"Added {event.item.log_string} to the queue.")
 
     def remove_item_from_queue(self, item):
         """
@@ -84,12 +87,13 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from the queue.
         """
-        for event in self._queued_events:
-            if event.item.imdb_id == item.imdb_id:
-                self._queued_events.remove(event)
-                ws_manager.send_event_update(self._running_events, self._queued_events)
-                logger.debug(f"Removed {item.log_string} from the queue.")
-                return
+        with self.mutex:
+            for event in self._queued_events:
+                if event.item.imdb_id == item.imdb_id:
+                    self._queued_events.remove(event)
+                    ws_manager.send_event_update(self._running_events, self._queued_events)
+                    logger.debug(f"Removed {item.log_string} from the queue.")
+                    return
 
     def add_event_to_running(self, event):
         """
@@ -98,9 +102,10 @@ class EventManager:
         Args:
             event (Event): The event to add to the running events.
         """
-        self._running_events.append(event)
-        ws_manager.send_event_update(self._running_events, self._queued_events)
-        logger.debug(f"Added {event.item.log_string} to the running events.")
+        with self.mutex:
+            self._running_events.append(event)
+            ws_manager.send_event_update(self._running_events, self._queued_events)
+            logger.debug(f"Added {event.item.log_string} to the running events.")
 
     def remove_item_from_running(self, item):
         """
@@ -109,15 +114,13 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from the running events.
         """
-        matching_events = [event for event in self._running_events if event.item.imdb_id == item.imdb_id]
-        if matching_events:
-            for event in matching_events:
-                logger.debug(f"Removed {item.log_string} from the running events.")
-                self._running_events.remove(event)
-                ws_manager.send_event_update(self._running_events, self._queued_events)
-                return
-        else:
-            logger.error(f"Item {item.log_string} not found in running events.")
+        with self.mutex:
+            for event in self._running_events:
+                if event.item.imdb_id == item.imdb_id:
+                    self._running_events.remove(event)
+                    ws_manager.send_event_update(self._running_events, self._queued_events)
+                    logger.debug(f"Removed {item.log_string} from the running events.")
+                    return
 
     def remove_item_from_queues(self, item):
         """
