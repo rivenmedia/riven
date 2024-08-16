@@ -10,6 +10,8 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import joinedload
 from utils.logger import logger
 from utils import alembic_dir
+from program.libraries.symlink import fix_broken_symlinks
+from program.settings.manager import settings_manager
 
 from .db import db, alembic
 
@@ -73,30 +75,6 @@ def _get_item_from_db(session, item: MediaItem):
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
             return None
 
-def _remove_item_from_db(id):
-    try:
-        with db.Session() as session:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-            item_type = None
-            if item.type == "movie":
-                item_type = Movie
-            elif item.type == "show":
-                item_type = Show
-            elif item.type == "season":
-                item_type = Season
-            elif item.type == "episode":
-                item_type = Episode
-            if item:
-                session.execute(delete(Stream).where(Stream.parent_id == item._id))
-                session.execute(delete(item_type).where(item_type._id == item._id))
-                session.execute(delete(MediaItem.__table__).where(MediaItem._id == item._id))
-                session.commit()
-                return True
-            return False
-    except Exception as e:
-        logger.error("Failed to remove item from imdb_id, " + str(e))
-        return False
-
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
     if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
@@ -117,7 +95,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: MediaItem | None)
                 for res in fn(input_item):
                     if not isinstance(res, MediaItem):
                         logger.log("PROGRAM", f"Service {service.__name__} emitted {res} from input item {input_item} of type {type(res).__name__}, backing off.")
-                        program._remove_from_running_events(input_item, service.__name__)
+                        program.em.remove_item_from_running(input_item)
 
                     input_item.store_state()
                     session.commit()
@@ -169,3 +147,7 @@ def hard_reset_database():
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
+
+if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
+    fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
+    exit(0)

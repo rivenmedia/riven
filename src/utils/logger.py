@@ -9,7 +9,7 @@ from loguru import logger
 from program.settings.manager import settings_manager
 from rich.console import Console
 from utils import data_dir_path
-from controllers.ws import manager
+from utils.websockets.logging_handler import Handler as WebSocketHandler
 
 LOG_ENABLED: bool = settings_manager.settings.log
 
@@ -94,8 +94,8 @@ def setup_logger(level):
             "sink": log_filename, 
             "level": level.upper(), 
             "format": log_format, 
-            "rotation": "50 MB", 
-            "retention": "8 hours", 
+            "rotation": "25 MB", 
+            "retention": "24 hours", 
             "compression": None, 
             "backtrace": False, 
             "diagnose": True,
@@ -111,6 +111,8 @@ def setup_logger(level):
         # "enqueue": True,
         # }
     ])
+
+    logger.add(WebSocketHandler(), format=log_format)
 
 
 def scrub_logs():

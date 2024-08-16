@@ -2,13 +2,13 @@ from datetime import datetime
 from typing import Optional
 
 import Levenshtein
-import program.db.db_functions as DB
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.state import States
-from sqlalchemy import func, select
-from program.types import Event
+from sqlalchemy import delete, func, select
+from program.media.stream import StreamBlacklistRelation, StreamRelation
+from program.media.subtitle import Subtitle
 from utils.logger import logger
 from sqlalchemy.orm import joinedload
 
@@ -145,7 +145,7 @@ async def add_items(
 
     for id in valid_ids:
         item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
-        request.app.program._push_event_queue(Event("Manual", item))
+        request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 
@@ -164,14 +164,7 @@ async def reset_items(
             item = session.execute(select(MediaItem).where(MediaItem._id == id).options(joinedload("*"))).unique().scalar_one()
             items.append(item)
         for item in items:
-            if item.type == "show":
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        episode.reset()
-                    season.reset()
-            elif item.type == "season":
-                for episode in item.episodes:
-                    episode.reset()
+            request.app.program.em.cancel_job(item)
             item.reset()
 
         session.commit()
@@ -191,8 +184,8 @@ async def retry_items(
         for id in ids:
             items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
         for item in items:
-            request.app.program._remove_from_running_events(item)
-            request.app.program.add_to_queue(item)
+            request.app.program.em.cancel_job(item)
+            request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Retried items with id {ids}"}
 
@@ -201,11 +194,34 @@ async def retry_items(
         summary="Remove Media Items",
         description="Remove media items with bases on item IDs",)
 async def remove_item(
-    _: Request, ids: str
+    request: Request, ids: str
 ):
     ids = handle_ids(ids)
-    for id in ids:
-        DB._remove_item_from_db(id)
+    with db.Session() as session:
+        def _delete(item):
+            session.execute(delete(item.__class__).where(item.__class__._id == item._id))
+            session.execute(delete(MediaItem).where(MediaItem._id == item._id))
+            session.execute(delete(StreamRelation).where(StreamRelation.parent_id == item._id))
+            session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id))
+            session.execute(delete(Subtitle).where(Subtitle.parent_id == item._id))
+
+        items = []
+        for id in ids:
+            items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
+        for item in items:
+            request.app.program.em.cancel_job(item)
+            item.reset()
+            if item.type == "show":
+                for season in item.seasons:
+                    for episode in season.episodes:
+                        _delete(episode)
+                    _delete(season)
+            if item.type == "season":
+                for episode in item.episodes:
+                    _delete(episode)
+            _delete(item)
+        session.commit()
+
     return {"success": True, "message": f"Removed item with id {id}"}
 
 # These require downloaders to be refactored

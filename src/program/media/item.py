@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import List, Optional, Self
 import asyncio
+from sqla_wrapper import Session
 
 import sqlalchemy
 from program.db.db import db
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.media.subtitle import Subtitle
 from .stream import  Stream, StreamRelation
-from controllers.ws import manager
+import utils.websockets.manager as ws_manager
 
 from utils.logger import logger
 
@@ -112,7 +113,7 @@ class MediaItem(db.Model):
 
     def store_state(self) -> None:
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
         
     def is_stream_blacklisted(self, stream: Stream):
@@ -291,20 +292,35 @@ class MediaItem(db.Model):
         return hash(self.item_id)
     
     def reset(self, reset_times: bool = True):
+        """Reset item attributes."""
+        if self.type == "show":
+            for season in self.seasons:
+                for episode in season.episodes:
+                    episode._reset(reset_times)
+                season._reset(reset_times)
+        elif self.type == "season":
+            for episode in self.episodes:
+                episode._reset(reset_times)
+        self._reset(reset_times)
+
+    def _reset(self, reset_times: bool = True):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
                 Path(self.symlink_path).unlink()
             self.set("symlink_path", None)
-    
-        for subtitle in self.subtitles:
-            subtitle.remove()
+
+        try:
+            for subtitle in self.subtitles:
+                subtitle.remove()
+        except Exception as e:
+            logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
         self.set("file", None)
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if hasattr(self, "active_stream"):
+        if hasattr(self, "active_stream") and self.active_stream.get("hash", False):
             stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
             if stream:
                 self.blacklist_stream(stream)
@@ -405,7 +421,7 @@ class Show(MediaItem):
         for season in self.seasons:
             season.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __repr__(self):
@@ -479,7 +495,7 @@ class Season(MediaItem):
         for episode in self.episodes:
             episode.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __init__(self, item):
