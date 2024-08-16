@@ -147,6 +147,12 @@ class RealDebridDownloader:
             if stream.infohash and stream.infohash not in processed_stream_hashes
             and not item.is_stream_blacklisted(stream)
         ]
+
+        filtered_streams.sort(
+            key=lambda infohash: next((stream.rank for stream in item.streams if stream.infohash == infohash), float('inf')),
+            reverse=True
+        )
+
         if not filtered_streams:
             logger.log("NOT_FOUND", f"No streams found from filtering out processed and blacklisted hashes for: {item.log_string}")
             return False
@@ -175,8 +181,18 @@ class RealDebridDownloader:
 
     def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem) -> bool:
         """Evaluate the response data from the stream availability check."""
-        for stream_hash, provider_list in data.items():
+        stream_items = list(data.items())
+
+        def sorting_key(stream_item):
+            infohash = stream_item[0]
+            stream = next((stream for stream in item.streams if stream.infohash.lower() == infohash.lower()), None)
+            return stream.rank if stream else float('inf')
+
+        sorted_stream_items = sorted(stream_items, key=sorting_key, reverse=True)
+
+        for stream_hash, provider_list in sorted_stream_items:
             stream = next((stream for stream in item.streams if stream.infohash.lower() == stream_hash.lower()), None)
+
             if not stream or item.is_stream_blacklisted(stream):
                 continue
 
