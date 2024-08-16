@@ -10,6 +10,8 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import joinedload
 from utils.logger import logger
 from utils import alembic_dir
+from program.libraries.symlink import fix_broken_symlinks
+from program.settings.manager import settings_manager
 
 from .db import db, alembic
 
@@ -145,3 +147,7 @@ def hard_reset_database():
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
+
+if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
+    fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
+    exit(0)

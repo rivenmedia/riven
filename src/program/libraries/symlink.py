@@ -182,12 +182,14 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
 
 def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
     """Find and fix all broken symlinks in the library path using files from the rclone path."""
-    broken_symlinks = []
     missing_files = 0
 
     def check_and_fix_symlink(symlink_path, file_map):
         """Check and fix a single symlink."""
         nonlocal missing_files
+
+        if isinstance(symlink_path, tuple):
+            symlink_path = symlink_path[0]
 
         target_path = os.readlink(symlink_path)
         filename = os.path.basename(target_path)
@@ -229,20 +231,20 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
                 logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path")
 
             session.commit()
-            logger.log("FILES", f"Saved {len(broken_symlinks)} items to the database.")
+            logger.log("FILES", f"Saved items to the database.")
 
             if failed:
                 logger.warning(f"Failed to retarget some broken symlinks, recommended action: reset database.")
 
     def process_directory(directory, file_map):
         """Process a single directory for broken symlinks."""
-        broken_symlinks = find_broken_symlinks(directory)
-        logger.log("FILES", f"Found {len(broken_symlinks)} broken symlinks in {directory}")
-        if not broken_symlinks:
+        local_broken_symlinks = find_broken_symlinks(directory)
+        logger.log("FILES", f"Found {len(local_broken_symlinks)} broken symlinks in {directory}")
+        if not local_broken_symlinks:
             return
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(check_and_fix_symlink, symlink_path, file_map) for symlink_path in broken_symlinks]
+            futures = [executor.submit(check_and_fix_symlink, symlink_path, file_map) for symlink_path in local_broken_symlinks]
             for future in as_completed(futures):
                 future.result()
 
@@ -269,7 +271,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
 
     end_time = time.time()
     elapsed_time = end_time - start_time
-    logger.log("FILES", f"Finished processing {len(broken_symlinks)} and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
+    logger.log("FILES", f"Finished processing and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
     logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
 
 def get_items_from_filepath(session: Session, filepath: str) -> list[Movie] | list[Episode]:
