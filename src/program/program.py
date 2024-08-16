@@ -220,14 +220,16 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        library_path = settings_manager.settings.symlink.library_path
-        rclone_path = settings_manager.settings.symlink.rclone_path
-        symlink_fix_interval = 30 # settings_manager.settings.symlink.symlink_fix_interval
-
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
-            fix_broken_symlinks: {"interval": 60 * symlink_fix_interval, "args": [library_path, rclone_path]},
         }
+
+        if settings_manager.settings.symlink.repair_symlinks:
+            scheduled_functions[fix_broken_symlinks] = {
+                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval, 
+                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
+            }
+
         if settings_manager.settings.post_processing.subliminal.enabled:
             pass
             # scheduled_functions[self._download_subtitles] = {"interval": 60 * 60 * 24}

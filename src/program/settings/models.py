@@ -75,6 +75,8 @@ class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
     separate_anime_dirs: bool = False
+    repair_symlinks: bool = False
+    repair_interval: float = 6 # hours
 
 
 # Content Services
