@@ -224,7 +224,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
                 os.remove(symlink_path)
                 for item in items:
                     item = session.merge(item)
-                    item.reset(session=session, reset_times=True)
+                    item.reset()
                     item.store_state()
                     session.merge(item)
                 missing_files += 1
