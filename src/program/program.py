@@ -29,7 +29,7 @@ from utils.event_manager import EventManager
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
 from utils.event_manager import EventManager
-from controllers.ws import manager as ws_manager
+import utils.websockets.manager as ws_manager
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -190,7 +190,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
-        asyncio.run(ws_manager.send_health_update("running"))
+        ws_manager.send_health_update("running")
         self.initialized = True
 
     def _retry_library(self) -> None:
@@ -304,13 +304,14 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.em.next()
-                self.em._running_events.append(event)
+                self.em.add_event_to_running(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
                 continue
+
 
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
@@ -329,7 +330,7 @@ class Program(threading.Thread):
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
-                        self.em._running_events.append(Event(next_service.__name__, item_to_submit))
+                        self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
                         self.em.submit_job(next_service, self, item_to_submit)
                 if isinstance(processed_item, MediaItem):
                     processed_item.store_state()

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.media.subtitle import Subtitle
 from .stream import  Stream, StreamRelation
-from controllers.ws import manager
+import utils.websockets.manager as ws_manager
 
 from utils.logger import logger
 
@@ -113,7 +113,7 @@ class MediaItem(db.Model):
 
     def store_state(self) -> None:
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
         
     def is_stream_blacklisted(self, stream: Stream):
@@ -421,7 +421,7 @@ class Show(MediaItem):
         for season in self.seasons:
             season.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __repr__(self):
@@ -495,7 +495,7 @@ class Season(MediaItem):
         for episode in self.episodes:
             episode.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __init__(self, item):

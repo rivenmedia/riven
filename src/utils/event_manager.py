@@ -1,3 +1,4 @@
+import asyncio
 import concurrent.futures
 from queue import Empty
 import os
@@ -6,10 +7,10 @@ import traceback
 from subliminal import Episode, Movie
 from program.db.db_functions import _run_thread_with_db_item
 from loguru import logger
+import utils.websockets.manager as ws_manager
 
 from program.media.item import Season, Show
 from program.types import Event
-
 class EventManager:
     """
     Manages the execution of services and the handling of events.
@@ -64,7 +65,18 @@ class EventManager:
         if hasattr(future, "item"):
             log_message += f" with item: {future.item.log_string}"
         logger.debug(log_message)
-        
+
+    def add_event_to_queue(self, event):
+        """
+        Adds an event to the queue.
+
+        Args:
+            event (Event): The event to add to the queue.
+        """
+        self._queued_events.append(event)
+        ws_manager.send_event_update(self._running_events, self._queued_events)
+        logger.debug(f"Added {event.item.log_string} to the queue.")
+
     def remove_item_from_queue(self, item):
         """
         Removes an item from the queue.
@@ -75,9 +87,21 @@ class EventManager:
         for event in self._queued_events:
             if event.item.imdb_id == item.imdb_id:
                 self._queued_events.remove(event)
+                ws_manager.send_event_update(self._running_events, self._queued_events)
                 logger.debug(f"Removed {item.log_string} from the queue.")
                 return
-        
+
+    def add_event_to_running(self, event):
+        """
+        Adds an event to the running events.
+
+        Args:
+            event (Event): The event to add to the running events.
+        """
+        self._running_events.append(event)
+        ws_manager.send_event_update(self._running_events, self._queued_events)
+        logger.debug(f"Added {event.item.log_string} to the running events.")
+
     def remove_item_from_running(self, item):
         """
         Removes an item from the running events.
@@ -90,9 +114,11 @@ class EventManager:
             for event in matching_events:
                 logger.debug(f"Removed {item.log_string} from the running events.")
                 self._running_events.remove(event)
+                ws_manager.send_event_update(self._running_events, self._queued_events)
+                return
         else:
             logger.error(f"Item {item.log_string} not found in running events.")
-    
+
     def remove_item_from_queues(self, item):
         """
         Removes an item from both the queue and the running events.
@@ -157,7 +183,9 @@ class EventManager:
         start_time = time.time()
         while True:
             if self._queued_events:
-                return self._queued_events.pop(0)
+                event = self._queued_events.pop(0)
+                ws_manager.send_event_update(self._running_events, self._queued_events)
+                return event
             if timeout is not None and (time.time() - start_time) >= timeout:
                 raise Empty
             time.sleep(0.01)
@@ -235,7 +263,7 @@ class EventManager:
             logger.debug(f"Added {event.item.log_string} to the queue")
         else:
             logger.debug(f"Re-added {event.item.log_string} to the queue")
-        self._queued_events.append(event)
+        self.add_event_to_queue(event)
         return True
     
     def add_item(self, item):
