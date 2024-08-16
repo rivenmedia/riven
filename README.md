@@ -1,17 +1,17 @@
 <div align="center">
   <a href="https://github.com/rivenmedia/riven">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-light.png">
-      <img alt="Iceberg" src="https://raw.githubusercontent.com/dreulavelle/iceberg/main/assets/iceberg-dark.png">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-light.png">
+      <img alt="riven" src="https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-dark.png">
     </picture>
   </a>
 </div>
 
 <div align="center">
-  <a href="https://github.com/dreulavelle/iceberg/stargazers"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/dreulavelle/iceberg"></a>
-  <a href="https://github.com/dreulavelle/iceberg/issues"><img alt="Issues" src="https://img.shields.io/github/issues/dreulavelle/iceberg" /></a>
-  <a href="https://github.com/dreulavelle/iceberg/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/dreulavelle/iceberg"></a>
-  <a href="https://github.com/dreulavelle/iceberg/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/dreulavelle/iceberg" /></a>
+  <a href="https://github.com/rivenmedia/riven/stargazers"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/rivenmedia/riven"></a>
+  <a href="https://github.com/rivenmedia/riven/issues"><img alt="Issues" src="https://img.shields.io/github/issues/rivenmedia/riven" /></a>
+  <a href="https://github.com/rivenmedia/riven/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/rivenmedia/riven"></a>
+  <a href="https://github.com/rivenmedia/riven/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/rivenmedia/riven" /></a>
   <a href="https://discord.gg/wDgVdH8vNM"><img alt="Discord" src="https://img.shields.io/badge/Join%20discord-8A2BE2" /></a>
 </div>
 
@@ -39,7 +39,7 @@ Services currently supported:
 
 Check out out [Project Board](https://github.com/users/dreulavelle/projects/2) to stay informed!
 
-Please add feature requests and issues over on our [Issue Tracker](https://github.com/dreulavelle/iceberg/issues) or join our [Discord](https://discord.gg/wDgVdH8vNM) to chat with us!
+Please add feature requests and issues over on our [Issue Tracker](https://github.com/rivenmedia/riven/issues) or join our [Discord](https://discord.gg/wDgVdH8vNM) to chat with us!
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
@@ -307,8 +307,8 @@ By following these guidelines, you help us maintain a high-quality codebase and 
 
 ---
 
-<a href="https://github.com/dreulavelle/iceberg/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=dreulavelle/iceberg" />
+<a href="https://github.com/rivenmedia/riven/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=rivenmedia/riven" />
 </a>
 
 ---
