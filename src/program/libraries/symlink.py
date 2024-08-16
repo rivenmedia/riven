@@ -193,6 +193,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
         filename = os.path.basename(target_path)
         dirname = os.path.dirname(target_path).split("/")[-1]
         correct_path = file_map.get(filename)
+        failed = False
 
         with db.Session() as session:
             items = get_items_from_filepath(session, symlink_path)
@@ -203,16 +204,20 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
             if correct_path:
                 os.remove(symlink_path)
                 os.symlink(correct_path, symlink_path)
-                for item in items:
-                    item = session.merge(item)
-                    item.file = filename
-                    item.folder = dirname
-                    item.symlinked = True
-                    item.symlink_path = correct_path
-                    item.update_folder = correct_path
-                    item.store_state()
-                    session.merge(item)
-                    logger.log("FILES", f"Retargeted broken symlink for {item.log_string} with correct path: {correct_path}")
+                try:
+                    for item in items:
+                        item = session.merge(item)
+                        item.file = filename
+                        item.folder = dirname
+                        item.symlinked = True
+                        item.symlink_path = correct_path
+                        item.update_folder = correct_path
+                        item.store_state()
+                        session.merge(item)
+                        logger.log("FILES", f"Retargeted broken symlink for {item.log_string} with correct path: {correct_path}")
+                except Exception as e:
+                    logger.error(f"Failed to fix {item.log_string} with path: {correct_path}: {str(e)}")
+                    failed = True
             else:
                 os.remove(symlink_path)
                 for item in items:
@@ -225,6 +230,9 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
 
             session.commit()
             logger.log("FILES", f"Saved {len(broken_symlinks)} items to the database.")
+
+            if failed:
+                logger.warning(f"Failed to retarget some broken symlinks, recommended action: reset database.")
 
     def process_directory(directory, file_map):
         """Process a single directory for broken symlinks."""

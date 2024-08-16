@@ -85,11 +85,13 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from the running events.
         """
-        for event in self._running_events:
-            if event.item.imdb_id == item.imdb_id:
+        matching_events = [event for event in self._running_events if event.item.imdb_id == item.imdb_id]
+        if matching_events:
+            for event in matching_events:
                 logger.debug(f"Removed {item.log_string} from the running events.")
                 self._running_events.remove(event)
-                return
+        else:
+            logger.error(f"Item {item.log_string} not found in running events.")
     
     def remove_item_from_queues(self, item):
         """
