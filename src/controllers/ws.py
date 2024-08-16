@@ -1,6 +1,24 @@
+import asyncio
 import json
+import logging
 from loguru import logger
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+class WebSocketHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord):
+        event_loop = None
+        try:
+            event_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            pass
+        try:
+            message = self.format(record)
+            if event_loop and event_loop.is_running():
+                asyncio.create_task(manager.send_log_message(message))
+            else:
+                asyncio.run(manager.send_log_message(message))
+        except Exception:
+            self.handleError(record)
 
 router = APIRouter(
     prefix="/ws",
@@ -15,7 +33,11 @@ class ConnectionManager:
         await websocket.accept()
         logger.debug("Frontend connected!")
         self.active_connections.append(websocket)
-        await websocket.send_json({"type": "health", "status": "running"})
+        if websocket.app.program.initialized:
+            status = "running"
+        else:
+            status = "paused"
+        await websocket.send_json({"type": "health", "status": status})
 
     def disconnect(self, websocket: WebSocket):
         logger.debug("Frontend disconnected!")
@@ -23,6 +45,9 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
+
+    async def send_health_update(self, status: str):
+        await self.broadcast({"type": "health", "status": status})
 
     async def send_log_message(self, message: str):
         await self.broadcast({"type": "log", "message": message})

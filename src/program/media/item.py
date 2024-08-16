@@ -291,7 +291,19 @@ class MediaItem(db.Model):
     def __hash__(self):
         return hash(self.item_id)
     
-    def reset(self, session: Session = None, reset_times: bool = True):
+    def reset(self, reset_times: bool = True):
+        """Reset item attributes."""
+        if self.type == "show":
+            for season in self.seasons:
+                for episode in season.episodes:
+                    episode._reset(reset_times)
+                season._reset(reset_times)
+        elif self.type == "season":
+            for episode in self.episodes:
+                episode._reset(reset_times)
+        self._reset(reset_times)
+
+    def _reset(self, reset_times: bool = True):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
@@ -302,19 +314,16 @@ class MediaItem(db.Model):
             for subtitle in self.subtitles:
                 subtitle.remove()
         except Exception as e:
-            logger.error(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
+            logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
         self.set("file", None)
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        try:
-            if hasattr(self, "active_stream") and self.active_stream:
-                stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream.get("hash")), None)
-                if stream:
-                    self.blacklist_stream(stream)
-        except Exception as e:
-            logger.error(f"Failed to blacklist active stream for {self.log_string}: {str(e)}")
+        if hasattr(self, "active_stream") and self.active_stream.get("hash", False):
+            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
+            if stream:
+                self.blacklist_stream(stream)
 
         self.set("active_stream", {})
         self.set("symlinked", False)

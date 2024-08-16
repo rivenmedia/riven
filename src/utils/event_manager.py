@@ -98,8 +98,8 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from both the queue and the running events.
         """
-        self.remove_event_from_queue(item)
-        self.remove_event_from_running(item)
+        self.remove_item_from_queue(item)
+        self.remove_item_from_running(item)
 
     def submit_job(self, service, program, item=None):
         """
@@ -116,7 +116,7 @@ class EventManager:
         logger.debug(log_message)
         
         executor = self._find_or_create_executor(service)
-        future = executor.submit(_run_thread_with_db_item, program.services[service].run, service, program, item)
+        future = executor.submit(_run_thread_with_db_item, program.all_services[service].run, service, program, item)
         if item:
             future.item = item
         self._futures.append(future)

@@ -112,9 +112,9 @@ class Zilean:
         torrents: Dict[str, str] = {}
 
         for result in response.data:
-            if not result.rawTitle or not result.infoHash:
+            if not result.raw_title or not result.info_hash:
                 continue
 
-            torrents[result.infoHash] = result.rawTitle
+            torrents[result.info_hash] = result.raw_title
 
         return torrents, len(response.data)

@@ -1,3 +1,4 @@
+import asyncio
 import linecache
 import os
 import threading
@@ -7,7 +8,11 @@ from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
+from program.content.listrr import Listrr
+from program.content.mdblist import Mdblist
+from program.content.overseerr import Overseerr
+from program.content.plex_watchlist import PlexWatchlist
+from program.content.trakt import TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
@@ -23,6 +28,8 @@ from utils import data_dir_path
 from utils.event_manager import EventManager
 from utils.logger import logger, scrub_logs
 from utils.notifications import notify_on_complete
+from utils.event_manager import EventManager
+from controllers.ws import manager as ws_manager
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -35,6 +42,7 @@ from sqlalchemy import func, select
 
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations
+from sqlalchemy import func, select, text
 
 
 class Program(threading.Thread):
@@ -53,6 +61,7 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_services(self):
+    
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -60,49 +69,50 @@ class Program(threading.Thread):
             Mdblist: Mdblist(),
             TraktContent: TraktContent(),
         }
-        self.indexing_services = {TraktIndexer: TraktIndexer()}
-        self.processing_services = {
+
+        self.services = {
+            TraktIndexer: TraktIndexer(),
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
             Downloader: Downloader(),
-        }
-        # Depends on Symlinker having created the file structure so needs
-        # to run after it
-        self.library_services = {
+            # Depends on Symlinker having created the file structure so needs
+            # to run after it
             SymlinkLibrary: SymlinkLibrary(),
-        }
-        if not any(s.initialized for s in self.requesting_services.values()):
-            logger.error("No Requesting service initialized, you must enable at least one.")
-        if not self.processing_services.get(Scraping).initialized:
-            logger.error("No Scraping service initialized, you must enable at least one.")
-        if not self.processing_services.get(Downloader).initialized:
-            logger.error("No Downloader service initialized, you must enable at least one.")
-        if not self.processing_services.get(Updater).initialized:
-            logger.error("No Updater service initialized, you must enable at least one.")
-
-        self.services = {
-            **self.library_services,
-            **self.indexing_services,
-            **self.requesting_services,
-            **self.processing_services,
             PostProcessing: PostProcessing(),
         }
+
+        self.all_services = {
+            **self.requesting_services,
+            **self.services
+        }
+
+        if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
+            logger.warning("No content services initialized, items need to be added manually.")
+        if not self.services[Scraping].initialized:
+            logger.error("No Scraping service initialized, you must enable at least one.")
+        if not self.services[Downloader].initialized:
+            logger.error("No Downloader service initialized, you must enable at least one.")
+        if not self.services[Updater].initialized:
+            logger.error("No Updater service initialized, you must enable at least one.")
 
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
+    
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
-        return all(
-            (
-                any(s.initialized for s in self.requesting_services.values()),
-                any(s.initialized for s in self.library_services.values()),
-                any(s.initialized for s in self.indexing_services.values()),
-                all(s.initialized for s in self.processing_services.values()),
-                self.processing_services[Downloader].initialized,
-            )
-        )
+        return all(s.initialized for s in self.services.values())
+    
+    def validate_database(self) -> bool:
+        """Validate that the database is accessible."""
+        try:
+            with db.Session() as session:
+                session.execute(text("SELECT 1"))
+                return True
+        except Exception:
+            logger.error(f"Database connection failed. Is the database running?")
+            return False
 
     def start(self):
         latest_version = get_version()
@@ -115,26 +125,27 @@ class Program(threading.Thread):
             logger.log("PROGRAM", "Settings file not found, creating default settings")
             settings_manager.save()
 
-        try:
-            self.initialize_services()
-            scrub_logs()
-        except Exception as e:
-            logger.exception(f"Failed to initialize services: {e}")
+        self.initialize_services()
+        scrub_logs()
 
         max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
         if max_worker_env_vars:
             for var in max_worker_env_vars:
                 logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
 
-        if not self.validate:
+        if not self.validate():
             logger.log("PROGRAM", "----------------------------------------------")
             logger.error("Riven is waiting for configuration to start!")
             logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
             time.sleep(1)
+            
+        if not self.validate_database():
+            return
 
         run_migrations()
+        
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
@@ -179,6 +190,7 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
+        asyncio.run(ws_manager.send_health_update("running"))
         self.initialized = True
 
     def _retry_library(self) -> None:
@@ -235,7 +247,7 @@ class Program(threading.Thread):
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_services = {**self.requesting_services, **self.library_services}
+        scheduled_services = {**self.requesting_services, SymlinkLibrary: self.services[SymlinkLibrary]}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 continue
@@ -289,7 +301,7 @@ class Program(threading.Thread):
                 continue
 
             try:
-                event: Event = self.em.next(timeout=10)
+                event: Event = self.em.next()
                 self.em._running_events.append(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
@@ -311,7 +323,7 @@ class Program(threading.Thread):
                     if settings_manager.settings.notifications.enabled:
                             notify_on_complete(processed_item)
 
-                self.em._running_events.remove(event)
+                self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
@@ -322,10 +334,9 @@ class Program(threading.Thread):
                 session.commit()
 
     def stop(self):
-        if not self.running:
+        if not self.initialized:
             return
 
-        self.running = False
         if hasattr(self, "executors"):
             for executor in self.executors:
                 if not executor["_executor"]._shutdown:

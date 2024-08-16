@@ -73,30 +73,6 @@ def _get_item_from_db(session, item: MediaItem):
             logger.error(f"_get_item_from_db Failed to create item from type: {type}")
             return None
 
-def _remove_item_from_db(id):
-    try:
-        with db.Session() as session:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-            item_type = None
-            if item.type == "movie":
-                item_type = Movie
-            elif item.type == "show":
-                item_type = Show
-            elif item.type == "season":
-                item_type = Season
-            elif item.type == "episode":
-                item_type = Episode
-            if item:
-                session.execute(delete(Stream).where(Stream.parent_id == item._id))
-                session.execute(delete(item_type).where(item_type._id == item._id))
-                session.execute(delete(MediaItem.__table__).where(MediaItem._id == item._id))
-                session.commit()
-                return True
-            return False
-    except Exception as e:
-        logger.error("Failed to remove item from imdb_id, " + str(e))
-        return False
-
 def _check_for_and_run_insertion_required(session, item: MediaItem) -> None:
     if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
