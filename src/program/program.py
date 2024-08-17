@@ -210,8 +210,6 @@ class Program(threading.Thread):
                     .offset(page_number * number_of_rows_per_page)
                 ).unique().scalars().all()
 
-                session.expunge(items_to_submit)
-                session.close()
                 for item in items_to_submit:
                     self._push_event_queue(Event(emitted_by="RetryLibrary", item=item))
 
