@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/rivenmedia/riven/compare/v0.10.2...v0.10.3) (2024-08-17)
+
+
+### Bug Fixes
+
+* address memory leak by closing SQLAlchemy sessions and add connection pool options ([0ebd38f](https://github.com/rivenmedia/riven/commit/0ebd38fb3802d143b1bd9266f248d34c532d78e7))
+
 ## [0.10.2](https://github.com/rivenmedia/riven/compare/v0.10.1...v0.10.2) (2024-08-15)
 
 
