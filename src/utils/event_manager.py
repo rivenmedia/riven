@@ -160,7 +160,7 @@ class EventManager:
         Args:
             item (MediaItem): The event item whose job needs to be canceled.
         """
-        future = next((future for future in self._futures if future.item == item), None)
+        future = next((future for future in self._futures if hasattr(future, 'item') and future.item == item), None)
         if future and not future.done() and not future.cancelled():
             self.remove_item_from_queues(item)
             future.cancel()

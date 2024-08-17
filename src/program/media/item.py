@@ -125,7 +125,6 @@ class MediaItem(db.Model):
         if stream in self.streams:
             self.streams.remove(stream)
             self.blacklisted_streams.append(stream)
-            logger.debug(f"Stream {stream.infohash} blacklisted for {self.log_string}")
             return True
         return False
 
