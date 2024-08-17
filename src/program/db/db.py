@@ -7,12 +7,7 @@ from sqla_wrapper import Alembic, SQLAlchemy
 from utils import data_dir_path
 from utils.logger import logger
 
-engine_options={
-    "pool_size": 50,
-    "pool_recycle": 600,
-}
-
-db = SQLAlchemy(settings_manager.settings.database.host, engine_options=engine_options)
+db = SQLAlchemy(settings_manager.settings.database.host)
 
 script_location = data_dir_path / "alembic/"
 
