@@ -33,8 +33,8 @@ if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 import program.db.db_functions as DB
-from program.db.db import db, run_migrations
-from sqlalchemy import func, select
+from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
+from sqlalchemy import func, select, text
 
 
 class Program(threading.Thread):
@@ -202,15 +202,30 @@ class Program(threading.Thread):
         for page_number in range(0, (count // number_of_rows_per_page) + 1):
             with db.Session() as session:
                 items_to_submit = session.execute(
-                    select(MediaItem)
+                    select(
+                        MediaItem._id,
+                        MediaItem.type,
+                        MediaItem.last_state,
+                        MediaItem.requested_at,
+                        MediaItem.imdb_id
+                    )
                     .where(MediaItem.type.in_(["movie", "show"]))
                     .where(MediaItem.last_state != "Completed")
                     .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
-                ).unique().scalars().all()
+                ).all()
 
-                for item in items_to_submit:
+                session.expunge_all()
+                session.close()
+
+                for item_data in items_to_submit:
+                    item = MediaItem(None)
+                    item._id = item_data[0]
+                    item.type = item_data[1]
+                    item.last_state = item_data[2]
+                    item.requested_at = item_data[3]
+                    item.imdb_id = item_data[4]
                     self._push_event_queue(Event(emitted_by="RetryLibrary", item=item))
 
     def _download_subtitles(self) -> None:
@@ -221,6 +236,7 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
         if settings_manager.settings.post_processing.subliminal.enabled:
             pass
@@ -276,27 +292,14 @@ class Program(threading.Thread):
                 logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
 
-            if isinstance(event.item, MediaItem) and hasattr(event.item, "_id"):
-                if event.item.type == "show":
-                    for s in event.item.seasons:
-                        if self._id_in_queue(s._id) or self._id_in_running_events(s._id):
-                            return False
-                        for e in s.episodes:
-                            if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
-                                return False
-
-                elif event.item.type == "season":
-                    for e in event.item.episodes:
-                        if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
-                            return False
-
-                elif hasattr(event.item, "parent"):
-                    parent = event.item.parent
-                    if self._id_in_queue(parent._id) or self._id_in_running_events(parent._id):
-                        return False
-                    elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_events(parent.parent._id)):
-                        return False
-
+        with db.Session() as session:
+            item_id, related_ids = DB._get_item_ids(session, event.item)
+            if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
+                return False
+            for related_id in related_ids:
+                if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
+                    return False
+            
             if not isinstance(event.item, (Show, Movie, Episode, Season)):
                 logger.log("NEW", f"Added {event.item.log_string} to the queue")
             else:
@@ -316,6 +319,7 @@ class Program(threading.Thread):
             if event:
                 self.running_events.remove(event)
                 logger.log("PROGRAM", f"Item {item.log_string} finished running section {service_name}" )
+                del item
 
     def add_to_running(self, e):
         if e.item is None:
