@@ -32,7 +32,6 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
         session.commit()
-        session.refresh(item)
 
 def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
     """Blacklist a stream for a media item."""
@@ -60,11 +59,9 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
                 .values(media_item_id=item._id, stream_id=stream._id)
             )
 
-            session.refresh(item)
             if close_session:
                 session.commit()
             return True
-        session.refresh(item)
         return False
 
     finally:

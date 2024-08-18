@@ -7,9 +7,8 @@ from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
-
 from program.db.db import db
-from program.db.db_functions import get_stream_count, load_streams_in_pages, blacklist_stream
+from program.db.db_functions import get_stream_count, load_streams_in_pages
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
@@ -216,6 +215,9 @@ class RealDebridDownloader:
             if self._process_providers(item, provider_list, stream_hash):
                 logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
+            else:
+                item.blacklist_stream(stream)
+                logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
     
         return False
 
