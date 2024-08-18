@@ -3,14 +3,17 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqla_wrapper import Session
 
 from program.db.db import db
-from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
 from utils.logger import logger
+
+if TYPE_CHECKING:
+    from program.media.item import Movie, Show
 
 imdbid_pattern = re.compile(r"tt\d+")
 season_pattern = re.compile(r"s(\d+)")
@@ -49,6 +52,7 @@ class SymlinkLibrary:
         Create a library from the symlink paths. Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in.
         """
+        from program.media.item import Movie
         for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
                 continue
@@ -106,8 +110,9 @@ def find_subtitles(item, path: Path):
             item.subtitles.append(Subtitle({lang_code: (path.parent / file).__str__()}))
             logger.debug(f"Found subtitle file {file}.")
 
-def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Show:
+def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> "Show":
     """Process shows in the given directory and yield Show instances."""
+    from program.media.item import Episode, Season, Show
     for show in os.listdir(directory):
         imdb_id = re.search(r"(tt\d+)", show)
         title = re.search(r"(.+)?( \()", show)
@@ -274,8 +279,9 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
     logger.log("FILES", f"Finished processing and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
     logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
 
-def get_items_from_filepath(session: Session, filepath: str) -> list[Movie] | list[Episode]:
+def get_items_from_filepath(session: Session, filepath: str) -> list["Movie"] | list["Episode"]:
     """Get items that match the imdb_id or season and episode from a file in library_path"""
+    from program.media.item import Episode, Movie, Season, Show
     imdb_id_match = imdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
