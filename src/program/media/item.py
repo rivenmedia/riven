@@ -335,7 +335,7 @@ class MediaItem(db.Model):
         self.set("alternative_folder", None)
 
         active_stream_hash = self.active_stream.get("hash", None)
-        reset_streams(self._id, active_stream_hash)
+        reset_streams(self, active_stream_hash)
 
         self.set("active_stream", {})
         self.set("symlinked", False)
