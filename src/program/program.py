@@ -41,7 +41,7 @@ if settings_manager.settings.tracemalloc:
 from sqlalchemy import func, select
 
 import program.db.db_functions as DB
-from program.db.db import db, run_migrations
+from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
 from sqlalchemy import func, select, text
 
 
@@ -207,23 +207,37 @@ class Program(threading.Thread):
         for page_number in range(0, (count // number_of_rows_per_page) + 1):
             with db.Session() as session:
                 items_to_submit = session.execute(
-                    select(MediaItem)
+                    select(
+                        MediaItem._id,
+                        MediaItem.type,
+                        MediaItem.last_state,
+                        MediaItem.requested_at,
+                        MediaItem.imdb_id
+                    )
                     .where(MediaItem.type.in_(["movie", "show"]))
                     .where(MediaItem.last_state != "Completed")
                     .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
-                ).unique().scalars().all()
-
-                session.expunge(items_to_submit)
+                ).all()
+        
+                session.expunge_all()
                 session.close()
-                for item in items_to_submit:
+        
+                for item_data in items_to_submit:
+                    item = MediaItem(None)
+                    item._id = item_data[0]
+                    item.type = item_data[1]
+                    item.last_state = item_data[2]
+                    item.requested_at = item_data[3]
+                    item.imdb_id = item_data[4]
                     self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
         if settings_manager.settings.symlink.repair_symlinks:
