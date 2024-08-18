@@ -11,8 +11,6 @@ class Subliminal:
     def __init__(self):
         self.key = "subliminal"
         self.settings = settings_manager.settings.post_processing.subliminal
-        if not self.settings.enabled:
-            return
         providers = ['gestdown','opensubtitles','opensubtitlescom','podnapisi','tvsubtitles']
         provider_config = {}
         for provider in self.settings.providers.keys():
@@ -130,3 +128,4 @@ def get_existing_subtitles(filename: str, path: pathlib.Path) -> set[Language]:
                     language.file = file.name
                     subtitle_languages.add(language)
     return subtitle_languages
+
