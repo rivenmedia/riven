@@ -6,9 +6,7 @@ from threading import Lock
 import time
 import traceback
 from subliminal import Episode, Movie
-
-from program.db.db import db
-from program.db.db_functions import _run_thread_with_db_item, _get_item_ids
+from program.db.db_functions import _run_thread_with_db_item
 from loguru import logger
 import utils.websockets.manager as ws_manager
 
@@ -238,13 +236,30 @@ class EventManager:
             logger.debug(f"Item {event.item.log_string} is already running, skipping.")
             return False
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
-        with db.Session() as session:
-            item_id, related_ids = _get_item_ids(session, event.item)
-            if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
-                return False
-            for related_id in related_ids:
-                if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
+        elif event.item.type == "show":
+            for s in event.item.seasons:
+                if self._id_in_queue(s._id) or self._id_in_running_events(s._id):
+                    logger.debug(f"A season for {event.item.log_string} is already in the queue or running, skipping.")
                     return False
+                for e in s.episodes:
+                    if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
+                        logger.debug(f"An episode {event.item.log_string} is already in the queue or running, skipping.")
+                        return False
+        # Check if the event's item is a season and its episodes are in the queue or running
+        elif event.item.type == "season":
+            for e in event.item.episodes:
+                if self._id_in_queue(e._id) or self._id_in_running_events(e._id):
+                    logger.debug(f"An episode {event.item.log_string} is already in the queue or running, skipping.")
+                    return False
+        # Check if the event's item's parent or parent's parent is in the queue or running
+        elif hasattr(event.item, "parent"):
+            parent = event.item.parent
+            if self._id_in_queue(parent._id) or self._id_in_running_events(parent._id):
+                logger.debug(f"Parent {parent.log_string} is already in the queue or running, skipping.")
+                return False
+            elif hasattr(parent, "parent") and (self._id_in_queue(parent.parent._id) or self._id_in_running_events(parent.parent._id)):
+                logger.debug(f"Parent's parent {parent.parent.log_string} is already in the queue or running, skipping.")
+                return False
 
         # Log the addition of the event to the queue
         if not isinstance(event.item, (Show, Movie, Episode, Season)):

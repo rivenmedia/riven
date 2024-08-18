@@ -6,8 +6,8 @@ import alembic
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream, StreamRelation
 from program.types import Event
-from sqlalchemy import delete, func, select, text, union_all
-from sqlalchemy.orm import joinedload, aliased
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.orm import joinedload
 from utils.logger import logger
 from utils import alembic_dir
 from program.libraries.symlink import fix_broken_symlinks
@@ -15,35 +15,6 @@ from program.settings.manager import settings_manager
 
 from .db import db, alembic
 
-def _get_item_ids(session, item):
-    if item.type == "show":
-        show_id = item._id
-
-        season_alias = aliased(Season, flat=True)
-        season_query = select(Season._id.label('id')).where(Season.parent_id == show_id)
-        episode_query = (
-            select(Episode._id.label('id'))
-            .join(season_alias, Episode.parent_id == season_alias._id)
-            .where(season_alias.parent_id == show_id)
-        )
-
-        combined_query = union_all(season_query, episode_query)
-        related_ids = session.execute(combined_query).scalars().all()
-        return show_id, related_ids
-
-    elif item.type == "season":
-        season_id = item._id
-        episode_ids = session.execute(
-            select(Episode._id)
-            .where(Episode.parent_id == season_id)
-        ).scalars().all()
-        return season_id, episode_ids
-
-    elif hasattr(item, "parent"):
-        parent_id = item.parent._id
-        return parent_id, []
-
-    return item._id, []
 
 def _ensure_item_exists_in_db(item: MediaItem) -> bool:
     if isinstance(item, (Movie, Show)):

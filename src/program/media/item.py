@@ -7,8 +7,6 @@ import asyncio
 from sqla_wrapper import Session
 
 import sqlalchemy
-from sqlalchemy import Index
-
 from program.db.db import db
 from program.media.state import States
 from RTN import parse
@@ -66,27 +64,7 @@ class MediaItem(db.Model):
         "polymorphic_on":"type",
         "with_polymorphic":"*",
     }
-
-    __table_args__ = (
-        Index('ix_mediaitem_item_id', 'item_id'),
-        Index('ix_mediaitem_type', 'type'),
-        Index('ix_mediaitem_requested_by', 'requested_by'),
-        Index('ix_mediaitem_title', 'title'),
-        Index('ix_mediaitem_imdb_id', 'imdb_id'),
-        Index('ix_mediaitem_tvdb_id', 'tvdb_id'),
-        Index('ix_mediaitem_tmdb_id', 'tmdb_id'),
-        Index('ix_mediaitem_network', 'network'),
-        Index('ix_mediaitem_country', 'country'),
-        Index('ix_mediaitem_language', 'language'),
-        Index('ix_mediaitem_aired_at', 'aired_at'),
-        Index('ix_mediaitem_year', 'year'),
-        Index('ix_mediaitem_overseerr_id', 'overseerr_id'),
-        Index('ix_mediaitem_type_aired_at', 'type', 'aired_at'),  # Composite index
-    )
-    
-    def __init__(self, item: dict | None) -> None:
-        if item is None:
-            return
+    def __init__(self, item: dict) -> None:
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
 
