@@ -54,11 +54,17 @@ def setup_logger(level):
         logger.level(name, no=no, color=color, icon=icon)
 
     # Default log levels
-    logger.level("INFO", icon="📰")
-    logger.level("DEBUG", icon="🤖")
-    logger.level("WARNING", icon="⚠️ ")
-    logger.level("CRITICAL", icon="")
-    logger.level("SUCCESS", icon="✔️ ")
+    debug_color, debug_icon = get_log_settings("DEBUG", "ff69b4", "🐞")
+    info_color, info_icon = get_log_settings("INFO", "818589", "📰")
+    warning_color, warning_icon = get_log_settings("WARNING", "ffcc00", "⚠️ ")
+    critical_color, critical_icon = get_log_settings("CRITICAL", "ff0000", "")
+    success_color, success_icon = get_log_settings("SUCCESS", "00ff00", "✔️ ")
+    
+    logger.level("DEBUG", color=debug_color, icon=debug_icon)
+    logger.level("INFO", color=info_color, icon=info_icon)
+    logger.level("WARNING", color=warning_color, icon=warning_icon)
+    logger.level("CRITICAL", color=critical_color, icon=critical_icon)
+    logger.level("SUCCESS", color=success_color, icon=success_icon)
 
     # Log format to match the old log format, but with color
     log_format = (
