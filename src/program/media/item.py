@@ -3,9 +3,6 @@ from datetime import datetime
 import json
 from pathlib import Path
 from typing import List, Optional, Self
-import asyncio
-from sqla_wrapper import Session
-
 import sqlalchemy
 from sqlalchemy import Index
 
