@@ -29,6 +29,7 @@ def setup_logger(level):
     # Define log levels and their default settings
     log_levels = {
         "PROGRAM": (36, "cc6600", "🤖"),
+        "DATABASE": (37, "d834eb", "🛢️"),
         "DEBRID": (38, "cc3333", "🔗"),
         "SYMLINKER": (39, "F9E79F", "🔗"),
         "SCRAPER": (40, "D299EA", "👻"),

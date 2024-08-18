@@ -6,8 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
 
+from sqlalchemy.orm import lazyload
+
+from program.db.db import db
+from program.db.db_functions import get_stream_count, load_streams_in_pages
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.exceptions import GarbageTorrent
@@ -144,36 +149,41 @@ class AllDebridDownloader:
         """Check if item is cached on all-debrid.com"""
         if not item.get("streams", {}):
             return False
-
-        def _chunked(lst: List, n: int) -> Generator[List, None, None]:
-            """Yield successive n-sized chunks from lst."""
-            for i in range(0, len(lst), n):
-                yield lst[i:i + n]
-
-        logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
-
+    
+        logger.log("DEBRID", f"Processing streams for {item.log_string}")
+    
+        stream_count = get_stream_count(item._id)
         processed_stream_hashes = set()
-        filtered_streams = [stream.infohash for stream in item.streams if stream.infohash and stream.infohash not in processed_stream_hashes]
-        if not filtered_streams:
-            logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
-            return False
-
-        for stream_chunk in _chunked(filtered_streams, 5):
-            try:
-                params = {"agent": AD_AGENT}
-                for i, magnet in enumerate(stream_chunk):
-                    params[f"magnets[{i}]"] = magnet
-
-                response = get(f"{AD_BASE_URL}/magnet/instant", params=params, additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.inner_rate_limit, overall_rate_limiter=self.overall_rate_limiter)
-                if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item):
-                    return True
-            except Exception as e:
-                logger.error(f"Error checking cache for streams: {str(e)}", exc_info=True)
-
-        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
+        stream_hashes = {}  # This will store the infohash to Stream object mapping
+    
+        number_of_rows_per_page = 5
+        total_pages = (stream_count // number_of_rows_per_page) + 1
+    
+        for page_number in range(total_pages):
+            with db.Session() as session:
+                for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
+                    stream_hashes[infohash] = stream  # Store the Stream object
+    
+                    filtered_streams = [infohash for infohash in stream_hashes.keys() if infohash and infohash not in processed_stream_hashes]
+                    if not filtered_streams:
+                        logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
+                        return False
+    
+                    try:
+                        params = {"agent": AD_AGENT}
+                        for i, magnet in enumerate(filtered_streams):
+                            params[f"magnets[{i}]"] = magnet
+    
+                        response = get(f"{AD_BASE_URL}/magnet/instant", params=params, additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.inner_rate_limit, overall_rate_limiter=self.overall_rate_limiter)
+                        if response.is_ok and self._evaluate_stream_response(response.data, processed_stream_hashes, item, stream_hashes):
+                            return True
+                    except Exception as e:
+                        logger.error(f"Error checking cache for streams: {str(e)}", exc_info=True)
+    
+        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} after processing all chunks")
         return False
 
-    def _evaluate_stream_response(self, data, processed_stream_hashes, item):
+    def _evaluate_stream_response(self, data, processed_stream_hashes, item, stream_hashes):
         """Evaluate the response data from the stream availability check."""
         if data.get("status") != "success":
             logger.error("Failed to get a successful response")
@@ -182,18 +192,25 @@ class AllDebridDownloader:
         magnets = data.get("data", {}).get("magnets", [])
         for magnet in magnets:
             stream_hash = magnet.get("hash")
-            if not stream_hash or stream_hash in processed_stream_hashes:
+            stream_hash_lower = stream_hash.lower() if stream_hash else None
+    
+            # Skip if the stream has already been processed or if the hash is not valid
+            if not stream_hash_lower or stream_hash_lower in processed_stream_hashes:
                 continue
+    
+            # Mark the stream as processed
+            processed_stream_hashes.add(stream_hash_lower)
     
             if not magnet.get("instant", False):
                 continue
     
-            processed_stream_hashes.add(stream_hash)
-            if self._process_providers(item, magnet, stream_hash):
+            stream = stream_hashes.get(stream_hash_lower)
+            if self._process_providers(item, magnet, stream_hash_lower):
                 return True
             else:
-                stream = next(stream for stream in item.streams if stream.infohash == stream_hash)
-                stream.blacklisted = True
+                if stream:
+                    stream.blacklisted = True
+    
         return False
 
     def _process_providers(self, item: MediaItem, magnet: dict, stream_hash: str) -> bool:

@@ -11,6 +11,10 @@ from utils import data_dir_path
 from utils.logger import logger
 
 engine_options={
+    "pool_size": 25, # Prom: Set to 1 when debugging sql queries
+    "max_overflow": 25, # Prom: Set to 0 when debugging sql queries
+    "pool_pre_ping": True, # Prom: Set to False when debugging sql queries
+    "pool_recycle": 1800, # Prom: Set to -1 when debugging sql queries
     "echo": False, # Prom: Set to true when debugging sql queries
 }
 
@@ -46,9 +50,9 @@ def ensure_alembic_version_table():
     with db.engine.connect() as connection:
         result = connection.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name = 'alembic_version'"))
         if not result.fetchone():
-            logger.debug("alembic_version table not found. Creating it...")
+            logger.log("DATABASE","alembic_version table not found. Creating it...")
             alembic.stamp('head')
-            logger.debug("alembic_version table created and stamped to head.")
+            logger.log("DATABASE","alembic_version table created and stamped to head.")
 
 def vacuum_and_analyze_index_maintenance() -> None:
     # PROM: Use the raw connection to execute VACUUM outside a transaction
@@ -57,7 +61,7 @@ def vacuum_and_analyze_index_maintenance() -> None:
             connection = connection.execution_options(isolation_level="AUTOCOMMIT")
             connection.execute(text("VACUUM;"))
             connection.execute(text("ANALYZE;"))
-        logger.info("VACUUM and ANALYZE completed successfully.")
+        logger.log("DATABASE","VACUUM and ANALYZE completed successfully.")
     except Exception as e:
         logger.error(f"Error during VACUUM and ANALYZE: {e}")
 
