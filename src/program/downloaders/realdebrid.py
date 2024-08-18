@@ -209,7 +209,7 @@ class RealDebridDownloader:
                 continue
     
             if not provider_list or not provider_list.get("rd"):
-                if blacklist_stream(item._id, stream):
+                if item.blacklist_stream(stream):
                     logger.debug(f"Blacklisted un-cached stream for {item.log_string} with hash: {stream_hash}")
                 continue
     

@@ -144,7 +144,7 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_stream(self, stream: Stream):
-        return blacklist_stream(self._id, stream)
+        return blacklist_stream(self, stream)
 
     @property
     def is_released(self) -> bool:
