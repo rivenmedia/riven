@@ -1,6 +1,6 @@
 from pathlib import Path
 from program.db.db import db
-from sqlalchemy import Integer, String, ForeignKey
+from sqlalchemy import Integer, String, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -13,6 +13,12 @@ class Subtitle(db.Model):
     
     parent_id: Mapped[int] = mapped_column(Integer, ForeignKey("MediaItem._id", ondelete="CASCADE"))
     parent: Mapped["MediaItem"] = relationship("MediaItem", back_populates="subtitles")
+
+    __table_args__ = (
+        Index('ix_subtitle_language', 'language'),
+        Index('ix_subtitle_file', 'file'),
+        Index('ix_subtitle_parent_id', 'parent_id'),
+    )
    
     def __init__(self, optional={}):
         for key in optional.keys():
