@@ -24,12 +24,10 @@ def reset_streams(media_item_id: int, active_stream_hash: str = None):
             if stream:
                 blacklist_stream(media_item_id, stream._id, session)
 
-        # Remove all associated streams
         session.execute(
             delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
         )
 
-        # Optionally, clear the blacklisted streams (if you want to reset those too)
         session.execute(
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id)
         )

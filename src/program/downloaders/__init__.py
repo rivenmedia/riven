@@ -4,6 +4,7 @@ from utils.logger import logger
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
+from ..media import States
 
 
 class Downloader:

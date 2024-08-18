@@ -166,7 +166,6 @@ class AllDebridDownloader:
     
                     filtered_streams = [infohash for infohash in stream_hashes.keys() if infohash and infohash not in processed_stream_hashes]
                     if not filtered_streams:
-                        logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
                         return False
     
                     try:
