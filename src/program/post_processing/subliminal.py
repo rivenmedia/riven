@@ -12,6 +12,7 @@ class Subliminal:
         self.key = "subliminal"
         self.settings = settings_manager.settings.post_processing.subliminal
         if not self.settings.enabled:
+            self.initialized = False
             return
         providers = ['gestdown','opensubtitles','opensubtitlescom','podnapisi','tvsubtitles']
         provider_config = {}
