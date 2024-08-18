@@ -161,6 +161,9 @@ class RealDebridDownloader:
                         key=lambda ih: next((stream.rank for stream in stream_hashes.values() if stream.infohash == ih), float('inf')),
                         reverse=True
                     )
+                    
+                    if not filtered_streams:
+                        continue
     
                     for stream_chunk in self._chunked(filtered_streams, number_of_rows_per_page):
                         streams = "/".join(stream_chunk)
