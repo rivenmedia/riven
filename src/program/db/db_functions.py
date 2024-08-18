@@ -16,25 +16,25 @@ from .db import db, alembic
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
-def reset_streams(media_item_id: int, active_stream_hash: str = None):
+def reset_streams(item: "MediaItem", active_stream_hash: str = None):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
         if active_stream_hash:
             stream = session.query(Stream).filter(Stream.infohash == active_stream_hash).first()
             if stream:
-                blacklist_stream(media_item_id, stream._id, session)
+                blacklist_stream(item, stream._id, session)
 
         session.execute(
-            delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
+            delete(StreamRelation).where(StreamRelation.parent_id == item._id)
         )
 
         session.execute(
-            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id)
+            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
-
         session.commit()
+        session.refresh(item)
 
-def blacklist_stream(media_item_id: int, stream: Stream, session: Session = None) -> bool:
+def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
     """Blacklist a stream for a media item."""
     close_session = False
     if session is None:
@@ -44,7 +44,7 @@ def blacklist_stream(media_item_id: int, stream: Stream, session: Session = None
     try:
         association_exists = session.query(
             session.query(StreamRelation)
-            .filter(StreamRelation.parent_id == media_item_id)
+            .filter(StreamRelation.parent_id == item._id)
             .filter(StreamRelation.child_id == stream._id)
             .exists()
         ).scalar()
@@ -52,17 +52,19 @@ def blacklist_stream(media_item_id: int, stream: Stream, session: Session = None
         if association_exists:
             session.execute(
                 delete(StreamRelation)
-                .where(StreamRelation.parent_id == media_item_id)
+                .where(StreamRelation.parent_id == item._id)
                 .where(StreamRelation.child_id == stream._id)
             )
             session.execute(
                 insert(StreamBlacklistRelation)
-                .values(media_item_id=media_item_id, stream_id=stream._id)
+                .values(media_item_id=item._id, stream_id=stream._id)
             )
 
+            session.refresh(item)
             if close_session:
                 session.commit()
             return True
+        session.refresh(item)
         return False
 
     finally:
