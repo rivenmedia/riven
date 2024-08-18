@@ -166,7 +166,7 @@ class AllDebridDownloader:
     
                     filtered_streams = [infohash for infohash in stream_hashes.keys() if infohash and infohash not in processed_stream_hashes]
                     if not filtered_streams:
-                        return False
+                        continue
     
                     try:
                         params = {"agent": AD_AGENT}
