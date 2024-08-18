@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 def reset_streams(item: "MediaItem", active_stream_hash: str = None):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
+        item = session.merge(item)
         if active_stream_hash:
             stream = session.query(Stream).filter(Stream.infohash == active_stream_hash).first()
             if stream:
@@ -32,6 +33,7 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
         session.commit()
+        session.refresh(item)
 
 def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
     """Blacklist a stream for a media item."""
@@ -41,6 +43,7 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
         close_session = True
 
     try:
+        item = session.merge(item)
         association_exists = session.query(
             session.query(StreamRelation)
             .filter(StreamRelation.parent_id == item._id)
@@ -61,6 +64,7 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
 
             if close_session:
                 session.commit()
+                session.refresh(item)
             return True
         return False
 

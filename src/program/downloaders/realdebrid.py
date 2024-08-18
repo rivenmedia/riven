@@ -148,7 +148,7 @@ class RealDebridDownloader:
         for page_number in range(total_pages):
             with db.Session() as session:
                 for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
-                    stream_hashes[infohash] = stream  # Store the Stream object
+                    stream_hashes[infohash.lower()] = stream
     
                     filtered_streams = [
                         infohash for infohash in stream_hashes.keys()
