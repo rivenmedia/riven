@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Generator, List
 
 from program.db.db import db
-from program.db.db_functions import get_stream_count, load_streams_in_pages
+from program.db.db_functions import get_stream_count, load_streams_in_pages, blacklist_stream
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
@@ -143,7 +143,7 @@ class RealDebridDownloader:
         processed_stream_hashes = set()
         stream_hashes = {}  # This will store the infohash to Stream object mapping
     
-        number_of_rows_per_page = 5
+        number_of_rows_per_page = 10
         total_pages = (stream_count // number_of_rows_per_page) + 1
     
         for page_number in range(total_pages):
@@ -162,11 +162,7 @@ class RealDebridDownloader:
                         reverse=True
                     )
     
-                    if not filtered_streams:
-                        logger.log("NOT_FOUND", f"No streams found from filtering: {item.log_string}")
-                        return False
-    
-                    for stream_chunk in self._chunked(filtered_streams, 5):
+                    for stream_chunk in self._chunked(filtered_streams, number_of_rows_per_page):
                         streams = "/".join(stream_chunk)
                         try:
                             response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
@@ -210,7 +206,7 @@ class RealDebridDownloader:
                 continue
     
             if not provider_list or not provider_list.get("rd"):
-                if item.blacklist_stream(stream):
+                if blacklist_stream(item._id, stream):
                     logger.debug(f"Blacklisted un-cached stream for {item.log_string} with hash: {stream_hash}")
                 continue
     
