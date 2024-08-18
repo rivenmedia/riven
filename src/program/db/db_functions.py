@@ -32,6 +32,7 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
         session.execute(
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
+        item.active_stream = None
         session.commit()
         session.refresh(item)
 
