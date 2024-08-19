@@ -16,6 +16,47 @@ from .db import db, alembic
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
+def delete_media_item(item: "MediaItem"):
+    """Delete a MediaItem and all its associated relationships."""
+    with db.Session() as session:
+        item = session.merge(item)
+        session.delete(item)
+        session.commit()
+
+def delete_media_item_by_id(media_item_id: int):
+    """Delete a MediaItem and all its associated relationships by the MediaItem _id."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        item = session.query(MediaItem).filter_by(_id=media_item_id).first()
+
+        if item:
+            session.delete(item)
+            session.commit()
+        else:
+            raise ValueError(f"MediaItem with id {media_item_id} does not exist.")
+
+def delete_media_item_by_item_id(item_id: str):
+    """Delete a MediaItem and all its associated relationships by the MediaItem _id."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        item = session.query(MediaItem).filter_by(item_id=item_id).first()
+
+        if item:
+            session.delete(item)
+            session.commit()
+        else:
+            raise ValueError(f"MediaItem with item_id {item_id} does not exist.")
+
+def delete_media_items_by_ids(media_item_ids: list[int]):
+    """Delete multiple MediaItems and all their associated relationships by a list of MediaItem _ids."""
+    try:
+        for media_item_id in media_item_ids:
+            delete_media_item_by_id(media_item_id)
+    except Exception as e:
+        error = f"Failed to delete media items: {e}"
+        logger.error(error)
+        raise ValueError(error)
+
 def reset_streams(item: "MediaItem", active_stream_hash: str = None):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
