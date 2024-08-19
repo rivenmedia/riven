@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.4](https://github.com/rivenmedia/riven/compare/v0.10.4...v0.10.4) (2024-08-19)
+
+
+### Features
+
+* add a subtitle provider (subliminal) ([f96fe54](https://github.com/rivenmedia/riven/commit/f96fe54aa1ff6efe8ffcef161a173b74a7ca81c4))
+
+
+### Bug Fixes
+
+* address high memory usage ([f96fe54](https://github.com/rivenmedia/riven/commit/f96fe54aa1ff6efe8ffcef161a173b74a7ca81c4))
+* various small bug fixes ([f96fe54](https://github.com/rivenmedia/riven/commit/f96fe54aa1ff6efe8ffcef161a173b74a7ca81c4))
+
+
+### Miscellaneous Chores
+
+* release 0.10.4 ([cacbc46](https://github.com/rivenmedia/riven/commit/cacbc46f35096956aab1f77d794942d68d76de16))
+
 ## [0.10.3](https://github.com/rivenmedia/riven/compare/v0.10.2...v0.10.3) (2024-08-17)
 
 
