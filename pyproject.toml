@@ -5,6 +5,7 @@ description = "Plex torrent streaming through Real Debrid and 3rd party services
 authors = ["Riven Developers"]
 license = "GPL-3.0"
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -37,19 +38,20 @@ subliminal = "^2.2.1"
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
 pyperf = "^2.2.0"
-pytest = "^8.3.1"
+pytest = "^8.3.2"
 pyfakefs = "^5.4.1"
 ruff = "^0.3.0"
 isort = "^5.10.1"
 codecov = "^2.1.13"
 httpx = "^0.27.0"
 memray = "^1.13.4"
+testcontainers = "^4.8.0"
 
 [tool.poetry.group.test]
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest= "*"
+pytest = "^8.3.2"
 
 [build-system]
 requires = ["poetry-core"]
