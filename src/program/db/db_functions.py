@@ -23,7 +23,7 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
         if active_stream_hash:
             stream = session.query(Stream).filter(Stream.infohash == active_stream_hash).first()
             if stream:
-                blacklist_stream(item, stream._id, session)
+                blacklist_stream(item, stream, session)
 
         session.execute(
             delete(StreamRelation).where(StreamRelation.parent_id == item._id)
@@ -63,12 +63,15 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
                 .values(media_item_id=item._id, stream_id=stream._id)
             )
 
-            if close_session:
-                session.commit()
-                session.refresh(item)
+            session.commit()
+            session.refresh(item)
             return True
         return False
-
+    # except Exception as e:
+    #     if close_session:
+    #         session.rollback()
+    #     logger.log("DATABASE", f"Failed to blacklist stream {stream.infohash} for {item.log_string}: {e}")
+    #     raise e
     finally:
         if close_session:
             session.close()
