@@ -16,6 +16,21 @@ from .db import db, alembic
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
+def get_media_items_by_ids(media_item_ids: list[int]):
+    """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
+    from program.media.item import MediaItem
+    items = []
+
+    with db.Session() as session:
+        for media_item_id in media_item_ids:
+            dummy_item = MediaItem({})
+            dummy_item._id = media_item_id
+            item = _get_item_from_db(session, dummy_item)
+            if item:
+                items.append(item)
+
+    return items
+
 def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""
     with db.Session() as session:

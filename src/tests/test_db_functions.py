@@ -4,10 +4,10 @@ from RTN import Torrent, ParsedData
 from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
-from program.media.item import MediaItem, Show, Season, Episode
+from program.media.item import MediaItem, Show, Season, Episode, Movie
 from program.media.stream import Stream, StreamRelation, StreamBlacklistRelation
 from program.db.db_functions import reset_streams, blacklist_stream, delete_media_item, delete_media_item_by_id, \
-    delete_media_item_by_item_id, delete_media_items_by_ids
+    delete_media_item_by_item_id, delete_media_items_by_ids, get_media_items_by_ids
 
 
 @pytest.fixture(scope="session")
@@ -355,3 +355,37 @@ def test_delete_media_items_by_ids_success(test_scoped_db_session):
     assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item2._id).count() == 0
     assert test_scoped_db_session.query(Stream).filter_by(_id=stream1._id).count() == 0
     assert test_scoped_db_session.query(Stream).filter_by(_id=stream2._id).count() == 0
+
+def test_get_media_items_by_ids_success(test_scoped_db_session):
+    show = Show({"title": "Test Show"})
+    show.item_id = "tt00112233"
+    test_scoped_db_session.add(show)
+    test_scoped_db_session.commit()
+
+    season = Season({"number": 1, "parent": show})
+    season.parent_id = show._id
+    test_scoped_db_session.add(season)
+    test_scoped_db_session.commit()
+
+    episode1 = Episode({"number": 1})
+    episode2 = Episode({"number": 2})
+    episode1.parent_id = season._id
+    episode2.parent_id = season._id
+    test_scoped_db_session.add(episode1)
+    test_scoped_db_session.add(episode2)
+    test_scoped_db_session.commit()
+
+    movie = Movie({"title": "Test Movie"})
+    movie.item_id = "tt00443322"
+    test_scoped_db_session.add(movie)
+    test_scoped_db_session.commit()
+
+    media_items = get_media_items_by_ids([show._id, season._id, episode1._id, episode2._id, movie._id])
+
+    assert len(media_items) == 5
+
+    assert any(isinstance(item, Show) and item._id == show._id for item in media_items)
+    assert any(isinstance(item, Season) and item._id == season._id for item in media_items)
+    assert any(isinstance(item, Episode) and item._id == episode1._id for item in media_items)
+    assert any(isinstance(item, Episode) and item._id == episode2._id for item in media_items)
+    assert any(isinstance(item, Movie) and item._id == movie._id for item in media_items)

@@ -4,12 +4,10 @@ from typing import Optional
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
-from program.db.db_functions import delete_media_items_by_ids
+from program.db.db_functions import get_media_items_by_ids, delete_media_item
 from program.media.item import MediaItem
 from program.media.state import States
-from sqlalchemy import delete, func, select
-from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.media.subtitle import Subtitle
+from sqlalchemy import func, select
 from utils.logger import logger
 from sqlalchemy.orm import joinedload
 
@@ -198,7 +196,12 @@ async def retry_items(
 async def remove_item(request: Request, ids: str):
     ids = handle_ids(ids)
     try:
-        delete_media_items_by_ids(ids)
+        media_items = get_media_items_by_ids(ids)
+        if not media_items or len(media_items) != len(ids):
+            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+        for media_item in media_items:
+            request.app.program.em.cancel_job(media_item)
+            delete_media_item(media_item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
