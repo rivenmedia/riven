@@ -4,6 +4,7 @@ from typing import Optional
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
+from program.db.db_functions import delete_media_items_by_ids
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import delete, func, select
@@ -190,39 +191,18 @@ async def retry_items(
     return {"success": True, "message": f"Retried items with id {ids}"}
 
 @router.delete(
-        "",
-        summary="Remove Media Items",
-        description="Remove media items with bases on item IDs",)
-async def remove_item(
-    request: Request, ids: str
-):
+    "/remove",
+    summary="Remove Media Items",
+    description="Remove media items based on item IDs",
+)
+async def remove_item(request: Request, ids: str):
     ids = handle_ids(ids)
-    with db.Session() as session:
-        def _delete(item):
-            session.execute(delete(item.__class__).where(item.__class__._id == item._id))
-            session.execute(delete(MediaItem).where(MediaItem._id == item._id))
-            session.execute(delete(StreamRelation).where(StreamRelation.parent_id == item._id))
-            session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id))
-            session.execute(delete(Subtitle).where(Subtitle.parent_id == item._id))
+    try:
+        delete_media_items_by_ids(ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        items = []
-        for id in ids:
-            items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
-        for item in items:
-            request.app.program.em.cancel_job(item)
-            item.reset()
-            if item.type == "show":
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        _delete(episode)
-                    _delete(season)
-            if item.type == "season":
-                for episode in item.episodes:
-                    _delete(episode)
-            _delete(item)
-        session.commit()
-
-    return {"success": True, "message": f"Removed item with id {id}"}
+    return {"success": True, "message": f"Removed items with ids {ids}"}
 
 # These require downloaders to be refactored
 
