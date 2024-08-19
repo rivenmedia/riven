@@ -18,14 +18,38 @@ if TYPE_CHECKING:
 
 def get_media_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
-    from program.media.item import MediaItem
+    from program.media.item import Movie, Show, Season, Episode, MediaItem
     items = []
 
     with db.Session() as session:
         for media_item_id in media_item_ids:
-            dummy_item = MediaItem({})
-            dummy_item._id = media_item_id
-            item = _get_item_from_db(session, dummy_item)
+            item_type = session.execute(select(MediaItem.type).where(MediaItem._id==media_item_id)).scalar_one()
+            if not item_type:
+                continue
+            item = None
+            match item_type:
+                case "movie":
+                    item = session.execute(
+                        select(Movie)
+                        .where(MediaItem._id == media_item_id)
+                    ).unique().scalar_one()
+                case "show":
+                    item = session.execute(
+                        select(Show)
+                        .where(MediaItem._id == media_item_id)
+                        .options(joinedload(Show.seasons).joinedload(Season.episodes))
+                    ).unique().scalar_one()
+                case "season":
+                    item = session.execute(
+                        select(Season)
+                        .where(Season._id == media_item_id)
+                        .options(joinedload(Season.episodes))
+                    ).unique().scalar_one()
+                case "episode":
+                    item = session.execute(
+                        select(Episode)
+                        .where(Episode._id == media_item_id)
+                    ).unique().scalar_one()
             if item:
                 items.append(item)
 
@@ -202,7 +226,9 @@ def _ensure_item_exists_in_db(item: "MediaItem") -> bool:
     from program.media.item import MediaItem, Movie, Show
     if isinstance(item, (Movie, Show)):
         with db.Session() as session:
-            return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == item.imdb_id)).scalar_one() != 0
+            if item._id is None:
+                return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == item.imdb_id)).scalar_one() != 0
+            return session.execute(select(func.count(MediaItem._id)).where(MediaItem._id == item._id)).scalar_one() != 0
     return bool(item and item._id)
 
 def _get_item_type_from_db(item: "MediaItem") -> str:
