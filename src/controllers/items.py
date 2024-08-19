@@ -2,13 +2,12 @@ from datetime import datetime
 from typing import Optional
 
 import Levenshtein
-import program.db.db_functions as DB
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
+from program.db.db_functions import get_media_items_by_ids, delete_media_item
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import func, select
-from program.types import Event
 from utils.logger import logger
 from sqlalchemy.orm import joinedload
 
@@ -143,9 +142,10 @@ async def add_items(
     if not valid_ids:
         raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
 
-    for id in valid_ids:
-        item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
-        request.app.program._push_event_queue(Event("Manual", item))
+    with db.Session() as _:
+        for id in valid_ids:
+            item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+            request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
 
@@ -164,14 +164,7 @@ async def reset_items(
             item = session.execute(select(MediaItem).where(MediaItem._id == id).options(joinedload("*"))).unique().scalar_one()
             items.append(item)
         for item in items:
-            if item.type == "show":
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        episode.reset()
-                    season.reset()
-            elif item.type == "season":
-                for episode in item.episodes:
-                    episode.reset()
+            request.app.program.em.cancel_job(item)
             item.reset()
 
         session.commit()
@@ -191,22 +184,29 @@ async def retry_items(
         for id in ids:
             items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
         for item in items:
-            request.app.program._remove_from_running_events(item)
-            request.app.program.add_to_queue(item)
+            request.app.program.em.cancel_job(item)
+            request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Retried items with id {ids}"}
 
 @router.delete(
-        "",
-        summary="Remove Media Items",
-        description="Remove media items with bases on item IDs",)
-async def remove_item(
-    _: Request, ids: str
-):
+    "/remove",
+    summary="Remove Media Items",
+    description="Remove media items based on item IDs",
+)
+async def remove_item(request: Request, ids: str):
     ids = handle_ids(ids)
-    for id in ids:
-        DB._remove_item_from_db(id)
-    return {"success": True, "message": f"Removed item with id {id}"}
+    try:
+        media_items = get_media_items_by_ids(ids)
+        if not media_items or len(media_items) != len(ids):
+            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+        for media_item in media_items:
+            request.app.program.em.cancel_job(media_item)
+            delete_media_item(media_item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"success": True, "message": f"Removed items with ids {ids}"}
 
 # These require downloaders to be refactored
 

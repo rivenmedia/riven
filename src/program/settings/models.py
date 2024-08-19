@@ -75,6 +75,8 @@ class SymlinkModel(Observable):
     rclone_path: Path = Path()
     library_path: Path = Path()
     separate_anime_dirs: bool = False
+    repair_symlinks: bool = False
+    repair_interval: float = 6 # hours
 
 
 # Content Services
@@ -350,11 +352,28 @@ class NotificationsModel(Observable):
 class SubliminalConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
-    # providers: List[str] = ["opensubtitles"]
-    # min_score: int = 7
-    # max_age: int = 30  
-    # timeout: int = 30
-    # ratelimit: bool = True
+    providers: dict = {
+        "addic7ed": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "napiprojekt": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlesvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        },
+        "opensubtitlescomvip": {
+            "enabled": False,
+            "username": "",
+            "password": ""
+        }
+    }
 
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()

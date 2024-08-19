@@ -3,19 +3,20 @@ from datetime import datetime
 import json
 from pathlib import Path
 from typing import List, Optional, Self
-import asyncio
-
 import sqlalchemy
+from sqlalchemy import Index
+
 from program.db.db import db
 from program.media.state import States
 from RTN import parse
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.media.subtitle import Subtitle
-from .stream import  Stream, StreamRelation
-from controllers.ws import manager
+from .stream import  Stream
+import utils.websockets.manager as ws_manager
 
 from utils.logger import logger
+from ..db.db_functions import blacklist_stream, reset_streams
 
 
 class MediaItem(db.Model):
@@ -31,8 +32,8 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents")
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents")
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -56,14 +57,34 @@ class MediaItem(db.Model):
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
-    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent")
+    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="joined", cascade="all, delete-orphan")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
         "with_polymorphic":"*",
     }
-    def __init__(self, item: dict) -> None:
+
+    __table_args__ = (
+        Index('ix_mediaitem_item_id', 'item_id'),
+        Index('ix_mediaitem_type', 'type'),
+        Index('ix_mediaitem_requested_by', 'requested_by'),
+        Index('ix_mediaitem_title', 'title'),
+        Index('ix_mediaitem_imdb_id', 'imdb_id'),
+        Index('ix_mediaitem_tvdb_id', 'tvdb_id'),
+        Index('ix_mediaitem_tmdb_id', 'tmdb_id'),
+        Index('ix_mediaitem_network', 'network'),
+        Index('ix_mediaitem_country', 'country'),
+        Index('ix_mediaitem_language', 'language'),
+        Index('ix_mediaitem_aired_at', 'aired_at'),
+        Index('ix_mediaitem_year', 'year'),
+        Index('ix_mediaitem_overseerr_id', 'overseerr_id'),
+        Index('ix_mediaitem_type_aired_at', 'type', 'aired_at'),  # Composite index
+    )
+    
+    def __init__(self, item: dict | None) -> None:
+        if item is None:
+            return
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
 
@@ -112,7 +133,7 @@ class MediaItem(db.Model):
 
     def store_state(self) -> None:
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
         
     def is_stream_blacklisted(self, stream: Stream):
@@ -120,13 +141,7 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_stream(self, stream: Stream):
-        """Blacklist a stream for this item."""
-        if stream in self.streams:
-            self.streams.remove(stream)
-            self.blacklisted_streams.append(stream)
-            logger.debug(f"Stream {stream.infohash} blacklisted for {self.log_string}")
-            return True
-        return False
+        return blacklist_stream(self, stream)
 
     @property
     def is_released(self) -> bool:
@@ -291,23 +306,37 @@ class MediaItem(db.Model):
         return hash(self.item_id)
     
     def reset(self, reset_times: bool = True):
+        """Reset item attributes."""
+        if self.type == "show":
+            for season in self.seasons:
+                for episode in season.episodes:
+                    episode._reset(reset_times)
+                season._reset(reset_times)
+        elif self.type == "season":
+            for episode in self.episodes:
+                episode._reset(reset_times)
+        self._reset(reset_times)
+
+    def _reset(self, reset_times: bool = True):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
                 Path(self.symlink_path).unlink()
             self.set("symlink_path", None)
-    
-        for subtitle in self.subtitles:
-            subtitle.remove()
+
+        try:
+            for subtitle in self.subtitles:
+                subtitle.remove()
+        except Exception as e:
+            logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
         self.set("file", None)
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if hasattr(self, "active_stream"):
-            stream: Stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["hash"]), None)
-            if stream:
-                self.blacklist_stream(stream)
+        if self.active_stream:
+            active_stream_hash = self.active_stream.get("hash", None)
+            reset_streams(self, active_stream_hash)
 
         self.set("active_stream", {})
         self.set("symlinked", False)
@@ -359,7 +388,7 @@ class Show(MediaItem):
     """Show class"""
     __tablename__ = "Show"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
-    seasons: Mapped[List["Season"]] = relationship(lazy=False, back_populates="parent", foreign_keys="Season.parent_id")
+    seasons: Mapped[List["Season"]] = relationship(back_populates="parent", foreign_keys="Season.parent_id", lazy="joined", cascade="all, delete-orphan")
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -405,7 +434,7 @@ class Show(MediaItem):
         for season in self.seasons:
             season.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __repr__(self):
@@ -469,7 +498,7 @@ class Season(MediaItem):
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
-    episodes: Mapped[List["Episode"]] = relationship(lazy=False, back_populates="parent", foreign_keys="Episode.parent_id")
+    episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan")
     __mapper_args__ = {
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
@@ -479,7 +508,7 @@ class Season(MediaItem):
         for episode in self.episodes:
             episode.store_state()
         if self.last_state != self._determine_state().name:
-            asyncio.run(manager.send_item_update(json.dumps(self.to_dict())))
+            ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
 
     def __init__(self, item):
@@ -569,7 +598,7 @@ class Episode(MediaItem):
     __tablename__ = "Episode"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
-    parent: Mapped["Season"] = relationship(lazy=False, back_populates="episodes", foreign_keys="Episode.parent_id")
+    parent: Mapped["Season"] = relationship(back_populates="episodes", foreign_keys="Episode.parent_id", lazy="joined")
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",

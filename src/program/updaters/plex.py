@@ -89,6 +89,7 @@ class PlexUpdater:
             items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
 
         if not items_to_update:
+            logger.log("PLEX", f"No items to update for {item.log_string}")
             yield item
             return
 

@@ -7,9 +7,11 @@ from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
-
+from program.db.db import db
+from program.db.db_functions import get_stream_count, load_streams_in_pages
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.exceptions import GarbageTorrent
@@ -133,61 +135,90 @@ class RealDebridDownloader:
         """Check if item is cached on real-debrid.com"""
         if not item.get("streams", []):
             return False
-
-        def _chunked(lst: List, n: int) -> Generator[List, None, None]:
-            """Yield successive n-sized chunks from lst."""
-            for i in range(0, len(lst), n):
-                yield lst[i:i + n]
-
-        logger.log("DEBRID", f"Processing {len(item.streams)} streams for {item.log_string}")
-
+    
+        logger.log("DEBRID", f"Processing streams for {item.log_string}")
+    
+        stream_count = get_stream_count(item._id)
         processed_stream_hashes = set()
-        filtered_streams = [
-            stream.infohash for stream in item.streams
-            if stream.infohash and stream.infohash not in processed_stream_hashes
-            and not item.is_stream_blacklisted(stream)
-        ]
-        if not filtered_streams:
-            logger.log("NOT_FOUND", f"No streams found from filtering out processed and blacklisted hashes for: {item.log_string}")
-            return False
-
-        for stream_chunk in _chunked(filtered_streams, 5):
-            streams = "/".join(stream_chunk)
-            try:
-                response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
-                if response.is_ok and response.data and isinstance(response.data, dict):
-                    if self._evaluate_stream_response(response.data, processed_stream_hashes, item):
-                        return True
-                    processed_stream_hashes.update(stream_chunk)
-            except Exception as e:
-                logger.exception(f"Error checking cache for streams: {str(e)}", exc_info=True)
-                continue
-
-        if item.type == "movie" or item.type == "episode":
-            for hash in filtered_streams:
-                stream = next((stream for stream in item.streams if stream.infohash == hash), None)
-                if stream and not item.is_stream_blacklisted(stream):
-                    item.blacklist_stream(stream)
-                    logger.debug(f"Blacklisted stream for {item.log_string} with hash: {hash}")
-
-        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {len(filtered_streams)}")
+        stream_hashes = {}  # This will store the infohash to Stream object mapping
+    
+        number_of_rows_per_page = 10
+        total_pages = (stream_count // number_of_rows_per_page) + 1
+    
+        for page_number in range(total_pages):
+            with db.Session() as session:
+                for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
+                    stream_hashes[infohash.lower()] = stream
+    
+                    filtered_streams = [
+                        infohash for infohash in stream_hashes.keys()
+                        if infohash and infohash not in processed_stream_hashes
+                           and not item.is_stream_blacklisted(stream_hashes[infohash])
+                    ]
+    
+                    filtered_streams.sort(
+                        key=lambda ih: next((stream.rank for stream in stream_hashes.values() if stream.infohash == ih), float('inf')),
+                        reverse=True
+                    )
+                    
+                    if not filtered_streams:
+                        continue
+    
+                    for stream_chunk in self._chunked(filtered_streams, number_of_rows_per_page):
+                        streams = "/".join(stream_chunk)
+                        try:
+                            response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
+                            if response.is_ok and response.data and isinstance(response.data, dict):
+                                if self._evaluate_stream_response(response.data, processed_stream_hashes, item, stream_hashes):
+                                    return True
+                                processed_stream_hashes.update(stream_chunk)
+                        except Exception as e:
+                            logger.exception(f"Error checking cache for streams: {str(e)}", exc_info=True)
+    
+        logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {stream_count} streams")
         return False
+    
+    @staticmethod
+    def _chunked(lst: List, n: int) -> Generator[List, None, None]:
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
 
-    def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem) -> bool:
-        """Evaluate the response data from the stream availability check."""
-        for stream_hash, provider_list in data.items():
-            stream = next((stream for stream in item.streams if stream.infohash == stream_hash), None)
+    def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem, stream_hashes: dict[str, "Stream"]) -> bool:
+        stream_items = list(data.items())
+    
+        def sorting_key(stream_item):
+            infohash = stream_item[0]
+            stream = stream_hashes.get(infohash.lower())
+            return stream.rank if stream else float('inf')
+    
+        sorted_stream_items = sorted(stream_items, key=sorting_key, reverse=True)
+    
+        for stream_hash, provider_list in sorted_stream_items:
+            stream_hash_lower = stream_hash.lower()
+    
+            if stream_hash_lower in processed_stream_hashes:
+                continue
+    
+            processed_stream_hashes.add(stream_hash_lower)
+    
+            stream = stream_hashes.get(stream_hash_lower)
+    
             if not stream or item.is_stream_blacklisted(stream):
                 continue
-
+    
             if not provider_list or not provider_list.get("rd"):
-                item.blacklist_stream(stream)
-                logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
+                if item.blacklist_stream(stream):
+                    logger.debug(f"Blacklisted un-cached stream for {item.log_string} with hash: {stream_hash}")
                 continue
-
+    
             if self._process_providers(item, provider_list, stream_hash):
                 logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
+            else:
+                item.blacklist_stream(stream)
+                logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
+    
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:

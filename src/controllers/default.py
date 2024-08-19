@@ -10,6 +10,7 @@ from program.media.state import States
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from sqlalchemy import func, select
+from loguru import logger
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -70,7 +71,7 @@ async def get_torbox_user():
 async def get_services(request: Request):
     data = {}
     if hasattr(request.app.program, "services"):
-        for service in request.app.program.services.values():
+        for service in request.app.program.all_services.values():
             data[service.key] = service.initialized
             if not hasattr(service, "services"):
                 continue
@@ -135,3 +136,22 @@ async def get_stats(_: Request):
         payload["states"] = states
 
         return {"success": True, "data": payload}
+
+@router.get("/logs")
+async def get_logs():
+    log_file_path = None
+    for handler in logger._core.handlers.values():
+        if ".log" in handler._name:
+            log_file_path = handler._sink._path
+            break
+
+    if not log_file_path:
+        return {"success": False, "message": "Log file handler not found"}
+
+    try:
+        with open(log_file_path, 'r') as log_file:
+            log_contents = log_file.read()
+        return {"success": True, "logs": log_contents}
+    except Exception as e:
+        logger.error(f"Failed to read log file: {e}")
+        return {"success": False, "message": "Failed to read log file"}
