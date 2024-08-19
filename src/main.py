@@ -6,7 +6,6 @@ import time
 import traceback
 
 import uvicorn
-from controllers.actions import router as actions_router
 from controllers.default import router as default_router
 from controllers.items import router as items_router
 from controllers.ws import router as ws_router
@@ -19,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from program import Program
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from program.settings.models import get_version
 from utils.cli import handle_args
 from utils.logger import logger
 
@@ -44,14 +44,14 @@ args = handle_args()
 app = FastAPI(
     title="Riven",
     summary="A media management system.",
-    version="0.7.x",
+    version=get_version(),
     redoc_url=None,
     license_info={
         "name": "GPL-3.0",
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
 )
-app.program = Program(args)
+app.program = Program()
 
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
@@ -67,7 +67,6 @@ app.include_router(settings_router)
 app.include_router(items_router)
 app.include_router(webhooks_router)
 app.include_router(tmdb_router)
-app.include_router(actions_router)
 app.include_router(ws_router)
 
 

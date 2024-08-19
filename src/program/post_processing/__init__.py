@@ -11,12 +11,7 @@ class PostProcessing:
         self.services = {
             Subliminal: Subliminal()
         }
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-
-    def validate(self):
-        return any(service.enabled for service in self.services.values())
+        self.initialized = True
 
     def run(self, item: MediaItem):
         if Subliminal.should_submit(item):

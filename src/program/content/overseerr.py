@@ -55,8 +55,8 @@ class Overseerr:
         """Fetch new media from `Overseerr`"""
         if self.settings.use_webhook and not self.run_once:
             logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
-
-        if self.run_once:
+            self.run_once = True
+        elif self.run_once:
             return
 
         try:

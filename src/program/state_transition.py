@@ -102,10 +102,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             proposed_submissions = [item]
         items_to_submit = []
         for sub_item in proposed_submissions:
-            if Symlinker.should_submit(sub_item):
-                items_to_submit.append(sub_item)
-            else:
-                logger.debug(f"{sub_item.log_string} not submitted to Symlinker because it is not eligible")
+            items_to_submit.append(sub_item)
 
     elif item.state == States.Symlinked:
         next_service = Updater
