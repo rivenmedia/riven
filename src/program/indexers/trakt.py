@@ -22,21 +22,22 @@ class TraktIndexer:
         self.initialized = True
         self.settings = settings_manager.settings.indexer
 
-    def copy_attributes(self, source, target):
+    @staticmethod
+    def copy_attributes(source, target):
         """Copy attributes from source to target."""
-        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles"]
+        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles", "requested_by", "requested_at", "overseerr_id", "active_stream", "requested_id"]
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
-        if isinstance(itema, Show) and isinstance(itemb, Show):
+        if isinstance(itema, (MediaItem, Show)) and isinstance(itemb, Show):
             for seasona, seasonb in zip(itema.seasons, itemb.seasons):
                 for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
                     self.copy_attributes(episodea, episodeb)
                 seasonb.set("is_anime", itema.is_anime)
             itemb.set("is_anime", itema.is_anime)
-        elif isinstance(itema, Movie) and isinstance(itemb, Movie):
+        elif isinstance(itema, (MediaItem, Movie)) and isinstance(itemb, Movie):
             self.copy_attributes(itema, itemb)
         return itemb
             

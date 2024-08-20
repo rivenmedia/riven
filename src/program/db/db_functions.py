@@ -106,6 +106,7 @@ def reset_media_item(item: "MediaItem"):
 def reset_streams(item: "MediaItem", active_stream_hash: str = None):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
+        item.store_state()
         item = session.merge(item)
         if active_stream_hash:
             stream = session.query(Stream).filter(Stream.infohash == active_stream_hash).first()
@@ -121,7 +122,6 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
         )
         item.active_stream = None
         session.commit()
-        session.refresh(item)
 
 def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
     """Blacklist a stream for a media item."""
@@ -131,6 +131,7 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
         close_session = True
 
     try:
+        item.store_state()
         item = session.merge(item)
         association_exists = session.query(
             session.query(StreamRelation)
@@ -151,7 +152,6 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
             )
 
             session.commit()
-            session.refresh(item)
             return True
         return False
     # except Exception as e:
@@ -249,6 +249,7 @@ def _store_item(item: "MediaItem"):
     from program.media.item import Movie, Show, Season, Episode
     if isinstance(item, (Movie, Show, Season, Episode)) and item._id is not None:
         with db.Session() as session:
+            item.store_state()
             session.merge(item)
             session.commit()
             logger.log("DATABASE", f"{item.log_string} Updated!")

@@ -90,7 +90,7 @@ class Overseerr:
                 if not imdb_id or imdb_id in self.recurring_items:
                     continue
                 self.recurring_items.add(imdb_id)
-                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId})
+                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId, "requested_id": item.id})
                 if media_item:
                     yield media_item
                 else:
@@ -156,8 +156,8 @@ class Overseerr:
                 settings.url + f"/api/v1/request/{mediaId}",
                 additional_headers=headers,
             )
-            logger.success(f"Deleted request {mediaId} from overseerr")
-            return response.is_ok
+            logger.debug(f"Deleted request {mediaId} from overseerr")
+            return response.is_ok == True
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")
             return False
