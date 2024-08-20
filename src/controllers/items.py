@@ -4,7 +4,7 @@ from typing import Optional
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
-from program.db.db_functions import get_media_items_by_ids, delete_media_item
+from program.db.db_functions import get_media_items_by_ids, delete_media_item, reset_media_item
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import func, select
@@ -158,16 +158,15 @@ async def reset_items(
     request: Request, ids: str
 ):
     ids = handle_ids(ids)
-    with db.Session() as session:
-        items = []
-        for id in ids:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id).options(joinedload("*"))).unique().scalar_one()
-            items.append(item)
-        for item in items:
-            request.app.program.em.cancel_job(item)
-            item.reset()
-
-        session.commit()
+    try:
+        media_items = get_media_items_by_ids(ids)
+        if not media_items or len(media_items) != len(ids):
+            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+        for media_item in media_items:
+            request.app.program.em.cancel_job(media_item)
+            reset_media_item(media_item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"success": True, "message": f"Reset items with id {ids}"}
 
 @router.post(

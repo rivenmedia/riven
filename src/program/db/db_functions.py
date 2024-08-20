@@ -96,6 +96,13 @@ def delete_media_items_by_ids(media_item_ids: list[int]):
         logger.error(error)
         raise ValueError(error)
 
+def reset_media_item(item: "MediaItem"):
+    """Reset a MediaItem."""
+    with db.Session() as session:
+        item = session.merge(item)
+        item.reset()
+        session.commit()
+
 def reset_streams(item: "MediaItem", active_stream_hash: str = None):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
