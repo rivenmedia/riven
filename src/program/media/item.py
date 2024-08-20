@@ -9,7 +9,7 @@ from sqlalchemy import Index
 from program.db.db import db
 from program.media.state import States
 from RTN import parse
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, object_session
 
 from program.media.subtitle import Subtitle
 from .stream import  Stream
@@ -28,6 +28,7 @@ class MediaItem(db.Model):
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
     requested_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    requested_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -87,6 +88,7 @@ class MediaItem(db.Model):
             return
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
+        self.requested_id = item.get("requested_id")
 
         self.indexed_at = None
 
@@ -135,9 +137,12 @@ class MediaItem(db.Model):
         if self.last_state != self._determine_state().name:
             ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
-        
+    
     def is_stream_blacklisted(self, stream: Stream):
         """Check if a stream is blacklisted for this item."""
+        session = object_session(self)
+        if session:
+            session.refresh(self, attribute_names=['blacklisted_streams'])
         return stream in self.blacklisted_streams
 
     def blacklist_stream(self, stream: Stream):
@@ -200,8 +205,11 @@ class MediaItem(db.Model):
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self):
+        session = object_session(self)
+        if session:
+            session.refresh(self, attribute_names=['blacklisted_streams']) # Prom: Ensure these reflect the state of whats in the db.
         return (len(self.streams) > 0 
-                and any(not stream in self.blacklisted_streams for stream in self.streams))
+            and any(not stream in self.blacklisted_streams for stream in self.streams))
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""

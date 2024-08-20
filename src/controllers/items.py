@@ -3,13 +3,16 @@ from typing import Optional
 
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
+
+from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import get_media_items_by_ids, delete_media_item, reset_media_item
 from program.media.item import MediaItem
 from program.media.state import States
 from sqlalchemy import func, select
+
+from program.symlink import Symlinker
 from utils.logger import logger
-from sqlalchemy.orm import joinedload
 
 router = APIRouter(
     prefix="/items",
@@ -200,7 +203,14 @@ async def remove_item(request: Request, ids: str):
         if not media_items or len(media_items) != len(ids):
             raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
         for media_item in media_items:
+            logger.debug(f"Removing item {media_item.title} with ID {media_item._id}")
             request.app.program.em.cancel_job(media_item)
+            symlink_service = request.app.program.services.get(Symlinker)
+            if symlink_service:
+                symlink_service.delete_item_symlinks(media_item)
+            if media_item.requested_by == "overseerr" and media_item.requested_id:
+                logger.debug(f"Item was originally requested by Overseerr, deleting request within Overseerr...")
+                Overseerr.delete_request(media_item.requested_id)
             delete_media_item(media_item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

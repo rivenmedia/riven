@@ -4,7 +4,7 @@ import re
 import shutil
 import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import List, Optional, Union
 
 from sqlalchemy import select
@@ -333,77 +333,34 @@ class Symlinker:
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
         return filename
 
-    def delete_item_symlinks(self, id: int) -> bool:
+    def delete_item_symlinks(self, item: "MediaItem") -> bool:
         """Delete symlinks and directories based on the item type."""
-        with db.Session() as session:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one_or_none()
-            if not item:
-                logger.error(f"Item with id {id} not found")
-                return False
-
-            try:
-                if isinstance(item, Show):
-                    base_path = self.library_path_anime_shows if item.is_anime else self.library_path_shows
-                    item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
-                elif isinstance(item, Season):
-                    show = item.parent
-                    base_path = self.library_path_anime_shows if show.is_anime else self.library_path_shows
-                    item_path = base_path / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}" / f"Season {str(item.number).zfill(2)}"
-                elif isinstance(item, Episode):
-                    show = item.parent.parent
-                    season = item.parent
-                    base_path = self.library_path_anime_shows if show.is_anime else self.library_path_shows
-                    if item.file:
-                        item_path = base_path / f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}" / f"Season {str(season.number).zfill(2)}" / f"{self._determine_file_name(item)}.{os.path.splitext(item.file)[1][1:]}"
-                    else:
-                        logger.error(f"File attribute is None for {item.log_string}, cannot determine path.")
-                        return False
-                elif isinstance(item, Movie):
-                    base_path = self.library_path_anime_movies if item.is_anime else self.library_path_movies
-                    if item.file:
-                        item_path = base_path / f"{self._determine_file_name(item)}.{os.path.splitext(item.file)[1][1:]}"
-                    else:
-                        logger.error(f"File attribute is None for {item.log_string}, cannot determine path.")
-                        return False
-                else:
-                    logger.error(f"Unsupported item type for deletion: {type(item)}")
-                    return False
-
-                if item_path.exists():
-                    if item_path.is_dir():
-                        shutil.rmtree(item_path)
-                    else:
-                        item_path.unlink()
-                    logger.debug(f"Deleted symlink for {item.log_string}")
-
-                    if isinstance(item, (Movie, Episode)):
-                        item.reset(True)
-                    elif isinstance(item, Show):
-                        for season in item.seasons:
-                            for episode in season.episodes:
-                                episode.reset(True)
-                            season.reset(True)
-                        item.reset(True)
-                    elif isinstance(item, Season):
-                        for episode in item.episodes:
-                            episode.reset(True)
-                        item.reset(True)
-
-                    item.store_state()
-                    session.commit()
-
-                    logger.debug(f"Item reset to be rescraped: {item.log_string}")
-                    return True
-                else:
-                    logger.error(f"Symlink path does not exist for {item.log_string}")
-            except FileNotFoundError as e:
-                logger.error(f"File not found error when deleting symlink for {item.log_string}: {e}")
-            except PermissionError as e:
-                logger.error(f"Permission denied when deleting symlink for {item.log_string}: {e}")
-            except Exception as e:
-                logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
+        if not isinstance(item, (Movie, Show)):
+            logger.debug(f"skipping delete symlink for {item.log_string}: Not a movie or show")
             return False
+        item_path = None
+        if isinstance(item, Show):
+            base_path = self.library_path_anime_shows if item.is_anime else self.library_path_shows
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+        elif isinstance(item, Movie):
+            base_path = self.library_path_anime_movies if item.is_anime else self.library_path_movies
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+        return _delete_symlink(item, item_path)
 
+def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
+    try:
+        if item_path.exists():
+            shutil.rmtree(item_path)
+            logger.debug(f"Deleted symlink Directory for {item.log_string}")
+            return True
+        logger.debug(f"Symlink Directory for {item.log_string} does not exist")
+    except FileNotFoundError as e:
+        logger.error(f"File not found error when deleting symlink for {item.log_string}: {e}")
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting symlink for {item.log_string}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
+    return False
 
 def _wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
     """Wrapper function to run the asynchronous wait_for_file function."""

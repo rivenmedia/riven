@@ -7,6 +7,9 @@ from os.path import splitext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
+
+from sqlalchemy.orm import Session
+
 from program.db.db import db
 from program.db.db_functions import get_stream_count, load_streams_in_pages
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -110,7 +113,8 @@ class RealDebridDownloader:
         if self.is_cached(item) and not self._is_downloaded(item):
             self._download_item(item)
             return_value = True
-        self.log_item(item)
+        if return_value:
+            self.log_item(item)
         return return_value
 
     @staticmethod
@@ -169,7 +173,7 @@ class RealDebridDownloader:
                         try:
                             response = get(f"{RD_BASE_URL}/torrents/instantAvailability/{streams}/", additional_headers=self.auth_headers, proxies=self.proxy, response_type=dict, specific_rate_limiter=self.torrents_rate_limiter, overall_rate_limiter=self.overall_rate_limiter)
                             if response.is_ok and response.data and isinstance(response.data, dict):
-                                if self._evaluate_stream_response(response.data, processed_stream_hashes, item, stream_hashes):
+                                if self._evaluate_stream_response(response.data, processed_stream_hashes, item, stream_hashes, session):
                                     return True
                                 processed_stream_hashes.update(stream_chunk)
                         except Exception as e:
@@ -184,7 +188,7 @@ class RealDebridDownloader:
         for i in range(0, len(lst), n):
             yield lst[i:i + n]
 
-    def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: MediaItem, stream_hashes: dict[str, "Stream"]) -> bool:
+    def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: "MediaItem", stream_hashes: dict[str, "Stream"], session: "Session") -> bool:
         stream_items = list(data.items())
     
         def sorting_key(stream_item):
@@ -209,6 +213,7 @@ class RealDebridDownloader:
     
             if not provider_list or not provider_list.get("rd"):
                 if item.blacklist_stream(stream):
+                    session.refresh(stream)
                     logger.debug(f"Blacklisted un-cached stream for {item.log_string} with hash: {stream_hash}")
                 continue
     
@@ -217,6 +222,7 @@ class RealDebridDownloader:
                 return True
             else:
                 item.blacklist_stream(stream)
+                session.refresh(stream)
                 logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
     
         return False
@@ -286,6 +292,7 @@ class RealDebridDownloader:
         )
 
         if not filenames:
+            logger.debug(f"No valid files found for {item.log_string} matching your filter settings: min_size: {min_size}, max_size: {max_size}, wanted_formats: {WANTED_FORMATS}")
             return False
 
         for file in filenames:
@@ -318,6 +325,7 @@ class RealDebridDownloader:
         ]
 
         if not filenames:
+            logger.debug(f"No valid files found for {item.log_string} matching your filter settings: min_size: {min_size}, max_size: {max_size}, wanted_formats: {WANTED_FORMATS}")
             return False
 
         one_season = len(item.parent.parent.seasons) == 1
@@ -354,6 +362,7 @@ class RealDebridDownloader:
         ]
 
         if not filenames:
+            logger.debug(f"No valid files found for {item.log_string} matching your filter settings: min_size: {min_size}b, max_size: {max_size}, wanted_formats: {WANTED_FORMATS}")
             return False
 
         acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted]
@@ -364,6 +373,7 @@ class RealDebridDownloader:
                 needed_episodes.append(episode.number)
 
         if not needed_episodes:
+            logger.debug(f"No needed episodes found for {item.log_string}")
             return False
 
         # Dictionary to hold the matched files for each episode
@@ -411,6 +421,7 @@ class RealDebridDownloader:
         ]
 
         if not filenames:
+            logger.debug(f"No valid files found for {item.log_string} matching your filter settings: min_size: {min_size}, max_size: {max_size}, wanted_formats: {WANTED_FORMATS}")
             return False
 
         # Create a dictionary to map seasons and episodes needed
@@ -424,6 +435,7 @@ class RealDebridDownloader:
                     needed_episodes[season.number] = needed_episode_numbers
 
         if not any(needed_episodes.values()):
+            logger.debug(f"No needed episodes found for {item.log_string}")
             return False
 
         # logger.debug(f"Checking {len(filenames)} files in container for {item.log_string}")
@@ -496,18 +508,23 @@ class RealDebridDownloader:
         logger.debug(f"Set active files for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
         return True
 
-    def _download_item(self, item: MediaItem):
+    def _download_item(self, item: MediaItem) -> bool:
         """Download item from real-debrid.com"""
-        logger.debug(f"Starting download for item: {item.log_string}")
-        request_id = self.add_magnet(item) # uses item.active_stream.hash
-        logger.debug(f"Magnet added to Real-Debrid, request ID: {request_id} for {item.log_string}")
-        item.set("active_stream.id", request_id)
-        self.set_active_files(item)
-        logger.debug(f"Active files set for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
-        time.sleep(0.5)
-        self.select_files(request_id, item)
-        logger.debug(f"Files selected for request ID: {request_id} for {item.log_string}")
-        logger.debug(f"Item marked as downloaded: {item.log_string}")
+        try:
+            logger.debug(f"Starting download for item: {item.log_string}")
+            request_id = self.add_magnet(item) # uses item.active_stream.hash
+            logger.debug(f"Magnet added to Real-Debrid, request ID: {request_id} for {item.log_string}")
+            item.set("active_stream.id", request_id)
+            self.set_active_files(item)
+            logger.debug(f"Active files set for item: {item.log_string} with {len(item.active_stream.get('files', {}))} total files")
+            time.sleep(0.5)
+            self.select_files(request_id, item)
+            logger.debug(f"Files selected for request ID: {request_id} for {item.log_string}")
+            logger.debug(f"Item marked as downloaded: {item.log_string}")
+            return True
+        except Exception as e:
+            logger.error(f"Error downloading item: {item.log_string}: {e}")
+            return False
 
     def set_active_files(self, item: MediaItem) -> None:
         """Set active files for item from real-debrid.com"""
@@ -548,7 +565,7 @@ class RealDebridDownloader:
 
     ### API Methods for Real-Debrid below
 
-    def add_magnet(self, item: MediaItem) -> str:
+    def add_magnet(self, item: MediaItem) -> str | None:
         """Add magnet link to real-debrid.com"""
         if not item.active_stream.get("hash"):
             logger.error(f"No active stream or hash found for {item.log_string}")
@@ -610,7 +627,7 @@ class RealDebridDownloader:
                 specific_rate_limiter=self.torrents_rate_limiter,
                 overall_rate_limiter=self.overall_rate_limiter
             )
-            return response.is_ok
+            return response.is_ok == True
         except Exception as e:
             logger.error(f"Error selecting files for {item.log_string}: {e}")
             return False
@@ -667,7 +684,7 @@ def _matches_item(torrent_info: SimpleNamespace, item: MediaItem) -> bool:
                     return True
         return False
 
-    def check_season(season):
+    def check_season(season: "Season"):
         season_number = season.number
         episodes_in_season = {episode.number for episode in season.episodes}
         matched_episodes = set()
