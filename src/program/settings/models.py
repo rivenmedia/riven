@@ -363,12 +363,12 @@ class SubliminalConfig(Observable):
             "username": "",
             "password": ""
         },
-        "opensubtitlesvip": {
+        "opensubtitles": {
             "enabled": False,
             "username": "",
             "password": ""
         },
-        "opensubtitlescomvip": {
+        "opensubtitlescom": {
             "enabled": False,
             "username": "",
             "password": ""
