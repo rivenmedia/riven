@@ -10,8 +10,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
+from program.downloaders.realdebrid import RealDebridDownloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
+from program.libraries.realdebrid import RealDebridLibrary
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -56,7 +58,7 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_services(self):
-    
+
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -71,11 +73,11 @@ class Program(threading.Thread):
             Symlinker: Symlinker(),
             Updater: Updater(),
             Downloader: Downloader(),
-            # Depends on Symlinker having created the file structure so needs
-            # to run after it
-            SymlinkLibrary: SymlinkLibrary(),
+            SymlinkLibrary: SymlinkLibrary(), # Depends on Symlinker
             PostProcessing: PostProcessing(),
         }
+
+        self.services[RealDebridLibrary] = RealDebridLibrary(self.services[Downloader].services[RealDebridDownloader], self.services[TraktIndexer].run)
 
         self.all_services = {
             **self.requesting_services,
@@ -94,11 +96,11 @@ class Program(threading.Thread):
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
-    
+
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
         return all(s.initialized for s in self.services.values())
-    
+
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
         try:
@@ -135,32 +137,36 @@ class Program(threading.Thread):
 
         while not self.validate():
             time.sleep(1)
-            
+
         if not self.validate_database():
             return
 
         run_migrations()
-        
+
+        def _enhance_metadata(session, item):
+            if isinstance(item, (Movie, Show)):
+                try:
+                    item = next(self.services[TraktIndexer].run(item))
+                except StopIteration as e:
+                    logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
+                    return
+                if item.item_id in added:
+                    logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
+                    return
+                added.append(item.item_id)
+                item.store_state()
+                session.add(item)
+                logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
             if res == 0:
                 for item in self.services[SymlinkLibrary].run():
                     if settings_manager.settings.map_metadata:
-                        if isinstance(item, (Movie, Show)):
-                            try:
-                                item = next(self.services[TraktIndexer].run(item))
-                            except StopIteration as e:
-                                logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
-                                continue
-                            if item.item_id in added:
-                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
-                                continue
-                            added.append(item.item_id)
-                            item.store_state()
-                            session.add(item)
-                            logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
+                        _enhance_metadata(session, item)
                 session.commit()
+
 
             movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
             episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one() # noqa
@@ -176,6 +182,17 @@ class Program(threading.Thread):
             logger.log("ITEM", f"Seasons: {total_seasons}")
             logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
             logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
+
+        with db.Session() as session:
+            res = session.execute(select(func.count()).where(MediaItem.requested_by == "realdebrid_library")).scalar_one()
+            added = []
+            if self.services[RealDebridLibrary].initialized and res == 0:
+                for item in self.services[RealDebridLibrary].run(session):
+                    _enhance_metadata(session, item)
+                    self.em.add_event(Event(emitted_by="RealDebridLibrary", item=item))
+                session.commit()
+            if len(added) > 0:
+                logger.log("PROGRAM", f"Added {len(added)} items from Real-Debrid library.")
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
@@ -209,7 +226,7 @@ class Program(threading.Thread):
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
                 ).unique().scalars().all()
-        
+
                 session.expunge_all()
                 session.close()
                 for item in items_to_submit:
