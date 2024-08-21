@@ -139,35 +139,35 @@ class RealDebridDownloader:
         """Check if item is cached on real-debrid.com"""
         if not item.get("streams", []):
             return False
-    
+
         logger.log("DEBRID", f"Processing streams for {item.log_string}")
-    
+
         stream_count = get_stream_count(item._id)
         processed_stream_hashes = set()
         stream_hashes = {}  # This will store the infohash to Stream object mapping
-    
+
         number_of_rows_per_page = 10
         total_pages = (stream_count // number_of_rows_per_page) + 1
-    
+
         for page_number in range(total_pages):
             with db.Session() as session:
                 for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
                     stream_hashes[infohash.lower()] = stream
-    
+
                     filtered_streams = [
                         infohash for infohash in stream_hashes.keys()
                         if infohash and infohash not in processed_stream_hashes
                            and not item.is_stream_blacklisted(stream_hashes[infohash])
                     ]
-    
+
                     filtered_streams.sort(
                         key=lambda ih: next((stream.rank for stream in stream_hashes.values() if stream.infohash == ih), float('inf')),
                         reverse=True
                     )
-                    
+
                     if not filtered_streams:
                         continue
-    
+
                     for stream_chunk in self._chunked(filtered_streams, number_of_rows_per_page):
                         streams = "/".join(stream_chunk)
                         try:
@@ -178,10 +178,10 @@ class RealDebridDownloader:
                                 processed_stream_hashes.update(stream_chunk)
                         except Exception as e:
                             logger.exception(f"Error checking cache for streams: {str(e)}", exc_info=True)
-    
+
         logger.log("NOT_FOUND", f"No wanted cached streams found for {item.log_string} out of {stream_count} streams")
         return False
-    
+
     @staticmethod
     def _chunked(lst: List, n: int) -> Generator[List, None, None]:
         """Yield successive n-sized chunks from lst."""
@@ -190,33 +190,33 @@ class RealDebridDownloader:
 
     def _evaluate_stream_response(self, data: dict, processed_stream_hashes: set, item: "MediaItem", stream_hashes: dict[str, "Stream"], session: "Session") -> bool:
         stream_items = list(data.items())
-    
+
         def sorting_key(stream_item):
             infohash = stream_item[0]
             stream = stream_hashes.get(infohash.lower())
             return stream.rank if stream else float('inf')
-    
+
         sorted_stream_items = sorted(stream_items, key=sorting_key, reverse=True)
-    
+
         for stream_hash, provider_list in sorted_stream_items:
             stream_hash_lower = stream_hash.lower()
-    
+
             if stream_hash_lower in processed_stream_hashes:
                 continue
-    
+
             processed_stream_hashes.add(stream_hash_lower)
-    
+
             stream = stream_hashes.get(stream_hash_lower)
-    
+
             if not stream or item.is_stream_blacklisted(stream):
                 continue
-    
+
             if not provider_list or not provider_list.get("rd"):
                 if item.blacklist_stream(stream):
                     session.refresh(stream)
                     logger.debug(f"Blacklisted un-cached stream for {item.log_string} with hash: {stream_hash}")
                 continue
-    
+
             if self._process_providers(item, provider_list, stream_hash):
                 logger.debug(f"Finished processing providers - selecting {stream_hash} for downloading")
                 return True
@@ -224,7 +224,7 @@ class RealDebridDownloader:
                 item.blacklist_stream(stream)
                 session.refresh(stream)
                 logger.debug(f"Blacklisted stream for {item.log_string} with hash: {stream_hash}")
-    
+
         return False
 
     def _process_providers(self, item: MediaItem, provider_list: dict, stream_hash: str) -> bool:

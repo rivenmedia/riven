@@ -48,6 +48,7 @@ class Mdblist:
                 for list in self.settings.lists:
                     if not list:
                         continue
+                    logger.debug(f"Fetching list: {list}")
 
                     if isinstance(list, int):
                         items = list_items_by_id(list, self.settings.api_key)

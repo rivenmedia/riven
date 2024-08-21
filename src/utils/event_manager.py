@@ -24,7 +24,7 @@ class EventManager:
         self._queued_events = []
         self._running_events = []
         self.mutex = Lock()
-    
+
     def _find_or_create_executor(self, service_cls) -> concurrent.futures.ThreadPoolExecutor:
         """
         Finds or creates a ThreadPoolExecutor for the given service class.
@@ -147,7 +147,7 @@ class EventManager:
         if item:
             log_message += f" with item: {item.log_string}"
         logger.debug(log_message)
-        
+
         executor = self._find_or_create_executor(service)
         future = executor.submit(_run_thread_with_db_item, program.all_services[service].run, service, program, item)
         if item:
@@ -171,7 +171,7 @@ class EventManager:
                 logger.debug(f"Cancelled future for {item.log_string}.")
             else:
                 logger.debug(f"Could not cancel future for {item.log_string}.")
-    
+
     def next(self, timeout=None):
         """
         Get the next event in the queue with an optional timeout.
@@ -206,7 +206,7 @@ class EventManager:
             bool: True if the item is in the queue, False otherwise.
         """
         return any(event.item._id == _id for event in self._queued_events)
-    
+
     def _id_in_running_events(self, _id):
         """
         Checks if an item with the given ID is in the running events.
@@ -218,7 +218,7 @@ class EventManager:
             bool: True if the item is in the running events, False otherwise.
         """
         return any(event.item._id == _id for event in self._running_events)
-    
+
     def add_event(self, event):
         """
         Adds an event to the queue if it is not already present in the queue or running events.
@@ -240,7 +240,7 @@ class EventManager:
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
             item_id, related_ids = _get_item_ids(session, event.item)
-            if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
+            if item_id and self._id_in_queue(item_id) or self._id_in_running_events(item_id):
                 return False
             for related_id in related_ids:
                 if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
@@ -253,7 +253,7 @@ class EventManager:
             logger.debug(f"Re-added {event.item.log_string} to the queue")
         self.add_event_to_queue(event)
         return True
-    
+
     def add_item(self, item):
         """
         Adds an item to the queue as an event.

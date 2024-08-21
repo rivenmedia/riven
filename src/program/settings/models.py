@@ -44,6 +44,7 @@ class RealDebridModel(Observable):
     api_key: str = ""
     proxy_enabled: bool = False
     proxy_url: str = ""
+    match_existing_content: bool = False
 
 
 class AllDebridModel(Observable):
