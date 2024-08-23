@@ -19,7 +19,8 @@ class Subliminal:
         for provider in self.settings.providers.keys():
             if self.settings.providers[provider]["enabled"]:
                 value = self.settings.providers[provider]
-                provider_config[provider] = {"username": value["username"], "password": value["password"]}
+                value.pop("enabled")
+                provider_config[provider] = value
                 providers.append(provider)
         self.pool = ProviderPool(providers=providers,provider_configs=provider_config)
         for provider in self.pool.providers:
