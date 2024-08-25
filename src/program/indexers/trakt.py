@@ -31,7 +31,9 @@ class TraktIndexer:
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
-        if isinstance(itema, (MediaItem, Show)) and isinstance(itemb, Show):
+        if isinstance(itema, MediaItem) and isinstance(itemb, Show):
+            self.copy_attributes(itema, itemb)
+        elif isinstance(itema, Show) and isinstance(itemb, Show):
             for seasona, seasonb in zip(itema.seasons, itemb.seasons):
                 for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
                     self.copy_attributes(episodea, episodeb)
@@ -40,7 +42,7 @@ class TraktIndexer:
         elif isinstance(itema, (MediaItem, Movie)) and isinstance(itemb, Movie):
             self.copy_attributes(itema, itemb)
         return itemb
-            
+
     def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
         if not in_item:
@@ -49,7 +51,7 @@ class TraktIndexer:
         if not (imdb_id := in_item.imdb_id):
             logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
-        
+
         item = create_item_from_imdb_id(imdb_id)
 
         if not isinstance(item, MediaItem):
