@@ -19,9 +19,10 @@ overall_limiter = RateLimiter(60, 60)
 class RealDebridDownloader:
     def __init__(self):
         self.key = "realdebrid"
-        self.existing_hashes = [torrent["hash"] for torrent in get_torrents(1000)]
         self.settings = settings.settings.downloaders.real_debrid
         self.initialized = self.validate()
+        if self.initialized:
+            self.existing_hashes = [torrent["hash"] for torrent in get_torrents(1000)]
 
     def validate(self) -> bool:
         """Validate Real-Debrid settings and API key"""
