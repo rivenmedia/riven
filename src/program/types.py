@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Generator, Union
 
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -36,3 +37,4 @@ ProcessedEvent = (MediaItem, Service, list[MediaItem])
 class Event:
     emitted_by: Service
     item: MediaItem
+    run_at: datetime = datetime.now()

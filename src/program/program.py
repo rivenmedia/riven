@@ -56,7 +56,7 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_services(self):
-    
+
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -94,11 +94,11 @@ class Program(threading.Thread):
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
-    
+
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
         return all(s.initialized for s in self.services.values())
-    
+
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
         try:
@@ -135,12 +135,12 @@ class Program(threading.Thread):
 
         while not self.validate():
             time.sleep(1)
-            
+
         if not self.validate_database():
             return
 
         run_migrations()
-        
+
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
@@ -196,6 +196,10 @@ class Program(threading.Thread):
                 .where(MediaItem.type.in_(["movie", "show"]))
                 .where(MediaItem.last_state != "Completed")
             ).scalar_one()
+
+        if count == 0:
+            return
+
         logger.log("PROGRAM", f"Found {count} items to retry")
 
         number_of_rows_per_page = 10
@@ -209,7 +213,7 @@ class Program(threading.Thread):
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
                 ).unique().scalars().all()
-        
+
                 session.expunge_all()
                 session.close()
                 for item in items_to_submit:

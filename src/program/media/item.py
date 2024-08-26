@@ -32,7 +32,7 @@ class MediaItem(db.Model):
     indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Optional[dict[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
     streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
     blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
@@ -137,7 +137,7 @@ class MediaItem(db.Model):
         if self.last_state != self._determine_state().name:
             ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state().name
-    
+
     def is_stream_blacklisted(self, stream: Stream):
         """Check if a stream is blacklisted for this item."""
         session = object_session(self)
@@ -146,7 +146,10 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_stream(self, stream: Stream):
-        return blacklist_stream(self, stream)
+        value = blacklist_stream(self, stream)
+        if value:
+            logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
+        return value
 
     @property
     def is_released(self) -> bool:
@@ -164,7 +167,7 @@ class MediaItem(db.Model):
             logger.log("ITEM", time_message)
             return False
         return True
-    
+
     @property
     def is_released_nolog(self):
         """Check if an item has been released."""
@@ -208,7 +211,7 @@ class MediaItem(db.Model):
         session = object_session(self)
         if session:
             session.refresh(self, attribute_names=['blacklisted_streams']) # Prom: Ensure these reflect the state of whats in the db.
-        return (len(self.streams) > 0 
+        return (len(self.streams) > 0
             and any(not stream in self.blacklisted_streams for stream in self.streams))
 
     def to_dict(self):
@@ -312,20 +315,20 @@ class MediaItem(db.Model):
 
     def __hash__(self):
         return hash(self.item_id)
-    
-    def reset(self, reset_times: bool = True):
+
+    def reset(self, soft_reset: bool = False):
         """Reset item attributes."""
         if self.type == "show":
             for season in self.seasons:
                 for episode in season.episodes:
-                    episode._reset(reset_times)
-                season._reset(reset_times)
+                    episode._reset(soft_reset)
+                season._reset(soft_reset)
         elif self.type == "season":
             for episode in self.episodes:
-                episode._reset(reset_times)
-        self._reset(reset_times)
+                episode._reset(soft_reset)
+        self._reset(soft_reset)
 
-    def _reset(self, reset_times: bool = True):
+    def _reset(self, soft_reset):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
@@ -342,9 +345,14 @@ class MediaItem(db.Model):
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if self.active_stream:
-            active_stream_hash = self.active_stream.get("hash", None)
-            reset_streams(self, active_stream_hash)
+        if not soft_reset:
+            if self.active_stream.get("infohash", False):
+                reset_streams(self, self.active_stream["infohash"])
+        else:
+            if self.active_stream.get("infohash", False):
+                stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["infohash"]), None)
+                if stream:
+                    self.blacklist_stream(stream)
 
         self.set("active_stream", {})
         self.set("symlinked", False)
@@ -352,9 +360,8 @@ class MediaItem(db.Model):
         self.set("update_folder", None)
         self.set("scraped_at", None)
 
-        if reset_times:
-            self.set("symlinked_times", 0)
-            self.set("scraped_times", 0)
+        self.set("symlinked_times", 0)
+        self.set("scraped_times", 0)
 
         logger.debug(f"Item {self.log_string} reset for rescraping")
 

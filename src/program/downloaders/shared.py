@@ -3,6 +3,7 @@ from posixpath import splitext
 from RTN import parse
 from RTN.exceptions import GarbageTorrent
 
+from program.media.item import MediaItem
 from program.media.state import States
 
 WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
@@ -142,3 +143,15 @@ class FileFinder:
                         return_files.append(file)
 
         return return_files
+
+def get_needed_media(item: MediaItem) -> dict:
+    acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted]
+    if item.type == "movie":
+        needed_media = None
+    elif item.type == "show":
+        needed_media = {season.number: [episode.number for episode in season.episodes if episode.state in acceptable_states] for season in item.seasons if season.state in acceptable_states}
+    elif item.type == "season":
+        needed_media = {item.number: [episode.number for episode in item.episodes if episode.state in acceptable_states]}
+    elif item.type == "episode":
+        needed_media = {item.parent.number: [item.number]}
+    return needed_media

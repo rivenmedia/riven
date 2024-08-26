@@ -4,31 +4,31 @@ from utils.logger import logger
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
-from ..media import States
 
 
 class Downloader:
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
-        self.services = {
-            RealDebridDownloader: RealDebridDownloader(),
-            TorBoxDownloader: TorBoxDownloader(),
-            AllDebridDownloader: AllDebridDownloader(),
-        }
+        self.service = next((service for service in [
+            RealDebridDownloader(),
+            #AllDebridDownloader(),
+            #TorBoxDownloader()
+            ] if service.initialized), None)
+
         self.initialized = self.validate()
-        
-    @property
-    def service(self):
-        return next(service for service in self.services.values() if service.initialized)
 
     def validate(self):
-        initialized_services = [service for service in self.services.values() if service.initialized]
-        if len(initialized_services) > 1:
-            logger.error("More than one downloader service is initialized. Only one downloader can be initialized at a time.")
+        if self.service is None:
+            logger.error("No downloader service is initialized. Please initialize a downloader service.")
             return False
-        return len(initialized_services) == 1
+        return True
 
     def run(self, item: MediaItem):
-        self.service.run(item)
+        logger.debug(f"Running downloader for {item.log_string}")
+        if self.service.is_cached(item):
+            self.service.download_cached(item)
+            logger.log("DEBRID", f"Downloaded {item.log_string}")
+        else:
+            logger.log("DEBRID", f"No cached torrents found for {item.log_string}")
         yield item

@@ -128,10 +128,10 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
     close_session = False
     if session is None:
         session = db.Session()
+        item = session.execute(select(type(item)).where(type(item)._id == item._id)).unique().scalar_one()
         close_session = True
 
     try:
-        item.store_state()
         item = session.merge(item)
         association_exists = session.query(
             session.query(StreamRelation)
@@ -150,7 +150,7 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
                 insert(StreamBlacklistRelation)
                 .values(media_item_id=item._id, stream_id=stream._id)
             )
-
+            item.store_state()
             session.commit()
             return True
         return False
@@ -312,10 +312,13 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
                 if not _check_for_and_run_insertion_required(session, input_item):
                     pass
                 input_item = _get_item_from_db(session, input_item)
-
                 for res in fn(input_item):
-                    if not isinstance(res, MediaItem):
-                        logger.log("PROGRAM", f"Service {service.__name__} emitted {res} from input item {input_item} of type {type(res).__name__}, backing off.")
+                    if isinstance(res, tuple):
+                        item, _ = res
+                    else:
+                        item = res
+                    if not isinstance(item, MediaItem):
+                        logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
                         program.em.remove_item_from_running(input_item)
 
                     input_item.store_state()
@@ -328,7 +331,7 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
                 for i in fn(input_item):
                     if isinstance(i, (MediaItem)):
                         with db.Session() as session:
-                            _check_for_and_run_insertion_required(session, i)                            
+                            _check_for_and_run_insertion_required(session, i)
                     yield i
         return
     else:

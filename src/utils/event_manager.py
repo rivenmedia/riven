@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+from datetime import datetime
 from queue import Empty
 import os
 from threading import Lock
@@ -24,7 +25,7 @@ class EventManager:
         self._queued_events = []
         self._running_events = []
         self.mutex = Lock()
-    
+
     def _find_or_create_executor(self, service_cls) -> concurrent.futures.ThreadPoolExecutor:
         """
         Finds or creates a ThreadPoolExecutor for the given service class.
@@ -57,11 +58,15 @@ class EventManager:
             service (type): The service class associated with the future.
         """
         try:
+            result = next(future.result())
             self._futures.remove(future)
-            item = next(future.result(), None)
+            if isinstance(result, tuple):
+                item, timestamp = result
+            else:
+                item, timestamp = result, datetime.now()
             if item:
                 self.remove_item_from_running(item)
-                self.add_event(Event(emitted_by=service, item=item))
+                self.add_event(Event(emitted_by=service, item=item, run_at=timestamp))
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
@@ -147,7 +152,7 @@ class EventManager:
         if item:
             log_message += f" with item: {item.log_string}"
         logger.debug(log_message)
-        
+
         executor = self._find_or_create_executor(service)
         future = executor.submit(_run_thread_with_db_item, program.all_services[service].run, service, program, item)
         if item:
@@ -163,24 +168,21 @@ class EventManager:
             item (MediaItem): The event item whose job needs to be canceled.
         """
         future = next((future for future in self._futures if hasattr(future, 'item') and future.item == item), None)
-        if future and not future.done() and not future.cancelled():
+        if future:
             self.remove_item_from_queues(item)
-            future.cancel()
-            if future.cancelled():
+            self._futures.remove(future)
+            future = None
+            # if future.cancelled():
+            #     logger.debug(f"Cancelled future for {item.log_string}.")
+            # else:
+            #     logger.debug(f"Could not cancel future for {item.log_string}.")
 
-                logger.debug(f"Cancelled future for {item.log_string}.")
-            else:
-                logger.debug(f"Could not cancel future for {item.log_string}.")
-    
-    def next(self, timeout=None):
+    def next(self):
         """
         Get the next event in the queue with an optional timeout.
 
-        Args:
-            timeout (float, optional): The maximum time to wait for an event. Defaults to None.
-
         Raises:
-            Empty: If the queue is empty after the timeout period.
+            Empty: If the queue is empty.
 
         Returns:
             Event: The next event in the queue.
@@ -188,12 +190,12 @@ class EventManager:
         start_time = time.time()
         while True:
             if self._queued_events:
-                event = self._queued_events.pop(0)
-                ws_manager.send_event_update(self._running_events, self._queued_events)
-                return event
-            if timeout is not None and (time.time() - start_time) >= timeout:
-                raise Empty
-            time.sleep(0.01)
+                self._queued_events.sort(key=lambda event: event.run_at, reverse=True)
+                if datetime.now() >= self._queued_events[0].run_at:
+                    event = self._queued_events.pop(0)
+                    ws_manager.send_event_update(self._running_events, self._queued_events)
+                    return event
+            raise Empty
 
     def _id_in_queue(self, _id):
         """
@@ -206,7 +208,7 @@ class EventManager:
             bool: True if the item is in the queue, False otherwise.
         """
         return any(event.item._id == _id for event in self._queued_events)
-    
+
     def _id_in_running_events(self, _id):
         """
         Checks if an item with the given ID is in the running events.
@@ -218,7 +220,7 @@ class EventManager:
             bool: True if the item is in the running events, False otherwise.
         """
         return any(event.item._id == _id for event in self._running_events)
-    
+
     def add_event(self, event):
         """
         Adds an event to the queue if it is not already present in the queue or running events.
@@ -253,7 +255,7 @@ class EventManager:
             logger.debug(f"Re-added {event.item.log_string} to the queue")
         self.add_event_to_queue(event)
         return True
-    
+
     def add_item(self, item):
         """
         Adds an item to the queue as an event.

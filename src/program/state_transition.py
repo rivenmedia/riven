@@ -109,17 +109,17 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = [item]
 
     elif item.state == States.Completed:
-            if settings_manager.settings.post_processing.subliminal.enabled:
-                next_service = PostProcessing
-                if item.type in ["movie", "episode"] and Subliminal.should_submit(item):
-                    items_to_submit = [item]
-                elif item.type == "show":
-                    items_to_submit = [e for s in item.seasons for e in s.episodes if e.state == States.Completed and Subliminal.should_submit(e)]
-                elif item.type == "season":
-                    items_to_submit = [e for e in item.episodes if e.state == States.Completed and Subliminal.should_submit(e)]
-                if not items_to_submit:
-                    return no_further_processing
-            else:
+        if settings_manager.settings.post_processing.subliminal.enabled:
+            next_service = PostProcessing
+            if item.type in ["movie", "episode"] and Subliminal.should_submit(item):
+                items_to_submit = [item]
+            elif item.type == "show":
+                items_to_submit = [e for s in item.seasons for e in s.episodes if e.state == States.Completed and Subliminal.should_submit(e)]
+            elif item.type == "season":
+                items_to_submit = [e for e in item.episodes if e.state == States.Completed and Subliminal.should_submit(e)]
+            if not items_to_submit:
                 return no_further_processing
+        else:
+            return item, None, []
 
     return updated_item, next_service, items_to_submit
