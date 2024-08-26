@@ -2,7 +2,6 @@
 from typing import Dict
 
 from program.media.item import MediaItem
-from program.updaters.local import LocalUpdater
 from program.updaters.plex import PlexUpdater
 from utils.logger import logger
 
@@ -12,17 +11,12 @@ class Updater:
         self.key = "updater"
         self.services = {
             PlexUpdater: PlexUpdater(),
-            LocalUpdater: LocalUpdater(),
         }
-        self.initialized = self.validate()
+        self.initialized = True
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
         initialized_services = [service for service in self.services.values() if service.initialized]
-
-        if self.services[LocalUpdater].initialized and len(initialized_services) > 1:
-            logger.error("Local updater can not be used together with other updaters.")
-            return False
 
         return len(initialized_services) > 0
 
@@ -35,8 +29,21 @@ class Updater:
             if service.initialized:
                 try:
                     item = next(service.run(item))
-                except StopIteration:
-                    logger.debug(f"{service_cls.__name__} finished updating {item.log_string}")
                 except Exception as e:
                     logger.error(f"{service_cls.__name__} failed to update {item.log_string}: {e}")
+
+            # Lets update the attributes of the item and its children, we dont care if the service updated it or not.
+            for _item in get_items_to_update(item):
+                _item.set("update_folder", "updated")
         yield item
+
+def get_items_to_update(item: MediaItem) -> list[MediaItem]:
+    """Get items to update for a given item."""
+    items_to_update = []
+    if item.type in ["movie", "episode"]:
+        items_to_update = [item]
+    if item.type == "show":
+        items_to_update = [e for s in item.seasons for e in s.episodes if e.symlinked and e.get("update_folder") != "updated"]
+    elif item.type == "season":
+        items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
+    return items_to_update
