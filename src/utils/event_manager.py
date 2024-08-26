@@ -58,7 +58,7 @@ class EventManager:
             service (type): The service class associated with the future.
         """
         try:
-            result = next(future.result())
+            result = next(future.result(), None)
             self._futures.remove(future)
             if isinstance(result, tuple):
                 item, timestamp = result
