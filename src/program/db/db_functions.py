@@ -128,10 +128,10 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
     close_session = False
     if session is None:
         session = db.Session()
+        item = session.execute(select(type(item)).where(type(item)._id == item._id)).unique().scalar_one()
         close_session = True
 
     try:
-        item.store_state()
         item = session.merge(item)
         association_exists = session.query(
             session.query(StreamRelation)
@@ -150,7 +150,7 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
                 insert(StreamBlacklistRelation)
                 .values(media_item_id=item._id, stream_id=stream._id)
             )
-
+            item.store_state()
             session.commit()
             return True
         return False
@@ -222,7 +222,8 @@ def _get_item_ids(session, item):
             .where(Episode.parent_id == season_id)
         ).scalars().all()
         return season_id, episode_ids
-
+    elif item.type == "episode":
+        return item._id, []
     elif hasattr(item, "parent"):
         parent_id = item.parent._id
         return parent_id, []
@@ -306,16 +307,19 @@ def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
 
 def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = None):
     from program.media.item import MediaItem, Movie, Show, Season, Episode
-    if input_item is not None:
+    if input_item:
         with db.Session() as session:
             if isinstance(input_item, (Movie, Show, Season, Episode)):
                 if not _check_for_and_run_insertion_required(session, input_item):
                     pass
                 input_item = _get_item_from_db(session, input_item)
-
                 for res in fn(input_item):
-                    if not isinstance(res, MediaItem):
-                        logger.log("PROGRAM", f"Service {service.__name__} emitted {res} from input item {input_item} of type {type(res).__name__}, backing off.")
+                    if isinstance(res, tuple):
+                        item, _ = res
+                    else:
+                        item = res
+                    if not isinstance(item, MediaItem):
+                        logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
                         program.em.remove_item_from_running(input_item)
 
                     input_item.store_state()
@@ -328,34 +332,36 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
                 for i in fn(input_item):
                     if isinstance(i, (MediaItem)):
                         with db.Session() as session:
-                            _check_for_and_run_insertion_required(session, i)                            
+                            _check_for_and_run_insertion_required(session, i)
                     yield i
         return
     else:
+        # Content services
         for i in fn():
             if isinstance(i, (MediaItem)):
-                with db.Session() as session:
-                    _check_for_and_run_insertion_required(session, i)
-                yield i
+                program.em.add_item(i, service)
+            elif isinstance(i, list) and all(isinstance(item, MediaItem) for item in i):
+                for item in i:
+                    program.em.add_item(item, service)
         return
 
 def hard_reset_database():
     """Resets the database to a fresh state."""
     logger.log("DATABASE", "Resetting Database")
-    
+
     # Drop all tables
     db.Model.metadata.drop_all(db.engine)
     logger.log("DATABASE","All MediaItem tables dropped")
-    
+
     # Drop the alembic_version table
     with db.engine.connect() as connection:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
     logger.log("DATABASE","Alembic table dropped")
-    
+
     # Recreate all tables
     db.Model.metadata.create_all(db.engine)
     logger.log("DATABASE","All tables recreated")
-    
+
     # Reinitialize Alembic
     logger.log("DATABASE","Removing Alembic Directory")
     shutil.rmtree(alembic_dir, ignore_errors=True)

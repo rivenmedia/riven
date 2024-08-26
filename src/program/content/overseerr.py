@@ -80,6 +80,7 @@ class Overseerr:
             for item in response.data.results
             if item.status == 2 and item.media.status == 3
         ]
+        items_to_yield = []
         for item in pending_items:
             try:
                 mediaId: int = int(item.media.id)
@@ -92,7 +93,7 @@ class Overseerr:
                 self.recurring_items.add(imdb_id)
                 media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId, "requested_id": item.id})
                 if media_item:
-                    yield media_item
+                    items_to_yield.append(media_item)
                 else:
                     logger.log("NOT_FOUND", f"Failed to create media item for {imdb_id}")
             except Exception as e:
@@ -101,6 +102,8 @@ class Overseerr:
 
         if self.settings.use_webhook:
             self.run_once = True
+
+        yield items_to_yield
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

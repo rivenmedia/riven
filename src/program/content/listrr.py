@@ -60,13 +60,15 @@ class Listrr:
 
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Listrr`"""
+        items_to_yield = []
         self.not_found_ids.clear()
         movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
         show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
         for imdb_id in movie_items + show_items:
             if imdb_id not in self.recurring_items:
                 self.recurring_items.add(imdb_id)
-                yield MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+                items_to_yield.append(MediaItem({"imdb_id": imdb_id, "requested_by": self.key}))
+        yield items_to_yield
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""

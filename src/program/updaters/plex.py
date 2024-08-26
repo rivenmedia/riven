@@ -70,10 +70,6 @@ class PlexUpdater:
 
     def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Update Plex library section for a single item or a season with its episodes"""
-        if not item:
-            logger.error(f"Item type not supported, skipping {item}")
-            yield item
-            return
 
         item_type = "movie" if isinstance(item, Movie) else "show"
         updated = False
@@ -89,8 +85,7 @@ class PlexUpdater:
             items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
 
         if not items_to_update:
-            logger.log("PLEX", f"No items to update for {item.log_string}")
-            yield item
+            logger.debug(f"No items to update for {item.log_string}")
             return
 
         section_name = None
@@ -128,7 +123,6 @@ class PlexUpdater:
         if item.symlinked and item.get("update_folder") != "updated":
             update_folder = item.update_folder
             section.update(str(update_folder))
-            item.set("update_folder", "updated")
             return True
         return False
 

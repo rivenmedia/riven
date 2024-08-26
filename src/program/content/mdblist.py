@@ -42,7 +42,7 @@ class Mdblist:
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch media from mdblist and add them to media_items attribute
         if they are not already there"""
-
+        items_to_yield = []
         try:
             with self.rate_limiter:
                 for list in self.settings.lists:
@@ -57,13 +57,13 @@ class Mdblist:
                         # Check if the item is already completed in the media container
                         if item.imdb_id and item.imdb_id not in self.recurring_items:
                             self.recurring_items.add(item.imdb_id)
-                            yield MediaItem(
+                            items_to_yield.append(MediaItem(
                                 {"imdb_id": item.imdb_id, "requested_by": self.key}
-                            )
+                            ))
 
         except RateLimitExceeded:
             pass
-        return
+        yield items_to_yield
 
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits

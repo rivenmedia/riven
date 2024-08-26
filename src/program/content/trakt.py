@@ -74,6 +74,7 @@ class TraktContent:
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
         current_time = time.time()
+        items_to_yield = []
         if current_time < self.next_run_time:
             return
 
@@ -103,16 +104,18 @@ class TraktContent:
                 self.items_already_seen.add(imdb_id)
                 new_items_count += 1
 
-                yield MediaItem({
+                items_to_yield.append(MediaItem({
                         "imdb_id": imdb_id,
                         "requested_by": self.key
-                    })
+                    }))
 
             if new_items_count > 0:
                 logger.log("TRAKT", f"New items fetched from {source}: {new_items_count}")
             total_new_items += new_items_count
         if total_new_items > 0:
             logger.log("TRAKT", f"Total new items fetched: {total_new_items}")
+
+        yield items_to_yield
 
     def _get_watchlist(self, watchlist_users: list) -> list:
         """Get IMDb IDs from Trakt watchlist"""
@@ -146,7 +149,7 @@ class TraktContent:
             if not user or not list_name:
                 logger.error(f"Invalid list URL: {url}")
                 continue
-            
+
             items = get_user_list(self.api_url, self.headers, user, list_name)
             for item in items:
                 if hasattr(item, "movie"):
@@ -163,13 +166,13 @@ class TraktContent:
         """Get IMDb IDs from Trakt trending items"""
         trending_movies = get_trending_items(self.api_url, self.headers, "movies", self.settings.trending_count)
         trending_shows = get_trending_items(self.api_url, self.headers, "shows", self.settings.trending_count)
-        return self._extract_imdb_ids(trending_movies + trending_shows)
+        return self._extract_imdb_ids(trending_movies[:self.settings.trending_count] + trending_shows[:self.settings.trending_count])
 
     def _get_popular_items(self) -> list:
         """Get IMDb IDs from Trakt popular items"""
         popular_movies = get_popular_items(self.api_url, self.headers, "movies", self.settings.popular_count)
         popular_shows = get_popular_items(self.api_url, self.headers, "shows", self.settings.popular_count)
-        return self._extract_imdb_ids_with_none_type(popular_movies + popular_shows)
+        return self._extract_imdb_ids_with_none_type(popular_movies[:self.settings.popular_count] + popular_shows[:self.settings.popular_count])
 
     def _extract_imdb_ids(self, items: list) -> list:
         """Extract IMDb IDs and types from a list of items"""
