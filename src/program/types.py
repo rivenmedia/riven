@@ -30,7 +30,11 @@ Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[RealDebridDownloader, TorBoxDownloader, AllDebridDownloader]
 Service = Union[Content, SymlinkLibrary, Scraper, Downloader, Symlinker, Updater]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
-ProcessedEvent = (MediaItem, Service, list[MediaItem])
+
+class ProcessedEvent:
+    media_item: MediaItem
+    service: Service
+    related_media_items: list[MediaItem]
 
 
 @dataclass

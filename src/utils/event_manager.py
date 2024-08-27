@@ -111,8 +111,8 @@ class EventManager:
         """
         with self.mutex:
             self._running_events.append(event)
-            ws_manager.send_event_update(self._running_events, self._queued_events)
-            logger.debug(f"Added {event.item.log_string} to the running events.")
+        ws_manager.send_event_update(self._running_events, self._queued_events)
+        logger.debug(f"Added {event.item.log_string} to the running events.")
 
     def remove_item_from_running(self, item):
         """
@@ -121,10 +121,10 @@ class EventManager:
         Args:
             item (MediaItem): The event item to remove from the running events.
         """
-        with self.mutex:
-            for event in self._running_events:
-                if event.item.imdb_id == item.imdb_id:
-                    self._running_events.remove(event)
+        for event in self._running_events:
+            if event.item._id == item._id or event.item.type == "mediaitem" and event.item.imdb_id == item.imdb_id:
+                    with self.mutex:
+                        self._running_events.remove(event)
                     ws_manager.send_event_update(self._running_events, self._queued_events)
                     logger.debug(f"Removed {item.log_string} from the running events.")
                     return
@@ -190,11 +190,12 @@ class EventManager:
         start_time = time.time()
         while True:
             if self._queued_events:
-                self._queued_events.sort(key=lambda event: event.run_at, reverse=True)
-                if datetime.now() >= self._queued_events[0].run_at:
-                    event = self._queued_events.pop(0)
-                    ws_manager.send_event_update(self._running_events, self._queued_events)
-                    return event
+                with self.mutex:
+                    self._queued_events.sort(key=lambda event: event.run_at, reverse=True)
+                    if datetime.now() >= self._queued_events[0].run_at:
+                        event = self._queued_events.pop(0)
+                        ws_manager.send_event_update(self._running_events, self._queued_events)
+                        return event
             raise Empty
 
     def _id_in_queue(self, _id):
@@ -231,21 +232,17 @@ class EventManager:
         Returns:
             bool: True if the event was added to the queue, False if it was already present.
         """
-        # Check if the event's item is already in the queue
-        if any(event.item.imdb_id and qi.item.imdb_id == event.item.imdb_id for qi in self._queued_events):
-            logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
-            return False
-        # Check if the event's item is already running
-        elif any(event.item.imdb_id and ri.item.imdb_id == event.item.imdb_id for ri in self._running_events):
-            logger.debug(f"Item {event.item.log_string} is already running, skipping.")
-            return False
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
             item_id, related_ids = _get_item_ids(session, event.item)
-            if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
+            if self._id_in_queue(item_id):
+                logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
+            if self._id_in_running_events(item_id):
+                logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
             for related_id in related_ids:
                 if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
+                    logger.debug(f"Child of {event.item.log_string} is already in the queue or running, skipping.")
                     return False
 
         # Log the addition of the event to the queue

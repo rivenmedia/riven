@@ -119,7 +119,6 @@ class Symlinker:
         """Check if the item should be submitted for symlink creation."""
         random_item = random.choice(items)
         if not get_item_path(random_item):
-            logger.debug(f"File not found for {random_item.log_string} at the moment, waiting for it to become available")
             return False
         else:
             return True
@@ -313,6 +312,35 @@ class Symlinker:
                 showyear = item.parent.parent.aired_at.year
                 filename = f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
         return filename
+
+    def delete_item_symlinks(self, item: "MediaItem") -> bool:
+        """Delete symlinks and directories based on the item type."""
+        if not isinstance(item, (Movie, Show)):
+            logger.debug(f"skipping delete symlink for {item.log_string}: Not a movie or show")
+            return False
+        item_path = None
+        if isinstance(item, Show):
+            base_path = self.library_path_anime_shows if item.is_anime else self.library_path_shows
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+        elif isinstance(item, Movie):
+            base_path = self.library_path_anime_movies if item.is_anime else self.library_path_movies
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+        return _delete_symlink(item, item_path)
+
+def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
+    try:
+        if item_path.exists():
+            shutil.rmtree(item_path)
+            logger.debug(f"Deleted symlink Directory for {item.log_string}")
+            return True
+        logger.debug(f"Symlink Directory for {item.log_string} does not exist")
+    except FileNotFoundError as e:
+        logger.error(f"File not found error when deleting symlink for {item.log_string}: {e}")
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting symlink for {item.log_string}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
+    return False
 
 def get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
     """Quickly check if the file exists in the rclone path."""

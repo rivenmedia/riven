@@ -321,19 +321,15 @@ class Program(threading.Thread):
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
-                if processed_item and processed_item.state == States.Completed:
-                    if processed_item.type in ["show", "movie"]:
-                        logger.success(f"Item has been completed: {processed_item.log_string}")
-
-                    if settings_manager.settings.notifications.enabled:
-                            notify_on_complete(processed_item)
-
                 self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
-                        self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
-                        self.em.submit_job(next_service, self, item_to_submit)
+                        if not next_service:
+                            self.em.add_event_to_queue(Event("StateTransition", item_to_submit))
+                        else:
+                            self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
+                            self.em.submit_job(next_service, self, item_to_submit)
                 if isinstance(processed_item, MediaItem):
                     processed_item.store_state()
                 session.commit()
