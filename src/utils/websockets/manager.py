@@ -22,9 +22,12 @@ def disconnect(websocket: WebSocket):
     logger.debug("Frontend disconnected!")
     existing_connection = next((connection for connection in active_connections if connection.app == websocket.app), None)
     active_connections.remove(existing_connection)
-    
+
 async def _send_json(message: json, websocket: WebSocket):
-    await websocket.send_json(message)
+    try:
+        await websocket.send_json(message)
+    except Exception:
+        pass
 
 def send_event_update(running, queued):
     message = {"running": [{"emitted_by":event.emitted_by, "item":event.item._id} for event in running], "queued": [{"emitted_by":event.emitted_by, "item":event.item._id} for event in queued]}

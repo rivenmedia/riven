@@ -74,7 +74,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
         items_to_submit = [item]
 
     elif item.state == States.Completed:
-        notify(item)
+        # If a user manually retries an item, lets not notify them again
+        if emitted_by != "Manual":
+            notify(item)
         # Avoid multiple post-processing runs
         if not emitted_by == PostProcessing:
             if settings_manager.settings.post_processing.subliminal.enabled:
