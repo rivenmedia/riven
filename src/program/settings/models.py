@@ -95,10 +95,6 @@ class Updatable(Observable):
 # Updaters
 
 
-class LocalLibraryModel(Observable):
-    enabled: bool = False
-
-
 class PlexLibraryModel(Observable):
     enabled: bool = False
     token: str = ""
@@ -107,7 +103,6 @@ class PlexLibraryModel(Observable):
 
 class UpdatersModel(Observable):
     updater_interval: int = 120
-    local: LocalLibraryModel = LocalLibraryModel()
     plex: PlexLibraryModel = PlexLibraryModel()
 
 
