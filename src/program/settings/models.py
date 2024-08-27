@@ -348,22 +348,12 @@ class SubliminalConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
     providers: dict = {
-        "addic7ed": {
+        "opensubtitles": {
             "enabled": False,
             "username": "",
             "password": ""
         },
-        "napiprojekt": {
-            "enabled": False,
-            "username": "",
-            "password": ""
-        },
-        "opensubtitlesvip": {
-            "enabled": False,
-            "username": "",
-            "password": ""
-        },
-        "opensubtitlescomvip": {
+        "opensubtitlescom": {
             "enabled": False,
             "username": "",
             "password": ""
