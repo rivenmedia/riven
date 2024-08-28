@@ -1,20 +1,5 @@
-from RTN.models import BaseRankingModel
+from RTN.models import BaseRankingModel, DefaultRanking
 from utils.logger import logger
-
-
-class DefaultRanking(BaseRankingModel):
-    uhd: int = -1000
-    fhd: int = 100
-    hd: int = 50
-    sd: int = -100
-    dolby_video: int = -100
-    aac: int = 70
-    ac3: int = 50
-    remux: int = -1000
-    webdl: int = 90
-    bluray: int = 80
-    dvdrip: int = -100
-    hdtv: int = -100
 
 
 class BestRemuxRanking(BaseRankingModel):
@@ -147,12 +132,12 @@ class RankModels:
 
     default: DefaultRanking = DefaultRanking()
     custom: BaseRankingModel = BaseRankingModel()
-    remux: BestRemuxRanking = BestRemuxRanking()
-    web: BestWebRanking = BestWebRanking()
-    resolution: BestResolutionRanking = BestResolutionRanking()
-    overall: BestOverallRanking = BestOverallRanking()
-    anime: AnimeRanking = AnimeRanking()
-    all: AllRanking = AllRanking()
+    # remux: BestRemuxRanking = BestRemuxRanking()
+    # web: BestWebRanking = BestWebRanking()
+    # resolution: BestResolutionRanking = BestResolutionRanking()
+    # overall: BestOverallRanking = BestOverallRanking()
+    # anime: AnimeRanking = AnimeRanking()
+    # all: AllRanking = AllRanking()
 
     @classmethod
     def get(cls, name: str) -> BaseRankingModel:

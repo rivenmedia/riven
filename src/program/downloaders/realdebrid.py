@@ -86,11 +86,16 @@ class RealDebridDownloader:
 
             # Wait for all futures to be done
             for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                if isinstance(result, dict):
-                    item.active_stream = result
-                    for future in futures:
-                        future.cancel()
+                try:
+                    result = future.result()
+                    if isinstance(result, dict):
+                        item.active_stream = result
+                        for future in futures:
+                            if not future.done():
+                                future.cancel()
+                except concurrent.futures.CancelledError:
+                    # Future was cancelled, continue processing
+                    continue
 
         if not item.active_stream.get("infohash", False):
             for stream in item.streams:
@@ -187,7 +192,7 @@ def get_cached_chunked_containers(infohashes: list[str], needed_media: dict, bre
 def filename_matches_show(filename):
     try:
         parsed_data = parse(filename)
-        return parsed_data.season[0], parsed_data.episode
+        return parsed_data.seasons[0], parsed_data.episodes
     except Exception:
         return None, None
 

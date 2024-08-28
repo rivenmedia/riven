@@ -3,6 +3,8 @@ from pathlib import Path
 import re
 from typing import Any, Callable, Dict, List
 
+from regex import Pattern
+
 from program.settings.migratable import MigratableBaseModel
 from pydantic import BaseModel, field_validator
 from RTN.models import CustomRank, SettingsModel
@@ -279,40 +281,6 @@ class ScraperModel(Observable):
 
 class RTNSettingsModel(SettingsModel, Observable):
     profile: str = "default"
-    custom_ranks: Dict[str, CustomRank] = {
-        "uhd": CustomRank(fetch=False, rank=120),
-        "fhd": CustomRank(fetch=True, rank=100),
-        "hd": CustomRank(fetch=True, rank=80),
-        "sd": CustomRank(fetch=False, rank=-120),
-        "bluray": CustomRank(fetch=True, rank=80),
-        "hdr": CustomRank(fetch=False, rank=80),
-        "hdr10": CustomRank(fetch=False, rank=90),
-        "dolby_video": CustomRank(fetch=False, rank=-100),
-        "dts_x": CustomRank(fetch=False, rank=0),
-        "dts_hd": CustomRank(fetch=False, rank=0),
-        "dts_hd_ma": CustomRank(fetch=False, rank=0),
-        "atmos": CustomRank(fetch=False, rank=0),
-        "truehd": CustomRank(fetch=False, rank=0),
-        "ddplus": CustomRank(fetch=False, rank=0),
-        "aac": CustomRank(fetch=True, rank=70),
-        "ac3": CustomRank(fetch=True, rank=50),
-        "remux": CustomRank(fetch=False, rank=-1000),
-        "webdl": CustomRank(fetch=True, rank=90),
-        "repack": CustomRank(fetch=True, rank=5),
-        "proper": CustomRank(fetch=True, rank=4),
-        "dubbed": CustomRank(fetch=True, rank=3),
-        "subbed": CustomRank(fetch=True, rank=3),
-        "av1": CustomRank(fetch=False, rank=0),
-        "h264": CustomRank(fetch=True, rank=0),
-        "h265": CustomRank(fetch=True, rank=0),
-        "hevc": CustomRank(fetch=True, rank=0),
-        "avc": CustomRank(fetch=True, rank=0),
-        "dvdrip": CustomRank(fetch=True, rank=-100),
-        "bdrip": CustomRank(fetch=True, rank=5),
-        "brrip": CustomRank(fetch=True, rank=0),
-        "hdtv": CustomRank(fetch=True, rank=-100),
-    }
-
 
 # Application Settings
 

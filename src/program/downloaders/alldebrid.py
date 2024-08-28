@@ -17,7 +17,7 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.exceptions import GarbageTorrent
 from RTN.parser import parse
-from RTN.patterns import extract_episodes
+from RTN.extras import extract_episodes
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, ping, post
@@ -291,7 +291,7 @@ class AllDebridDownloader:
     
         with contextlib.suppress(GarbageTorrent, TypeError):
             parsed_file = parse(file["n"], remove_trash=True)
-            if parsed_file and item.number in parsed_file.episode and (item.parent.number in parsed_file.season or one_season):
+            if parsed_file and item.number in parsed_file.episodes and (item.parent.number in parsed_file.seasons or one_season):
                 item.set("folder", item.active_stream.get("name"))
                 item.set("alternative_folder", item.active_stream.get("alternative_name"))
                 item.set("file", file["n"])

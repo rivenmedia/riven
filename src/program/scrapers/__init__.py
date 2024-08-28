@@ -114,7 +114,7 @@ class Scraping:
 
         if sorted_streams and (log and settings_manager.settings.debug):
             item_type = item.type.title()
-            top_results = sorted(sorted_streams.values(), key=lambda x: x.rank, reverse=True)[:10]
+            top_results = list(sorted_streams.values())[:20]
             for sorted_tor in top_results:
                 if isinstance(item, (Movie, Show)):
                     logger.debug(f"[{item_type}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")

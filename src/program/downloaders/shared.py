@@ -53,7 +53,7 @@ class FileFinder:
         if item.type == "movie":
             for file in files:
                 with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file[self.filename_attr], remove_trash=True)
+                    parsed_file = parse(file[self.filename_attr])
                     if parsed_file.type == "movie":
                         return_files.append(file)
         if item.type == "show":
@@ -74,14 +74,14 @@ class FileFinder:
 
             for file in files:
                 with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file[self.filename_attr], remove_trash=True)
-                    if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
+                    parsed_file = parse(file[self.filename_attr])
+                    if not parsed_file or not parsed_file.episodes or 0 in parsed_file.seasons:
                         continue
 
                     # Check each season and episode to find a match
                     for season_number, episodes in needed_episodes.items():
-                        if one_season or season_number in parsed_file.season:
-                            for episode_number in parsed_file.episode:
+                        if one_season or season_number in parsed_file.seasons:
+                            for episode_number in parsed_file.episodes:
                                 if episode_number in episodes:
                                     # Store the matched file for this episode
                                     matched_files.setdefault((season_number, episode_number), []).append(file)
@@ -112,16 +112,16 @@ class FileFinder:
             
             for file in files:
                 with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file[self.filename_attr], remove_trash=True)
-                    if not parsed_file or not parsed_file.episode or 0 in parsed_file.season:
+                    parsed_file = parse(file[self.filename_attr])
+                    if not parsed_file or not parsed_file.episodes or 0 in parsed_file.seasons:
                         continue
 
-                    if one_season or item.number in parsed_file.season:
-                        for episode_number in parsed_file.episode:
+                    if one_season or item.number in parsed_file.seasons:
+                        for episode_number in parsed_file.episodes:
                             if episode_number in needed_episodes:
                                 matched_files.setdefault(episode_number, []).append(file)
                                 
-            matched_episodes = sum(len(files) for files in matched_files.values())
+            # matched_episodes = sum(len(files) for files in matched_files.values())
 
             if set(needed_episodes).issubset(matched_files):
                 for files in matched_files.values():
@@ -135,11 +135,13 @@ class FileFinder:
                 if not file or not file.get(self.filename_attr):
                     continue
                 with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file[self.filename_attr], remove_trash=True)
+                    parsed_file = parse(file[self.filename_attr])
                     if (
-                        item.number in parsed_file.episode
-                        and item.parent.number in parsed_file.season
+                        item.number in parsed_file.episodes
+                        and item.parent.number in parsed_file.seasons
                     ):
+                        return_files.append(file)
+                    elif len(item.parent.parent.seasons) == 1 and item.number in parsed_file.episodes:
                         return_files.append(file)
 
         return return_files
