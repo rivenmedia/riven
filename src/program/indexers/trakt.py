@@ -25,20 +25,22 @@ class TraktIndexer:
     @staticmethod
     def copy_attributes(source, target):
         """Copy attributes from source to target."""
-        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles", "requested_by", "requested_at", "overseerr_id", "active_stream", "requested_id"]
+        attributes = ["file", "folder", "update_folder", "symlinked", "symlink_path", "subtitles", "requested_by", "requested_at", "overseerr_id", "active_stream", "requested_id"]
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
+        is_anime = itema.is_anime or itemb.is_anime
         if isinstance(itema, (MediaItem, Show)) and isinstance(itemb, Show):
             for seasona, seasonb in zip(itema.seasons, itemb.seasons):
                 for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
                     self.copy_attributes(episodea, episodeb)
-                seasonb.set("is_anime", itema.is_anime)
-            itemb.set("is_anime", itema.is_anime)
+                    episodeb.set("is_anime", is_anime)
+                seasonb.set("is_anime", is_anime)
         elif isinstance(itema, (MediaItem, Movie)) and isinstance(itemb, Movie):
             self.copy_attributes(itema, itemb)
+        itemb.set("is_anime", is_anime)
         return itemb
             
     def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
