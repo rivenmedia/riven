@@ -11,3 +11,10 @@ class States(Enum):
     Completed = "Completed"
     PartiallyCompleted = "PartiallyCompleted"
     Failed = "Failed"
+
+
+class OverseerrStatus(Enum):
+    Requested = "Requested"
+    Pending = "Pending"
+    Available = "Available"
+    PartiallyAvailable = "PartiallyAvailable"
