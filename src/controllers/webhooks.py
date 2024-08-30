@@ -2,11 +2,15 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
+from requests.exceptions import ConnectionError, RequestException, RetryError
+
 from program.content.overseerr import Overseerr
 from program.indexers.trakt import get_imdbid_from_tmdb, get_imdbid_from_tvdb
 from program.media.item import MediaItem
-from requests import RequestException
+from program.media.state import OverseerrStatus
+from program.settings.manager import settings_manager
 from utils.logger import logger
+from utils.request import get
 
 from .models.overseerr import OverseerrWebhook
 
@@ -32,7 +36,6 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to process request: {e}")
         return {"success": False, "message": "Failed to process request"}
-
 
     imdb_id = req.media.imdbId
     if not imdb_id:
@@ -61,8 +64,36 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     else:
         overseerr.recurring_items.add(imdb_id)
 
+    req_id = req.request.request_id
+    overseerr_config = settings_manager.settings.content.overseerr
+    header = {"X-Api-Key": overseerr_config.api_key}
+
     try:
-        new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr"})
+        resp = get(
+            overseerr_config.url + f"/api/v1/request/{req_id}",
+            additional_headers=header,
+        )
+    except (ConnectionError, RetryError) as e:
+        logger.error(
+            f"Failed to fetch requests from overseerr to get mediaId: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during fetching requests to get mediaId: {str(e)}"
+        )
+
+    media_id = resp.data.media.id
+
+    try:
+        new_item = MediaItem(
+            {
+                "imdb_id": imdb_id,
+                "requested_by": "overseerr",
+                "last_overseerr_status": OverseerrStatus.Requested.name,
+            }
+        )
+        if media_id:
+            new_item.set("overseerr_id", media_id)
         request.app.program.em.add_item(new_item)
     except Exception:
         logger.error(f"Failed to create item from imdb_id: {imdb_id}")
