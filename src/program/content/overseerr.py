@@ -6,6 +6,7 @@ from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError, RetryError
+from program.media.state import OverseerrStatus
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 from utils.logger import logger
 from utils.request import delete, get, ping, post
@@ -13,11 +14,12 @@ from utils.request import delete, get, ping, post
 
 class Overseerr:
     """Content class for overseerr"""
+    api_url: str = settings_manager.settings.content.overseerr.url + "/api/v1"
+    headers = {"X-Api-Key": settings_manager.settings.content.overseerr.api_key}
 
     def __init__(self):
         self.key = "overseerr"
         self.settings = settings_manager.settings.content.overseerr
-        self.headers = {"X-Api-Key": self.settings.api_key}
         self.initialized = self.validate()
         self.run_once = False
         if not self.initialized:
@@ -34,8 +36,8 @@ class Overseerr:
             return False
         try:
             response = ping(
-                self.settings.url + "/api/v1/auth/me",
-                additional_headers=self.headers,
+                f"{Overseerr.api_url}/auth/me",
+                additional_headers=Overseerr.headers,
                 timeout=30,
             )
             if response.status_code >= 201:
@@ -61,8 +63,8 @@ class Overseerr:
 
         try:
             response = get(
-                self.settings.url + f"/api/v1/request?take={10000}&filter=approved&sort=added",
-                additional_headers=self.headers,
+                f"{Overseerr.api_url}/request?take={10000}&filter=approved&sort=added",
+                additional_headers=Overseerr.headers,
             )
         except (ConnectionError, RetryError, MaxRetryError) as e:
             logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
@@ -90,7 +92,7 @@ class Overseerr:
                 if not imdb_id or imdb_id in self.recurring_items:
                     continue
                 self.recurring_items.add(imdb_id)
-                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId, "requested_id": item.id})
+                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId, "last_overseerr_status": OverseerrStatus.Requested.name, "requested_id": item.id})
                 if media_item:
                     yield media_item
                 else:
@@ -112,8 +114,8 @@ class Overseerr:
 
         try:
             response = get(
-                self.settings.url + f"/api/v1/{data.mediaType}/{external_id}?language=en",
-                additional_headers=self.headers,
+                f"{Overseerr.api_url}/{data.mediaType}/{external_id}?language=en",
+                additional_headers=Overseerr.headers,
             )
         except (ConnectionError, RetryError, MaxRetryError) as e:
             logger.error(f"Failed to fetch media details from overseerr: {str(e)}")
@@ -149,68 +151,62 @@ class Overseerr:
     @staticmethod
     def delete_request(mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
-        settings = settings_manager.settings.content.overseerr
-        headers = {"X-Api-Key": settings.api_key}
         try:
             response = delete(
-                settings.url + f"/api/v1/request/{mediaId}",
-                additional_headers=headers,
+                f"{Overseerr.api_url}/request/{mediaId}",
+                additional_headers=Overseerr.headers,
             )
             logger.debug(f"Deleted request {mediaId} from overseerr")
-            return response.is_ok == True
+            return response.is_ok
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")
             return False
 
     @staticmethod
-    def mark_processing(mediaId: int) -> bool:
-        """Mark item as processing in overseerr"""
-        settings = settings_manager.settings.content.overseerr
-        headers = {"X-Api-Key": settings.api_key}
+    def mark_pending(mediaId: int) -> bool:
+        """Mark item as pending in overseerr"""
         try:
             response = post(
-                settings.url + f"/api/v1/media/{mediaId}/pending",
-                additional_headers=headers,
-                data={"is4k": False},
+                f"{Overseerr.api_url}/media/{mediaId}/pending",
+                additional_headers=Overseerr.headers,
+                json={"is4k": False},
             )
-            logger.info(f"Marked media {mediaId} as processing in overseerr")
+            logger.info(f"Marked media {mediaId} as pending in overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error(f"Failed to mark media as processing in overseerr with id {mediaId}: {str(e)}")
+            logger.error(f"Failed to mark media as pending in overseerr with id {mediaId}: {str(e)}")
             return False
 
     @staticmethod
     def mark_partially_available(mediaId: int) -> bool:
         """Mark item as partially available in overseerr"""
-        settings = settings_manager.settings.content.overseerr
-        headers = {"X-Api-Key": settings.api_key}
         try:
             response = post(
-                settings.url + f"/api/v1/media/{mediaId}/partial",
-                additional_headers=headers,
-                data={"is4k": False},
+                f"{Overseerr.api_url}/media/{mediaId}/partial",
+                additional_headers=Overseerr.headers,
+                json={"is4k": False},
             )
-            logger.info(f"Marked media {mediaId} as partially available in overseerr")
+            if response.is_ok:
+                logger.info(f"Marked media {mediaId} as partially available in overseerr")
             return response.is_ok
         except Exception as e:
             logger.error(f"Failed to mark media as partially available in overseerr with id {mediaId}: {str(e)}")
             return False
 
     @staticmethod
-    def mark_completed(mediaId: int) -> bool:
-        """Mark item as completed in overseerr"""
-        settings = settings_manager.settings.content.overseerr
-        headers = {"X-Api-Key": settings.api_key}
+    def mark_available(mediaId: int) -> bool:
+        """Mark item as available in overseerr"""
         try:
             response = post(
-                settings.url + f"/api/v1/media/{mediaId}/available",
-                additional_headers=headers,
-                data={"is4k": False},
+                f"{Overseerr.api_url}/media/{mediaId}/available",
+                additional_headers=Overseerr.headers,
+                json={"is4k": False},
             )
-            logger.info(f"Marked media {mediaId} as completed in overseerr")
+            if response.is_ok:
+                logger.info(f"Marked media {mediaId} as available in overseerr")
             return response.is_ok
         except Exception as e:
-            logger.error(f"Failed to mark media as completed in overseerr with id {mediaId}: {str(e)}")
+            logger.error(f"Failed to mark media as available in overseerr with id {mediaId}: {str(e)}")
             return False
 
 
