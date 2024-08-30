@@ -166,6 +166,16 @@ class MediaItem(db.Model):
 
     def blacklist_stream(self, stream: Stream):
         return blacklist_stream(self, stream)
+    
+    def get_parent(self) -> Self:
+        parent = self.get("parent")
+        while parent:
+            p_parent = parent.get("parent")
+            if p_parent is None:
+                return parent
+            parent = p_parent
+
+        return self
 
     @property
     def is_released(self) -> bool:
