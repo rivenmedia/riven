@@ -31,7 +31,7 @@ class TraktIndexer:
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
-        if isinstance(itema, (MediaItem, Show)) and isinstance(itemb, Show):
+        if isinstance(itema, Show) and isinstance(itemb, Show):
             for seasona, seasonb in zip(itema.seasons, itemb.seasons):
                 for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
                     self.copy_attributes(episodea, episodeb)
@@ -51,6 +51,8 @@ class TraktIndexer:
             return
         
         item = create_item_from_imdb_id(imdb_id)
+        item.overseerr_id = in_item.overseerr_id
+        item.last_overseerr_status = in_item.last_overseerr_status
 
         if not isinstance(item, MediaItem):
             logger.error(f"Failed to get item from imdb_id: {imdb_id}")
@@ -92,9 +94,13 @@ class TraktIndexer:
                 continue
             season_item = _map_item_from_data(season, "season", show.genres)
             if season_item:
+                season_item.overseerr_id = show.overseerr_id
+                season_item.last_overseerr_status = show.last_overseerr_status
                 for episode in season.episodes:
                     episode_item = _map_item_from_data(episode, "episode", show.genres)
                     if episode_item:
+                        episode_item.overseerr_id = show.overseerr_id
+                        episode_item.last_overseerr_status = show.last_overseerr_status
                         season_item.add_episode(episode_item)
                 show.add_season(season_item)
 
