@@ -31,7 +31,7 @@ class Downloader:
         needed_media = get_needed_media(item)
         hashes = [stream.infohash for stream in item.streams if stream.infohash not in self.service.existing_hashes]
         cached_streams = self.get_cached_streams(hashes, needed_media)
-        if cached_streams:
+        if len(cached_streams) > 0:
             item.active_stream = cached_streams[0]
             try:
                 self.download(item, item.active_stream)
@@ -68,7 +68,7 @@ class Downloader:
                     _result = future.result()
                 except CancelledError:
                     continue
-                if isinstance(_result, dict):
+                if isinstance(_result, dict) and len(_result) > 0:
                     results.append(_result)
                     if break_on_first:
                         for future in futures:
