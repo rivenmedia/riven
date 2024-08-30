@@ -9,8 +9,7 @@ from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
-from program.updaters import Updater
-from utils.logger import logger
+from program.updaters import Updater, OverseerrUpdater
 from program.settings.manager import settings_manager
 
 
@@ -29,6 +28,10 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             existing_item = existing_item.parent if existing_item else None
         if existing_item and not TraktIndexer.should_submit(existing_item):
             return no_further_processing
+        return None, next_service, [item]
+    
+    elif item.last_overseerr_status is not None and item.last_overseerr_status != item.overseerr_status.name:
+        next_service = OverseerrUpdater
         return None, next_service, [item]
 
     elif item.state in (States.Indexed, States.PartiallyCompleted):
