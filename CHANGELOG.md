@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/rivenmedia/riven/compare/v0.11.0...v0.11.1) (2024-08-30)
+
+
+### Miscellaneous Chores
+
+* release 0.11.1 ([4453a15](https://github.com/rivenmedia/riven/commit/4453a15d7d82edadbac8d9a96941217d09467798))
+
 ## [0.11.0](https://github.com/rivenmedia/riven/compare/v0.10.5...v0.11.0) (2024-08-30)
 
 
