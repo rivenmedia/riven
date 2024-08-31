@@ -351,6 +351,7 @@ class Program(threading.Thread):
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
+                time.sleep(0.1)
                 continue
 
 
