@@ -146,12 +146,12 @@ class TorBoxDownloader:
             and splitext(file["name"].lower())[1] in WANTED_FORMATS
         ]
 
+        parsed_file = parse(file["name"])
+
         if item.type == "movie":
             for file in files:
-                with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file["name"], remove_trash=True)
-                    if parsed_file.type == "movie":
-                        return [file]
+                if parsed_file.type == "movie":
+                    return [file]
         if item.type == "show":
             # Create a dictionary to map seasons and episodes needed
             needed_episodes = {}
@@ -179,22 +179,17 @@ class TorBoxDownloader:
             # the season and episode within the show
             matched_files = []
             for file in files:
-                with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file["name"], remove_trash=True)
-                    if (
-                        not parsed_file
-                        or not parsed_file.parsed_title
-                        or 0 in parsed_file.season
-                    ):
-                        continue
-                    # Check each season and episode to find a match
-                    for season_number, episodes in needed_episodes.items():
-                        if season_number in parsed_file.season:
-                            for episode_number in list(episodes):
-                                if episode_number in parsed_file.episode:
-                                    # Store the matched file for this episode
-                                    matched_files.append(file)
-                                    episodes.remove(episode_number)
+                if not parsed_file.seasons or parsed_file.seasons == [0]:
+                    continue
+
+                # Check each season and episode to find a match
+                for season_number, episodes in needed_episodes.items():
+                    if season_number in parsed_file.season:
+                        for episode_number in list(episodes):
+                            if episode_number in parsed_file.episode:
+                                # Store the matched file for this episode
+                                matched_files.append(file)
+                                episodes.remove(episode_number)
             if not matched_files:
                 return False
 
@@ -217,19 +212,13 @@ class TorBoxDownloader:
             for file in files:
                 if not file or not file.get("name"):
                     continue
-                with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file["name"], remove_trash=True)
-                    if (
-                        not parsed_file
-                        or not parsed_file.episode
-                        or 0 in parsed_file.season
-                    ):
-                        continue
-                    # Check if the file's season matches the item's season or if there's only one season
-                    if season_num in parsed_file.season or one_season:
-                        for ep_num in parsed_file.episode:
-                            if ep_num in needed_episodes:
-                                matched_files.append(file)
+                if not parsed_file.seasons or parsed_file.seasons == [0]: # skip specials
+                    continue
+                # Check if the file's season matches the item's season or if there's only one season
+                if season_num in parsed_file.seasons or one_season:
+                    for ep_num in parsed_file.episodes:
+                        if ep_num in needed_episodes:
+                            matched_files.append(file)
             if not matched_files:
                 return False
 
@@ -240,13 +229,11 @@ class TorBoxDownloader:
             for file in files:
                 if not file or not file.get("name"):
                     continue
-                with contextlib.suppress(GarbageTorrent, TypeError):
-                    parsed_file = parse(file["name"], remove_trash=True)
-                    if (
-                        item.number in parsed_file.episode
-                        and item.parent.number in parsed_file.season
-                    ):
-                        return [file]
+                if (
+                    item.number in parsed_file.episodes
+                    and item.parent.number in parsed_file.seasons
+                ):
+                    return [file]
 
         return []
 

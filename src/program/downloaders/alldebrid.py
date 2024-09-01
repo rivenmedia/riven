@@ -17,7 +17,7 @@ from program.settings.manager import settings_manager
 from requests import ConnectTimeout
 from RTN.exceptions import GarbageTorrent
 from RTN.parser import parse
-from RTN.patterns import extract_episodes
+from RTN.extras import extract_episodes
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, ping, post
@@ -266,13 +266,12 @@ class AllDebridDownloader:
         if not isinstance(file, dict) or file.get("s", 0) < min_size or file.get("s", 0) > max_size or splitext(file.get("n", "").lower())[1] not in WANTED_FORMATS:
             return False
     
-        with contextlib.suppress(GarbageTorrent, TypeError):
-            parsed_file = parse(file["n"], remove_trash=True)
-            if parsed_file and parsed_file.type == "movie":
-                item.set("folder", item.active_stream.get("name"))
-                item.set("alternative_folder", item.active_stream.get("alternative_name", None))
-                item.set("file", file["n"])
-                return True
+        parsed_file = parse(file["n"])
+        if parsed_file and parsed_file.type == "movie":
+            item.set("folder", item.active_stream.get("name"))
+            item.set("alternative_folder", item.active_stream.get("alternative_name", None))
+            item.set("file", file["n"])
+            return True
         return False
 
     def _is_wanted_episode(self, file: dict, item: Episode) -> bool:
@@ -289,13 +288,12 @@ class AllDebridDownloader:
     
         one_season = len(item.parent.parent.seasons) == 1
     
-        with contextlib.suppress(GarbageTorrent, TypeError):
-            parsed_file = parse(file["n"], remove_trash=True)
-            if parsed_file and item.number in parsed_file.episode and (item.parent.number in parsed_file.season or one_season):
-                item.set("folder", item.active_stream.get("name"))
-                item.set("alternative_folder", item.active_stream.get("alternative_name"))
-                item.set("file", file["n"])
-                return True
+        parsed_file = parse(file["n"])
+        if parsed_file and item.number in parsed_file.episodes and (item.parent.number in parsed_file.seasons or one_season):
+            item.set("folder", item.active_stream.get("name"))
+            item.set("alternative_folder", item.active_stream.get("alternative_name"))
+            item.set("file", file["n"])
+            return True
         return False
 
     def _is_wanted_season(self, files: list, item: Season) -> bool:
@@ -324,12 +322,11 @@ class AllDebridDownloader:
         season_num = item.number
     
         for file in filenames:
-            with contextlib.suppress(GarbageTorrent, TypeError):
-                parsed_file = parse(file["n"], remove_trash=True)
-                if parsed_file and (season_num in parsed_file.season or one_season):
-                    for ep_num in parsed_file.episode:
-                        if ep_num in needed_episodes:
-                            matched_files[ep_num] = file["n"]
+            parsed_file = parse(file["n"])
+            if parsed_file and (season_num in parsed_file.seasons or one_season):
+                for ep_num in parsed_file.episodes:
+                    if ep_num in needed_episodes:
+                        matched_files[ep_num] = file["n"]
     
         if not matched_files:
             return False
@@ -375,15 +372,14 @@ class AllDebridDownloader:
     
         matched_files = {}
         for file in filenames:
-            with contextlib.suppress(GarbageTorrent, TypeError):
-                parsed_file = parse(file["n"], remove_trash=True)
-                if parsed_file:
-                    for season_number, episodes in needed_episodes.items():
-                        if season_number in parsed_file.season:
-                            for episode_number in list(episodes):
-                                if episode_number in parsed_file.episode:
-                                    matched_files[(season_number, episode_number)] = file
-                                    episodes.remove(episode_number)
+            parsed_file = parse(file["n"])
+            if parsed_file:
+                for season_number, episodes in needed_episodes.items():
+                    if season_number in parsed_file.seasons:
+                        for episode_number in list(episodes):
+                            if episode_number in parsed_file.episodes:
+                                matched_files[(season_number, episode_number)] = file
+                                episodes.remove(episode_number)
     
         if not matched_files:
             return False

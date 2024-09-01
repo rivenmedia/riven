@@ -650,7 +650,7 @@ class Episode(MediaItem):
         if not self.file or not isinstance(self.file, str):
             raise ValueError("The file attribute must be a non-empty string.")
         # return list of episodes
-        return parse(self.file).episode
+        return parse(self.file).episodes
 
     @property
     def log_string(self):

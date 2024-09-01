@@ -1,10 +1,14 @@
+from typing import TYPE_CHECKING
 from RTN import Torrent
 from sqlalchemy import Index
 
 from program.db.db import db
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from loguru import logger
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
+
 
 class StreamRelation(db.Model):
     __tablename__ = "StreamRelation"

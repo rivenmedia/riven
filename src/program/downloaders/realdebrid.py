@@ -2,15 +2,13 @@ from datetime import datetime
 from requests import ConnectTimeout
 from program.media.item import MediaItem
 from utils.ratelimiter import RateLimiter
-from .shared import FileFinder
+from .shared import FileFinder, VIDEO_EXTENSIONS
 import utils.request as request
 from loguru import logger
 from program.settings.manager import settings_manager as settings
 
 BASE_URL = "https://api.real-debrid.com/rest/1.0"
-VIDEO_EXTENSIONS = [
-    'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'm4v', 'webm', 'mpg', 'mpeg', 'm2ts', 'ts'
-]
+
 torrent_limiter = RateLimiter(1, 1)
 overall_limiter = RateLimiter(60, 60)
 

@@ -2,8 +2,18 @@ from RTN import parse
 
 from program.media.item import MediaItem
 from program.media.state import States
+from program.settings.manager import settings_manager
 
-WANTED_FORMATS = {".mkv", ".mp4", ".avi"}
+
+DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
+ALLOWED_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "m4v", "webm", "mpg", "mpeg", "m2ts", "ts"]
+
+VIDEO_EXTENSIONS = settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
+VIDEO_EXTENSIONS = [ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS]
+
+if not VIDEO_EXTENSIONS:
+    VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
+
 
 class FileFinder:
     """
@@ -26,7 +36,7 @@ class FileFinder:
     def filename_matches_show(self, filename):
         try:
             parsed_data = parse(filename)
-            return parsed_data.season[0], parsed_data.episode
+            return parsed_data.seasons[0], parsed_data.episodes
         except Exception:
             return None, None
 

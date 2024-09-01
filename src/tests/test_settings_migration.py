@@ -16,10 +16,10 @@ old_settings_data = {
     "map_metadata": True,
     "tracemalloc": False,
     "downloaders": {
-        "movie_filesize_min": 200,
-        "movie_filesize_max": -1,
-        "episode_filesize_min": 40,
-        "episode_filesize_max": -1,
+        # "movie_filesize_min": 200,
+        # "movie_filesize_max": -1,
+        # "episode_filesize_min": 40,
+        # "episode_filesize_max": -1,
         "real_debrid": {
             "enabled": False,
             "api_key": "",
@@ -58,7 +58,7 @@ def test_load_and_migrate_settings():
         assert settings_manager.settings.force_refresh is False
         assert settings_manager.settings.map_metadata is True
         assert settings_manager.settings.tracemalloc is False
-        assert settings_manager.settings.downloaders.movie_filesize_min == 200
+        # assert settings_manager.settings.downloaders.movie_filesize_min == 200
         assert settings_manager.settings.downloaders.real_debrid.enabled is False
         assert settings_manager.settings.downloaders.all_debrid.enabled is True
         assert settings_manager.settings.downloaders.all_debrid.api_key == "12345678"

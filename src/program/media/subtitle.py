@@ -2,6 +2,10 @@ from pathlib import Path
 from program.db.db import db
 from sqlalchemy import Integer, String, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
 
 
 class Subtitle(db.Model):
