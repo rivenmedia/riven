@@ -3,7 +3,7 @@ import argparse
 from program.db.db_functions import hard_reset_database
 from program.settings.manager import settings_manager
 from program.libraries.symlink import fix_broken_symlinks
-from utils.logger import logger, scrub_logs
+from utils.logger import logger, log_cleaner
 
 
 def handle_args():
@@ -42,7 +42,7 @@ def handle_args():
         exit(0)
 
     if args.clean_logs:
-        scrub_logs()
+        log_cleaner()
         logger.info("Cleaned old logs.")
         exit(0)
 

@@ -73,21 +73,6 @@ def setup_logger(level):
         "<fg #990066>{module}</fg #990066>.<fg #990066>{function}</fg #990066> - <level>{message}</level>"
     )
 
-    # handlers = {
-    #     "sink": log_filename, 
-    #     "level": level, 
-    #     "format": log_format, 
-    #     "rotation": "50 MB", 
-    #     "retention": "8 hours", 
-    #     "compression": None, 
-    #     "backtrace": False, 
-    #     "diagnose": True,
-    #     "enqueue": True,
-    # }
-
-    # if LOG_ENABLED:
-    #     handlers.append(log_filename)
-
     logger.configure(handlers=[
         {
             "sink": sys.stderr,
@@ -122,7 +107,7 @@ def setup_logger(level):
     logger.add(WebSocketHandler(), format=log_format)
 
 
-def scrub_logs():
+def log_cleaner():
     """Remove old log files based on retention settings."""
     try:
         logs_dir_path = data_dir_path / "logs"

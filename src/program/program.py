@@ -20,7 +20,7 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
-from utils.logger import logger, scrub_logs
+from utils.logger import logger, log_cleaner
 from utils.event_manager import EventManager
 import utils.websockets.manager as ws_manager
 
@@ -120,7 +120,6 @@ class Program(threading.Thread):
             settings_manager.save()
 
         self.initialize_services()
-        scrub_logs()
 
         max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
         if max_worker_env_vars:
@@ -262,6 +261,7 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
