@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
-from program.downloaders.realdebrid import _matches_item
+from program.downloaders.realdebrid import RealDebridDownloader
 from program.media.item import Episode, Movie, Season, Show
 
+realdebrid_downloader = RealDebridDownloader()
 
 def test_matches_item_movie():
     torrent_info = SimpleNamespace(
@@ -11,7 +12,7 @@ def test_matches_item_movie():
         ]
     )
     item = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
-    assert _matches_item(torrent_info, item) is True
+    assert realdebrid_downloader._matches_item(torrent_info, item) is True
 
 def test_matches_item_episode():
     torrent_info = SimpleNamespace(
@@ -27,7 +28,7 @@ def test_matches_item_episode():
     episode.parent = parent_season
     parent_season.parent = parent_show
 
-    assert _matches_item(torrent_info, episode) is True
+    assert realdebrid_downloader._matches_item(torrent_info, episode) is True
 
 def test_matches_item_season():
     torrent_info = SimpleNamespace(
@@ -44,7 +45,7 @@ def test_matches_item_season():
     season.add_episode(episode2)
     show.add_season(season)
 
-    assert _matches_item(torrent_info, season) is True
+    assert realdebrid_downloader._matches_item(torrent_info, season) is True
 
 def test_matches_item_partial_season():
     torrent_info = SimpleNamespace(
@@ -60,12 +61,12 @@ def test_matches_item_partial_season():
     season.add_episode(episode2)
     show.add_season(season)
 
-    assert _matches_item(torrent_info, season) is False
+    assert realdebrid_downloader._matches_item(torrent_info, season) is False
 
 def test_matches_item_no_files():
     torrent_info = SimpleNamespace()
     item = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
-    assert _matches_item(torrent_info, item) is False
+    assert realdebrid_downloader._matches_item(torrent_info, item) is False
 
 def test_matches_item_no_selected_files():
     torrent_info = SimpleNamespace(
@@ -74,4 +75,4 @@ def test_matches_item_no_selected_files():
         ]
     )
     item = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
-    assert _matches_item(torrent_info, item) is False
+    assert realdebrid_downloader._matches_item(torrent_info, item) is False

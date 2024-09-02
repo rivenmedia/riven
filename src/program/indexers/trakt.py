@@ -32,6 +32,7 @@ class TraktIndexer:
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
+        is_anime = itema.is_anime or itemb.is_anime
         if itema.type == "mediaitem" and itemb.type == "show":
             itema.seasons = itemb.seasons
         if itemb.type == "show":
@@ -42,10 +43,11 @@ class TraktIndexer:
                             for episodeb in seasonb.episodes:
                                 if episodea.number == episodeb.number:  # Check if episodes match
                                     self.copy_attributes(episodea, episodeb)
-                        seasonb.set("is_anime", itema.is_anime)
-            itemb.set("is_anime", itema.is_anime)
+                        seasonb.set("is_anime", is_anime)
+            itemb.set("is_anime", is_anime)
         elif itemb.type == "movie":
             self.copy_attributes(itema, itemb)
+            itemb.set("is_anime", is_anime)
         else:
             logger.error(f"Item types {itema.type} and {itemb.type} do not match cant copy metadata")
         return itemb
