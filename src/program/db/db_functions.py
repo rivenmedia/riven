@@ -258,6 +258,11 @@ def _store_item(item: "MediaItem"):
         with db.Session() as session:
             _check_for_and_run_insertion_required(session, item)
 
+def _imdb_exists_in_db(imdb_id: str) -> bool:
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == imdb_id)).scalar_one() != 0
+
 def _get_item_from_db(session, item: "MediaItem"):
     from program.media.item import MediaItem, Movie, Show, Season, Episode
     if not _ensure_item_exists_in_db(item):
