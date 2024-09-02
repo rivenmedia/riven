@@ -169,6 +169,7 @@ def post(
         timeout=10,
         additional_headers=None,
         retry_if_failed=False,
+        response_type=SimpleNamespace,
         proxies=None,
         json: Optional[dict] = None,
         specific_rate_limiter: Optional[RateLimiter] = None,
@@ -184,6 +185,7 @@ def post(
         additional_headers=additional_headers,
         retry_if_failed=retry_if_failed,
         proxies=proxies,
+        response_type=response_type,
         json=json,
         specific_rate_limiter=specific_rate_limiter,
         overall_rate_limiter=overall_rate_limiter

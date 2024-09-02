@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Generator, List, Optional, Union
 
+from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
@@ -32,17 +33,25 @@ class TraktIndexer:
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
         is_anime = itema.is_anime or itemb.is_anime
-        if isinstance(itema, (MediaItem, Show)) and isinstance(itemb, Show):
-            for seasona, seasonb in zip(itema.seasons, itemb.seasons):
-                for episodea, episodeb in zip(seasona.episodes, seasonb.episodes):
-                    self.copy_attributes(episodea, episodeb)
-                    episodeb.set("is_anime", is_anime)
-                seasonb.set("is_anime", is_anime)
-        elif isinstance(itema, (MediaItem, Movie)) and isinstance(itemb, Movie):
+        if itema.type == "mediaitem" and itemb.type == "show":
+            itema.seasons = itemb.seasons
+        if itemb.type == "show":
+            for seasona in itema.seasons:
+                for seasonb in itemb.seasons:
+                    if seasona.number == seasonb.number:  # Check if seasons match
+                        for episodea in seasona.episodes:
+                            for episodeb in seasonb.episodes:
+                                if episodea.number == episodeb.number:  # Check if episodes match
+                                    self.copy_attributes(episodea, episodeb)
+                                    episodeb.set("is_anime", is_anime)
+                        seasonb.set("is_anime", is_anime)
+        elif itemb.type == "movie":
             self.copy_attributes(itema, itemb)
+        else:
+            logger.error(f"Item types {itema.type} and {itemb.type} do not match cant copy metadata")
         itemb.set("is_anime", is_anime)
         return itemb
-            
+
     def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
         if not in_item:
@@ -51,16 +60,26 @@ class TraktIndexer:
         if not (imdb_id := in_item.imdb_id):
             logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
-        
-        item = create_item_from_imdb_id(imdb_id)
 
-        if not isinstance(item, MediaItem):
-            logger.error(f"Failed to get item from imdb_id: {imdb_id}")
+        item_type = in_item.type if in_item.type != "mediaitem" else None
+        item = create_item_from_imdb_id(imdb_id, item_type)
+
+        if item:
+            if item.type == "show":
+                self._add_seasons_to_show(item, imdb_id)
+            elif item.type == "movie":
+                pass
+            else:
+                logger.error(f"Indexed IMDb Id {item.imdb_id} returned the wrong item type: {item.type}")
+                return
+        else:
+            logger.error(f"Failed to index item with imdb_id: {in_item.imdb_id}")
             return
-        if isinstance(item, Show):
-            self._add_seasons_to_show(item, imdb_id)
+
         item = self.copy_items(in_item, item)
         item.indexed_at = datetime.now()
+
+        logger.debug(f"Indexed IMDb id ({in_item.imdb_id}) as {item.type.title()}: {item.log_string}")
         yield item
 
     @staticmethod
@@ -127,7 +146,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
 
     item["is_anime"] = (
         ("anime" in genres) 
-        or ("animation" in genres and (item["country"] in ("jp", "kr")or item["language"] == "ja"))
+        or ("animation" in genres and (item["country"] in ("jp", "kr") or item["language"] == "ja"))
         if genres
         else False
     )
@@ -164,7 +183,7 @@ def get_show(imdb_id: str) -> dict:
     return response.data if response.is_ok and response.data else {}
 
 
-def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
+def create_item_from_imdb_id(imdb_id: str, type: str = None) -> Optional[MediaItem]:
     """Wrapper for trakt.tv API search method."""
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
     response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
@@ -172,14 +191,11 @@ def create_item_from_imdb_id(imdb_id: str) -> Optional[MediaItem]:
         logger.error(f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
         return None
 
-    def find_first(preferred_types, data):
-        for type in preferred_types:
-            for d in data:
-                if d.type == type:
-                    return d
-        return None
+    data = next((d for d in response.data if d.type == type), None)
+    if not data:
+        clause = lambda x: x.type == type if type else x in ["show", "movie", "season", "episode"]
+        data = next((d for d in response.data if clause), None)
 
-    data = next((d for d in response.data if d.type in ["show", "movie", "season"]), None)
     return _map_item_from_data(getattr(data, data.type), data.type) if data else None
 
 

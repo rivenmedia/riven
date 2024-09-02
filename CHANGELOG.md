@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.11.1](https://github.com/rivenmedia/riven/compare/v0.11.0...v0.11.1) (2024-08-30)
+
+
+### Miscellaneous Chores
+
+* release 0.11.1 ([4453a15](https://github.com/rivenmedia/riven/commit/4453a15d7d82edadbac8d9a96941217d09467798))
+
+## [0.11.0](https://github.com/rivenmedia/riven/compare/v0.10.5...v0.11.0) (2024-08-30)
+
+
+### Features
+
+* "Ongoing" and "Unreleased" states for shows ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* Removal of Symlinks and Overseerr requests on removal of item from riven. ([276ed79](https://github.com/rivenmedia/riven/commit/276ed79f4374a0812300f78c1de42bae3a019bfd))
+
+
+### Bug Fixes
+
+* event updates for frontend ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* get all content from content services (previously only one item was picked) ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* remove local updater and stop possibility of looping with symlinked state ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* trakt indexer not picking up shows ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* trakt indexing was not copying correct item attributes in previous release ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+* updated settings.json variables for opensubtitles ([71012ef](https://github.com/rivenmedia/riven/commit/71012efe405ad2a26420ed331ceeb27ca49e580e))
+* validate subtitle providers on init, remove addic7ed and napiprojekt providers ([6ee4742](https://github.com/rivenmedia/riven/commit/6ee47424fa5878bda99c0b4c57701ff24832af00))
+
 ## [0.10.5](https://github.com/rivenmedia/riven/compare/v0.10.4...v0.10.5) (2024-08-19)
 
 

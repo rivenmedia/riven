@@ -1,15 +1,17 @@
 import asyncio
 import os
+import random
 import re
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path, PurePath
 from typing import List, Optional, Union
 
 from sqlalchemy import select
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.settings.manager import settings_manager
 from program.media.stream import Stream
 from program.db.db import db
@@ -88,132 +90,110 @@ class Symlinker:
 
     def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
-        if not Symlinker.should_submit(item):
-            yield item
+        items = self.get_items_to_update(item)
+        if not self.should_submit(items):
+            if item.symlinked_times == 5:
+                logger.debug(f"Soft resetting {item.log_string} because required files were not found")
+                item.reset(True)
+                yield item
+            next_attempt = self.calculate_next_attempt(item)
+            logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")
+            item.symlinked_times += 1
+            yield (item, next_attempt)
         try:
-            if isinstance(item, Show):
-                self._symlink_show(item)
-            elif isinstance(item, Season):
-                self._symlink_season(item)
-            elif isinstance(item, (Movie, Episode)):
-                self._symlink_single(item)
+            for _item in items:
+                self.update_item_folder(_item)
+                self._symlink(_item)
+            logger.log("SYMLINKER", f"Symlinks created for {item.log_string}")
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
-
-        item.set("symlinked_times", item.symlinked_times + 1)
         yield item
 
-    @staticmethod
-    def should_submit(item: Union[Movie, Show, Season, Episode]) -> bool:
+    def calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
+        base_delay = timedelta(seconds=5)
+        next_attempt_delay = base_delay * (2 ** item.symlinked_times)
+        next_attempt_time = datetime.now() + next_attempt_delay
+        return next_attempt_time
+
+    def should_submit(self, items: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""
+        random_item = random.choice(items)
+        if not get_item_path(random_item):
+            return False
+        else:
+            return True
+
+    def get_items_to_update(self, item: Union[Movie, Show, Season, Episode]) -> List[Union[Movie, Episode]]:
+        items = []
+        if item.type in ["episode", "movie"]:
+            items.append(item)
+            item.set("folder", item.folder)
+        elif item.type == "show":
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.state == States.Downloaded:
+                        items.append(episode)
+        elif item.type == "season":
+            for episode in item.episodes:
+                if episode.state == States.Downloaded:
+                    items.append(episode)
+        return items
+
+    def update_item_folder(self, item: Union[Movie, Episode]):
+        path = get_item_path(item)
+        if path:
+            item.set("folder", path.parent.name)
+
+    def symlink(self, item: Union[Movie, Episode]) -> bool:
+        """Create a symlink for the given media item if it does not already exist."""
         if not item:
             logger.error("Invalid item sent to Symlinker: None")
             return False
 
-        if isinstance(item, Show):
-            all_episodes_ready = True
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if not episode.file or not episode.folder or episode.file == "None.mkv":
-                        logger.warning(f"Cannot submit {episode.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                        all_episodes_ready = False
-                    elif not quick_file_check(episode):
-                        logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
-                        if not _wait_for_file(episode):
-                            all_episodes_ready = False
-                            break  # Give up on the whole season if one episode is not found in 90 seconds
-            if not all_episodes_ready:
-                logger.warning(f"Cannot submit show {item.log_string} for symlink: One or more episodes need to be rescraped.")
-            return all_episodes_ready
+        if item.file is None:
+            logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
+            return False
 
-        if isinstance(item, Season):
-            all_episodes_ready = True
-            for episode in item.episodes:
-                if not episode.file or not episode.folder or episode.file == "None.mkv":
-                    logger.warning(f"Cannot submit {episode.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                    all_episodes_ready = False
-                elif not quick_file_check(episode):
-                    logger.debug(f"File not found for {episode.log_string} at the moment, waiting for it to become available")
-                    if not _wait_for_file(episode):
-                        all_episodes_ready = False
-                        break  # Give up on the whole season if one episode is not found in 90 seconds
-            if not all_episodes_ready:
-                logger.warning(f"Cannot submit season {item.log_string} for symlink: One or more episodes need to be rescraped.")
-            return all_episodes_ready
+        if not item.folder:
+            logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
+            return False
 
-        if isinstance(item, (Movie, Episode)):
-            if not item.file or not item.folder or item.file == "None.mkv":
-                logger.warning(f"Cannot submit {item.log_string} for symlink: Invalid file or folder. Needs to be rescraped.")
-                return False
+        filename = self._determine_file_name(item)
+        if not filename:
+            logger.error(f"Symlink filename is None for {item.log_string}, cannot create symlink.")
+            return False
 
-        if item.symlinked_times < 3:
-            if quick_file_check(item):
-                logger.log("SYMLINKER", f"File found for {item.log_string}, submitting to be symlinked")
-                return True
+        extension = os.path.splitext(item.file)[1][1:]
+        symlink_filename = f"{filename}.{extension}"
+        destination = self._create_item_folders(item, symlink_filename)
+        source = os.path.join(self.rclone_path, item.folder, item.file)
+
+        try:
+            if os.path.islink(destination):
+                os.remove(destination)
+            os.symlink(source, destination)
+        except PermissionError as e:
+            # This still creates the symlinks, however they will have wrong perms. User needs to fix their permissions.
+            # TODO: Maybe we validate symlink class by symlinking a test file, then try removing it and see if it still exists
+            logger.exception(f"Permission denied when creating symlink for {item.log_string}: {e}")
+        except OSError as e:
+            if e.errno == 36:
+                # This will cause a loop if it hits this.. users will need to fix their paths
+                # TODO: Maybe create an alternative naming scheme to cover this?
+                logger.error(f"Filename too long when creating symlink for {item.log_string}: {e}")
             else:
-                logger.debug(f"File not found for {item.log_string} at the moment, waiting for it to become available")
-                if _wait_for_file(item):
-                    return True
-                return False
+                logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
+            return False
 
+        if os.readlink(destination) != source:
+            logger.error(f"Symlink validation failed: {destination} does not point to {source} for {item.log_string}")
+            return False
+
+        item.set("symlinked", True)
+        item.set("symlinked_at", datetime.now())
         item.set("symlinked_times", item.symlinked_times + 1)
-
-        if item.symlinked_times >= 3:
-            rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-            if search_file(rclone_path, item):
-                logger.log("SYMLINKER", f"File found for {item.log_string}, creating symlink")
-                return True
-            else:
-                logger.log("SYMLINKER", f"File not found for {item.log_string} after 3 attempts, skipping")
-                return False
-
-        logger.debug(f"Item {item.log_string} not submitted for symlink, file not found yet")
-        return False
-
-    def _symlink_show(self, show: Show):
-        if not show or not isinstance(show, Show):
-            logger.error(f"Invalid show sent to Symlinker: {show}")
-            return
-
-        all_symlinked = True
-        for season in show.seasons:
-            for episode in season.episodes:
-                if not episode.symlinked and episode.file and episode.folder:
-                    if self._symlink(episode):
-                        episode.set("symlinked", True)
-                        episode.set("symlinked_at", datetime.now())
-                    else:
-                        all_symlinked = False
-        if all_symlinked:
-            logger.log("SYMLINKER", f"Symlinked all episodes for show {show.log_string}")
-        else:
-            logger.error(f"Failed to symlink some episodes for show {show.log_string}")
-
-    def _symlink_season(self, season: Season):
-        if not season or not isinstance(season, Season):
-            logger.error(f"Invalid season sent to Symlinker: {season}")
-            return
-
-        all_symlinked = True
-        successfully_symlinked_episodes = []
-        for episode in season.episodes:
-            if not episode.symlinked and episode.file and episode.folder:
-                if self._symlink(episode):
-                    episode.set("symlinked", True)
-                    episode.set("symlinked_at", datetime.now())
-                    successfully_symlinked_episodes.append(episode)
-                else:
-                    all_symlinked = False
-        if all_symlinked:
-            logger.log("SYMLINKER", f"Symlinked all episodes for {season.log_string}")
-        else:
-            for episode in successfully_symlinked_episodes:
-                logger.log("SYMLINKER", f"Symlink created for {episode.log_string}")
-
-    def _symlink_single(self, item: Union[Movie, Episode]):
-        if not item.symlinked and item.file and item.folder:
-            if self._symlink(item):
-                logger.log("SYMLINKER", f"Symlink created for {item.log_string}")
+        item.set("symlink_path", destination)
+        return True
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
@@ -362,38 +342,8 @@ def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
         logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
     return False
 
-def _wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
-    """Wrapper function to run the asynchronous wait_for_file function."""
-    return asyncio.run(wait_for_file(item, timeout))
-
-async def wait_for_file(item: Union[Movie, Episode], timeout: int = 90) -> bool:
-    """Asynchronously wait for the file to become available within the given timeout."""
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < timeout:
-        # keep trying to find the file until timeout duration is hit
-        if quick_file_check(item):
-            logger.log("SYMLINKER", f"File found for {item.log_string}")
-            return True
-        await asyncio.sleep(5)
-        # If 30 seconds have passed, try searching for the file
-        if time.monotonic() - start_time >= 30:
-            rclone_path = Path(settings_manager.settings.symlink.rclone_path)
-            if search_file(rclone_path, item):
-                logger.log("SYMLINKER", f"File found for {item.log_string} after searching")
-                return True
-    logger.log("SYMLINKER", f"File not found for {item.log_string} after waiting for {timeout} seconds, skipping")
-    return False
-
-def quick_file_check(item: Union[Movie, Episode]) -> bool:
+def get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
     """Quickly check if the file exists in the rclone path."""
-    if not isinstance(item, (Movie, Episode)):
-        logger.debug(f"Cannot create symlink for {item.log_string}: Not a movie or episode")
-        return False
-
-    if not item.file or item.file == "None.mkv":
-        logger.log("NOT_FOUND", f"Invalid file for {item.log_string}: {item.file}. Needs to be rescraped.")
-        return False
-
     rclone_path = Path(settings_manager.settings.symlink.rclone_path)
     possible_folders = [item.folder, item.file, item.alternative_folder]
 
@@ -401,32 +351,5 @@ def quick_file_check(item: Union[Movie, Episode]) -> bool:
         if folder:
             file_path = rclone_path / folder / item.file
             if file_path.exists():
-                item.set("folder", folder)
-                return True
-
-    if item.symlinked_times >= 3:
-        item.reset()
-        logger.log("SYMLINKER", f"Reset item {item.log_string} back to scrapable after 3 failed attempts")
-
-    return False
-
-def search_file(rclone_path: Path, item: Union[Movie, Episode]) -> bool:
-    """Search for the file in the rclone path."""
-    if not isinstance(item, (Movie, Episode)):
-        logger.debug(f"Cannot search for file for {item.log_string}: Not a movie or episode")
-        return False
-
-    filename = item.file
-    if not filename:
-        return False
-    logger.debug(f"Searching for file {filename} in {rclone_path}")
-    try:
-        for root, _, files in os.walk(rclone_path):
-            if filename in files:
-                relative_root = Path(root).relative_to(rclone_path).as_posix()
-                item.set("folder", relative_root)
-                return True
-        logger.debug(f"File {filename} not found in {rclone_path}")
-    except Exception as e:
-        logger.error(f"Error occurred while searching for file {filename} in {rclone_path}: {e}")
-    return False
+                return file_path
+    return None

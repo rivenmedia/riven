@@ -14,15 +14,13 @@ from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
 from program.post_processing import PostProcessing
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
-from utils.logger import logger, scrub_logs
-from utils.notifications import notify_on_complete
+from utils.logger import logger, log_cleaner
 from utils.event_manager import EventManager
 import utils.websockets.manager as ws_manager
 
@@ -33,7 +31,8 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, exists, func, select, or_
+from sqlalchemy.orm import joinedload
 
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
@@ -56,7 +55,7 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_services(self):
-    
+
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -94,11 +93,11 @@ class Program(threading.Thread):
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
-    
+
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
         return all(s.initialized for s in self.services.values())
-    
+
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
         try:
@@ -121,7 +120,6 @@ class Program(threading.Thread):
             settings_manager.save()
 
         self.initialize_services()
-        scrub_logs()
 
         max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
         if max_worker_env_vars:
@@ -135,12 +133,13 @@ class Program(threading.Thread):
 
         while not self.validate():
             time.sleep(1)
-            
+
         if not self.validate_database():
+            # We should really make this configurable via frontend...
             return
 
         run_migrations()
-        
+
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
@@ -159,7 +158,6 @@ class Program(threading.Thread):
                             added.append(item.item_id)
                             item.store_state()
                             session.add(item)
-                            logger.debug(f"Mapped metadata to {item.type.title()}: {item.log_string}")
                 session.commit()
 
             movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
@@ -191,25 +189,69 @@ class Program(threading.Thread):
     def _retry_library(self) -> None:
         count = 0
         with db.Session() as session:
-            count = session.execute(
-                select(func.count(MediaItem._id))
-                .where(MediaItem.type.in_(["movie", "show"]))
-                .where(MediaItem.last_state != "Completed")
+            count += session.execute(
+                select(func.count(Movie._id))
+                .where(Movie.last_state != "Completed")
             ).scalar_one()
+            count += session.execute(
+                select(func.count(Show._id))
+                .where(Show.last_state != "Completed")
+                .where(
+                    exists(
+                        select(Season)
+                        .where(Season.parent_id == Show._id)
+                        .where(Season.last_state == "Ongoing")
+                        .where(
+                            exists(
+                                select(Episode)
+                                .where(Episode.parent_id == Season._id)
+                                .where(Episode.last_state == "Unreleased")
+                                .where(Episode.aired_at <= datetime.now())
+                            )
+                        )
+                    )
+                )
+            ).scalar_one()
+
+        if count == 0:
+            return
+
         logger.log("PROGRAM", f"Found {count} items to retry")
 
         number_of_rows_per_page = 10
         for page_number in range(0, (count // number_of_rows_per_page) + 1):
             with db.Session() as session:
-                items_to_submit = session.execute(
-                    select(MediaItem)
-                    .where(MediaItem.type.in_(["movie", "show"]))
-                    .where(MediaItem.last_state != "Completed")
-                    .order_by(MediaItem.requested_at.desc())
+                items_to_submit = []
+                items_to_submit += session.execute(
+                    select(Movie)
+                    .where(Movie.last_state != "Completed")
+                    .order_by(Movie.requested_at.desc())
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
                 ).unique().scalars().all()
-        
+                items_to_submit += session.execute(
+                    select(Show)
+                    .where(Show.last_state != "Completed")
+                    .where(
+                        exists(
+                            select(Season)
+                            .where(Season.parent_id == Show._id)
+                            .where(Season.last_state == "Ongoing")
+                            .where(
+                                exists(
+                                    select(Episode)
+                                    .where(Episode.parent_id == Season._id)
+                                    .where(Episode.last_state == "Unreleased")
+                                    .where(Episode.aired_at <= datetime.now())
+                                )
+                            )
+                        )
+                    )
+                    .order_by(Show.requested_at.desc())
+                    .limit(number_of_rows_per_page)
+                    .offset(page_number * number_of_rows_per_page)
+                ).unique().scalars().all()
+
                 session.expunge_all()
                 session.close()
                 for item in items_to_submit:
@@ -219,12 +261,13 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._retry_library: {"interval": 60 * 10},
+            log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
         if settings_manager.settings.symlink.repair_symlinks:
             scheduled_functions[fix_broken_symlinks] = {
-                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval, 
+                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
                 "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
             }
 
@@ -308,6 +351,7 @@ class Program(threading.Thread):
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
+                time.sleep(0.1)
                 continue
 
 
@@ -317,19 +361,16 @@ class Program(threading.Thread):
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
-                if processed_item and processed_item.state == States.Completed:
-                    if processed_item.type in ["show", "movie"]:
-                        logger.success(f"Item has been completed: {processed_item.log_string}")
-
-                    if settings_manager.settings.notifications.enabled:
-                            notify_on_complete(processed_item)
-
                 self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
-                        self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
-                        self.em.submit_job(next_service, self, item_to_submit)
+                        if not next_service:
+                            self.em.add_event_to_queue(Event("StateTransition", item_to_submit))
+                        else:
+                            event = Event(next_service.__name__, item_to_submit)
+                            self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
+                            self.em.submit_job(next_service, self, event)
                 if isinstance(processed_item, MediaItem):
                     processed_item.store_state()
                 session.commit()

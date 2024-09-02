@@ -4,12 +4,13 @@ from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.media import Episode, MediaItem, Movie, Season, Show, States
-from program.post_processing import PostProcessing
+from program.post_processing import PostProcessing, notify
 from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters import Updater
+from program.db.db_functions import _imdb_exists_in_db
 from utils.logger import logger
 from program.settings.manager import settings_manager
 
@@ -22,8 +23,11 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     items_to_submit = []
 
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
-    if emitted_by in source_services or item.state in [States.Requested, States.Unknown]:
+    if emitted_by in source_services or item.state in [States.Requested]:
         next_service = TraktIndexer
+        if _imdb_exists_in_db(item.imdb_id):
+            logger.debug(f"Item {item.log_string} already exists in the database.")
+            return no_further_processing
         if isinstance(item, Season):
             item = item.parent
             existing_item = existing_item.parent if existing_item else None
@@ -31,7 +35,19 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
             return no_further_processing
         return None, next_service, [item]
 
-    elif item.state in (States.Indexed, States.PartiallyCompleted):
+    elif item.state in [States.PartiallyCompleted, States.Ongoing]:
+        if item.type == "show":
+            for season in item.seasons:
+                if season.state not in [States.Completed, States.Unreleased]:
+                    _, _, sub_items = process_event(season, emitted_by, season)
+                    items_to_submit += sub_items
+        elif item.type == "season":
+            for episode in item.episodes:
+                if episode.state != States.Completed:
+                    _, _, sub_items = process_event(episode, emitted_by, episode)
+                    items_to_submit += sub_items
+
+    elif item.state == States.Indexed:
         next_service = Scraping
         if existing_item:
             if not existing_item.indexed_at:
@@ -42,73 +58,31 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.state == States.Completed:
                 return existing_item, None, []
-            if item.type in ["movie", "episode"]:
-                items_to_submit = [item] if Scraping.can_we_scrape(item) else []
+            elif not emitted_by == Scraping and Scraping.can_we_scrape(existing_item):
+                items_to_submit = [existing_item]
             elif item.type == "show":
-                if Scraping.can_we_scrape(item):
-                    items_to_submit = [item]
-                else:
-                    for season in item.seasons:
-                        if season.state in [States.Indexed, States.PartiallyCompleted] and Scraping.can_we_scrape(season):
-                            items_to_submit.append(season)
-                        elif season.state == States.Scraped:
-                            next_service = Downloader
-                            items_to_submit.append(season)
+                items_to_submit = [s for s in item.seasons if s.state != States.Completed and Scraping.can_we_scrape(s)]
             elif item.type == "season":
-                if Scraping.can_we_scrape(item):
-                    items_to_submit = [item]
-                else:
-                    for episode in item.episodes:
-                        if episode.state in [States.Indexed, States.PartiallyCompleted] and Scraping.can_we_scrape(episode):
-                            items_to_submit.append(episode)
-                        elif episode.state == States.Scraped:
-                            next_service = Downloader
-                            items_to_submit.append(episode)
-                        elif episode.state == States.Downloaded:
-                            next_service = Symlinker
-                            items_to_submit.append(episode)
+                items_to_submit = [e for e in item.episodes if e.state != States.Completed and Scraping.can_we_scrape(e)]
 
     elif item.state == States.Scraped:
         next_service = Downloader
-        items_to_submit = []
-        if item.type == "show":
-            items_to_submit = [s for s in item.seasons if s.state == States.Downloaded]
-        if item.type == "season":
-            items_to_submit = [e for e in item.episodes if e.state == States.Downloaded]
-        items_to_submit.append(item)
+        items_to_submit = [item]
 
     elif item.state == States.Downloaded:
         next_service = Symlinker
-        proposed_submissions = []
-        if isinstance(item, Show):
-            all_found = all(
-                all(e.file and e.folder for e in season.episodes if not e.symlinked)
-                for season in item.seasons
-            )
-            if all_found:
-                proposed_submissions = [item]
-            else:
-                proposed_submissions = [
-                    e for season in item.seasons
-                    for e in season.episodes
-                    if not e.symlinked and e.file and e.folder
-                ]
-        elif isinstance(item, Season):
-            if all(e.file and e.folder for e in item.episodes if not e.symlinked):
-                proposed_submissions = [item]
-            else:
-                proposed_submissions = [e for e in item.episodes if not e.symlinked and e.file and e.folder]
-        elif isinstance(item, (Movie, Episode)):
-            proposed_submissions = [item]
-        items_to_submit = []
-        for sub_item in proposed_submissions:
-            items_to_submit.append(sub_item)
+        items_to_submit = [item]
 
     elif item.state == States.Symlinked:
         next_service = Updater
         items_to_submit = [item]
 
     elif item.state == States.Completed:
+        # If a user manually retries an item, lets not notify them again
+        if emitted_by not in ["Manual", PostProcessing]:
+            notify(item)
+        # Avoid multiple post-processing runs
+        if not emitted_by == PostProcessing:
             if settings_manager.settings.post_processing.subliminal.enabled:
                 next_service = PostProcessing
                 if item.type in ["movie", "episode"] and Subliminal.should_submit(item):
@@ -119,7 +93,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                     items_to_submit = [e for e in item.episodes if e.state == States.Completed and Subliminal.should_submit(e)]
                 if not items_to_submit:
                     return no_further_processing
-            else:
-                return no_further_processing
+        else:
+            return no_further_processing
 
     return updated_item, next_service, items_to_submit
