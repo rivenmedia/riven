@@ -1421,13 +1421,13 @@ files = [
 
 [[package]]
 name = "parsett"
-version = "1.2.5"
+version = "1.2.6"
 description = "PTT"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "parsett-1.2.5-py3-none-any.whl", hash = "sha256:45a365dfaa0bc85a7c85e00765f793a1f1b26a46f73cff392b37061bb2749286"},
-    {file = "parsett-1.2.5.tar.gz", hash = "sha256:de134a04017cd4d3991963ff4329ccbd828e25aa25f22bc45182003917fb98b6"},
+    {file = "parsett-1.2.6-py3-none-any.whl", hash = "sha256:57b416209299776aca7c31db00498c385b88bb80fa96d8a376f3aecf33483cbb"},
+    {file = "parsett-1.2.6.tar.gz", hash = "sha256:75ebfea6280251d2231ca4cac00b9c566305a781fbe8b08fba918898a0a84483"},
 ]
 
 [package.dependencies]
@@ -1957,18 +1957,18 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "1.0.2"
+version = "1.0.3"
 description = "Parse Torrents using PTN and Rank them according to your preferences!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-1.0.2-py3-none-any.whl", hash = "sha256:60c975afb796c86d3bce7a8af2380a16d6f24fe0d4c1dad94a7d0e0198de9595"},
-    {file = "rank_torrent_name-1.0.2.tar.gz", hash = "sha256:c9a53d38b7f1d20e089ef61db9777f300a1c17cb5a8d33542db5957bd8bd7a90"},
+    {file = "rank_torrent_name-1.0.3-py3-none-any.whl", hash = "sha256:ec1803e476f5f873c8348f26f6a5f196cdcfa70a1e41f4c71ca3033efadbc0a8"},
+    {file = "rank_torrent_name-1.0.3.tar.gz", hash = "sha256:63fa2edcf0d5f7fe535bc14e6f7be41b0b022a69b28f904597813c93656fc87e"},
 ]
 
 [package.dependencies]
 levenshtein = ">=0.25.0,<0.26.0"
-parsett = ">=1.2.3,<2.0.0"
+parsett = ">=1.2.5,<2.0.0"
 pydantic = ">=2.6.3,<3.0.0"
 regex = ">=2023.12.25,<2024.0.0"
 
