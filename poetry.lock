@@ -1420,26 +1420,14 @@ files = [
 ]
 
 [[package]]
-name = "parse-torrent-title"
-version = "2.8.1"
-description = "Extract media information from torrent-like filename"
-optional = false
-python-versions = "*"
-files = [
-    {file = "parse-torrent-title-2.8.1.tar.gz", hash = "sha256:939647c4bfacd2b3b878503a7bf79fcdbb11e74a895a4550eb84406d62742457"},
-    {file = "parse_torrent_title-2.8.1-py2-none-any.whl", hash = "sha256:0467809b5004065e29c60dfe120499f44832c0be49dc0e7583a1325dd81bbc88"},
-    {file = "parse_torrent_title-2.8.1-py3-none-any.whl", hash = "sha256:b96ee593b25fbf07150066d9d8de488b17c15c92b8b05745f984ff47db7f9fcb"},
-]
-
-[[package]]
 name = "parsett"
-version = "0.2.4"
+version = "1.2.6"
 description = "PTT"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "parsett-0.2.4-py3-none-any.whl", hash = "sha256:2a47634f2616fffe6e0fc574439692c3d938442daaea51320ecabe002e995aae"},
-    {file = "parsett-0.2.4.tar.gz", hash = "sha256:aa609f253841fd8586414428965c4fcaae436a3ca655c0a572359f921b56f108"},
+    {file = "parsett-1.2.6-py3-none-any.whl", hash = "sha256:57b416209299776aca7c31db00498c385b88bb80fa96d8a376f3aecf33483cbb"},
+    {file = "parsett-1.2.6.tar.gz", hash = "sha256:75ebfea6280251d2231ca4cac00b9c566305a781fbe8b08fba918898a0a84483"},
 ]
 
 [package.dependencies]
@@ -1969,19 +1957,18 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "0.2.23"
+version = "1.0.3"
 description = "Parse Torrents using PTN and Rank them according to your preferences!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-0.2.23-py3-none-any.whl", hash = "sha256:61b96db32e6d37dec4101c86654d266bde04628c3ac983fe71b99c4614b4d9eb"},
-    {file = "rank_torrent_name-0.2.23.tar.gz", hash = "sha256:50a66c789ef74c9d0f7bdb84a3921e9bcf6b3d2f5ae3ffcce44d3dfac2590c00"},
+    {file = "rank_torrent_name-1.0.3-py3-none-any.whl", hash = "sha256:ec1803e476f5f873c8348f26f6a5f196cdcfa70a1e41f4c71ca3033efadbc0a8"},
+    {file = "rank_torrent_name-1.0.3.tar.gz", hash = "sha256:63fa2edcf0d5f7fe535bc14e6f7be41b0b022a69b28f904597813c93656fc87e"},
 ]
 
 [package.dependencies]
 levenshtein = ">=0.25.0,<0.26.0"
-parse-torrent-title = ">=2.8.1,<3.0.0"
-parsett = ">=0.2.4,<0.3.0"
+parsett = ">=1.2.5,<2.0.0"
 pydantic = ">=2.6.3,<3.0.0"
 regex = ">=2023.12.25,<2024.0.0"
 
@@ -3074,4 +3061,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "e668457d12d7221e673db6829dfaa03ff7b13eb23b5c66c9498eb02e7383e3ca"
+content-hash = "da31f82fb56b69e851713cd31dea38c77410786a0e49b75a5e00178f28de819b"
