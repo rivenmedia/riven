@@ -35,7 +35,7 @@ class TraktIndexer:
         is_anime = itema.is_anime or itemb.is_anime
         if itema.type == "mediaitem" and itemb.type == "show":
             itema.seasons = itemb.seasons
-        if itemb.type == "show":
+        if itemb.type == "show" and itema.type != "movie":
             for seasona in itema.seasons:
                 for seasonb in itemb.seasons:
                     if seasona.number == seasonb.number:  # Check if seasons match
