@@ -55,16 +55,34 @@ logs-dev:
 shell:
 	@docker exec -it riven fish
 
-build:
-	@docker build -t riven .
+# Ensure the Buildx builder is set up
+setup-builder:
+	@if ! docker buildx ls | grep -q "mybuilder"; then \
+		echo "Creating Buildx builder..."; \
+		docker buildx create --use --name mybuilder --driver docker-container; \
+	else \
+		echo "Using existing Buildx builder..."; \
+	fi
 
-push: build
-	@docker tag riven:latest spoked/riven:latest
-	@docker push spoked/riven:latest
+docker-login:
+	@echo "Logging into Docker Hub..."
+	@docker login -u $(DOCKER_USERNAME) -p $(DOCKER_PASSWORD)
 
-push-dev: build
-	@docker tag riven:latest spoked/riven:dev
-	@docker push spoked/riven:dev
+# Build multi-architecture image (local only, no push)
+build: setup-builder
+	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t riven --load .
+
+# Build and push multi-architecture release image
+push: setup-builder docker-login
+	@echo "Building and pushing image to Docker Hub..."
+	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t spoked/riven:latest --push .
+	@echo "Image pushed to Docker Hub"
+
+# Build and push multi-architecture dev image
+push-dev: setup-builder docker-login
+	@echo "Building and pushing image to Docker Hub..."
+	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t spoked/riven:dev --push .
+	@echo "Image pushed to Docker Hub"
 
 tidy:
 	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "riven" {print $3}') -f

@@ -333,7 +333,9 @@ def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
             shutil.rmtree(item_path)
             logger.debug(f"Deleted symlink Directory for {item.log_string}")
             return True
-        logger.debug(f"Symlink Directory for {item.log_string} does not exist")
+        else:
+            logger.debug(f"Symlink Directory for {item.log_string} does not exist, skipping symlink deletion")
+            return True
     except FileNotFoundError as e:
         logger.error(f"File not found error when deleting symlink for {item.log_string}: {e}")
     except PermissionError as e:

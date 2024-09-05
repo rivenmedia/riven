@@ -37,7 +37,8 @@ class Downloader:
                 self.download(item, item.active_stream)
             except Exception as e:
                 logger.error(f"Failed to download {item.log_string}: {e}")
-                self._delete_and_reset_active_stream(item)
+                if item.active_stream.get("infohash", None):
+                    self._delete_and_reset_active_stream(item)
         else:
             for stream in item.streams:
                 item.blacklist_stream(stream)
@@ -45,11 +46,15 @@ class Downloader:
         yield item
 
     def _delete_and_reset_active_stream(self, item: MediaItem):
-        self.service.existing_hashes.remove(item.active_stream["infohash"])
-        self.service.delete_torrent_with_infohash(item.active_stream["infohash"])
-        stream = next(stream for stream in item.streams if stream.infohash == item.active_stream["infohash"])
+        try:
+            self.service.existing_hashes.remove(item.active_stream["infohash"])
+            self.service.delete_torrent_with_infohash(item.active_stream["infohash"])
+            stream = next((stream for stream in item.streams if stream.infohash == item.active_stream["infohash"]), None)
+            if stream:
+                item.blacklist_stream(stream)
+        except Exception as e:
+            logger.debug(f"Failed to delete and reset active stream for {item.log_string}: {e}")
         item.active_stream = {}
-        item.blacklist_stream(stream)
 
     def get_cached_streams(self, hashes: list[str], needed_media, break_on_first = True) -> dict:
         chunks = [hashes[i:i + 5] for i in range(0, len(hashes), 5)]
@@ -80,7 +85,7 @@ class Downloader:
         torrent_id = self.service.download_cached(active_stream)
         torrent_names = self.service.get_torrent_names(torrent_id)
         update_item_attributes(item, torrent_names)
-        logger.log("DEBRID", f"Downloaded {item.log_string}")
+        logger.log("DEBRID", f"Downloaded {item.log_string} from '{item.active_stream['name']}' [{item.active_stream['infohash']}]")
 
 def update_item_attributes(item: MediaItem, names: tuple[str, str]):
     """ Update the item attributes with the downloaded files and active stream """
