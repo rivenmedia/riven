@@ -64,24 +64,20 @@ setup-builder:
 		echo "Using existing Buildx builder..."; \
 	fi
 
-docker-login:
-	@echo "Logging into Docker Hub..."
-	@docker login -u $(DOCKER_USERNAME) -p $(DOCKER_PASSWORD)
-
 # Build multi-architecture image (local only, no push)
 build: setup-builder
-	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t riven --load .
+	@docker buildx build --platform linux/amd64,linux/arm64 -t riven --load .
 
 # Build and push multi-architecture release image
-push: setup-builder docker-login
+push: setup-builder
 	@echo "Building and pushing image to Docker Hub..."
-	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t spoked/riven:latest --push .
+	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:latest --push .
 	@echo "Image pushed to Docker Hub"
 
 # Build and push multi-architecture dev image
-push-dev: setup-builder docker-login
+push-dev: setup-builder
 	@echo "Building and pushing image to Docker Hub..."
-	@docker buildx build --progress=plain --platform linux/amd64,linux/arm64 -t spoked/riven:dev --push .
+	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:dev --push .
 	@echo "Image pushed to Docker Hub"
 
 tidy:

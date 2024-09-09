@@ -79,6 +79,16 @@ class Downloader:
                         for future in futures:
                             future.cancel()
 
+        # # Ensure results are checked in the order of the hashes list
+        # prioritized_results = []
+        # for hash in hashes:
+        #     for result in results:
+        #         if result.get("infohash") == hash:
+        #             prioritized_results.append(result)
+        #             if break_on_first and result.get("matched_files"):
+        #                 break
+        # results = prioritized_results
+
         return results
 
     def download(self, item, active_stream: dict) -> str:
