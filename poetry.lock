@@ -2528,13 +2528,13 @@ test = ["importlib-metadata (>=4.6)", "lxml", "mypy", "pytest (>=6.0)", "pytest-
 
 [[package]]
 name = "testcontainers"
-version = "4.8.0"
+version = "4.8.1"
 description = "Python library for throwaway instances of anything that can run in a Docker container"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "testcontainers-4.8.0-py3-none-any.whl", hash = "sha256:0b85d787e5b1f8b32042704d23b6c54787bf6751d2d3cfee2c031349ef2eea30"},
-    {file = "testcontainers-4.8.0.tar.gz", hash = "sha256:56153bb5938694844f0e6bd0cf82e19dd6a6516bc29881440e273939201a42d5"},
+    {file = "testcontainers-4.8.1-py3-none-any.whl", hash = "sha256:d8ae43e8fe34060fcd5c3f494e0b7652b7774beabe94568a2283d0881e94d489"},
+    {file = "testcontainers-4.8.1.tar.gz", hash = "sha256:5ded4820b7227ad526857eb3caaafcabce1bbac05d22ad194849b136ffae3cb0"},
 ]
 
 [package.dependencies]
@@ -2551,7 +2551,7 @@ chroma = ["chromadb-client"]
 clickhouse = ["clickhouse-driver"]
 cosmosdb = ["azure-cosmos"]
 db2 = ["ibm_db_sa", "sqlalchemy"]
-generic = ["httpx"]
+generic = ["httpx", "redis"]
 google = ["google-cloud-datastore (>=2)", "google-cloud-pubsub (>=2)"]
 influxdb = ["influxdb", "influxdb-client"]
 k3s = ["kubernetes", "pyyaml"]
@@ -3074,4 +3074,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "e668457d12d7221e673db6829dfaa03ff7b13eb23b5c66c9498eb02e7383e3ca"
+content-hash = "4fcb058c04c6db5ce8e499bd5968aecaec2e796e6fd78a04307b117af9dfee39"
