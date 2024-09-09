@@ -44,7 +44,7 @@ ruff = "^0.3.0"
 isort = "^5.10.1"
 codecov = "^2.1.13"
 httpx = "^0.27.0"
-memray = "^1.13.4"
+memray = "^1.14.0"
 testcontainers = "^4.8.0"
 
 [tool.poetry.group.test]
