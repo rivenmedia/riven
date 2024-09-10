@@ -1,5 +1,6 @@
 from program.media.item import MediaItem
 from utils.logger import logger
+from program.settings.manager import settings_manager
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
@@ -12,6 +13,7 @@ class Downloader:
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
+        self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
         self.service = next((service for service in [
             RealDebridDownloader(),
             #AllDebridDownloader(),
@@ -61,9 +63,15 @@ class Downloader:
         # Using a list to share the state, booleans are immutable
         break_pointer = [False, break_on_first]
         results = []
+        priority_index = 0
 
-        with ThreadPoolExecutor(thread_name_prefix="Dowloader") as executor:
+        with ThreadPoolExecutor(thread_name_prefix="Downloader") as executor:
             futures = []
+
+            def cancel_all():
+                for f in futures:
+                    f.cancel()
+
             for chunk in chunks:
                 future = executor.submit(self.service.process_hashes, chunk, needed_media, break_pointer)
                 futures.append(future)
@@ -73,22 +81,23 @@ class Downloader:
                     _result = future.result()
                 except CancelledError:
                     continue
-                if isinstance(_result, dict) and len(_result) > 0:
-                    results.append(_result)
-                    if break_on_first:
-                        for future in futures:
-                            future.cancel()
+                for infohash, container in _result.items():
+                    result = {"infohash": infohash, **container}
+                    # Cached
+                    if container.get("matched_files", False):
+                        results.append(result)
+                        if break_on_first and self.speed_mode:
+                            cancel_all()
+                            return results
+                        elif infohash == hashes[priority_index] and break_on_first:
+                            results = [result]
+                            cancel_all()
+                            return results
+                    # Uncached
+                    elif infohash == hashes[priority_index]:
+                            priority_index += 1
 
-        # # Ensure results are checked in the order of the hashes list
-        # prioritized_results = []
-        # for hash in hashes:
-        #     for result in results:
-        #         if result.get("infohash") == hash:
-        #             prioritized_results.append(result)
-        #             if break_on_first and result.get("matched_files"):
-        #                 break
-        # results = prioritized_results
-
+        results.sort(key=lambda x: hashes.index(x["infohash"]))
         return results
 
     def download(self, item, active_stream: dict) -> str:

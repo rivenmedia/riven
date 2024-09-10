@@ -60,6 +60,7 @@ class TorboxModel(Observable):
 
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
+    prefer_speed_over_quality: bool = False
     # movie_filesize_min: int = 200  # MB
     # movie_filesize_max: int = -1  # MB (-1 is no limit)
     # episode_filesize_min: int = 40  # MB

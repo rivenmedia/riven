@@ -64,12 +64,9 @@ class RealDebridDownloader:
             logger.error("Couldn't parse user data response from Real-Debrid.")
         return False
 
-    def process_hashes(self, chunk: list[str], needed_media: dict, break_pointer: list[bool]) -> dict | bool:
+    def process_hashes(self, chunk: list[str], needed_media: dict, break_pointer: list[bool]) -> dict:
         cached_containers = self.get_cached_containers(chunk, needed_media, break_pointer)
-        for infohash, container in cached_containers.items():
-            if container.get("matched_files"):
-                return {"infohash": infohash, **container}
-        return {}
+        return cached_containers
 
     def download_cached(self, active_stream: dict) -> str:
         torrent_id = add_torrent(active_stream.get("infohash"))
@@ -84,6 +81,7 @@ class RealDebridDownloader:
         response = get_instant_availability(infohashes)
 
         for infohash in infohashes:
+            cached_containers[infohash] = {}
             if break_pointer[1] and break_pointer[0]:
                 break
             data = response.get(infohash, {})
