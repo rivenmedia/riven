@@ -23,8 +23,9 @@ class FileFinder:
         filename_attr (str): The name of the file attribute.
     """
 
-    def __init__(self, name):
+    def __init__(self, name, size):
         self.filename_attr = name
+        self.filesize_attr = size
 
     def get_cached_container(self, needed_media: dict[int, list[int]], break_pointer: list[bool] = [False], container: dict = {}) -> dict:
         if not needed_media or len(container) >= len([episode for season in needed_media for episode in needed_media[season]]):
@@ -68,10 +69,9 @@ class FileFinder:
             if not needed_episodes:
                 return matches_dict
         else:
-            for file in cached_files.values():
-                matched_movie = self.filename_matches_movie(file[self.filename_attr])
-                if matched_movie:
-                    return {1: {1: file}}
+            biggest_file = max(cached_files.values(), key=lambda x: x[self.filesize_attr])
+            if biggest_file and self.filename_matches_movie(biggest_file[self.filename_attr]):
+                return {1: {1: biggest_file}}
 
 def get_needed_media(item: MediaItem) -> dict:
     acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted]

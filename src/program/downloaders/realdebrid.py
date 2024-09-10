@@ -19,7 +19,7 @@ class RealDebridDownloader:
         self.initialized = self.validate()
         if self.initialized:
             self.existing_hashes = [torrent["hash"] for torrent in get_torrents(1000)]
-            self.file_finder = FileFinder("filename")
+            self.file_finder = FileFinder("filename", "filesize")
 
     def validate(self) -> bool:
         """Validate Real-Debrid settings and API key"""
