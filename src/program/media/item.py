@@ -338,6 +338,8 @@ class MediaItem(db.Model):
         self.set("folder", None)
         self.set("alternative_folder", None)
 
+        if not self.active_stream:
+            self.active_stream = {}
         if not soft_reset:
             if self.active_stream.get("infohash", False):
                 reset_streams(self, self.active_stream["infohash"])
