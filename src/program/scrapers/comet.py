@@ -38,7 +38,7 @@ class Comet:
     def validate(self) -> bool:
         """Validate the Comet settings."""
         if not self.settings.enabled:
-            logger.warning("Comet is set to disabled.")
+            logger.debug("Comet is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Comet URL is not configured and will not be used.")

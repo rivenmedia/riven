@@ -28,7 +28,7 @@ class Listrr:
     def validate(self) -> bool:
         """Validate Listrr settings."""
         if not self.settings.enabled:
-            logger.warning("Listrr is set to disabled.")
+            logger.debug("Listrr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 64:
             logger.error("Listrr api key is not set or invalid.")

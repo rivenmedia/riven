@@ -35,7 +35,7 @@ class TraktContent:
         """Validate Trakt settings."""
         try:
             if not self.settings.enabled:
-                logger.warning("Trakt is set to disabled.")
+                logger.debug("Trakt is set to disabled.")
                 return False
             if not self.settings.api_key:
                 logger.error("Trakt API key is not set.")

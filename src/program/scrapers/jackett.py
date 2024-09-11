@@ -45,7 +45,7 @@ class Jackett:
     def validate(self) -> bool:
         """Validate Jackett settings."""
         if not self.settings.enabled:
-            logger.warning("Jackett is set to disabled.")
+            logger.debug("Jackett is set to disabled.")
             return False
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key

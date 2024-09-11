@@ -27,7 +27,7 @@ class Knightcrawler:
     def validate(self) -> bool:
         """Validate the Knightcrawler settings."""
         if not self.settings.enabled:
-            logger.warning("Knightcrawler is set to disabled.")
+            logger.debug("Knightcrawler is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Knightcrawler URL is not configured and will not be used.")

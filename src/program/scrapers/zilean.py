@@ -33,7 +33,7 @@ class Zilean:
     def validate(self) -> bool:
         """Validate the Zilean settings."""
         if not self.settings.enabled:
-            logger.warning("Zilean is set to disabled.")
+            logger.debug("Zilean is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Zilean URL is not configured and will not be used.")

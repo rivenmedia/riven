@@ -29,7 +29,7 @@ class Torrentio:
     def validate(self) -> bool:
         """Validate the Torrentio settings."""
         if not self.settings.enabled:
-            logger.warning("Torrentio is set to disabled.")
+            logger.debug("Torrentio is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Torrentio URL is not configured and will not be used.")

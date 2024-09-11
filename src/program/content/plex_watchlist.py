@@ -33,7 +33,7 @@ class PlexWatchlist:
 
     def validate(self):
         if not self.settings.enabled:
-            logger.warning("Plex Watchlists is set to disabled.")
+            logger.debug("Plex Watchlists is set to disabled.")
             return False
         if not self.token:
             logger.error("Plex token is not set!")

@@ -27,7 +27,7 @@ class Overseerr:
 
     def validate(self) -> bool:
         if not self.settings.enabled:
-            logger.warning("Overseerr is set to disabled.")
+            logger.debug("Overseerr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 68:
             logger.error("Overseerr api key is not set.")

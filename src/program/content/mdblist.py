@@ -25,7 +25,7 @@ class Mdblist:
 
     def validate(self):
         if not self.settings.enabled:
-            logger.warning("Mdblist is set to disabled.")
+            logger.debug("Mdblist is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 25:
             logger.error("Mdblist api key is not set.")

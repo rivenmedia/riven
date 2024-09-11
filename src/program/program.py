@@ -286,7 +286,7 @@ class Program(threading.Thread):
                 next_run_time=datetime.now(),
                 misfire_grace_time=30
             )
-            logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
+            logger.debug(f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
@@ -308,7 +308,7 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
                 coalesce=False,
             )
-            logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+            logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
