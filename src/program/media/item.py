@@ -215,7 +215,7 @@ class MediaItem(db.Model):
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.state.value if self.state else self.last_state,
+            "state": self.last_state,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": str(self.aired_at),
             "genres": self.genres if hasattr(self, "genres") else None,
