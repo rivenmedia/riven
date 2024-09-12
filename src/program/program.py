@@ -189,28 +189,10 @@ class Program(threading.Thread):
     def _retry_library(self) -> None:
         count = 0
         with db.Session() as session:
-            count += session.execute(
-                select(func.count(Movie._id))
-                .where(Movie.last_state != "Completed")
-            ).scalar_one()
-            count += session.execute(
-                select(func.count(Show._id))
-                .where(Show.last_state != "Completed")
-                .where(
-                    exists(
-                        select(Season)
-                        .where(Season.parent_id == Show._id)
-                        .where(Season.last_state == "Ongoing")
-                        .where(
-                            exists(
-                                select(Episode)
-                                .where(Episode.parent_id == Season._id)
-                                .where(Episode.last_state == "Unreleased")
-                                .where(Episode.aired_at <= datetime.now())
-                            )
-                        )
-                    )
-                )
+            count = session.execute(
+                select(func.count(MediaItem._id))
+                .where(MediaItem.last_state != "Completed")
+                .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
         if count == 0:
@@ -223,31 +205,10 @@ class Program(threading.Thread):
             with db.Session() as session:
                 items_to_submit = []
                 items_to_submit += session.execute(
-                    select(Movie)
-                    .where(Movie.last_state != "Completed")
-                    .order_by(Movie.requested_at.desc())
-                    .limit(number_of_rows_per_page)
-                    .offset(page_number * number_of_rows_per_page)
-                ).unique().scalars().all()
-                items_to_submit += session.execute(
-                    select(Show)
-                    .where(Show.last_state != "Completed")
-                    .where(
-                        exists(
-                            select(Season)
-                            .where(Season.parent_id == Show._id)
-                            .where(Season.last_state == "Ongoing")
-                            .where(
-                                exists(
-                                    select(Episode)
-                                    .where(Episode.parent_id == Season._id)
-                                    .where(Episode.last_state == "Unreleased")
-                                    .where(Episode.aired_at <= datetime.now())
-                                )
-                            )
-                        )
-                    )
-                    .order_by(Show.requested_at.desc())
+                    select(MediaItem)
+                    .where(MediaItem.last_state != "Completed")
+                    .where(MediaItem.type.in_(["movie", "show"]))
+                    .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)
                     .offset(page_number * number_of_rows_per_page)
                 ).unique().scalars().all()
