@@ -1,18 +1,8 @@
-import asyncio
-import json
-import logging
-from loguru import logger
-from fastapi import APIRouter, WebSocket
+from fastapi import WebSocket
 from utils.websockets import manager
+from .default import router
 
-
-
-router = APIRouter(
-    prefix="/ws",
-    tags=["websocket"],
-    responses={404: {"description": "Not found"}})
-
-@router.websocket("")
+@router.websocket("/")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:

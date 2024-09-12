@@ -44,7 +44,7 @@ async def get_items(
     page: Optional[int] = 1,
     type: Optional[str] = None,
     state: Optional[str] = None,
-    sort: Optional[str] = "desc",
+    sort: Optional[str] = "date_desc",
     search: Optional[str] = None,
     extended: Optional[bool] = False,
 ):
@@ -74,7 +74,7 @@ async def get_items(
                 filter_state = state_enum
                 break
         if filter_state:
-            query = query.where(MediaItem.state == filter_state)
+            query = query.where(MediaItem.last_state == filter_state)
         else:
             valid_states = [state_enum.name for state_enum in States]
             raise HTTPException(
@@ -95,14 +95,19 @@ async def get_items(
         query = query.where(MediaItem.type.in_(types))
 
     if sort and not search:
-        if sort.lower() == "asc":
+        sort_lower = sort.lower()
+        if sort_lower == "title_asc":
+            query = query.order_by(MediaItem.title.asc())
+        elif sort_lower == "title_desc":
+            query = query.order_by(MediaItem.title.desc())
+        elif sort_lower == "date_asc":
             query = query.order_by(MediaItem.requested_at.asc())
-        elif sort.lower() == "desc":
+        elif sort_lower == "date_desc":
             query = query.order_by(MediaItem.requested_at.desc())
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid sort: {sort}. Valid sorts are: ['asc', 'desc']",
+                detail=f"Invalid sort: {sort}. Valid sorts are: ['title_asc', 'title_desc', 'date_asc', 'date_desc']",
             )
 
     with db.Session() as session:
@@ -151,6 +156,33 @@ async def add_items(
             request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
+
+@router.get(
+    "/{id}",
+    summary="Retrieve Media Item",
+    description="Fetch a single media item by ID",
+)
+async def get_item(request: Request, id: int):
+    with db.Session() as session:
+        item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {"success": True, "item": item.to_extended_dict()}
+
+@router.get(
+    "/{imdb_ids}",
+    summary="Retrieve Media Items By IMDb IDs",
+    description="Fetch media items by IMDb IDs",
+)
+async def get_items_by_imdb_ids(request: Request, imdb_ids: str):
+    ids = imdb_ids.split(",")
+    with db.Session() as session:
+        items = []
+        for id in ids:
+            item = session.execute(select(MediaItem).where(MediaItem.imdb_id == id)).unique().scalar_one()
+            if item:
+                items.append(item)
+        return {"success": True, "items": [item.to_extended_dict() for item in items]}
 
 @router.post(
         "/reset",

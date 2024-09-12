@@ -14,6 +14,7 @@ from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.post_processing import PostProcessing
 from program.scrapers import Scraping
 from program.settings.manager import settings_manager
@@ -191,7 +192,7 @@ class Program(threading.Thread):
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem._id))
-                .where(MediaItem.last_state != "Completed")
+                .where(MediaItem.last_state != States.Completed)
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
@@ -206,7 +207,7 @@ class Program(threading.Thread):
                 items_to_submit = []
                 items_to_submit += session.execute(
                     select(MediaItem)
-                    .where(MediaItem.last_state != "Completed")
+                    .where(MediaItem.last_state != States.Completed)
                     .where(MediaItem.type.in_(["movie", "show"]))
                     .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)

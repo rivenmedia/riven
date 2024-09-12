@@ -57,7 +57,7 @@ class MediaItem(db.Model):
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    last_state: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, default="Unknown")
+    last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="joined", cascade="all, delete-orphan")
 
     __mapper_args__ = {
@@ -134,9 +134,9 @@ class MediaItem(db.Model):
         self.subtitles = item.get("subtitles", [])
 
     def store_state(self) -> None:
-        if self.last_state != self._determine_state().name:
+        if self.last_state and self.last_state != self._determine_state():
             ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state().name
+        self.last_state = self._determine_state()
 
     def is_stream_blacklisted(self, stream: Stream):
         """Check if a stream is blacklisted for this item."""
@@ -215,7 +215,7 @@ class MediaItem(db.Model):
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
-            "state": self.last_state,
+            "state": self.last_state.name,
             "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": str(self.aired_at),
             "genres": self.genres if hasattr(self, "genres") else None,
@@ -448,9 +448,9 @@ class Show(MediaItem):
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
-        if self.last_state != self._determine_state().name:
+        if self.last_state and self.last_state != self._determine_state():
             ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state().name
+        self.last_state = self._determine_state()
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
@@ -522,9 +522,9 @@ class Season(MediaItem):
     def store_state(self) -> None:
         for episode in self.episodes:
             episode.store_state()
-        if self.last_state != self._determine_state().name:
+        if self.last_state and self.last_state != self._determine_state():
             ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state().name
+        self.last_state = self._determine_state()
 
     def __init__(self, item):
         self.type = "season"

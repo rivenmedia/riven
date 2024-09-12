@@ -115,7 +115,7 @@ async def get_stats(_: Request):
         total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
         total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
         total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
-        _incomplete_items = session.execute(select(MediaItem).where(MediaItem.last_state != "Completed")).unique().scalars().all()
+        _incomplete_items = session.execute(select(MediaItem).where(MediaItem.last_state != States.Completed)).unique().scalars().all()
 
         incomplete_retries = {}
         for item in _incomplete_items:
@@ -123,7 +123,7 @@ async def get_stats(_: Request):
 
         states = {}
         for state in States:
-            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state.value)).scalar_one()
+            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state)).scalar_one()
 
         payload["total_items"] = total_items
         payload["total_movies"] = total_movies

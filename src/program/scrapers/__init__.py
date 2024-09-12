@@ -54,7 +54,7 @@ class Scraping:
         return None
 
     def partial_state(self, item: MediaItem) -> bool:
-        if item.state != States.PartiallyCompleted or self.can_we_scrape(item):
+        if item.last_state != States.PartiallyCompleted or self.can_we_scrape(item):
             return False
         if isinstance(item, Show):
             sres = [s for s in item.seasons if s.state != States.Completed and s.is_released and self.should_submit(s)]
