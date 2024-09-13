@@ -192,7 +192,7 @@ class Program(threading.Thread):
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem._id))
-                .where(MediaItem.last_state != States.Completed)
+                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
@@ -207,7 +207,7 @@ class Program(threading.Thread):
                 items_to_submit = []
                 items_to_submit += session.execute(
                     select(MediaItem)
-                    .where(MediaItem.last_state != States.Completed)
+                    .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
                     .where(MediaItem.type.in_(["movie", "show"]))
                     .order_by(MediaItem.requested_at.desc())
                     .limit(number_of_rows_per_page)

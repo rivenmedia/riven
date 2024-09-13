@@ -1,5 +1,4 @@
 import threading
-from copy import copy
 from datetime import datetime
 from typing import Dict, Generator, List, Union
 
@@ -18,7 +17,6 @@ from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
-from RTN import Torrent
 from utils.logger import logger
 
 
@@ -117,20 +115,23 @@ class Scraping:
             top_results = list(sorted_streams.values())[:10]
             for sorted_tor in top_results:
                 if isinstance(item, (Movie, Show)):
-                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
                 if isinstance(item, Season):
-                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
                 elif isinstance(item, Episode):
-                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} and ratio {sorted_tor.lev_ratio:.2f}: '{sorted_tor.raw_title}'")
+                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
         return sorted_streams
 
     @classmethod
     def can_we_scrape(cls, item: MediaItem) -> bool:
         """Check if we can scrape an item."""
-        if item.is_released and cls.should_submit(item):
-            return True
-        logger.debug(f"Conditions not met, will not scrape {item.log_string}")
-        return False
+        if not item.is_released:
+            logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
+            return False
+        if not cls.should_submit(item):
+            logger.debug(f"Cannot scrape {item.log_string}: Item has been scraped recently, backing off")
+            return False
+        return True
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
