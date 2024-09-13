@@ -142,13 +142,9 @@ class Orionoid:
             "streamtype": "torrent",
             "protocoltorrent": "magnet",
             "video3d": "false",
-            "videoquality": "sd_hd8k"
+            "videoquality": "sd_hd8k",
+            "limitcount": self.settings.limitcount or 5
         }
-
-        if not self.is_unlimited:
-            params["limitcount"] = 5
-        else:
-            params["limitcount"] = 5000
 
         if season:
             params["numberseason"] = season
