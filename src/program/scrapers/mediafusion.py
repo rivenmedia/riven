@@ -34,7 +34,6 @@ class Mediafusion:
     def validate(self) -> bool:
         """Validate the Mediafusion settings."""
         if not self.settings.enabled:
-            logger.debug("Mediafusion is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Mediafusion URL is not configured and will not be used.")

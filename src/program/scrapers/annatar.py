@@ -28,7 +28,6 @@ class Annatar:
     def validate(self) -> bool:
         """Validate the Annatar settings."""
         if not self.settings.enabled:
-            logger.debug("Annatar is set to disabled.")
             return False
         if not isinstance(self.settings.url, str) or not self.settings.url:
             logger.error("Annatar URL is not configured and will not be used.")

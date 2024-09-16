@@ -1,14 +1,16 @@
 """Trakt content module"""
 import re
 import time
+from typing import Union
 from urllib.parse import urlencode
 
-from program.media.item import MediaItem, Movie, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from requests import RequestException
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, post
+from program.db.db_functions import _filter_existing_items
 
 
 class TraktContent:
@@ -35,7 +37,6 @@ class TraktContent:
         """Validate Trakt settings."""
         try:
             if not self.settings.enabled:
-                logger.debug("Trakt is set to disabled.")
                 return False
             if not self.settings.api_key:
                 logger.error("Trakt API key is not set.")
@@ -115,7 +116,11 @@ class TraktContent:
         if total_new_items > 0:
             logger.log("TRAKT", f"Total new items fetched: {total_new_items}")
 
-        yield items_to_yield
+        non_existing_items = _filter_existing_items(items_to_yield)
+        if len(non_existing_items) > 0:
+            logger.info(f"Found {len(non_existing_items)} new items to fetch")
+
+        yield non_existing_items
 
     def _get_watchlist(self, watchlist_users: list) -> list:
         """Get IMDb IDs from Trakt watchlist"""
@@ -331,7 +336,7 @@ def _extract_user_list_from_url(url) -> tuple:
 
     return None, None
 
-def _resolve_short_url(short_url) -> str or None:
+def _resolve_short_url(short_url) -> Union[str, None]:
     """Resolve short URL to full URL"""
     try:
         response = get(short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})

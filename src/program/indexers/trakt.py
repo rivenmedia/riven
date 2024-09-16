@@ -99,10 +99,6 @@ class TraktIndexer:
     @staticmethod
     def _add_seasons_to_show(show: Show, imdb_id: str):
         """Add seasons to the given show using Trakt API."""
-        if not isinstance(show, Show):
-            logger.error(f"Item {show.log_string} is not a show")
-            return
-
         if not imdb_id or not imdb_id.startswith("tt"):
             logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
             return
@@ -179,14 +175,14 @@ def _get_formatted_date(data, item_type: str) -> Optional[datetime]:
 def get_show(imdb_id: str) -> dict:
     """Wrapper for trakt.tv API show method."""
     url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
-    response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     return response.data if response.is_ok and response.data else {}
 
 
 def create_item_from_imdb_id(imdb_id: str, type: str = None) -> Optional[MediaItem]:
     """Wrapper for trakt.tv API search method."""
     url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
-    response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         logger.error(f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
         return None
@@ -202,7 +198,7 @@ def create_item_from_imdb_id(imdb_id: str, type: str = None) -> Optional[MediaIt
 def get_imdbid_from_tmdb(tmdb_id: str, type: str = "movie") -> Optional[str]:
     """Wrapper for trakt.tv API search method."""
     url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}" # ?extended=full
-    response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
     imdb_id = get_imdb_id_from_list(response.data, id_type="tmdb", _id=tmdb_id, type=type)
@@ -215,7 +211,7 @@ def get_imdbid_from_tmdb(tmdb_id: str, type: str = "movie") -> Optional[str]:
 def get_imdbid_from_tvdb(tvdb_id: str, type: str = "show") -> Optional[str]:
     """Wrapper for trakt.tv API search method."""
     url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}"
-    response = get(url, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     if not response.is_ok or not response.data:
         return None
     imdb_id = get_imdb_id_from_list(response.data, id_type="tvdb", _id=tvdb_id, type=type)

@@ -46,7 +46,6 @@ class Prowlarr:
     def validate(self) -> bool:
         """Validate Prowlarr settings."""
         if not self.settings.enabled:
-            logger.debug("Prowlarr is set to disabled.")
             return False
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key

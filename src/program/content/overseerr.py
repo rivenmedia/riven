@@ -9,6 +9,7 @@ from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 from utils.logger import logger
 from utils.request import delete, get, ping, post
+from program.db.db_functions import _filter_existing_items
 
 
 class Overseerr:
@@ -22,12 +23,11 @@ class Overseerr:
         self.run_once = False
         if not self.initialized:
             return
-        self.recurring_items = set()
+        self.recurring_items: set[str] = set()
         logger.success("Overseerr initialized!")
 
     def validate(self) -> bool:
         if not self.settings.enabled:
-            logger.debug("Overseerr is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 68:
             logger.error("Overseerr api key is not set.")
@@ -53,57 +53,56 @@ class Overseerr:
 
     def run(self):
         """Fetch new media from `Overseerr`"""
-        if self.settings.use_webhook and not self.run_once:
-            logger.info("Webhook is enabled, but running Overseerr once before switching to webhook.")
-            self.run_once = True
-        elif self.run_once:
+        if self.settings.use_webhook and self.run_once:
             return
 
+        overseerr_items: list[MediaItem] = self.get_media_requests()
+        non_existing_items = _filter_existing_items(overseerr_items)
+        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items]
+        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
+
+        if self.settings.use_webhook:
+            logger.debug("Webhook is enabled. Running Overseerr once before switching to webhook.")
+            self.run_once = True
+
+        if new_non_recurring_items:
+            logger.info(f"Fetched {len(new_non_recurring_items)} new items from Overseerr")
+
+        yield new_non_recurring_items
+
+    def get_media_requests(self) -> list[MediaItem]:
+        """Get media requests from `Overseerr`"""
         try:
-            response = get(
-                self.settings.url + f"/api/v1/request?take={10000}&filter=approved&sort=added",
-                additional_headers=self.headers,
-            )
+            response = get(self.settings.url + f"/api/v1/request?take={10000}&filter=approved&sort=added", additional_headers=self.headers)
+            if not response.is_ok:
+                logger.error(f"Failed to fetch requests from overseerr: {response.data}")
+                return []
         except (ConnectionError, RetryError, MaxRetryError) as e:
             logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
-            return
+            return []
         except Exception as e:
             logger.error(f"Unexpected error during fetching requests: {str(e)}")
-            return
+            return []
 
-        if not response.is_ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
-            return
+        if not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
+            return []
 
         # Lets look at approved items only that are only in the pending state
         pending_items = [
-            item
-            for item in response.data.results
+            item for item in response.data.results
             if item.status == 2 and item.media.status == 3
         ]
-        items_to_yield = []
-        for item in pending_items:
-            try:
-                mediaId: int = int(item.media.id)
-                if not item.media.imdbId:
-                    imdb_id = self.get_imdb_id(item.media)
-                else:
-                    imdb_id = item.media.imdbId
-                if not imdb_id or imdb_id in self.recurring_items:
-                    continue
-                self.recurring_items.add(imdb_id)
-                media_item = MediaItem({"imdb_id": imdb_id, "requested_by": self.key, "overseerr_id": mediaId, "requested_id": item.id})
-                if media_item:
-                    items_to_yield.append(media_item)
-                else:
-                    logger.log("NOT_FOUND", f"Failed to create media item for {imdb_id}")
-            except Exception as e:
-                logger.error(f"Error processing item {item}: {str(e)}")
-                continue
 
-        if self.settings.use_webhook:
-            self.run_once = True
+        return [
+            MediaItem({
+                "imdb_id": self.get_imdb_id(item.media),
+                "requested_by": self.key,
+                "overseerr_id": item.media.id,
+                "requested_id": item.id
+            })
+            for item in pending_items
+        ]
 
-        yield items_to_yield
 
     def get_imdb_id(self, data) -> str:
         """Get imdbId for item from overseerr"""

@@ -37,7 +37,6 @@ class TorBoxDownloader:
     def validate(self) -> bool:
         """Validate the TorBox Downloader as a service"""
         if not self.settings.enabled:
-            logger.info("Torbox downloader is not enabled")
             return False
         if not self.settings.api_key:
             logger.error("Torbox API key is not set")

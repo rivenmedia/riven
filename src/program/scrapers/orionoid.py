@@ -34,7 +34,6 @@ class Orionoid:
     def validate(self) -> bool:
         """Validate the Orionoid class_settings."""
         if not self.settings.enabled:
-            logger.warning("Orionoid is set to disabled.")
             return False
         if len(self.settings.api_key) != 32 or self.settings.api_key == "":
             logger.error("Orionoid API Key is not valid or not set. Please check your settings.")

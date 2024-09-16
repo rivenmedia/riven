@@ -23,13 +23,11 @@ class Torrentio:
         if not self.initialized:
             return
         self.hour_limiter: RateLimiter | None = RateLimiter(max_calls=1, period=5) if self.ratelimit else None
-        self.running: bool = True
         logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:
         """Validate the Torrentio settings."""
         if not self.settings.enabled:
-            logger.debug("Torrentio is set to disabled.")
             return False
         if not self.settings.url:
             logger.error("Torrentio URL is not configured and will not be used.")

@@ -7,6 +7,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
+from program.db.db_functions import _filter_existing_items
 
 
 class Mdblist:
@@ -18,14 +19,12 @@ class Mdblist:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.recurring_items = set()
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
         logger.success("mdblist initialized")
 
     def validate(self):
         if not self.settings.enabled:
-            logger.debug("Mdblist is set to disabled.")
             return False
         if self.settings.api_key == "" or len(self.settings.api_key) != 25:
             logger.error("Mdblist api key is not set.")
@@ -55,15 +54,17 @@ class Mdblist:
                         items = list_items_by_url(list, self.settings.api_key)
                     for item in items:
                         # Check if the item is already completed in the media container
-                        if item.imdb_id and item.imdb_id not in self.recurring_items:
-                            self.recurring_items.add(item.imdb_id)
+                        if item.imdb_id:
                             items_to_yield.append(MediaItem(
                                 {"imdb_id": item.imdb_id, "requested_by": self.key}
                             ))
-
         except RateLimitExceeded:
             pass
-        yield items_to_yield
+
+        non_existing_items = _filter_existing_items(items_to_yield)
+        if len(non_existing_items) > 0:
+            logger.info(f"Found {len(non_existing_items)} new items to fetch")
+        yield non_existing_items
 
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits

@@ -239,6 +239,18 @@ def _ensure_item_exists_in_db(item: "MediaItem") -> bool:
             return session.execute(select(func.count(MediaItem._id)).where(MediaItem._id == item._id)).scalar_one() != 0
     return bool(item and item._id)
 
+def _filter_existing_items(items: list["MediaItem"]) -> list["MediaItem"]:
+    """Return a list of MediaItems that do not exist in the database."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        existing_items = set(
+            session.execute(
+                select(MediaItem.imdb_id)
+                .where(MediaItem.imdb_id.in_([item.imdb_id for item in items]))
+            ).scalars().all()
+        )
+        return [item for item in items if item.imdb_id not in existing_items]
+
 def _get_item_type_from_db(item: "MediaItem") -> str:
     from program.media.item import MediaItem
     with db.Session() as session:

@@ -47,7 +47,6 @@ class AllDebridDownloader:
     def validate(self) -> bool:
         """Validate All-Debrid settings and API key"""
         if not self.settings.enabled:
-            logger.warning("All-Debrid is set to disabled")
             return False
         if not self.settings.api_key:
             logger.warning("All-Debrid API key is not set")

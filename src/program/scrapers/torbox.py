@@ -25,7 +25,6 @@ class TorBoxScraper:
     def validate(self) -> bool:
         """Validate the TorBox Scraper as a service"""
         if not self.settings.enabled:
-            logger.debug("TorBox Scraper is set to disabled")
             return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("TorBox timeout is not set or invalid.")

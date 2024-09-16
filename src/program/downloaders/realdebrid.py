@@ -24,7 +24,6 @@ class RealDebridDownloader:
     def validate(self) -> bool:
         """Validate Real-Debrid settings and API key"""
         if not self.settings.enabled:
-            logger.debug("Real-Debrid is set to disabled")
             return False
         if not self.settings.api_key:
             logger.warning("Real-Debrid API key is not set")

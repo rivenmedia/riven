@@ -1,6 +1,4 @@
 """Updater module"""
-from typing import Dict
-
 from program.media.item import MediaItem
 from program.updaters.plex import PlexUpdater
 from utils.logger import logger

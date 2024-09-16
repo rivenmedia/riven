@@ -74,7 +74,7 @@ class FileFinder:
                 return {1: {1: biggest_file}}
 
 def get_needed_media(item: MediaItem) -> dict:
-    acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted]
+    acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted, States.Ongoing]
     if item.type == "movie":
         needed_media = None
     elif item.type == "show":
