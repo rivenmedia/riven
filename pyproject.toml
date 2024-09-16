@@ -20,7 +20,7 @@ uvicorn = {extras = ["standard"], version = "^0.30.6"}
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
 coverage = "^7.5.4"
-rank-torrent-name = "0.2.23"
+rank-torrent-name = "1.0.4"
 cachetools = "^5.3.3"
 loguru = "^0.7.2"
 rich = "^13.7.1"
