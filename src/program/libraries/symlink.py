@@ -3,7 +3,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generator
 
 from sqla_wrapper import Session
 
@@ -13,7 +13,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 
 if TYPE_CHECKING:
-    from program.media.item import Movie, Show, Episode
+    from program.media.item import Movie, Show, Episode, MediaItem
 
 imdbid_pattern = re.compile(r"tt\d+")
 season_pattern = re.compile(r"s(\d+)")
@@ -47,22 +47,25 @@ class SymlinkLibrary:
             return False
         return True
 
-    def run(self):
+    def run(self) -> list["MediaItem"]:
         """
         Create a library from the symlink paths. Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in.
         """
         from program.media.item import Movie
+
+        items = []
         for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
                 continue
-            yield from process_shows(self.settings.library_path / directory, item_type, is_anime)
+            items.extend(process_shows(self.settings.library_path / directory, item_type, is_anime))
 
         for directory, item_type, is_anime in [("movies", "movie", False), ("anime_movies", "anime movie", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
                 continue
-            yield from process_items(self.settings.library_path / directory, Movie, item_type, is_anime)
+            items.extend(process_items(self.settings.library_path / directory, Movie, item_type, is_anime))
 
+        return items
 
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
     """Process items in the given directory and yield MediaItem instances."""
@@ -110,7 +113,7 @@ def find_subtitles(item, path: Path):
             item.subtitles.append(Subtitle({lang_code: (path.parent / file).__str__()}))
             logger.debug(f"Found subtitle file {file}.")
 
-def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> "Show":
+def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Generator["Show", None, None]:
     """Process shows in the given directory and yield Show instances."""
     from program.media.item import Episode, Season, Show
     for show in os.listdir(directory):

@@ -1,20 +1,20 @@
-import asyncio
 import concurrent.futures
+import os
+import traceback
 from datetime import datetime
 from queue import Empty
-import os
 from threading import Lock
-import time
-import traceback
+
+from loguru import logger
 from subliminal import Episode, Movie
 
-from program.db.db import db
-from program.db.db_functions import _run_thread_with_db_item, _get_item_ids
-from loguru import logger
 import utils.websockets.manager as ws_manager
-
+from program.db.db import db
+from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
 from program.media.item import Season, Show
 from program.types import Event
+
+
 class EventManager:
     """
     Manages the execution of services and the handling of events.
@@ -195,7 +195,6 @@ class EventManager:
         Returns:
             Event: The next event in the queue.
         """
-        start_time = time.time()
         while True:
             if self._queued_events:
                 with self.mutex:

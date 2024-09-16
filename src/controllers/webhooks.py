@@ -24,31 +24,31 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         response = await request.json()
         if response.get("subject") == "Test Notification":
             logger.log("API", "Received test notification, Overseerr configured properly")
-            return {"status": "success"}
+            return {"success": True}
         req = OverseerrWebhook.model_validate(response)
     except (Exception, pydantic.ValidationError) as e:
         logger.error(f"Failed to process request: {e}")
-        return {"status": "error", "message": str(e)}
+        return {"success": False, "message": str(e)}
 
     imdb_id = get_imdbid_from_overseerr(req)
     if not imdb_id:
         logger.error(f"Failed to get imdb_id from Overseerr: {req.media.tmdbId}")
-        return {"status": "error", "message": "Failed to get imdb_id from Overseerr"}
+        return {"success": False, "message": "Failed to get imdb_id from Overseerr"}
 
     overseerr: Overseerr = request.app.program.all_services[Overseerr]
     if not overseerr.initialized:
         logger.error("Overseerr not initialized")
-        return {"status": "error", "message": "Overseerr not initialized"}
+        return {"success": False, "message": "Overseerr not initialized"}
 
     try:
         new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "requested_id": req.request.request_id})
     except Exception as e:
         logger.error(f"Failed to create item for {imdb_id}: {e}")
-        return {"status": "error", "message": str(e)}
+        return {"success": False, "message": str(e)}
 
     if _ensure_item_exists_in_db(new_item) or imdb_id in overseerr.recurring_items:
         logger.log("API", "Request already in queue or already exists in the database")
-        return {"status": "success"}
+        return {"success": True}
     else:
         overseerr.recurring_items.add(imdb_id)
 
@@ -57,7 +57,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to add item for {imdb_id}: {e}")
 
-    return {"status": "success"}
+    return {"success": True}
 
 
 def get_imdbid_from_overseerr(req: OverseerrWebhook) -> str:

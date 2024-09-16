@@ -52,7 +52,7 @@ class TraktIndexer:
             logger.error(f"Item types {itema.type} and {itemb.type} do not match cant copy metadata")
         return itemb
 
-    def run(self, in_item: MediaItem) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
+    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the Trakt indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
@@ -79,7 +79,8 @@ class TraktIndexer:
         item = self.copy_items(in_item, item)
         item.indexed_at = datetime.now()
 
-        logger.debug(f"Indexed IMDb id ({in_item.imdb_id}) as {item.type.title()}: {item.log_string}")
+        if log_msg: # used for mapping symlinks to database, need to hide this log message
+            logger.debug(f"Indexed IMDb id ({in_item.imdb_id}) as {item.type.title()}: {item.log_string}")
         yield item
 
     @staticmethod

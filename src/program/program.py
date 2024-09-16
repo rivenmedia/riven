@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import linecache
 import os
 import threading
@@ -7,6 +8,9 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+from rich.live import Live
 
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
@@ -140,27 +144,9 @@ class Program(threading.Thread):
             return
 
         run_migrations()
+        self._init_db_from_symlinks()
 
         with db.Session() as session:
-            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
-            added = []
-            if res == 0:
-                for item in self.services[SymlinkLibrary].run():
-                    if settings_manager.settings.map_metadata:
-                        if isinstance(item, (Movie, Show)):
-                            try:
-                                item = next(self.services[TraktIndexer].run(item))
-                            except StopIteration as e:
-                                logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
-                                continue
-                            if item.item_id in added:
-                                logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
-                                continue
-                            added.append(item.item_id)
-                            item.store_state()
-                            session.add(item)
-                session.commit()
-
             movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
             episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one() # noqa
             total_symlinks = movies_symlinks + episodes_symlinks
@@ -348,3 +334,100 @@ class Program(threading.Thread):
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
+
+    # def _init_db_from_symlinks(self):
+    #     with db.Session() as session:
+    #         res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+    #         added = []
+    #         if res == 0:
+    #             logger.log("PROGRAM", "Collecting items from symlinks")
+    #             items = self.services[SymlinkLibrary].run()
+    #             logger.log("PROGRAM", f"Found {len(items)} symlinks to add to database")
+    #             if settings_manager.settings.map_metadata:
+    #                 console = Console()
+    #                 progress = Progress(
+    #                     SpinnerColumn(),
+    #                     TextColumn("[progress.description]{task.description}"),
+    #                     BarColumn(),
+    #                     TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    #                     TimeRemainingColumn(),
+    #                     console=console,
+    #                     transient=True,
+    #                 )
+
+    #                 task = progress.add_task("Enriching items with metadata", total=len(items))
+    #                 with Live(progress, console=console, refresh_per_second=10):
+    #                     for item in items:
+    #                         if isinstance(item, (Movie, Show)):
+    #                             try:
+    #                                 enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+    #                             except StopIteration as e:
+    #                                 logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
+    #                                 continue
+    #                             if enhanced_item.item_id in added:
+    #                                 logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
+    #                                 continue
+    #                             added.append(enhanced_item.item_id)
+    #                             enhanced_item.store_state()
+    #                             session.add(enhanced_item)
+    #                             progress.update(task, advance=1)
+    #                 session.commit()
+    #             logger.log("PROGRAM", "Database initialized")
+
+    def _enhance_item(self, item: MediaItem) -> MediaItem | None:
+        try:
+            enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+            return enhanced_item
+        except StopIteration as e:
+            logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
+            return None
+
+    def _init_db_from_symlinks(self):
+        with db.Session() as session:
+            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            added = []
+            errors = []
+            if res == 0:
+                logger.log("PROGRAM", "Collecting items from symlinks")
+                items = self.services[SymlinkLibrary].run()
+                logger.log("PROGRAM", f"Found {len(items)} Movie and Show symlinks to add to database")
+                if settings_manager.settings.map_metadata:
+                    console = Console()
+                    progress = Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                        TimeRemainingColumn(),
+                        console=console,
+                        transient=True,
+                    )
+
+                    task = progress.add_task("Enriching items with metadata", total=len(items))
+                    with Live(progress, console=console, refresh_per_second=10):
+                        with ThreadPoolExecutor(max_workers=4) as executor:
+                            future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
+                            for future in as_completed(future_to_item):
+                                item = future_to_item[future]
+                                try:
+                                    enhanced_item = future.result()
+                                    if enhanced_item:
+                                        if enhanced_item.item_id in added:
+                                            errors.append(f"Duplicate symlink found for {item.title} ({item.item_id}), skipping...")
+                                            continue
+                                        else:
+                                            added.append(enhanced_item.item_id)
+                                            enhanced_item.store_state()
+                                            session.add(enhanced_item)
+                                except Exception as e:
+                                    errors.append(f"Error processing {item.title} ({item.item_id}): {e}")
+                                finally:
+                                    progress.update(task, advance=1)
+                    session.commit()
+
+                if errors:
+                    logger.error("Errors encountered during initialization")
+                    for error in errors:
+                        logger.error(error)
+
+                logger.log("PROGRAM", "Database initialized")
