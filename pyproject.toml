@@ -38,7 +38,7 @@ subliminal = "^2.2.1"
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
 pyperf = "^2.2.0"
-pytest = "^8.3.2"
+pytest = "^8.3.3"
 pyfakefs = "^5.4.1"
 ruff = "^0.3.0"
 isort = "^5.10.1"
@@ -51,7 +51,7 @@ testcontainers = "^4.8.0"
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = "^8.3.2"
+pytest = "^8.3.3"
 
 [build-system]
 requires = ["poetry-core"]
