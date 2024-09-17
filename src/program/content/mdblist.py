@@ -21,6 +21,7 @@ class Mdblist:
             return
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
+        self.recurring_items = set()
         logger.success("mdblist initialized")
 
     def validate(self):
@@ -62,9 +63,12 @@ class Mdblist:
             pass
 
         non_existing_items = _filter_existing_items(items_to_yield)
-        if len(non_existing_items) > 0:
-            logger.info(f"Found {len(non_existing_items)} new items to fetch")
-        yield non_existing_items
+        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
+        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
+
+        if new_non_recurring_items:
+            logger.info(f"Found {len(new_non_recurring_items)} new items to fetch")
+        yield new_non_recurring_items
 
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits

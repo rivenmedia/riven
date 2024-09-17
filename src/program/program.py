@@ -6,10 +6,11 @@ import threading
 import time
 from datetime import datetime
 from queue import Empty
+import traceback
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn, TimeElapsedColumn
 from rich.live import Live
 
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -335,45 +336,6 @@ class Program(threading.Thread):
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    # def _init_db_from_symlinks(self):
-    #     with db.Session() as session:
-    #         res = session.execute(select(func.count(MediaItem._id))).scalar_one()
-    #         added = []
-    #         if res == 0:
-    #             logger.log("PROGRAM", "Collecting items from symlinks")
-    #             items = self.services[SymlinkLibrary].run()
-    #             logger.log("PROGRAM", f"Found {len(items)} symlinks to add to database")
-    #             if settings_manager.settings.map_metadata:
-    #                 console = Console()
-    #                 progress = Progress(
-    #                     SpinnerColumn(),
-    #                     TextColumn("[progress.description]{task.description}"),
-    #                     BarColumn(),
-    #                     TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-    #                     TimeRemainingColumn(),
-    #                     console=console,
-    #                     transient=True,
-    #                 )
-
-    #                 task = progress.add_task("Enriching items with metadata", total=len(items))
-    #                 with Live(progress, console=console, refresh_per_second=10):
-    #                     for item in items:
-    #                         if isinstance(item, (Movie, Show)):
-    #                             try:
-    #                                 enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
-    #                             except StopIteration as e:
-    #                                 logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
-    #                                 continue
-    #                             if enhanced_item.item_id in added:
-    #                                 logger.error(f"Cannot enhance metadata, {item.title} ({item.item_id}) contains multiple folders. Manual resolution required. Skipping.")
-    #                                 continue
-    #                             added.append(enhanced_item.item_id)
-    #                             enhanced_item.store_state()
-    #                             session.add(enhanced_item)
-    #                             progress.update(task, advance=1)
-    #                 session.commit()
-    #             logger.log("PROGRAM", "Database initialized")
-
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
             enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
@@ -383,14 +345,15 @@ class Program(threading.Thread):
             return None
 
     def _init_db_from_symlinks(self):
+        """Initialize the database from symlinks."""
+        start_time = datetime.now()
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
             added = []
             errors = []
             if res == 0:
-                logger.log("PROGRAM", "Collecting items from symlinks")
+                logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
                 items = self.services[SymlinkLibrary].run()
-                logger.log("PROGRAM", f"Found {len(items)} Movie and Show symlinks to add to database")
                 if settings_manager.settings.map_metadata:
                     console = Console()
                     progress = Progress(
@@ -399,11 +362,13 @@ class Program(threading.Thread):
                         BarColumn(),
                         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                         TimeRemainingColumn(),
+                        TextColumn("[progress.completed]{task.completed}/{task.total}", justify="right"),
+                        TextColumn("[progress.log]{task.fields[log]}", justify="right"),
                         console=console,
-                        transient=True,
+                        transient=True
                     )
 
-                    task = progress.add_task("Enriching items with metadata", total=len(items))
+                    task = progress.add_task("Enriching items with metadata", total=len(items), log="")
                     with Live(progress, console=console, refresh_per_second=10):
                         with ThreadPoolExecutor(max_workers=8) as executor: # testing between 4 and 8
                             future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
@@ -413,21 +378,28 @@ class Program(threading.Thread):
                                     enhanced_item = future.result()
                                     if enhanced_item:
                                         if enhanced_item.item_id in added:
-                                            errors.append(f"Duplicate symlink found for {item.title} ({item.item_id}), skipping...")
+                                            errors.append(f"Duplicate Symlink found: {enhanced_item.log_string}")
                                             continue
                                         else:
                                             added.append(enhanced_item.item_id)
                                             enhanced_item.store_state()
                                             session.add(enhanced_item)
+                                            log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
                                 except Exception as e:
-                                    errors.append(f"Error processing {item.title} ({item.item_id}): {e}")
+                                    logger.exception(f"Error processing {item.log_string}: {e}")
                                 finally:
-                                    progress.update(task, advance=1)
+                                    progress.update(task, advance=1, log=log_message)
+                            progress.update(task, log="Finished Indexing Symlinks!")
                     session.commit()
 
-                if errors:
-                    logger.error("Errors encountered during initialization")
-                    for error in errors:
-                        logger.error(error)
+                    # lets log the errors at the end in case we need user intervention
+                    if errors:
+                        logger.error("Errors encountered during initialization")
+                        for error in errors:
+                            logger.error(error)
 
-                logger.log("PROGRAM", "Database initialized")
+                    elapsed_time = datetime.now() - start_time
+                    total_seconds = elapsed_time.total_seconds()
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    logger.success(f"Database initialized, time taken: h{int(hours):02d}:m{int(minutes):02d}:s{int(seconds):02d}")

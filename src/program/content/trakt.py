@@ -29,6 +29,7 @@ class TraktContent:
         if not self.initialized:
             return
         self.next_run_time = 0
+        self.recurring_items = set()
         self.items_already_seen = set()
         self.missing()
         logger.success("Trakt initialized!")
@@ -74,53 +75,39 @@ class TraktContent:
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
-        current_time = time.time()
-        items_to_yield = []
-        if current_time < self.next_run_time:
-            return
 
-        self.next_run_time = current_time + self.settings.update_interval
-        watchlist_ids = self._get_watchlist(self.settings.watchlist)
-        collection_ids = self._get_collection(self.settings.collection)
-        user_list_ids = self._get_list(self.settings.user_lists)
-        trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
-        popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
+        def fetch_items(fetch_function, *args):
+            """Helper function to fetch items using the provided function and arguments."""
+            return fetch_function(*args) if args else []
 
-        # Combine all IMDb IDs and types
-        all_items = {
-            "Watchlist": watchlist_ids,
-            "Collection": collection_ids,
-            "User Lists": user_list_ids,
-            "Trending": trending_ids,
-            "Popular": popular_ids
-        }
+        watchlist_ids = fetch_items(self._get_watchlist, self.settings.watchlist)
+        collection_ids = fetch_items(self._get_collection, self.settings.collection)
+        user_list_ids = fetch_items(self._get_list, self.settings.user_lists)
+        trending_ids = fetch_items(self._get_trending_items) if self.settings.fetch_trending else []
+        popular_ids = fetch_items(self._get_popular_items) if self.settings.fetch_popular else []
 
-        total_new_items = 0
+        # Combine all IMDb IDs and types into a set to avoid duplicates
+        all_ids = set(watchlist_ids + collection_ids + user_list_ids + trending_ids + popular_ids)
 
-        for source, items in all_items.items():
-            new_items_count = 0
-            for imdb_id, item_type in items:
-                if imdb_id in self.items_already_seen or not imdb_id:
-                    continue
-                self.items_already_seen.add(imdb_id)
-                new_items_count += 1
-
-                items_to_yield.append(MediaItem({
-                        "imdb_id": imdb_id,
-                        "requested_by": self.key
-                    }))
-
-            if new_items_count > 0:
-                logger.log("TRAKT", f"New items fetched from {source}: {new_items_count}")
-            total_new_items += new_items_count
-        if total_new_items > 0:
-            logger.log("TRAKT", f"Total new items fetched: {total_new_items}")
+        items_to_yield = [
+            MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
+            for imdb_id in all_ids
+            if imdb_id.startswith("tt")
+        ]
 
         non_existing_items = _filter_existing_items(items_to_yield)
-        if len(non_existing_items) > 0:
-            logger.info(f"Found {len(non_existing_items)} new items to fetch")
+        new_non_recurring_items = [
+            item
+            for item in non_existing_items
+            if item.imdb_id not in self.recurring_items
+            and isinstance(item, MediaItem)
+        ]
+        self.recurring_items.update(item.imdb_id for item in new_non_recurring_items)
 
-        yield non_existing_items
+        if new_non_recurring_items:
+            logger.log("TRAKT", f"Found {len(new_non_recurring_items)} new items to fetch")
+
+        yield new_non_recurring_items
 
     def _get_watchlist(self, watchlist_users: list) -> list:
         """Get IMDb IDs from Trakt watchlist"""

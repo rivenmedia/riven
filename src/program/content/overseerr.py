@@ -58,11 +58,11 @@ class Overseerr:
 
         overseerr_items: list[MediaItem] = self.get_media_requests()
         non_existing_items = _filter_existing_items(overseerr_items)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items]
+        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
         self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
 
         if self.settings.use_webhook:
-            logger.debug("Webhook is enabled. Running Overseerr once before switching to webhook.")
+            logger.debug("Webhook is enabled. Running Overseerr once before switching to webhook only mode")
             self.run_once = True
 
         if new_non_recurring_items:
