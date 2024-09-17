@@ -38,11 +38,8 @@ class PlexUpdater:
         if not self.settings.url:
             logger.error("Plex URL is not set!")
             return False
-        if not self.library_path:
-            logger.error("Library path is not set!")
-            return False
-        if not os.path.exists(self.library_path):
-            logger.error("Library path does not exist!")
+        if not self.library_path or not os.path.exists(self.library_path):
+            logger.error("Library path is not set or does not exist!")
             return False
 
         try:
@@ -50,22 +47,22 @@ class PlexUpdater:
             self.sections = self.map_sections_with_paths()
             self.initialized = True
             return True
-        except Unauthorized:
-            logger.error("Plex is not authorized!")
+        except Unauthorized as e:
+            logger.error(f"Plex is not authorized!: {e}")
         except TimeoutError as e:
-            logger.error(f"Plex timeout error: {e}")
-        except BadRequest:
-            logger.error("Plex is not configured correctly!")
-        except MaxRetryError:
-            logger.error("Plex max retries exceeded")
-        except NewConnectionError:
-            logger.error("Plex new connection error")
-        except RequestsConnectionError:
-            logger.error("Plex requests connection error")
+            logger.exception(f"Plex timeout error: {e}")
+        except BadRequest as e:
+            logger.exception(f"Plex is not configured correctly!: {e}")
+        except MaxRetryError as e:
+            logger.exception(f"Plex max retries exceeded: {e}")
+        except NewConnectionError as e:
+            logger.exception(f"Plex new connection error: {e}")
+        except RequestsConnectionError as e:
+            logger.exception(f"Plex requests connection error: {e}")
         except RequestError as e:
-            logger.error(f"Plex request error: {e}")
+            logger.exception(f"Plex request error: {e}")
         except Exception as e:
-            logger.error(f"Plex exception thrown: {e}")
+            logger.exception(f"Plex exception thrown: {e}")
         return False
 
     def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:

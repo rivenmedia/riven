@@ -405,7 +405,7 @@ class Program(threading.Thread):
 
                     task = progress.add_task("Enriching items with metadata", total=len(items))
                     with Live(progress, console=console, refresh_per_second=10):
-                        with ThreadPoolExecutor(max_workers=4) as executor:
+                        with ThreadPoolExecutor(max_workers=8) as executor: # testing between 4 and 8
                             future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
                             for future in as_completed(future_to_item):
                                 item = future_to_item[future]
