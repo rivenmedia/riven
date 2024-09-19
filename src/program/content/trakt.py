@@ -76,24 +76,21 @@ class TraktContent:
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
 
-        def fetch_items(fetch_function, *args):
-            """Helper function to fetch items using the provided function and arguments."""
-            return fetch_function(*args) if args else []
-
-        watchlist_ids = fetch_items(self._get_watchlist, self.settings.watchlist)
-        collection_ids = fetch_items(self._get_collection, self.settings.collection)
-        user_list_ids = fetch_items(self._get_list, self.settings.user_lists)
-        trending_ids = fetch_items(self._get_trending_items) if self.settings.fetch_trending else []
-        popular_ids = fetch_items(self._get_popular_items) if self.settings.fetch_popular else []
+        watchlist_ids = self._get_watchlist(self.settings.watchlist) if self.settings.watchlist else []
+        collection_ids = self._get_collection(self.settings.collection) if self.settings.collection else []
+        user_list_ids = self._get_list(self.settings.user_lists) if self.settings.user_lists else []
+        trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
+        popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
 
         # Combine all IMDb IDs and types into a set to avoid duplicates
         all_ids = set(watchlist_ids + collection_ids + user_list_ids + trending_ids + popular_ids)
 
-        items_to_yield = [
-            MediaItem({"imdb_id": imdb_id, "requested_by": self.key})
-            for imdb_id in all_ids
-            if imdb_id.startswith("tt")
-        ]
+        items_to_yield = []
+        for imdb_id, _ in all_ids:
+            items_to_yield.append(MediaItem({"imdb_id": imdb_id, "requested_by": self.key}))
+
+        if not items_to_yield:
+            return
 
         non_existing_items = _filter_existing_items(items_to_yield)
         new_non_recurring_items = [

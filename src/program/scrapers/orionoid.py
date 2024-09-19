@@ -28,7 +28,7 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
+        self.second_limiter = RateLimiter(max_calls=1, period=5)
         logger.success("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -106,10 +106,7 @@ class Orionoid:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"Orionoid rate limit exceeded for item: {item.log_string}")
+            self.second_limiter.limit_hit()
         except ConnectTimeout:
             logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -167,10 +164,7 @@ class Orionoid:
             imdb_id = item.parent.parent.imdb_id
             url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
 
-        if self.second_limiter:
-            with self.second_limiter:
-                response = get(url, timeout=self.timeout)
-        else:
+        with self.second_limiter:
             response = get(url, timeout=self.timeout)
 
         if not response.is_ok or not hasattr(response.data, "data"):
@@ -180,7 +174,6 @@ class Orionoid:
         for stream in response.data.data.streams:
             if not stream.file.hash or not stream.file.name:
                 continue
-            
             torrents[stream.file.hash] = stream.file.name
 
         return torrents, len(response.data.data.streams)

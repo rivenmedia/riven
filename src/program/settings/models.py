@@ -264,6 +264,7 @@ class ScraperModel(Observable):
     after_2: float = 2
     after_5: int = 6
     after_10: int = 24
+    parse_debug: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
     knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()

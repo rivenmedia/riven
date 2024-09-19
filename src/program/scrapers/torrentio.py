@@ -92,9 +92,6 @@ class Torrentio:
                 identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
             elif isinstance(item, Movie):
                 identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-            else:
-                logger.error("Invalid media item type")
-                return None, None, None
             return identifier, scrape_type, imdb_id
         except Exception as e:
             logger.warning(f"Failed to determine scrape type or identifier for {item.log_string}: {e}")
@@ -123,10 +120,8 @@ class Torrentio:
             if not stream.infoHash:
                 continue
 
-            # For Movies and Episodes, we want the file name instead of the torrent title
-            # This should help with Special episodes and other misc. names
             stream_title = stream.title.split("\n👤")[0]
-            raw_title = stream_title.split("\n")[-1].split("/")[-1] if isinstance(item, Episode) else stream_title.split("\n")[0]
+            raw_title = stream_title.split("\n")[0]
             torrents[stream.infoHash] = raw_title
 
         return torrents, len(response.data.streams)

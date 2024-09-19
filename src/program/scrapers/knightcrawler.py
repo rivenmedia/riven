@@ -110,7 +110,7 @@ class Knightcrawler:
             # This should help with Special episodes and other misc. names
             stream_title = stream.title.split("\n")[:-1]
             joined_title = "\n".join(stream_title)
-            raw_title = joined_title.split("/")[-1] if isinstance(item, Episode) else joined_title.split("\n")[0]
+            raw_title = joined_title.split("\n")[0]
 
             torrents[stream.infoHash] = raw_title
 

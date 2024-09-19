@@ -150,8 +150,10 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
 
     match item_type:
         case "movie":
+            item["aliases"] = get_show_aliases(item["imdb_id"], "movies")
             return Movie(item)
         case "show":
+            item["aliases"] = get_show_aliases(item["imdb_id"], "shows")
             return Show(item)
         case "season":
             item["number"] = data.number
@@ -175,9 +177,32 @@ def _get_formatted_date(data, item_type: str) -> Optional[datetime]:
 
 def get_show(imdb_id: str) -> dict:
     """Wrapper for trakt.tv API show method."""
+    if not imdb_id:
+        return {}
     url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
     response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
     return response.data if response.is_ok and response.data else {}
+
+
+def get_show_aliases(imdb_id: str, item_type: str) -> List[dict]:
+    """Wrapper for trakt.tv API show method."""
+    if not imdb_id:
+        return []
+    url = f"https://api.trakt.tv/{item_type}/{imdb_id}/aliases"
+    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+    if response.is_ok and response.data:
+        aliases = {}
+        for ns in response.data:
+            country = ns.country
+            title = ns.title
+            if title.startswith("Anime-"):
+                title = title[len("Anime-"):]
+            if country not in aliases:
+                aliases[country] = []
+            if title not in aliases[country]:
+                aliases[country].append(title)
+        return aliases
+    return {}
 
 
 def create_item_from_imdb_id(imdb_id: str, type: str = None) -> Optional[MediaItem]:

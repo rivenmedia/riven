@@ -42,6 +42,7 @@ class MediaItem(db.Model):
     file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -121,6 +122,7 @@ class MediaItem(db.Model):
         self.aired_at = item.get("aired_at")
         self.year = item.get("year")
         self.genres = item.get("genres", [])
+        self.aliases = item.get("aliases", {})
 
         # Plex related
         self.key = item.get("key")
@@ -155,13 +157,6 @@ class MediaItem(db.Model):
     def is_released(self) -> bool:
         """Check if an item has been released."""
         if self.aired_at and self.aired_at <= datetime.now():
-            # time_until_release = self.aired_at - datetime.now()
-            # days, seconds = time_until_release.days, time_until_release.seconds
-            # hours = seconds // 3600
-            # minutes = (seconds % 3600) // 60
-            # seconds = seconds % 60
-            # time_message = f"{self.log_string} will be released in {days} days, {hours:02}:{minutes:02}:{seconds:02}"
-            # logger.log("ITEM", time_message)
             return True
         return False
 
@@ -297,13 +292,21 @@ class MediaItem(db.Model):
 
     def get_top_title(self) -> str:
         """Get the top title of the item."""
-        match self.__class__.__name__:
-            case "Season":
-                return self.parent.title
-            case "Episode":
-                return self.parent.parent.title
-            case _:
-                return self.title
+        if self.type == "season":
+            return self.parent.title
+        elif self.type == "episode":
+            return self.parent.parent.title
+        else:
+            return self.title
+
+    def get_aliases(self) -> dict:
+        """Get the aliases of the item."""
+        if self.type == "season":
+            return self.parent.aliases
+        elif self.type == "episode":
+            return self.parent.parent.aliases
+        else:
+            return self.aliases
 
     def __hash__(self):
         return hash(self.item_id)
