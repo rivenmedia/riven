@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.12.0](https://github.com/rivenmedia/riven/compare/v0.11.1...v0.12.0) (2024-09-20)
+
+
+### Features
+
+* add alias support in parsing when scraping torrents. several other tweaks. ([365f022](https://github.com/rivenmedia/riven/commit/365f02239cbed0f3e441a2e60abee31e78a05553))
+* improvements to reset/retry/remove endpoints ([98f9e49](https://github.com/rivenmedia/riven/commit/98f9e49581bf43e3602d8dcb74f14a5bed1d529d))
+* move symlink db init to progress bar. added threading to speed it up. needs testing! ([71fb859](https://github.com/rivenmedia/riven/commit/71fb8592528c9b1a60856ed5cedc069a3faf8b2c))
+* update RTN to latest ([bbc5ce7](https://github.com/rivenmedia/riven/commit/bbc5ce75487ed87a989253b444f53c71d757f7db))
+
+
+### Bug Fixes
+
+* add infohash to scraped log msg. added exclude for unreleased to retry lib. ([9491e53](https://github.com/rivenmedia/riven/commit/9491e53045d97585afd57d73523bebe1997a3509))
+* add sleep between event retries ([01e71f0](https://github.com/rivenmedia/riven/commit/01e71f021643348dc7dddc4b172cf0ecb548342d))
+* add torrent name and infohash to download log. update deps to resolve parsing bugs. ([aecaf37](https://github.com/rivenmedia/riven/commit/aecaf3725075879c16651434fa6add10ef56fcff))
+* anime movies not showing in correct dir ([44e0161](https://github.com/rivenmedia/riven/commit/44e0161c3234da3b6d26ce41ecaa50d557b1ff99))
+* content services now only output new items that arent in the db. tidied some initial startup logging. ([797778c](https://github.com/rivenmedia/riven/commit/797778ca36095b350ec336900e283a2a70b0a95f))
+* fixed bug with upscaled in parsett. update dep ([f3974ef](https://github.com/rivenmedia/riven/commit/f3974efc702fc351ddabfbbb8efa91d57d6b3d2c))
+* fixed completed items being added to queue on startup ([d45882f](https://github.com/rivenmedia/riven/commit/d45882f9ec405e9f3ee8423183e0ef38e6e63dd5))
+* moved log cleaning to scheduled func. fixed bug with new furiosa movie ([475f934](https://github.com/rivenmedia/riven/commit/475f9345ad40adbbb8e8b2a453cede253f86d2c0))
+* movie obj trying to index as show type ([c0e1e2c](https://github.com/rivenmedia/riven/commit/c0e1e2c4a1b1c068a1fe04bfc300a10dea927000))
+* ranking wasnt followed by downloader ([578ae8f](https://github.com/rivenmedia/riven/commit/578ae8f88b3865222e6ab6cca6e53ff73273ef12))
+* resetting a item would make it unresettable again ([f5c849f](https://github.com/rivenmedia/riven/commit/f5c849f0ccbb7028609221c397991e0f64380df5))
+* revert back to old way of retry library ([46a6510](https://github.com/rivenmedia/riven/commit/46a651043a65e5d42ecb8d104dcf7ac477985d18))
+* revert item in db check during state processing ([18f22c1](https://github.com/rivenmedia/riven/commit/18f22c1d1cb68ed1d8f8748bba9a63d122cf499d))
+* select biggest file for movie caches ([c6f9337](https://github.com/rivenmedia/riven/commit/c6f93375222dc32cc8b06060459be607e17758ba))
+* slow api calls due to calculating state for every item ([f5e08f8](https://github.com/rivenmedia/riven/commit/f5e08f8fd506eae2f6f693347e774929edbb24fe))
+* throw exception instead of error on plex validation ([17a579e](https://github.com/rivenmedia/riven/commit/17a579e1f129533e337e31990970978976bc7b91))
+* tweak logging for db init from symlinks. ([2f15fbd](https://github.com/rivenmedia/riven/commit/2f15fbd938dc70e8c1eb709a4d8debf281d9e2b0))
+* unhardcode orionoid limitcount. whoops! ([f7668c6](https://github.com/rivenmedia/riven/commit/f7668c68bd7b787145ce212fb0479705608db191))
+
 ## [0.11.1](https://github.com/rivenmedia/riven/compare/v0.11.0...v0.11.1) (2024-08-30)
 
 
