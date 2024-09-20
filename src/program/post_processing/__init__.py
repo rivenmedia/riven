@@ -4,6 +4,7 @@ from program.media.item import MediaItem, Show, Movie
 from program.media.state import States
 from program.post_processing.subliminal import Subliminal
 from program.settings.manager import settings_manager
+from program.db.db_functions import clear_streams
 from utils.notifications import notify_on_complete
 from loguru import logger
 
@@ -21,6 +22,8 @@ class PostProcessing:
     def run(self, item: MediaItem):
         if Subliminal.should_submit(item):
             self.services[Subliminal].run(item)
+        if item.last_state == States.Completed:
+            clear_streams(item)
         yield item
 
 def notify(item: MediaItem):
@@ -38,4 +41,4 @@ def _notify(_item: Show | Movie):
     duration = round((datetime.now() - _item.requested_at).total_seconds())
     logger.success(f"{_item.log_string} has been completed in {duration} seconds.")
     if settings_manager.settings.notifications.enabled:
-            notify_on_complete(_item)
+        notify_on_complete(_item)

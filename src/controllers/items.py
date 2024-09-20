@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -6,11 +7,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 from program.content import Overseerr
 from program.db.db import db
-from program.db.db_functions import get_media_items_by_ids, delete_media_item, reset_media_item
-from program.media.item import MediaItem
+from program.db.db_functions import clear_streams, get_media_items_by_ids, delete_media_item, reset_media_item, get_parent_items_by_ids
+from program.media.item import MediaItem, Season
 from program.media.state import States
-from sqlalchemy import func, select
-
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import joinedload
+from sqlalchemy.exc import NoResultFound
 from program.symlink import Symlinker
 from utils.logger import logger
 
@@ -164,8 +166,9 @@ async def add_items(
 )
 async def get_item(request: Request, id: int):
     with db.Session() as session:
-        item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-        if not item:
+        try:
+            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
+        except NoResultFound:
             raise HTTPException(status_code=404, detail="Item not found")
         return {"success": True, "item": item.to_extended_dict()}
 
@@ -198,8 +201,13 @@ async def reset_items(
         if not media_items or len(media_items) != len(ids):
             raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
         for media_item in media_items:
-            request.app.program.em.cancel_job(media_item)
-            reset_media_item(media_item)
+            try:
+                request.app.program.em.cancel_job(media_item)
+                clear_streams(media_item)
+                reset_media_item(media_item)
+            except Exception as e:
+                logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
+                continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"success": True, "message": f"Reset items with id {ids}"}
@@ -209,19 +217,20 @@ async def reset_items(
         summary="Retry Media Items",
         description="Retry media items with bases on item IDs",
 )
-async def retry_items(
-    request: Request, ids: str
-):
+async def retry_items(request: Request, ids: str):
     ids = handle_ids(ids)
-    with db.Session() as session:
-        items = []
-        for id in ids:
-            items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
-        for item in items:
-            request.app.program.em.cancel_job(item)
-            request.app.program.em.add_item(item)
+    try:
+        media_items = get_media_items_by_ids(ids)
+        if not media_items or len(media_items) != len(ids):
+            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+        for media_item in media_items:
+            request.app.program.em.cancel_job(media_item)
+            await asyncio.sleep(0.1) # Ensure cancellation is processed
+            request.app.program.em.add_item(media_item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Retried items with id {ids}"}
+    return {"success": True, "message": f"Retried items with ids {ids}"}
 
 @router.delete(
     "/remove",
@@ -231,12 +240,14 @@ async def retry_items(
 async def remove_item(request: Request, ids: str):
     ids = handle_ids(ids)
     try:
-        media_items = get_media_items_by_ids(ids)
-        if not media_items or len(media_items) != len(ids):
+        media_items = get_parent_items_by_ids(ids)
+        if not media_items:
             raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
         for media_item in media_items:
             logger.debug(f"Removing item {media_item.title} with ID {media_item._id}")
             request.app.program.em.cancel_job(media_item)
+            await asyncio.sleep(0.1) # Ensure cancellation is processed
+            clear_streams(media_item)
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
                 symlink_service.delete_item_symlinks(media_item)

@@ -17,7 +17,7 @@ router = APIRouter(
 )
 
 
-@router.get("/")
+@router.get("/", operation_id="root")
 async def root():
     return {
         "success": True,
@@ -26,7 +26,7 @@ async def root():
     }
 
 
-@router.get("/health")
+@router.get("/health", operation_id="health")
 async def health(request: Request):
     return {
         "success": True,
@@ -34,7 +34,7 @@ async def health(request: Request):
     }
 
 
-@router.get("/rd")
+@router.get("/rd", operation_id="rd")
 async def get_rd_user():
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -57,7 +57,7 @@ async def get_rd_user():
     }
 
 
-@router.get("/torbox")
+@router.get("/torbox", operation_id="torbox")
 async def get_torbox_user():
     api_key = settings_manager.settings.downloaders.torbox.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -67,7 +67,7 @@ async def get_torbox_user():
     return response.json()
 
 
-@router.get("/services")
+@router.get("/services", operation_id="services")
 async def get_services(request: Request):
     data = {}
     if hasattr(request.app.program, "services"):
@@ -80,7 +80,7 @@ async def get_services(request: Request):
     return {"success": True, "data": data}
 
 
-@router.get("/trakt/oauth/initiate")
+@router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
 async def initiate_trakt_oauth(request: Request):
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
@@ -89,7 +89,7 @@ async def initiate_trakt_oauth(request: Request):
     return {"auth_url": auth_url}
 
 
-@router.get("/trakt/oauth/callback")
+@router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
 async def trakt_oauth_callback(code: str, request: Request):
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
@@ -101,7 +101,7 @@ async def trakt_oauth_callback(code: str, request: Request):
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
 
-@router.get("/stats")
+@router.get("/stats", operation_id="stats")
 async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
@@ -137,7 +137,7 @@ async def get_stats(_: Request):
 
         return {"success": True, "data": payload}
 
-@router.get("/logs")
+@router.get("/logs", operation_id="logs")
 async def get_logs():
     log_file_path = None
     for handler in logger._core.handlers.values():
@@ -155,3 +155,7 @@ async def get_logs():
     except Exception as e:
         logger.error(f"Failed to read log file: {e}")
         return {"success": False, "message": "Failed to read log file"}
+    
+@router.get("/events", operation_id="events")
+async def get_events(request: Request):
+    return {"success": True, "data": request.app.program.em.get_event_updates()}

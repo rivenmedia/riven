@@ -189,19 +189,22 @@ def get_show_aliases(imdb_id: str, item_type: str) -> List[dict]:
     if not imdb_id:
         return []
     url = f"https://api.trakt.tv/{item_type}/{imdb_id}/aliases"
-    response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
-    if response.is_ok and response.data:
-        aliases = {}
-        for ns in response.data:
-            country = ns.country
-            title = ns.title
-            if title.startswith("Anime-"):
-                title = title[len("Anime-"):]
-            if country not in aliases:
-                aliases[country] = []
-            if title not in aliases[country]:
-                aliases[country].append(title)
-        return aliases
+    try:
+        response = get(url, timeout=30, additional_headers={"trakt-api-version": "2", "trakt-api-key": CLIENT_ID})
+        if response.is_ok and response.data:
+            aliases = {}
+            for ns in response.data:
+                country = ns.country
+                title = ns.title
+                if title.startswith("Anime-"):
+                    title = title[len("Anime-"):]
+                if country not in aliases:
+                    aliases[country] = []
+                if title not in aliases[country]:
+                    aliases[country].append(title)
+            return aliases
+    except Exception:
+        logger.error(f"Failed to get show aliases for {imdb_id}")
     return {}
 
 

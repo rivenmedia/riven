@@ -26,8 +26,7 @@ class Zilean:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        if self.settings.ratelimit:
-            self.rate_limiter = RateLimiter(max_calls=1, period=2)
+        self.rate_limiter = RateLimiter(max_calls=1, period=2)
         logger.success("Zilean initialized!")
 
     def validate(self) -> bool:
@@ -40,10 +39,6 @@ class Zilean:
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Zilean timeout is not set or invalid.")
             return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Zilean ratelimit must be a valid boolean.")
-            return False
-
         try:
             url = f"{self.settings.url}/healthchecks/ping"
             response = ping(url=url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
@@ -60,10 +55,7 @@ class Zilean:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.rate_limiter:
-                self.rate_limiter.limit_hit()
-            else:
-                logger.warning(f"Zilean ratelimit exceeded for item: {item.log_string}")
+            self.rate_limiter.limit_hit()
         except ConnectTimeout:
             logger.warning(f"Zilean connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -104,16 +96,13 @@ class Zilean:
             params["Episode"] = item.number
 
         response = get(url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
-
         if not response.is_ok or not response.data:
             return {}, 0
 
         torrents: Dict[str, str] = {}
-
         for result in response.data:
             if not result.raw_title or not result.info_hash:
                 continue
-
             torrents[result.info_hash] = result.raw_title
 
         return torrents, len(response.data)

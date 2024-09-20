@@ -28,7 +28,7 @@ class Orionoid:
             self.initialized = True
         else:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=5)
+        self.rate_limiter = RateLimiter(max_calls=1, period=5)
         logger.success("Orionoid initialized!")
 
     def validate(self) -> bool:
@@ -40,9 +40,6 @@ class Orionoid:
             return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Orionoid timeout is not set or invalid.")
-            return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Orionoid ratelimit must be a valid boolean.")
             return False
         try:
             url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
@@ -106,7 +103,7 @@ class Orionoid:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            self.second_limiter.limit_hit()
+            self.rate_limiter.limit_hit()
         except ConnectTimeout:
             logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -136,16 +133,21 @@ class Orionoid:
             "type": media_type,
             "idimdb": imdb_id[2:],
             "streamtype": "torrent",
-            "protocoltorrent": "magnet",
-            "video3d": "false",
-            "videoquality": "sd_hd8k",
-            "limitcount": self.settings.limitcount or 5
+            "protocoltorrent": "magnet"
         }
 
         if season:
             params["numberseason"] = season
         if episode:
             params["numberepisode"] = episode
+
+        if self.settings.cached_results_only:
+            params["access"] = "realdebridtorrent"
+            params["debridlookup"] = "realdebrid"
+
+        for key, value in self.settings.parameters.items():
+            if key not in params:
+                params[key] = value
 
         return f"{self.base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
 
@@ -164,9 +166,7 @@ class Orionoid:
             imdb_id = item.parent.parent.imdb_id
             url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
 
-        with self.second_limiter:
-            response = get(url, timeout=self.timeout)
-
+        response = get(url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not hasattr(response.data, "data"):
             return {}, 0
 

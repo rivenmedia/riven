@@ -207,7 +207,6 @@ class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
     timeout: int = 30
-    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
@@ -224,9 +223,13 @@ class MediafusionConfig(Observable):
 class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
-    limitcount: int = 5
+    cached_results_only: bool = False
+    parameters: dict[str, Any] = {
+        "video3d": "false",
+        "videoquality": "sd_hd8k",
+        "limitcount": 5
+    }
     timeout: int = 30
-    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
@@ -257,7 +260,6 @@ class AnnatarConfig(Observable):
 class TorBoxScraperConfig(Observable):
     enabled: bool = False
     timeout: int = 30
-    ratelimit: bool = True
 
 
 class ScraperModel(Observable):

@@ -7,6 +7,7 @@ from threading import Lock
 
 from loguru import logger
 from subliminal import Episode, Movie
+from sqlalchemy.orm.exc import StaleDataError
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db
@@ -68,6 +69,12 @@ class EventManager:
             if item:
                 self.remove_item_from_running(item)
                 self.add_event(Event(emitted_by=service, item=item, run_at=timestamp))
+        except concurrent.futures.CancelledError:
+            # This is expected behavior when cancelling tasks
+            return
+        except StaleDataError:
+            # This is expected behavior when cancelling tasks
+            return
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
@@ -121,7 +128,7 @@ class EventManager:
         """
         with self.mutex:
             for event in self._running_events:
-                if event.item._id == item._id or event.item.type == "mediaitem" and event.item.imdb_id == item.imdb_id:
+                if event.item._id == item._id or (event.item.type == "mediaitem" and event.item.imdb_id == item.imdb_id):
                     self._running_events.remove(event)
                     logger.debug(f"Removed {item.log_string} from the running events.")
                     return
@@ -160,30 +167,45 @@ class EventManager:
         ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
         future.add_done_callback(lambda f:self._process_future(f, service))
 
-    def cancel_job(self, item):
+    def cancel_job(self, item, suppress_logs=False):
         """
         Cancels a job associated with the given item.
 
         Args:
             item (MediaItem): The event item whose job needs to be canceled.
+            suppress_logs (bool): If True, suppresses debug logging for this operation.
         """
         with db.Session() as session:
+            item_id, related_ids = _get_item_ids(session, item)
+            ids_to_cancel = set([item_id] + related_ids)
+
+            futures_to_remove = []
             for future in self._futures:
-                future_item = future.event.item if hasattr(future.event, 'item') else None
-                item_id, related_ids = _get_item_ids(session, future_item)
-                if item_id in [item._id] + related_ids:
-                    self.remove_item_from_queues(item)
-                    self._futures.remove(future)
-                    if not future.done() or not future.cancelled():
-                        future.cancel()
-        #     future = next(future for future in self._futures if hasattr(future.event, 'item') and future.event.item._id == item_id, None)
-        # future: concurrent.futures.Future = next((future for future in self._futures if hasattr(future.event, 'item') and future.event.item == item), None)
-        # if future:
-        #     self.remove_item_from_queues(item)
-        #     self._futures.remove(future)
-        #     future = None
-        #     if not future.done() or not future.cancelled():
-        #         future.cancel()
+                future_item_id = None
+                future_related_ids = []
+                
+                if hasattr(future, 'event') and hasattr(future.event, 'item'):
+                    future_item = future.event.item
+                    future_item_id, future_related_ids = _get_item_ids(session, future_item)
+
+                if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
+                    self.remove_item_from_queues(future_item)
+                    futures_to_remove.append(future)
+                    if not future.done() and not future.cancelled():
+                        try:
+                            future.cancel()
+                        except Exception as e:
+                            if not suppress_logs:
+                                logger.error(f"Error cancelling future for {future_item.log_string}: {str(e)}")
+
+            for future in futures_to_remove:
+                self._futures.remove(future)
+
+        # Clear from queued and running events
+        self._queued_events = [event for event in self._queued_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+        self._running_events = [event for event in self._running_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+
+        logger.debug(f"Canceled jobs for item {item.log_string} and its children.")
 
     def next(self):
         """
@@ -286,7 +308,7 @@ class EventManager:
                 return False
 
         # Log the addition of the event to the queue
-        if not isinstance(event.item, (Show, Movie, Episode, Season)):
+        if not event.item.type in ["show", "movie", "season", "episode"]:
             logger.debug(f"Added {event.item.log_string} to the queue")
         else:
             logger.debug(f"Re-added {event.item.log_string} to the queue")
@@ -301,3 +323,28 @@ class EventManager:
             item (MediaItem): The item to add to the queue as an event.
         """
         self.add_event(Event(service, item))
+
+    def get_event_updates(self):
+        """
+        Returns a formatted list of event updates.
+
+        Returns:
+            list: The list of formatted event updates.
+        """
+        events = [future.event for future in self._futures if hasattr(future, "event")]
+        event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
+        return {
+            event_type.lower(): [
+                {
+                    "item_id": event.item._id,
+                    "imdb_id": event.item.imdb_id,
+                    "title": event.item.log_string,
+                    "type": event.item.type,
+                    "emitted_by": event.emitted_by if isinstance(event.emitted_by, str) else event.emitted_by.__name__,
+                    "run_at": event.run_at.isoformat(),
+                    "last_state": event.item.last_state.name if event.item.last_state else "N/A"
+                }
+                for event in events if event.emitted_by == event_type
+            ]
+            for event_type in event_types
+        }

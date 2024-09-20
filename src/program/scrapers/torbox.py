@@ -19,7 +19,7 @@ class TorBoxScraper:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
+        self.rate_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:
@@ -29,10 +29,6 @@ class TorBoxScraper:
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("TorBox timeout is not set or invalid.")
             return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("TorBox ratelimit must be a valid boolean.")
-            return False
-
         try:
             response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
             return response.is_ok
@@ -49,10 +45,7 @@ class TorBoxScraper:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"TorBox rate limit exceeded for item: {item.log_string}")
+            self.rate_limiter.limit_hit()
         except ConnectTimeout:
             logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except ReadTimeout:
@@ -98,11 +91,7 @@ class TorBoxScraper:
         else:
             return {}, 0
 
-        if self.second_limiter:
-            with self.second_limiter:
-                response = get(url, timeout=self.timeout)
-        else:
-            response = get(url, timeout=self.timeout)
+        response = get(url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not response.data.data.torrents:
             return {}, 0
 

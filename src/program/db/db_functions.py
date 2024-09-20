@@ -55,6 +55,16 @@ def get_media_items_by_ids(media_item_ids: list[int]):
 
     return items
 
+def get_parent_items_by_ids(media_item_ids: list[int]):
+    """Retrieve multiple MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        items = []
+        for media_item_id in media_item_ids:
+            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one()
+            items.append(item)
+    return items
+
 def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""
     with db.Session() as session:
@@ -121,6 +131,18 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
         item.active_stream = {}
+        session.commit()
+
+def clear_streams(item: "MediaItem"):
+    """Clear all streams for a media item."""
+    with db.Session() as session:
+        item = session.merge(item)
+        session.execute(
+            delete(StreamRelation).where(StreamRelation.parent_id == item._id)
+        )
+        session.execute(
+            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
+        )
         session.commit()
 
 def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:

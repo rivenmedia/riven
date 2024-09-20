@@ -22,7 +22,7 @@ class Torrentio:
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
-        self.hour_limiter: RateLimiter | None = RateLimiter(max_calls=1, period=5) if self.ratelimit else None
+        self.rate_limiter: RateLimiter | None = RateLimiter(max_calls=1, period=5) if self.ratelimit else None
         logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:
@@ -34,9 +34,6 @@ class Torrentio:
             return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Torrentio timeout is not set or invalid.")
-            return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Torrentio ratelimit must be a valid boolean.")
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
@@ -58,10 +55,7 @@ class Torrentio:
             # Returns a dict of {infoHash: raw_title}
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.hour_limiter:
-                self.hour_limiter.limit_hit()
-            else:
-                logger.warning(f"Torrentio ratelimit exceeded for item: {item.log_string}")
+            self.rate_limiter.limit_hit()
         except ConnectTimeout:
             logger.warning(f"Torrentio connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -107,11 +101,7 @@ class Torrentio:
         if identifier:
             url += identifier
 
-        if self.hour_limiter:
-            with self.hour_limiter:
-                response = get(f"{url}.json", timeout=self.timeout)
-        else:
-            response = get(f"{url}.json", timeout=self.timeout)
+        response = get(f"{url}.json", timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not response.data.streams:
             return {}, 0
 
