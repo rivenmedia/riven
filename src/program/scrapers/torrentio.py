@@ -19,7 +19,6 @@ class Torrentio:
         self.key = "torrentio"
         self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
         self.timeout: int = self.settings.timeout
-        self.ratelimit: bool = self.settings.ratelimit
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
