@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.4](https://github.com/rivenmedia/riven/compare/v0.12.3...v0.12.4) (2024-09-21)
+
+
+### Bug Fixes
+
+* plex rss startswith error ([9a2a0c1](https://github.com/rivenmedia/riven/commit/9a2a0c14211f68af523af4cdb3c8f742496a7722))
+* revert schema validation, this is causing issues. ([12f4a1a](https://github.com/rivenmedia/riven/commit/12f4a1aa7d55210e1e65744c4ee8d8e082f3d68a))
+
 ## [0.12.3](https://github.com/rivenmedia/riven/compare/v0.12.2...v0.12.3) (2024-09-21)
 
 
