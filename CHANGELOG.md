@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/rivenmedia/riven/compare/v0.12.2...v0.12.3) (2024-09-21)
+
+
+### Bug Fixes
+
+* mdblist list item validation fixed ([63fc95b](https://github.com/rivenmedia/riven/commit/63fc95b7ef69cb8ffb6aeadcfa20988d834ca65a))
+
 ## [0.12.2](https://github.com/rivenmedia/riven/compare/v0.12.1...v0.12.2) (2024-09-21)
 
 
