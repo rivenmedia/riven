@@ -18,6 +18,14 @@ router = APIRouter(
 )
 
 
+@router.get("/schema")
+async def get_settings_schema():
+    """
+    Get the JSON schema for the settings.
+    """
+    schema = settings_manager.schema
+    return schema
+
 @router.get("/load")
 async def load_settings():
     settings_manager.load()
