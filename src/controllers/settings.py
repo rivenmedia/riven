@@ -25,14 +25,7 @@ async def get_settings_schema():
     """
     Get the JSON schema for the settings.
     """
-    return settings_manager.schema
-
-@router.get("/ranking")
-async def get_ranking_schema():
-    """
-    Get the JSON schema for the ranking.
-    """
-    return SettingsModel.model_json_schema()
+    return settings_manager.settings.model_json_schema()
 
 @router.get("/load")
 async def load_settings():

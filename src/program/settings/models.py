@@ -179,7 +179,6 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
-    ratelimit: bool = True
 
 
 class KnightcrawlerConfig(Observable):

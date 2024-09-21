@@ -1,20 +1,16 @@
 import json
 import os
 
-from jsonschema import ValidationError as JsonSchemaValidationError
-from jsonschema import validate
-from loguru import logger
-from pydantic import ValidationError
-
 from program.settings.models import AppModel, Observable
+from pydantic import ValidationError
 from utils import data_dir_path
+from loguru import logger
 
 
 class SettingsManager:
     """Class that handles settings, ensuring they are validated against a Pydantic schema."""
 
     def __init__(self):
-        self.schema = self.update_schema()
         self.observers = []
         self.filename = "settings.json"
         self.settings_file = data_dir_path / self.filename
@@ -23,10 +19,9 @@ class SettingsManager:
 
         if not self.settings_file.exists():
             self.settings = AppModel()
-            settings_dict = json.loads(self.settings.model_dump_json())
-            settings_dict = self.check_environment(settings_dict, "RIVEN")
-            validate(instance=settings_dict, schema=self.schema)
-            self.settings = AppModel.model_validate(settings_dict)
+            self.settings = AppModel.model_validate(
+                self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
+            )
             self.notify_observers()
         else:
             self.load()
@@ -63,27 +58,17 @@ class SettingsManager:
         return checked_settings
 
     def load(self, settings_dict: dict | None = None):
-        """Load settings from file, validating against the JSON Schema."""
+        """Load settings from file, validating against the AppModel schema."""
         try:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
                     if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
-            
-            # Validate against JSON Schema
-            self.update_schema()
-            validate(instance=settings_dict, schema=self.schema)
             self.settings = AppModel.model_validate(settings_dict)
             self.save()
-        except JsonSchemaValidationError as e:
-            logger.error(f"JSON Schema validation error: {e}")
-            raise
         except ValidationError as e:
-            logger.error(f"Pydantic validation error: {e}")
-            for error in e.errors():
-                if error['type'] == 'value_error':
-                    logger.error(f"Field '{error['loc'][0]}': {error['msg']}")
+            logger.error(f"Error validating settings: {e}")
             raise
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing settings file: {e}")
@@ -97,10 +82,6 @@ class SettingsManager:
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4))
-        self.update_schema()
-
-    def update_schema(self):
-        self.schema = AppModel.model_json_schema()
 
 
 settings_manager = SettingsManager()
