@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/rivenmedia/riven/compare/v0.12.0...v0.12.1) (2024-09-21)
+
+
+### Bug Fixes
+
+* tweak db reset. fixed issue with mdblist. ([652924e](https://github.com/rivenmedia/riven/commit/652924eb8cf6d82aec90eb514628b3c51849ab98))
+
 ## [0.12.0](https://github.com/rivenmedia/riven/compare/v0.11.1...v0.12.0) (2024-09-20)
 
 
