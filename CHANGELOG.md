@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/rivenmedia/riven/compare/v0.12.1...v0.12.2) (2024-09-21)
+
+
+### Bug Fixes
+
+* update api with json schema ([1b7365c](https://github.com/rivenmedia/riven/commit/1b7365c77d3d121b6e7dccea2bd011fabb408aa6))
+
 ## [0.12.1](https://github.com/rivenmedia/riven/compare/v0.12.0...v0.12.1) (2024-09-21)
 
 
