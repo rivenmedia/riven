@@ -23,7 +23,7 @@ class Torrentio:
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter: RateLimiter | None = RateLimiter(max_calls=1, period=5) if self.ratelimit else None
+        self.rate_limiter: RateLimiter = RateLimiter(max_calls=1, period=5)
         logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:
