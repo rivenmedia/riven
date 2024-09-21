@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.6](https://github.com/rivenmedia/riven/compare/v0.12.5...v0.12.6) (2024-09-21)
+
+
+### Bug Fixes
+
+* remove missing attr ([5625307](https://github.com/rivenmedia/riven/commit/5625307a029bf0d59b6615958dbad2e020afb52e))
+
 ## [0.12.5](https://github.com/rivenmedia/riven/compare/v0.12.4...v0.12.5) (2024-09-21)
 
 

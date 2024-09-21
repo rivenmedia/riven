@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "riven"
-version = "0.12.5"
+version = "0.12.6"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
 authors = ["Riven Developers"]
 license = "GPL-3.0"
