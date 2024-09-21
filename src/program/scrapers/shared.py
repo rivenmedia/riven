@@ -1,13 +1,14 @@
 """Shared functions for scrapers."""
 from typing import Dict, Set, Union
 
+from RTN import RTN, ParsedData, Torrent, sort_torrents
+from RTN.exceptions import GarbageTorrent
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from RTN import RTN, ParsedData, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
-from program.media.state import States
 from utils.logger import logger
 
 settings_model = settings_manager.settings.ranking

@@ -2,8 +2,10 @@ from copy import copy
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from program.settings.manager import settings_manager
 from pydantic import BaseModel, ValidationError
+from RTN.models import SettingsModel
+
+from program.settings.manager import settings_manager
 
 
 class SetSettings(BaseModel):
@@ -23,8 +25,14 @@ async def get_settings_schema():
     """
     Get the JSON schema for the settings.
     """
-    schema = settings_manager.schema
-    return schema
+    return settings_manager.schema
+
+@router.get("/ranking")
+async def get_ranking_schema():
+    """
+    Get the JSON schema for the ranking.
+    """
+    return SettingsModel.model_json_schema()
 
 @router.get("/load")
 async def load_settings():

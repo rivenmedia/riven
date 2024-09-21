@@ -1,18 +1,27 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import linecache
 import os
 import threading
 import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
-import traceback
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn, TimeElapsedColumn
 from rich.live import Live
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
+import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
@@ -26,9 +35,8 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
-from utils.logger import logger, log_cleaner
 from utils.event_manager import EventManager
-import utils.websockets.manager as ws_manager
+from utils.logger import log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -37,12 +45,11 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import and_, exists, func, select, or_
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import joinedload
 
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
-from sqlalchemy import func, select, text
 
 
 class Program(threading.Thread):

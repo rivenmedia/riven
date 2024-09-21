@@ -3,12 +3,13 @@ import json
 from typing import Dict
 
 import requests
+from requests import ConnectTimeout, ReadTimeout
+from requests.exceptions import RequestException
+
 from program.media.item import MediaItem
 from program.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping

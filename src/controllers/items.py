@@ -4,15 +4,20 @@ from typing import Optional
 
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import func, select
+from sqlalchemy.exc import NoResultFound
 
 from program.content import Overseerr
 from program.db.db import db
-from program.db.db_functions import clear_streams, get_media_items_by_ids, delete_media_item, reset_media_item, get_parent_items_by_ids
-from program.media.item import MediaItem, Season
+from program.db.db_functions import (
+    clear_streams,
+    delete_media_item,
+    get_media_items_by_ids,
+    get_parent_items_by_ids,
+    reset_media_item,
+)
+from program.media.item import MediaItem
 from program.media.state import States
-from sqlalchemy import delete, func, select
-from sqlalchemy.orm import joinedload
-from sqlalchemy.exc import NoResultFound
 from program.symlink import Symlinker
 from utils.logger import logger
 

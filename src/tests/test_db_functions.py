@@ -1,13 +1,19 @@
 import pytest
-
-from RTN import Torrent, ParsedData
+from RTN import ParsedData, Torrent
 from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
-from program.media.item import MediaItem, Show, Season, Episode, Movie
-from program.media.stream import Stream, StreamRelation, StreamBlacklistRelation
-from program.db.db_functions import reset_streams, blacklist_stream, delete_media_item, delete_media_item_by_id, \
-    delete_media_item_by_item_id, delete_media_items_by_ids, get_media_items_by_ids
+from program.db.db_functions import (
+    blacklist_stream,
+    delete_media_item,
+    delete_media_item_by_id,
+    delete_media_item_by_item_id,
+    delete_media_items_by_ids,
+    get_media_items_by_ids,
+    reset_streams,
+)
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 
 
 @pytest.fixture(scope="session")

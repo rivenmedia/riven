@@ -1,12 +1,14 @@
 from datetime import datetime
+
+from loguru import logger
 from subliminal import Movie
-from program.media.item import MediaItem, Show, Movie
+
+from program.db.db_functions import clear_streams
+from program.media.item import MediaItem, Movie, Show
 from program.media.state import States
 from program.post_processing.subliminal import Subliminal
 from program.settings.manager import settings_manager
-from program.db.db_functions import clear_streams
 from utils.notifications import notify_on_complete
-from loguru import logger
 
 
 class PostProcessing:

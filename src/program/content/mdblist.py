@@ -2,12 +2,12 @@
 
 from typing import Generator
 
+from program.db.db_functions import _filter_existing_items
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
-from program.db.db_functions import _filter_existing_items
 
 
 class Mdblist:

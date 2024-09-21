@@ -10,11 +10,11 @@ from typing import List, Optional, Union
 
 from sqlalchemy import select
 
+from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.settings.manager import settings_manager
 from program.media.stream import Stream
-from program.db.db import db
+from program.settings.manager import settings_manager
 from utils.logger import logger
 
 

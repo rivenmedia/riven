@@ -3,10 +3,10 @@ from datetime import datetime
 
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
+from sqla_wrapper import Alembic, SQLAlchemy
 from sqlalchemy import text
 
 from program.settings.manager import settings_manager
-from sqla_wrapper import Alembic, SQLAlchemy
 from utils import data_dir_path
 from utils.logger import logger
 

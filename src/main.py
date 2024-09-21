@@ -6,18 +6,18 @@ import time
 import traceback
 
 import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
 from controllers.default import router as default_router
 from controllers.items import router as items_router
-from controllers.ws import router as ws_router
-
 from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
 from controllers.webhooks import router as webhooks_router
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from controllers.ws import router as ws_router
 from program import Program
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 from program.settings.models import get_version
 from utils.cli import handle_args
 from utils.logger import logger

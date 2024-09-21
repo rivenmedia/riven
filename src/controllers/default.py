@@ -1,16 +1,13 @@
-import time
-
-import program.db.db_functions as DB
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from loguru import logger
+from sqlalchemy import func, select
+
 from program.content.trakt import TraktContent
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.scrapers import Scraping
 from program.settings.manager import settings_manager
-from sqlalchemy import func, select
-from loguru import logger
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},

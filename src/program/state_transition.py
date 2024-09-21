@@ -1,5 +1,6 @@
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.content.trakt import TraktContent
+from program.db.db_functions import _imdb_exists_in_db
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
@@ -7,12 +8,11 @@ from program.media import Episode, MediaItem, Movie, Season, Show, States
 from program.post_processing import PostProcessing, notify
 from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
+from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters import Updater
-from program.db.db_functions import _imdb_exists_in_db
 from utils.logger import logger
-from program.settings.manager import settings_manager
 
 
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:

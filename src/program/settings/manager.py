@@ -1,11 +1,13 @@
 import json
 import os
 
-from program.settings.models import AppModel, Observable
-from jsonschema import validate, ValidationError as JsonSchemaValidationError
-from pydantic import ValidationError
-from utils import data_dir_path
+from jsonschema import ValidationError as JsonSchemaValidationError
+from jsonschema import validate
 from loguru import logger
+from pydantic import ValidationError
+
+from program.settings.models import AppModel, Observable
+from utils import data_dir_path
 
 
 class SettingsManager:

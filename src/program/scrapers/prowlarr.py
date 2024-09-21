@@ -8,10 +8,11 @@ import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 
 import requests
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 

@@ -1,11 +1,12 @@
 """Riven settings models"""
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Callable, List
 
-from program.settings.migratable import MigratableBaseModel
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 from RTN.models import SettingsModel
+
+from program.settings.migratable import MigratableBaseModel
 from utils import root_dir
 
 
@@ -336,22 +337,22 @@ class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
 
 class AppModel(Observable):
-    version: str = Field(default_factory=get_version, description="Current version of the application")
-    debug: bool = Field(default=True, description="Enable debug mode for additional logging")
-    log: bool = Field(default=True, description="Enable logging")
-    force_refresh: bool = Field(default=False, description="Force refresh of all data")
-    map_metadata: bool = Field(default=True, description="Enable metadata mapping")
-    tracemalloc: bool = Field(default=False, description="Enable tracemalloc for memory profiling")
-    symlink: SymlinkModel = Field(default_factory=SymlinkModel, description="Symlink service configuration")
-    updaters: UpdatersModel = Field(default_factory=UpdatersModel, description="Updaters configuration")
-    downloaders: DownloadersModel = Field(default_factory=DownloadersModel, description="Downloaders configuration")
-    content: ContentModel = Field(default_factory=ContentModel, description="Content services configuration")
-    scraping: ScraperModel = Field(default_factory=ScraperModel, description="Scraper services configuration")
-    ranking: RTNSettingsModel = Field(default_factory=RTNSettingsModel, description="Version ranking configuration")
-    indexer: IndexerModel = Field(default_factory=IndexerModel, description="Indexer configuration")
-    database: DatabaseModel = Field(default_factory=DatabaseModel, description="Database configuration")
-    notifications: NotificationsModel = Field(default_factory=NotificationsModel, description="Notifications configuration")
-    post_processing: PostProcessing = Field(default_factory=PostProcessing, description="Post-processing configuration")
+    version: str = get_version()
+    debug: bool = True
+    log: bool = True
+    force_refresh: bool = False
+    map_metadata: bool = True
+    tracemalloc: bool = False
+    symlink: SymlinkModel = SymlinkModel()
+    updaters: UpdatersModel = UpdatersModel()
+    downloaders: DownloadersModel = DownloadersModel()
+    content: ContentModel = ContentModel()
+    scraping: ScraperModel = ScraperModel()
+    ranking: RTNSettingsModel = RTNSettingsModel()
+    indexer: IndexerModel = IndexerModel()
+    database: DatabaseModel = DatabaseModel()
+    notifications: NotificationsModel = NotificationsModel()
+    post_processing: PostProcessing = PostProcessing()
 
     def __init__(self, **data: Any):
         current_version = get_version()

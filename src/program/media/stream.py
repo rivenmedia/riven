@@ -1,10 +1,11 @@
 from typing import TYPE_CHECKING
+
+import sqlalchemy
 from RTN import Torrent
 from sqlalchemy import Index, and_
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.db.db import db
-import sqlalchemy
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from utils.logger import logger
 
 if TYPE_CHECKING:

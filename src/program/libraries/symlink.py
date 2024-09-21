@@ -13,7 +13,7 @@ from program.settings.manager import settings_manager
 from utils.logger import logger
 
 if TYPE_CHECKING:
-    from program.media.item import Movie, Show, Episode, MediaItem
+    from program.media.item import Episode, MediaItem, Movie, Show
 
 imdbid_pattern = re.compile(r"tt\d+")
 season_pattern = re.compile(r"s(\d+)")

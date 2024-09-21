@@ -1,22 +1,22 @@
 """MediaItem class"""
-from datetime import datetime
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Self
-import sqlalchemy
-from sqlalchemy import Index
 
+import sqlalchemy
+from RTN import parse
+from sqlalchemy import Index
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+
+import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.media.state import States
-from RTN import parse
-from sqlalchemy.orm import Mapped, mapped_column, relationship, object_session
-
 from program.media.subtitle import Subtitle
-from .stream import  Stream
-import utils.websockets.manager as ws_manager
-
 from utils.logger import logger
+
 from ..db.db_functions import blacklist_stream, reset_streams
+from .stream import Stream
 
 
 class MediaItem(db.Model):

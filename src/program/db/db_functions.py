@@ -1,24 +1,25 @@
 import os
 import shutil
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import alembic
+from sqlalchemy import delete, exists, func, insert, select, text, union_all
+from sqlalchemy.orm import Session, aliased, joinedload
 
-from program.media.stream import Stream, StreamRelation, StreamBlacklistRelation
-from sqlalchemy import delete, func, select, text, union_all, exists, insert
-from sqlalchemy.orm import joinedload, aliased, Session
-from utils.logger import logger
-from utils import alembic_dir
 from program.libraries.symlink import fix_broken_symlinks
+from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.settings.manager import settings_manager
-from .db import db, alembic
+from utils import alembic_dir
+from utils.logger import logger
+
+from .db import alembic, db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 def get_media_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
-    from program.media.item import Movie, Show, Season, Episode, MediaItem
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     items = []
 
     with db.Session() as session:
@@ -221,7 +222,7 @@ def load_streams_in_pages(session: Session, media_item_id: int, page_number: int
         yield stream_id, infohash, stream
 
 def _get_item_ids(session, item):
-    from program.media.item import Season, Episode
+    from program.media.item import Episode, Season
     if item.type == "show":
         show_id = item._id
 
@@ -281,7 +282,7 @@ def _get_item_type_from_db(item: "MediaItem") -> str:
         return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
 
 def _store_item(item: "MediaItem"):
-    from program.media.item import Movie, Show, Season, Episode
+    from program.media.item import Episode, Movie, Season, Show
     if isinstance(item, (Movie, Show, Season, Episode)) and item._id is not None:
         with db.Session() as session:
             item.store_state()
@@ -298,7 +299,7 @@ def _imdb_exists_in_db(imdb_id: str) -> bool:
         return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == imdb_id)).scalar_one() != 0
 
 def _get_item_from_db(session, item: "MediaItem"):
-    from program.media.item import MediaItem, Movie, Show, Season, Episode
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     if not _ensure_item_exists_in_db(item):
         return None
     session.expire_on_commit = False
@@ -335,7 +336,7 @@ def _get_item_from_db(session, item: "MediaItem"):
             return None
 
 def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
-    from program.media.item import Movie, Show, Season, Episode
+    from program.media.item import Episode, Movie, Season, Show
     if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
             session.add(item)
@@ -345,7 +346,7 @@ def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
     return False
 
 def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = None):
-    from program.media.item import MediaItem, Movie, Show, Season, Episode
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     if input_item:
         with db.Session() as session:
             if isinstance(input_item, (Movie, Show, Season, Episode)):

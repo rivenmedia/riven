@@ -1,14 +1,14 @@
 """Plex Watchlist Module"""
 from typing import Generator, Union
 
+from plexapi.myplex import MyPlexAccount
+from requests import HTTPError, Session
+
+from program.db.db_functions import _filter_existing_items
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from requests import HTTPError
 from utils.logger import logger
 from utils.request import get, ping
-from plexapi.myplex import MyPlexAccount
-from requests import Session
-from program.db.db_functions import _filter_existing_items
 
 
 class PlexWatchlist:

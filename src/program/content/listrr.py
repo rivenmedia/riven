@@ -1,13 +1,14 @@
 """Listrr content module"""
 from typing import Generator
 
+from requests.exceptions import HTTPError
+
+from program.db.db_functions import _filter_existing_items
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from requests.exceptions import HTTPError
 from utils.logger import logger
 from utils.request import get, ping
-from program.db.db_functions import _filter_existing_items
 
 
 class Listrr:

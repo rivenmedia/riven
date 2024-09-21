@@ -4,11 +4,11 @@ import json
 from typing import Dict, Union
 
 import regex
+from requests import ConnectTimeout, ReadTimeout
+from requests.exceptions import RequestException
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 

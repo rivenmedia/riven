@@ -6,8 +6,8 @@ from queue import Empty
 from threading import Lock
 
 from loguru import logger
-from subliminal import Episode, Movie
 from sqlalchemy.orm.exc import StaleDataError
+from subliminal import Episode, Movie
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db

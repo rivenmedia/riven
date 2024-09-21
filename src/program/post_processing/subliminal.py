@@ -1,12 +1,15 @@
 import os
 import pathlib
-from subliminal import region, Video, save_subtitles, ProviderPool
-from subliminal.exceptions import AuthenticationError
+
 from babelfish import Language
+from loguru import logger
+from subliminal import ProviderPool, Video, region, save_subtitles
+from subliminal.exceptions import AuthenticationError
+
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
 from utils import root_dir
-from loguru import logger
+
 
 class Subliminal:
     def __init__(self):
