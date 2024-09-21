@@ -54,8 +54,7 @@ class Mdblist:
                     else:
                         items = list_items_by_url(list, self.settings.api_key)
                     for item in items:
-                        # Check if the item is already completed in the media container
-                        if item.imdb_id:
+                        if hasattr(item, "imdb_id") and item.imdb_id.startswith("tt"):
                             items_to_yield.append(MediaItem(
                                 {"imdb_id": item.imdb_id, "requested_by": self.key}
                             ))
