@@ -68,7 +68,7 @@ class PlexWatchlist:
             return
 
         plex_items: set[str] = set(watchlist_items) | set(rss_items)
-        items_to_yield: list[MediaItem] = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in plex_items if imdb_id.startswith("tt")]
+        items_to_yield: list[MediaItem] = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in plex_items if imdb_id and imdb_id.startswith("tt")]
         non_existing_items = _filter_existing_items(items_to_yield)
         new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
         self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
@@ -86,7 +86,7 @@ class PlexWatchlist:
                 response = self.session.get(rss_url + "?format=json", timeout=60)
                 for _item in response.json().get("items", []):
                     imdb_id = self._extract_imdb_ids(_item.get("guids", []))
-                    if imdb_id.startswith("tt"):
+                    if imdb_id and imdb_id.startswith("tt"):
                         rss_items.append(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Failed to extract IMDb ID from {_item['title']}")
@@ -102,7 +102,7 @@ class PlexWatchlist:
             try:
                 if hasattr(item, "guids") and item.guids:
                     imdb_id: str = next((guid.id.split("//")[-1] for guid in item.guids if guid.id.startswith("imdb://")), "")
-                    if imdb_id.startswith("tt"):
+                    if imdb_id and imdb_id.startswith("tt"):
                         watchlist_items.append(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}")
@@ -115,7 +115,7 @@ class PlexWatchlist:
     def _extract_imdb_ids(self, guids: list) -> str | None:
         """Helper method to extract IMDb IDs from guids"""
         for guid in guids:
-            if guid.startswith("imdb://"):
+            if guid and guid.startswith("imdb://"):
                 imdb_id = guid.split("//")[-1]
                 if imdb_id:
                     return imdb_id

@@ -196,7 +196,7 @@ def get_show_aliases(imdb_id: str, item_type: str) -> List[dict]:
             for ns in response.data:
                 country = ns.country
                 title = ns.title
-                if title.startswith("Anime-"):
+                if title and title.startswith("Anime-"):
                     title = title[len("Anime-"):]
                 if country not in aliases:
                     aliases[country] = []
