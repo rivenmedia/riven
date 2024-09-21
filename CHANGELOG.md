@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.5](https://github.com/rivenmedia/riven/compare/v0.12.4...v0.12.5) (2024-09-21)
+
+
+### Bug Fixes
+
+* corrected rate limit for Torrentio ([540ba52](https://github.com/rivenmedia/riven/commit/540ba528797637e77accb9f66f7e38c58869b9d1))
+
 ## [0.12.4](https://github.com/rivenmedia/riven/compare/v0.12.3...v0.12.4) (2024-09-21)
 
 
