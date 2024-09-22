@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/rivenmedia/riven/compare/v0.12.8...v0.13.0) (2024-09-22)
+
+
+### Features
+
+* add jellyfin & emby support. ([375302e](https://github.com/rivenmedia/riven/commit/375302ea761b157178de4383fb6ad9a61e07f1d6))
+
+
+### Bug Fixes
+
+* mdblist nonetype on imdb_id ([10f1044](https://github.com/rivenmedia/riven/commit/10f1044792356a982c6aa3b07682c418d2fa8550))
+
 ## [0.12.8](https://github.com/rivenmedia/riven/compare/v0.12.7...v0.12.8) (2024-09-22)
 
 
