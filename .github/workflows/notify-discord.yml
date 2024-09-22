@@ -1,0 +1,29 @@
+name: "Release Please and Notify Discord"
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Github Releases To Discord
+        uses: SethCohen/github-releases-to-discord@v1.15.0
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
+          color: "5378091"
+          username: "Riven Release Changelog"
+          avatar_url: "https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-light.png"
+        #   content: "||@here||"
+          footer_title: "Changelog"
+          footer_icon_url: "https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-light.png"
+          footer_timestamp: true
