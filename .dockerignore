@@ -10,6 +10,8 @@ coverage.xml
 .coverage*
 *.svg
 frontend/node_modules/
+bin/
+*.bin
 
 .vscode/
 .ruff_cache/

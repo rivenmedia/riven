@@ -1,11 +1,11 @@
-name: "Release Please"
+name: "Release Please and Notify Discord"
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-  
+
 permissions:
   contents: write
   pull-requests: write
@@ -15,6 +15,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: python
+
+      - name: Checkout code
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        if: ${{ steps.release.outputs.release_created }}
+        run: sudo apt-get install -y jq curl
+
+      - name: Announce release
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          VERSION: ${{ steps.release.outputs.tag_name }}
+        run: |
+          RELEASE_NOTES=$(awk '/^## Version \[${{ env.VERSION }}\]/ {flag=1; next} /^## Version \[/ {flag=0} flag' CHANGELOG.md)
+          ANNOUNCEMENT_BODY="🚀🎉 **New Release: Version ${{ env.VERSION }}**${RELEASE_NOTES}"
+          ESCAPED_BODY=$(echo "$ANNOUNCEMENT_BODY" | jq -Rsa .)
+          curl -H "Content-Type: application/json" \
+               -d "{\"content\": $ESCAPED_BODY, \"flags\": 4}" \
+               $DISCORD_WEBHOOK
