@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.7](https://github.com/rivenmedia/riven/compare/v0.12.6...v0.12.7) (2024-09-22)
+
+
+### Bug Fixes
+
+* lowered symlink max workers to 4 on db init ([0481b98](https://github.com/rivenmedia/riven/commit/0481b982a2c70a1130c66c4d7e01b71dbe7649aa))
+
 ## [0.12.6](https://github.com/rivenmedia/riven/compare/v0.12.5...v0.12.6) (2024-09-21)
 
 
