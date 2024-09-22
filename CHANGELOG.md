@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.2](https://github.com/rivenmedia/riven/compare/v0.13.1...v0.13.2) (2024-09-22)
+
+
+### Features
+
+* add jellyfin & emby support. ([b600b6c](https://github.com/rivenmedia/riven/commit/b600b6ccb0cd50ad15e7a36465151793c766270e))
+
+
+### Bug Fixes
+
+* forgot to add updater files..... ([805182a](https://github.com/rivenmedia/riven/commit/805182a8648191f8b34b85697e897b6e2ef5c57b))
+
+
+### Miscellaneous Chores
+
+* release 0.13.2 ([76ccbf3](https://github.com/rivenmedia/riven/commit/76ccbf3080c6cc5af267d5e8a8b59860cd26c97c))
+
 ## [0.13.1](https://github.com/rivenmedia/riven/compare/v0.13.0...v0.13.1) (2024-09-22)
 
 
