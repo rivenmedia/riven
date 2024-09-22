@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/rivenmedia/riven/compare/v0.13.0...v0.13.1) (2024-09-22)
+
+
+### Bug Fixes
+
+* jackett isinstance using list instead of tuple ([c925a5b](https://github.com/rivenmedia/riven/commit/c925a5b75a4b90af16c1ff5b04c5f2869c232b0a))
+
 ## [0.13.0](https://github.com/rivenmedia/riven/compare/v0.12.8...v0.13.0) (2024-09-22)
 
 
