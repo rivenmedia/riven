@@ -104,9 +104,23 @@ class PlexLibraryModel(Observable):
     url: str = "http://localhost:32400"
 
 
+class JellyfinLibraryModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
+    url: str = "http://localhost:8096"
+
+
+class EmbyLibraryModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
+    url: str = "http://localhost:8096"
+
+
 class UpdatersModel(Observable):
     updater_interval: int = 120
     plex: PlexLibraryModel = PlexLibraryModel()
+    jellyfin: JellyfinLibraryModel = JellyfinLibraryModel()
+    emby: EmbyLibraryModel = EmbyLibraryModel()
 
 
 # Content Services

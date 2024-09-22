@@ -33,7 +33,7 @@ def setup_logger(level):
         "DATABASE": (37, "d834eb", "🛢️"),
         "DEBRID": (38, "cc3333", "🔗"),
         "SYMLINKER": (39, "F9E79F", "🔗"),
-        "SCRAPER": (40, "D299EA", "👻"),
+        "SCRAPER": (40, "3D5A80", "👻"),
         "COMPLETED": (41, "FFFFFF", "🟢"),
         "CACHE": (42, "527826", "📜"),
         "NOT_FOUND": (43, "818589", "🤷‍"),
@@ -55,7 +55,7 @@ def setup_logger(level):
         logger.level(name, no=no, color=color, icon=icon)
 
     # Default log levels
-    debug_color, debug_icon = get_log_settings("DEBUG", "ff69b4", "🐞")
+    debug_color, debug_icon = get_log_settings("DEBUG", "98C1D9", "🐞")
     info_color, info_icon = get_log_settings("INFO", "818589", "📰")
     warning_color, warning_icon = get_log_settings("WARNING", "ffcc00", "⚠️ ")
     critical_color, critical_icon = get_log_settings("CRITICAL", "ff0000", "")
