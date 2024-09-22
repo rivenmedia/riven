@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.8](https://github.com/rivenmedia/riven/compare/v0.12.7...v0.12.8) (2024-09-22)
+
+
+### Bug Fixes
+
+* fixed type on env var for symlink workers ([5c50cc6](https://github.com/rivenmedia/riven/commit/5c50cc60a086f22bc0bc07dfc54ecb4447e7712d))
+
 ## [0.12.7](https://github.com/rivenmedia/riven/compare/v0.12.6...v0.12.7) (2024-09-22)
 
 
