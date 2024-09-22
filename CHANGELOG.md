@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/rivenmedia/riven/compare/v0.13.1...v0.14.0) (2024-09-22)
+
+
+### Features
+
+* add jellyfin & emby support. ([b600b6c](https://github.com/rivenmedia/riven/commit/b600b6ccb0cd50ad15e7a36465151793c766270e))
+
 ## [0.13.1](https://github.com/rivenmedia/riven/compare/v0.13.0...v0.13.1) (2024-09-22)
 
 
