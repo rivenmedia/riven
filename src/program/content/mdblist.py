@@ -54,7 +54,9 @@ class Mdblist:
                     else:
                         items = list_items_by_url(list, self.settings.api_key)
                     for item in items:
-                        if item and getattr(item, "imdb_id", "").startswith("tt"):
+                        if not item or item.imdb_id is None:
+                            continue
+                        if item.imdb_id.startswith("tt"):
                             items_to_yield.append(MediaItem(
                                 {"imdb_id": item.imdb_id, "requested_by": self.key}
                             ))
