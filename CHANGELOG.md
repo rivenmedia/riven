@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/rivenmedia/riven/compare/v0.13.2...v0.13.3) (2024-09-22)
+
+
+### Bug Fixes
+
+* mdblist error on imdb_id as NoneType ([048cd71](https://github.com/rivenmedia/riven/commit/048cd718af36538eb2a4443ee5a9e0f57fe3d130))
+
 ## [0.13.2](https://github.com/rivenmedia/riven/compare/v0.13.1...v0.13.2) (2024-09-22)
 
 
