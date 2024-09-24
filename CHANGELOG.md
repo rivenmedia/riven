@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/rivenmedia/riven/compare/v0.14.0...v0.14.1) (2024-09-24)
+
+
+### Bug Fixes
+
+* update notification workflow ([d768eb8](https://github.com/rivenmedia/riven/commit/d768eb8b845b771058f46216e8de267772f99394))
+
 ## [0.14.0](https://github.com/rivenmedia/riven/compare/v0.13.3...v0.14.0) (2024-09-24)
 
 
