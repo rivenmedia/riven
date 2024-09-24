@@ -22,6 +22,7 @@ class TraktIndexer:
         self.ids = []
         self.initialized = True
         self.settings = settings_manager.settings.indexer
+        self.failed_ids = set()
 
     @staticmethod
     def copy_attributes(source, target):
@@ -61,6 +62,9 @@ class TraktIndexer:
             logger.error(f"Item {in_item.log_string} does not have an imdb_id, cannot index it")
             return
 
+        if in_item.imdb_id in self.failed_ids:
+            return
+
         item_type = in_item.type if in_item.type != "mediaitem" else None
         item = create_item_from_imdb_id(imdb_id, item_type)
 
@@ -71,9 +75,11 @@ class TraktIndexer:
                 pass
             else:
                 logger.error(f"Indexed IMDb Id {item.imdb_id} returned the wrong item type: {item.type}")
+                self.failed_ids.add(in_item.imdb_id)
                 return
         else:
             logger.error(f"Failed to index item with imdb_id: {in_item.imdb_id}")
+            self.failed_ids.add(in_item.imdb_id)
             return
 
         item = self.copy_items(in_item, item)

@@ -31,7 +31,6 @@ class PlexUpdater:
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
         if not self.settings.enabled:
-            logger.warning("Plex Updater is set to disabled.")
             return False
         if not self.settings.token:
             logger.error("Plex token is not set!")

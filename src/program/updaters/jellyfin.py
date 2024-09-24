@@ -21,7 +21,6 @@ class JellyfinUpdater:
     def validate(self) -> bool:
         """Validate Jellyfin library"""
         if not self.settings.enabled:
-            logger.warning("Jellyfin Updater is set to disabled.")
             return False
         if not self.settings.api_key:
             logger.error("Jellyfin API key is not set!")

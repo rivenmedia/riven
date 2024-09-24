@@ -54,7 +54,7 @@ class Mdblist:
                     else:
                         items = list_items_by_url(list, self.settings.api_key)
                     for item in items:
-                        if not item or item.imdb_id is None:
+                        if hasattr(item, "error") or not item or item.imdb_id is None:
                             continue
                         if item.imdb_id.startswith("tt"):
                             items_to_yield.append(MediaItem(

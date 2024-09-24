@@ -1,9 +1,7 @@
-import asyncio
 import linecache
 import os
 import threading
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
@@ -13,11 +11,9 @@ from rich.console import Console
 from rich.live import Live
 from rich.progress import (
     BarColumn,
-    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
-    TimeElapsedColumn,
     TimeRemainingColumn,
 )
 
@@ -45,8 +41,7 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import and_, exists, func, or_, select, text
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, select, text
 
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
@@ -359,9 +354,9 @@ class Program(threading.Thread):
             added = []
             errors = []
             if res == 0:
-                logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
-                items = self.services[SymlinkLibrary].run()
                 if settings_manager.settings.map_metadata:
+                    logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
+                    items = self.services[SymlinkLibrary].run()
                     console = Console()
                     progress = Progress(
                         SpinnerColumn(),

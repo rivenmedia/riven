@@ -13,6 +13,7 @@ from starlette.requests import Request
 
 from controllers.default import router as default_router
 from controllers.items import router as items_router
+from controllers.scrape import router as scrape_router
 from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
 from controllers.webhooks import router as webhooks_router
@@ -65,6 +66,7 @@ app.add_middleware(
 app.include_router(default_router)
 app.include_router(settings_router)
 app.include_router(items_router)
+app.include_router(scrape_router)
 app.include_router(webhooks_router)
 app.include_router(tmdb_router)
 app.include_router(ws_router)

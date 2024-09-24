@@ -62,9 +62,17 @@ def get_parent_items_by_ids(media_item_ids: list[int]):
     with db.Session() as session:
         items = []
         for media_item_id in media_item_ids:
-            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one()
-            items.append(item)
+            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
+            if item:
+                items.append(item)
     return items
+
+def get_item_by_imdb_id(imdb_id: str):
+    """Retrieve a MediaItem of type 'movie' or 'show' by an IMDb ID."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        item = session.execute(select(MediaItem).where(MediaItem.imdb_id == imdb_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
+    return item
 
 def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""

@@ -156,3 +156,22 @@ async def get_logs():
 @router.get("/events", operation_id="events")
 async def get_events(request: Request):
     return {"success": True, "data": request.app.program.em.get_event_updates()}
+
+
+@router.get("/mount", operation_id="mount")
+async def get_rclone_files():
+    """Get all files in the rclone mount."""
+    import os
+    rclone_dir = settings_manager.settings.symlink.rclone_path
+    file_map = {}
+    def scan_dir(path):
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if entry.is_file():
+                    file_map[entry.name] = entry.path
+                elif entry.is_dir():
+                    scan_dir(entry.path)
+
+    scan_dir(rclone_dir) # dict of `filename: filepath``
+    return {"success": True, "data": file_map}
+

@@ -3,12 +3,13 @@ import re
 from pathlib import Path
 from typing import Any, Callable, List
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
 
 from program.settings.migratable import MigratableBaseModel
 from utils import root_dir
 
+deprecation_warning = "This has been deprecated and will be removed in a future version."
 
 class Observable(MigratableBaseModel):
     class Config:
@@ -193,6 +194,7 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
+    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
 
 
 class KnightcrawlerConfig(Observable):
@@ -221,6 +223,7 @@ class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
     timeout: int = 30
+    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
 
 
 class MediafusionConfig(Observable):
@@ -233,7 +236,6 @@ class MediafusionConfig(Observable):
         "torrentio_streams"
     ]
 
-
 class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -244,6 +246,7 @@ class OrionoidConfig(Observable):
         "limitcount": 5
     }
     timeout: int = 30
+    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
 
 
 class JackettConfig(Observable):
@@ -281,6 +284,7 @@ class ScraperModel(Observable):
     after_5: int = 6
     after_10: int = 24
     parse_debug: bool = False
+    enable_aliases: bool = True
     torrentio: TorrentioConfig = TorrentioConfig()
     knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()

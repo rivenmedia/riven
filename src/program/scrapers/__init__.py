@@ -108,7 +108,7 @@ class Scraping:
         if total_results != len(results):
             logger.debug(f"Scraped {item.log_string} with {total_results} results, removed {total_results - len(results)} duplicate hashes")
 
-        sorted_streams: Dict[str, Stream] = _parse_results(item, results)
+        sorted_streams: Dict[str, Stream] = _parse_results(item, results, log)
 
         if sorted_streams and (log and settings_manager.settings.debug):
             item_type = item.type.title()

@@ -21,7 +21,6 @@ class EmbyUpdater:
     def validate(self) -> bool:
         """Validate Emby library"""
         if not self.settings.enabled:
-            logger.warning("Emby Updater is set to disabled.")
             return False
         if not self.settings.api_key:
             logger.error("Emby API key is not set!")
