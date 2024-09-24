@@ -2,8 +2,10 @@ from copy import copy
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from program.settings.manager import settings_manager
 from pydantic import BaseModel, ValidationError
+from RTN.models import SettingsModel
+
+from program.settings.manager import settings_manager
 
 
 class SetSettings(BaseModel):
@@ -17,6 +19,13 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
+@router.get("/schema")
+async def get_settings_schema():
+    """
+    Get the JSON schema for the settings.
+    """
+    return settings_manager.settings.model_json_schema()
 
 @router.get("/load")
 async def load_settings():

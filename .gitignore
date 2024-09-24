@@ -13,6 +13,10 @@ profile.svg
 *.lockb
 *.pkl
 *.bak
+bin/
+*.bin
+.secrets*
+event.json
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

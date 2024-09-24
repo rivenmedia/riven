@@ -1,11 +1,11 @@
-name: "Release Please"
+name: "Release Please and Notify Discord"
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-  
+
 permissions:
   contents: write
   pull-requests: write
@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: python

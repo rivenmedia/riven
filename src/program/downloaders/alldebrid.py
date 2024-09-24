@@ -6,6 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Generator, List
 
+from requests import ConnectTimeout
+from RTN.exceptions import GarbageTorrent
+from RTN.extras import extract_episodes
+from RTN.parser import parse
 from sqlalchemy.orm import lazyload
 
 from program.db.db import db
@@ -14,10 +18,6 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from requests import ConnectTimeout
-from RTN.exceptions import GarbageTorrent
-from RTN.parser import parse
-from RTN.extras import extract_episodes
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, ping, post

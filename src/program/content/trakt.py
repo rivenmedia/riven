@@ -4,13 +4,14 @@ import time
 from typing import Union
 from urllib.parse import urlencode
 
+from requests import RequestException
+
+from program.db.db_functions import _filter_existing_items
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from requests import RequestException
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, post
-from program.db.db_functions import _filter_existing_items
 
 
 class TraktContent:

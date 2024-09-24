@@ -7,10 +7,11 @@ import xml.etree.ElementTree as ET
 from typing import Dict, Generator, List, Optional, Tuple
 
 import requests
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
@@ -189,7 +190,7 @@ class Jackett:
         if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
         if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
         if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
+            params["imdbid"] = item.imdb_id if isinstance(item, (Episode, Show)) else item.parent.imdb_id
 
         url = f"{self.settings.url}/api/v2.0/indexers/{indexer.id}/results/torznab/api"
         return self._fetch_results(url, params, indexer.title, "series")

@@ -1,6 +1,8 @@
 """Updater module"""
 from program.media.item import MediaItem
 from program.updaters.plex import PlexUpdater
+from program.updaters.jellyfin import JellyfinUpdater
+from program.updaters.emby import EmbyUpdater
 from utils.logger import logger
 
 
@@ -9,13 +11,14 @@ class Updater:
         self.key = "updater"
         self.services = {
             PlexUpdater: PlexUpdater(),
+            JellyfinUpdater: JellyfinUpdater(),
+            EmbyUpdater: EmbyUpdater(),
         }
         self.initialized = True
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
         initialized_services = [service for service in self.services.values() if service.initialized]
-
         return len(initialized_services) > 0
 
     def run(self, item: MediaItem):
@@ -30,9 +33,9 @@ class Updater:
                 except Exception as e:
                     logger.error(f"{service_cls.__name__} failed to update {item.log_string}: {e}")
 
-            # Lets update the attributes of the item and its children, we dont care if the service updated it or not.
-            for _item in get_items_to_update(item):
-                _item.set("update_folder", "updated")
+        # Lets update the attributes of the item and its children, we dont care if the service updated it or not.
+        for _item in get_items_to_update(item):
+            _item.set("update_folder", "updated")
         yield item
 
 def get_items_to_update(item: MediaItem) -> list[MediaItem]:

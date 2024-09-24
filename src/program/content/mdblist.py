@@ -2,12 +2,12 @@
 
 from typing import Generator
 
+from program.db.db_functions import _filter_existing_items
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
-from program.db.db_functions import _filter_existing_items
 
 
 class Mdblist:
@@ -54,8 +54,9 @@ class Mdblist:
                     else:
                         items = list_items_by_url(list, self.settings.api_key)
                     for item in items:
-                        # Check if the item is already completed in the media container
-                        if item.imdb_id:
+                        if hasattr(item, "error") or not item or item.imdb_id is None:
+                            continue
+                        if item.imdb_id.startswith("tt"):
                             items_to_yield.append(MediaItem(
                                 {"imdb_id": item.imdb_id, "requested_by": self.key}
                             ))

@@ -4,7 +4,6 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.settings.manager import settings_manager
 
-
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "m4v", "webm", "mpg", "mpeg", "m2ts", "ts"]
 

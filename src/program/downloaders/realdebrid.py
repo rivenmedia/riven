@@ -1,11 +1,14 @@
 from datetime import datetime
-from requests import ConnectTimeout
-from program.media.item import MediaItem
-from utils.ratelimiter import RateLimiter
-from .shared import FileFinder, VIDEO_EXTENSIONS
-import utils.request as request
+
 from loguru import logger
+from requests import ConnectTimeout
+
+import utils.request as request
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager as settings
+from utils.ratelimiter import RateLimiter
+
+from .shared import VIDEO_EXTENSIONS, FileFinder
 
 BASE_URL = "https://api.real-debrid.com/rest/1.0"
 

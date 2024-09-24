@@ -1,4 +1,5 @@
-from RTN.models import BaseRankingModel, DefaultRanking, BestRanking
+from RTN.models import BaseRankingModel, BestRanking, DefaultRanking
+
 from utils.logger import logger
 
 

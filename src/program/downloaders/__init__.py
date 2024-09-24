@@ -1,12 +1,13 @@
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+
 from program.media.item import MediaItem
-from utils.logger import logger
 from program.settings.manager import settings_manager
+from utils.logger import logger
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
-from .torbox import TorBoxDownloader
 from .shared import get_needed_media
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from .torbox import TorBoxDownloader
 
 
 class Downloader:

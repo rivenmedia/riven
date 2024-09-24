@@ -1,11 +1,12 @@
 """ Torrentio scraper module """
 from typing import Dict, Union
 
+from requests import ConnectTimeout, ReadTimeout
+from requests.exceptions import RequestException
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import TorrentioConfig
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
@@ -18,11 +19,10 @@ class Torrentio:
         self.key = "torrentio"
         self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
         self.timeout: int = self.settings.timeout
-        self.ratelimit: bool = self.settings.ratelimit
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter: RateLimiter | None = RateLimiter(max_calls=1, period=5) if self.ratelimit else None
+        self.rate_limiter: RateLimiter = RateLimiter(max_calls=1, period=5)
         logger.success("Torrentio initialized!")
 
     def validate(self) -> bool:

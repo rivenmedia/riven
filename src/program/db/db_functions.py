@@ -1,24 +1,25 @@
 import os
 import shutil
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import alembic
+from sqlalchemy import delete, exists, func, insert, select, text, union_all
+from sqlalchemy.orm import Session, aliased, joinedload
 
-from program.media.stream import Stream, StreamRelation, StreamBlacklistRelation
-from sqlalchemy import delete, func, select, text, union_all, exists, insert
-from sqlalchemy.orm import joinedload, aliased, Session
-from utils.logger import logger
-from utils import alembic_dir
 from program.libraries.symlink import fix_broken_symlinks
+from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.settings.manager import settings_manager
-from .db import db, alembic
+from utils import alembic_dir
+from utils.logger import logger
+
+from .db import alembic, db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 def get_media_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
-    from program.media.item import Movie, Show, Season, Episode, MediaItem
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     items = []
 
     with db.Session() as session:
@@ -61,9 +62,17 @@ def get_parent_items_by_ids(media_item_ids: list[int]):
     with db.Session() as session:
         items = []
         for media_item_id in media_item_ids:
-            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one()
-            items.append(item)
+            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
+            if item:
+                items.append(item)
     return items
+
+def get_item_by_imdb_id(imdb_id: str):
+    """Retrieve a MediaItem of type 'movie' or 'show' by an IMDb ID."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        item = session.execute(select(MediaItem).where(MediaItem.imdb_id == imdb_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
+    return item
 
 def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""
@@ -221,7 +230,7 @@ def load_streams_in_pages(session: Session, media_item_id: int, page_number: int
         yield stream_id, infohash, stream
 
 def _get_item_ids(session, item):
-    from program.media.item import Season, Episode
+    from program.media.item import Episode, Season
     if item.type == "show":
         show_id = item._id
 
@@ -281,7 +290,7 @@ def _get_item_type_from_db(item: "MediaItem") -> str:
         return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
 
 def _store_item(item: "MediaItem"):
-    from program.media.item import Movie, Show, Season, Episode
+    from program.media.item import Episode, Movie, Season, Show
     if isinstance(item, (Movie, Show, Season, Episode)) and item._id is not None:
         with db.Session() as session:
             item.store_state()
@@ -298,7 +307,7 @@ def _imdb_exists_in_db(imdb_id: str) -> bool:
         return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == imdb_id)).scalar_one() != 0
 
 def _get_item_from_db(session, item: "MediaItem"):
-    from program.media.item import MediaItem, Movie, Show, Season, Episode
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     if not _ensure_item_exists_in_db(item):
         return None
     session.expire_on_commit = False
@@ -335,7 +344,7 @@ def _get_item_from_db(session, item: "MediaItem"):
             return None
 
 def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
-    from program.media.item import Movie, Show, Season, Episode
+    from program.media.item import Episode, Movie, Season, Show
     if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
             item.store_state()
             session.add(item)
@@ -345,7 +354,7 @@ def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
     return False
 
 def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = None):
-    from program.media.item import MediaItem, Movie, Show, Season, Episode
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     if input_item:
         with db.Session() as session:
             if isinstance(input_item, (Movie, Show, Season, Episode)):
@@ -386,34 +395,63 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
 
 def hard_reset_database():
     """Resets the database to a fresh state."""
-    logger.log("DATABASE", "Resetting Database")
+    logger.log("DATABASE", "Starting Hard Reset of Database")
 
-    # Drop all tables
-    db.Model.metadata.drop_all(db.engine)
-    logger.log("DATABASE","All MediaItem tables dropped")
-
-    # Drop the alembic_version table
+    # Disable foreign key checks temporarily
     with db.engine.connect() as connection:
-        connection.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
-    logger.log("DATABASE","Alembic table dropped")
+        if db.engine.name == 'sqlite':
+            connection.execute(text("PRAGMA foreign_keys = OFF"))
+        elif db.engine.name == 'postgresql':
+            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
 
-    # Recreate all tables
-    db.Model.metadata.create_all(db.engine)
-    logger.log("DATABASE","All tables recreated")
+        try:
+            for table in reversed(db.Model.metadata.sorted_tables):
+                try:
+                    table.drop(connection, checkfirst=True)
+                    logger.log("DATABASE", f"Dropped table: {table.name}")
+                except Exception as e:
+                    logger.log("DATABASE", f"Error dropping table {table.name}: {str(e)}")
 
-    # Reinitialize Alembic
-    logger.log("DATABASE","Removing Alembic Directory")
-    shutil.rmtree(alembic_dir, ignore_errors=True)
-    os.makedirs(alembic_dir, exist_ok=True)
-    alembic.init(alembic_dir)
-    logger.log("DATABASE","Alembic reinitialized")
+            try:
+                connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+                logger.log("DATABASE", "Alembic version table dropped")
+            except Exception as e:
+                logger.log("DATABASE", f"Error dropping alembic_version table: {str(e)}")
 
-    logger.log("DATABASE","Hard Reset Complete")
+            db.Model.metadata.create_all(connection)
+            logger.log("DATABASE", "All tables recreated")
 
+            # Re-enable foreign key checks
+            if db.engine.name == 'sqlite':
+                connection.execute(text("PRAGMA foreign_keys = ON"))
+            elif db.engine.name == 'postgresql':
+                connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+            connection.commit()
+        except Exception as e:
+            connection.rollback()
+            logger.log("DATABASE", f"Error during database reset: {str(e)}")
+            raise
+
+    try:
+        logger.log("DATABASE", "Removing Alembic Directory")
+        shutil.rmtree(alembic_dir, ignore_errors=True)
+        os.makedirs(alembic_dir, exist_ok=True)
+        alembic.init(alembic_dir)
+        logger.log("DATABASE", "Alembic reinitialized")
+    except Exception as e:
+        logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
+
+    logger.log("DATABASE", "Hard Reset Complete")
+
+
+# Hard Reset Database
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
+    exit(0)
 
+# Repair Symlinks
 if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     exit(0)

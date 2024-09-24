@@ -1,4 +1,5 @@
 import pytest
+
 from program.downloaders.realdebrid import RealDebridDownloader
 from program.indexers.trakt import TraktIndexer
 from program.media.item import Episode, MediaItem, Movie, Season, Show

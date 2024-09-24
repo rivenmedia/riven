@@ -1,9 +1,9 @@
 import argparse
 
 from program.db.db_functions import hard_reset_database
-from program.settings.manager import settings_manager
 from program.libraries.symlink import fix_broken_symlinks
-from utils.logger import logger, log_cleaner
+from program.settings.manager import settings_manager
+from utils.logger import log_cleaner, logger
 
 
 def handle_args():
@@ -66,8 +66,9 @@ def handle_args():
 def plex_listener():
     """Start a Plex listener."""
     # NOTE: This isn't staying, just merely testing
-    from plexapi.server import PlexServer
     import time
+
+    from plexapi.server import PlexServer
 
     def plex_event(event):
         logger.debug(f"Event: {event}")

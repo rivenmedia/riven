@@ -1,15 +1,17 @@
 """Shared functions for scrapers."""
 from typing import Dict, Set, Union
 
+from RTN import RTN, ParsedData, Torrent, sort_torrents
+from RTN.exceptions import GarbageTorrent
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from RTN import RTN, ParsedData, Torrent, sort_torrents
-from RTN.exceptions import GarbageTorrent
-from program.media.state import States
 from utils.logger import logger
 
+enable_aliases = settings_manager.settings.scraping.enable_aliases
 settings_model = settings_manager.settings.ranking
 ranking_model = models.get(settings_model.profile)
 rtn = RTN(settings_model, ranking_model)
@@ -30,7 +32,7 @@ def _get_stremio_identifier(item: MediaItem) -> str:
     return identifier, scrape_type, imdb_id
 
 
-def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream]:
+def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = True) -> Dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
@@ -51,8 +53,9 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
                 infohash=infohash,
                 correct_title=correct_title,
                 remove_trash=settings_manager.settings.ranking.options["remove_all_trash"],
-                aliases=item.get_aliases(),
+                aliases=item.get_aliases() if enable_aliases else {}  # in some cases we want to disable aliases
             )
+
 
             if torrent.data.country and not item.is_anime:
                 if _get_item_country(item) != torrent.data.country:
@@ -109,11 +112,11 @@ def _parse_results(item: MediaItem, results: Dict[str, str]) -> Dict[str, Stream
             # The only stuff I've seen that show up here is titles with a date.
             # Dates can be sometimes parsed incorrectly by Arrow library,
             # so we'll just ignore them.
-            if settings_manager.settings.scraping.parse_debug:
+            if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Skipping torrent: '{raw_title}' - {e}")
             continue
         except GarbageTorrent as e:
-            if settings_manager.settings.scraping.parse_debug:
+            if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Trashing torrent for {item.log_string}: '{raw_title}'")
             continue
 

@@ -1,8 +1,8 @@
 import asyncio
 import json
+
 from fastapi import WebSocket
 from loguru import logger
-
 
 active_connections = []
 

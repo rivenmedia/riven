@@ -1,9 +1,10 @@
 from typing import Dict
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
 from requests import RequestException
 from requests.exceptions import ConnectTimeout, ReadTimeout, RetryError
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
@@ -19,7 +20,7 @@ class TorBoxScraper:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
+        self.rate_limiter = RateLimiter(max_calls=1, period=5)
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:

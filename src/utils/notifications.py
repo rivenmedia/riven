@@ -1,12 +1,14 @@
-from apprise import Apprise
-from program.settings.manager import settings_manager
-from program.media.item import MediaItem
-from program.settings.models import NotificationsModel
-from program.media.state import States
-from utils.logger import logger
 from pathlib import Path
-from utils import root_dir
 from typing import List
+
+from apprise import Apprise
+
+from program.media.item import MediaItem
+from program.media.state import States
+from program.settings.manager import settings_manager
+from program.settings.models import NotificationsModel
+from utils import root_dir
+from utils.logger import logger
 
 ntfy = Apprise()
 settings: NotificationsModel = settings_manager.settings.notifications

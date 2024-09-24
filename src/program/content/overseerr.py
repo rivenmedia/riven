@@ -2,14 +2,15 @@
 
 from typing import Union
 
+from requests.exceptions import ConnectionError, RetryError
+from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+from program.db.db_functions import _filter_existing_items
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from requests.exceptions import ConnectionError, RetryError
-from urllib3.exceptions import MaxRetryError, NewConnectionError
 from utils.logger import logger
 from utils.request import delete, get, ping, post
-from program.db.db_functions import _filter_existing_items
 
 
 class Overseerr:

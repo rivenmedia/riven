@@ -4,15 +4,16 @@ from pathlib import Path
 from posixpath import splitext
 from typing import Generator
 
+from requests import ConnectTimeout
+from RTN import parse
+from RTN.exceptions import GarbageTorrent
+
 from program.db.db import db
-from program.db.db_functions import load_streams_in_pages, get_stream_count
+from program.db.db_functions import get_stream_count, load_streams_in_pages
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from requests import ConnectTimeout
-from RTN import parse
-from RTN.exceptions import GarbageTorrent
 from utils.logger import logger
 from utils.request import get, post
 

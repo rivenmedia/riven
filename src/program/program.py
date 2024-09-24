@@ -1,18 +1,23 @@
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import linecache
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
-import traceback
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn, TimeElapsedColumn
 from rich.live import Live
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
+import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
@@ -26,9 +31,8 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
-from utils.logger import logger, log_cleaner
 from utils.event_manager import EventManager
-import utils.websockets.manager as ws_manager
+from utils.logger import log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -37,12 +41,10 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import and_, exists, func, select, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, select, text
 
 import program.db.db_functions as DB
 from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
-from sqlalchemy import func, select, text
 
 
 class Program(threading.Thread):
@@ -352,9 +354,9 @@ class Program(threading.Thread):
             added = []
             errors = []
             if res == 0:
-                logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
-                items = self.services[SymlinkLibrary].run()
                 if settings_manager.settings.map_metadata:
+                    logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
+                    items = self.services[SymlinkLibrary].run()
                     console = Console()
                     progress = Progress(
                         SpinnerColumn(),
@@ -370,7 +372,8 @@ class Program(threading.Thread):
 
                     task = progress.add_task("Enriching items with metadata", total=len(items), log="")
                     with Live(progress, console=console, refresh_per_second=10):
-                        with ThreadPoolExecutor(max_workers=8) as executor: # testing between 4 and 8
+                        workers = os.getenv("SYMLINK_MAX_WORKERS", 4)
+                        with ThreadPoolExecutor(max_workers=int(workers)) as executor:
                             future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
                             for future in as_completed(future_to_item):
                                 item = future_to_item[future]

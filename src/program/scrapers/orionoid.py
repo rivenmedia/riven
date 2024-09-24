@@ -1,10 +1,11 @@
 """ Orionoid scraper module """
 from typing import Dict
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get

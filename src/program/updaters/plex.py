@@ -5,10 +5,11 @@ from typing import Dict, Generator, List, Union
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.library import LibrarySection
 from plexapi.server import PlexServer
-from program.media.item import Episode, Movie, Season, Show
-from program.settings.manager import settings_manager
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
+
+from program.media.item import Episode, Movie, Season, Show
+from program.settings.manager import settings_manager
 from utils.logger import logger
 
 
@@ -30,7 +31,6 @@ class PlexUpdater:
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
         if not self.settings.enabled:
-            logger.warning("Plex Updater is set to disabled.")
             return False
         if not self.settings.token:
             logger.error("Plex token is not set!")
