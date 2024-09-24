@@ -1,19 +1,17 @@
-name: "Release Please and Notify Discord"
+name: "Notify Discord of Riven Release"
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
-  notify-discord:
+  github-releases-to-discord:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Github Releases To Discord
-        uses: SethCohen/github-releases-to-discord@v1.15.0
+        uses: SethCohen/github-releases-to-discord@v1.13.1
         with:
           webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
           color: "5378091"
