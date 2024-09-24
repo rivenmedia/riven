@@ -20,6 +20,6 @@ jobs:
           username: "Riven Release Changelog"
           avatar_url: "https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-light.png"
         #   content: "||@here||"
-          footer_title: "Changelog"
+          footer_title: "Riven (Backend) Changelog"
           footer_icon_url: "https://raw.githubusercontent.com/rivenmedia/riven/main/assets/riven-light.png"
           footer_timestamp: true
