@@ -20,7 +20,7 @@ class TorBoxScraper:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
+        self.rate_limiter = RateLimiter(max_calls=1, period=5)
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:
