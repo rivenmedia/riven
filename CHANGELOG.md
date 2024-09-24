@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0](https://github.com/rivenmedia/riven/compare/v0.13.3...v0.14.0) (2024-09-24)
+
+
+### Features
+
+* add manual scrape endpoint. fixed mdblist empty list issue. other small tweaks. ([57f23d6](https://github.com/rivenmedia/riven/commit/57f23d63ffeb575b32d6fe050fa72ea1ca21cc85))
+
+
+### Bug Fixes
+
+* torbox scraper missing setting issue fixed. ([f4619c4](https://github.com/rivenmedia/riven/commit/f4619c437786cb1f8761b2f4b1210207e8fb72aa))
+
 ## [0.13.3](https://github.com/rivenmedia/riven/compare/v0.13.2...v0.13.3) (2024-09-22)
 
 
