@@ -100,7 +100,7 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_config=None)
+config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
 server = Server(config=config)
 
 with server.run_in_thread():

@@ -33,6 +33,12 @@ def handle_args():
         action="store_true",
         help="Start a Plex listener.",
     )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=8080,
+        help='Port to run the server on (default: 8000)'
+    )
 
     args = parser.parse_args()
 
