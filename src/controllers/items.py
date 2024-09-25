@@ -21,7 +21,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.symlink import Symlinker
 from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import torrent_info
+from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_magnet, torrent_info
 from program.settings.versions import models
 from program.settings.manager import settings_manager
 from program.media.stream import Stream
@@ -272,8 +272,18 @@ async def remove_item(request: Request, ids: str):
 
     return {"success": True, "message": f"Removed items with ids {ids}"}
 
-@router.post("/{id}/set_torrent")
-def set_torrent(request: Request, id: int, torrent_id: str):
+@router.post("/{id}/set_torrent_rd_magnet", description="Set a torrent for a media item using a magnet link.")
+def add_torrent(request: Request, id: int, magnet: str):
+    torrent_id = ""
+    try:
+        torrent_id = add_torrent_magnet(magnet)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
+    
+    return set_torrent_rd(request, id, torrent_id)
+
+@router.post("/{id}/set_torrent_rd", description="Set a torrent for a media item using RD torrent ID.")
+def set_torrent_rd(request: Request, id: int, torrent_id: str):
     downloader: Downloader = request.app.program.services.get(Downloader)
     settings_model = settings_manager.settings.ranking
     ranking_model = models.get(settings_model.profile)
@@ -289,12 +299,15 @@ def set_torrent(request: Request, id: int, torrent_id: str):
 
         # Create stream if it doesn't exist
         if stream is None:
-            torrent: Torrent = rtn.rank(
-                raw_title=fetched_torrent_info["filename"],
-                infohash=hash,
-                remove_trash=settings_manager.settings.ranking.options["remove_all_trash"],
-            )
-            stream = Stream(torrent)
+            try:
+                torrent: Torrent = rtn.rank(
+                    raw_title=fetched_torrent_info["filename"],
+                    infohash=hash,
+                    remove_trash=settings_manager.settings.ranking.options["remove_all_trash"],
+                )
+                stream = Stream(torrent)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to rank torrent: {e}") from e
 
         # check if the stream exists in the item
         stream_exists_in_item = next((stream for stream in item.streams if stream.infohash == hash), None)
@@ -312,7 +325,7 @@ def set_torrent(request: Request, id: int, torrent_id: str):
                 logger.error(f"Failed to download {item.log_string}: {e}")
                 if item.active_stream.get("infohash", None):
                     downloader._delete_and_reset_active_stream(item)
-                raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
 
         next_service = Symlinker
         item.last_state = States.Downloaded
