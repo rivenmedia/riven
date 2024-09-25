@@ -290,7 +290,10 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
     rtn = RTN(settings_model, ranking_model)
 
     with db.Session() as session:
-        item: MediaItem = session.execute(select(MediaItem).where(MediaItem._id == id).join(MediaItem.streams)).unique().scalar_one()
+        item: MediaItem = session.execute(select(MediaItem).where(MediaItem._id == id).outerjoin(MediaItem.streams)).unique().scalar_one_or_none()
+
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
 
         fetched_torrent_info = torrent_info(torrent_id)
 
@@ -303,7 +306,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
                 torrent: Torrent = rtn.rank(
                     raw_title=fetched_torrent_info["filename"],
                     infohash=hash,
-                    remove_trash=settings_manager.settings.ranking.options["remove_all_trash"],
+                    remove_trash=False
                 )
                 stream = Stream(torrent)
             except Exception as e:
