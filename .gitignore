@@ -17,6 +17,7 @@ bin/
 *.bin
 .secrets*
 event.json
+*.patch
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

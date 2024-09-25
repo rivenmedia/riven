@@ -18,6 +18,7 @@ from controllers.settings import router as settings_router
 from controllers.tmdb import router as tmdb_router
 from controllers.webhooks import router as webhooks_router
 from controllers.ws import router as ws_router
+from scalar_fastapi import get_scalar_api_reference
 from program import Program
 from program.settings.models import get_version
 from utils.cli import handle_args
@@ -52,6 +53,14 @@ app = FastAPI(
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
 )
+
+@app.get("/scalar", include_in_schema=False)
+async def scalar_html():
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title=app.title,
+    )
+
 app.program = Program()
 
 app.add_middleware(LoguruMiddleware)

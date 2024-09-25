@@ -220,7 +220,7 @@ class EventManager:
         while True:
             if self._queued_events:
                 with self.mutex:
-                    self._queued_events.sort(key=lambda event: event.run_at, reverse=True)
+                    self._queued_events.sort(key=lambda event: event.run_at)
                     if datetime.now() >= self._queued_events[0].run_at:
                         event = self._queued_events.pop(0)
                         return event

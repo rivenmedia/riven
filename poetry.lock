@@ -1863,21 +1863,23 @@ dev = ["importlib-metadata", "tox"]
 
 [[package]]
 name = "pyright"
-version = "1.1.381"
+version = "1.1.382.post0"
 description = "Command line wrapper for pyright"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyright-1.1.381-py3-none-any.whl", hash = "sha256:5dc0aa80a265675d36abab59c674ae01dbe476714f91845b61b841d34aa99081"},
-    {file = "pyright-1.1.381.tar.gz", hash = "sha256:314cf0c1351c189524fb10c7ac20688ecd470e8cc505c394d642c9c80bf7c3a5"},
+    {file = "pyright-1.1.382.post0-py3-none-any.whl", hash = "sha256:a82a20b6a6511d71c6c95de19c0f874f7e50a013f332e3799deaae66a4d237d1"},
+    {file = "pyright-1.1.382.post0.tar.gz", hash = "sha256:4b84dd4439b0cbc662dff6aaf012cc0860f1c788932ac4c2a4b5d6c1280a5e20"},
 ]
 
 [package.dependencies]
 nodeenv = ">=1.6.0"
+typing-extensions = ">=4.1"
 
 [package.extras]
-all = ["twine (>=3.4.1)"]
+all = ["nodejs-wheel-binaries", "twine (>=3.4.1)"]
 dev = ["twine (>=3.4.1)"]
+nodejs = ["nodejs-wheel-binaries"]
 
 [[package]]
 name = "pysubs2"
@@ -2491,6 +2493,17 @@ files = [
 ]
 
 [[package]]
+name = "scalar-fastapi"
+version = "1.0.3"
+description = "This plugin provides an easy way to render a beautiful API reference based on a OpenAPI/Swagger file with FastAPI."
+optional = false
+python-versions = "*"
+files = [
+    {file = "scalar_fastapi-1.0.3-py3-none-any.whl", hash = "sha256:4a47a140795097ad034518ce0e32940f2c54f0f4bc60e4c3289ca30a7e6f954d"},
+    {file = "scalar_fastapi-1.0.3.tar.gz", hash = "sha256:9e9cb8398e298cd435a0171eebe1675b8899eb21e47c238db0d48783143f0ffb"},
+]
+
+[[package]]
 name = "six"
 version = "1.16.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -2753,13 +2766,13 @@ weaviate = ["weaviate-client (>=4.5.4,<5.0.0)"]
 
 [[package]]
 name = "textual"
-version = "0.80.0"
+version = "0.81.0"
 description = "Modern Text User Interface framework"
 optional = false
 python-versions = "<4.0.0,>=3.8.1"
 files = [
-    {file = "textual-0.80.0-py3-none-any.whl", hash = "sha256:d8206530dbcc37fafa153efa43ba91f08182c1623766cbf7bcf504ffa414f608"},
-    {file = "textual-0.80.0.tar.gz", hash = "sha256:dbe5d6d759596652cbb4fc29257064e23a175ec1040c34e5847998694a8d57da"},
+    {file = "textual-0.81.0-py3-none-any.whl", hash = "sha256:5f94e3bf185a1693c31f5e2bcbc413c8ed093a53abc96a956c65322d48f9543c"},
+    {file = "textual-0.81.0.tar.gz", hash = "sha256:b438f7e6bb143fdec379170ccc6709a32d273bd998e70179537109263de7c818"},
 ]
 
 [package.dependencies]
@@ -3248,4 +3261,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "2c32be6a98e1b1572e6cb4a815c1812aada3aec1d33646dffa75e31efedc4342"
+content-hash = "42f7ca2f6421e5c1b7e3d6727f6e595eefb0efc9f167072d793ec72d3dfb8c97"
