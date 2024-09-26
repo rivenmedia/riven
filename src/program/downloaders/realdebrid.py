@@ -164,6 +164,14 @@ def add_torrent(infohash: str) -> int:
         id = None
     return id
 
+def add_torrent_magnet(magnet: str) -> str:
+    try:
+        id = post("torrents/addMagnet", data={"magnet": magnet})["id"]
+    except Exception:
+        logger.warning(f"Failed to add torrent with magnet {magnet}")
+        id = None
+    return id
+
 def select_files(id: str, files: list[str]):
     try:
         post(f"torrents/selectFiles/{id}", data={"files": ','.join(files)})
