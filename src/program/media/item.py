@@ -1,11 +1,12 @@
 """MediaItem class"""
+from collections import defaultdict
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Self
 
 import sqlalchemy
-from RTN import parse
+from RTN import SettingsModel, parse
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
@@ -18,48 +19,109 @@ from utils.logger import logger
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream
 
+EPOCH = datetime.fromtimestamp(0)
+
+class MediaItemProfileData(db.Model):
+    """MediaItemProfileData class"""
+    __tablename__ =  "MediaItemProfileData"
+
+    _id:                    Mapped[int]                 = mapped_column(primary_key=True)
+    parent:                 Mapped["MediaItem"]         = relationship("MediaItem", back_populates="profiles", lazy="joined", cascade="all")
+
+    last_state:             Mapped[Optional[States]]    = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
+    last_try:               Mapped[Optional[datetime]]  = mapped_column(sqlalchemy.DateTime, default=EPOCH)
+
+    scraped_at:             Mapped[Optional[datetime]]  = mapped_column(sqlalchemy.DateTime, nullable=True)
+    scraped_times:          Mapped[Optional[int]]       = mapped_column(sqlalchemy.Integer, default=0)
+    streams:                Mapped[List[Stream]]        = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
+    blacklisted_streams:    Mapped[List[Stream]]        = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
+
+    active_stream:          Mapped[Optional[Stream]]    = mapped_column(sqlalchemy.ForeignKey("Stream._id"), nullable=True)
+    download_path:          Mapped[Optional[str]]       = mapped_column(sqlalchemy.String, nullable=True)
+
+    symlink_path:           Mapped[Optional[str]]       = mapped_column(sqlalchemy.String, nullable=True)
+    symlinked_times:        Mapped[Optional[int]]       = mapped_column(sqlalchemy.Integer, default=0)
+
+    subtitles:              Mapped[list[Subtitle]]      = relationship(Subtitle, back_populates="parent", lazy="joined", cascade="all, delete-orphan")
+
+    def __init__(self):
+        self.last_state: States = States.Unknown
+
+        self.scraped_at: datetime = EPOCH
+        self.scraped_times: int = 0
+        self.streams: List[Stream] = []
+        self.blacklisted_streams: List[Stream] = []
+
+        self.active_stream: Stream | None = None
+        self.download_path: Path | None = None
+
+        self.symlink_path: str | None = None
+        self.symlinked_times = 0
+
+        self.subtitles: List[Subtitle] = []
+
+    @property
+    def state(self):
+        return self._determine_state()
+
+    @property
+    def is_scraped(self):
+        session = object_session(self)
+        if session:
+            session.refresh(self, attribute_names=['blacklisted_streams']) # Prom: Ensure these reflect the state of whats in the db.
+        return (len(self.streams) > 0
+            and any(not stream in self.blacklisted_streams for stream in self.streams))
+
+    def _determine_state(self) -> States:
+        if self.symlink_path:
+            return States.Completed
+        elif self.download_path:
+            return States.Downloaded
+        elif self.is_scraped():
+            return States.Scraped
+        return States.Requested
+
+    def is_stream_blacklisted(self, stream: Stream):
+        """Check if a stream is blacklisted for this item."""
+        session = object_session(self)
+        if session:
+            session.refresh(self, attribute_names=['blacklisted_streams'])
+        return stream in self.blacklisted_streams
+
+    def blacklist_stream(self, stream: Stream):
+        value = blacklist_stream(self, stream)
+        if value:
+            logger.debug(f"Blacklisted stream {stream.infohash} for {self.parent.log_string}")
+        return value
 
 class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
-    _id: Mapped[int] = mapped_column(primary_key=True)
-    item_id: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
-    requested_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    requested_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
-    symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
-    symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    symlink_path: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
-    is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
-    title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    country: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    language: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    key: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="joined", cascade="all, delete-orphan")
+
+    id:            Mapped[int] = mapped_column(primary_key=True)
+    type:           Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+
+    title:          Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    year:           Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    genres:         Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    language:       Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+
+    ids:            Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default=defaultdict({"imdb": None, "tmdb": None, "tvdb": None}))
+    network:        Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    country:        Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    aired_at:       Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+
+    requested_at:   Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
+    requested_by:   Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    requested_id:   Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    indexed_at:     Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+
+    aliases:        Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
+    is_anime:       Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+
+    overseerr_id:   Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+
+    profiles:       Mapped[list[MediaItemProfileData]] = relationship("MediaItemProfileData", back_populates="parent", lazy="joined", cascade="all")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -68,13 +130,13 @@ class MediaItem(db.Model):
     }
 
     __table_args__ = (
-        Index('ix_mediaitem_item_id', 'item_id'),
+        Index('ix_mediaitem_id', 'id'),
         Index('ix_mediaitem_type', 'type'),
         Index('ix_mediaitem_requested_by', 'requested_by'),
         Index('ix_mediaitem_title', 'title'),
-        Index('ix_mediaitem_imdb_id', 'imdb_id'),
-        Index('ix_mediaitem_tvdb_id', 'tvdb_id'),
-        Index('ix_mediaitem_tmdb_id', 'tmdb_id'),
+        Index('ix_mediaitem_ids_imdb_id', 'ids["imdb"]'),
+        Index('ix_mediaitem_ids_tvdb_id', 'tvdb_id'),
+        Index('ix_mediaitem_ids_tmdb_id', 'tmdb_id'),
         Index('ix_mediaitem_network', 'network'),
         Index('ix_mediaitem_country', 'country'),
         Index('ix_mediaitem_language', 'language'),
@@ -88,75 +150,37 @@ class MediaItem(db.Model):
         if item is None:
             return
         self.requested_at = item.get("requested_at", datetime.now())
-        self.requested_by = item.get("requested_by")
-        self.requested_id = item.get("requested_id")
-
+        self.requested_by = item.get("requested_by", "unknown")
+        self.requested_id = item.get("requested_id", None)
         self.indexed_at = None
-
-        self.scraped_at  = None
-        self.scraped_times = 0
-        self.active_stream = item.get("active_stream", {})
-        self.streams: List[Stream] = []
-        self.blacklisted_streams: List[Stream] = []
-
-        self.symlinked = False
-        self.symlinked_at = None
-        self.symlinked_times = 0
-
-        self.file  = None
-        self.folder = None
         self.is_anime = item.get("is_anime", False)
 
-        # Media related
         self.title = item.get("title")
-        self.imdb_id =  item.get("imdb_id")
-        if self.imdb_id:
-            self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
-            if not hasattr(self, "item_id"):
-                self.item_id = self.imdb_id
-        self.tvdb_id = item.get("tvdb_id")
-        self.tmdb_id = item.get("tmdb_id")
-        self.network = item.get("network")
-        self.country = item.get("country")
-        self.language = item.get("language")
-        self.aired_at = item.get("aired_at")
-        self.year = item.get("year")
+        self.ids = { "imdb_id": item.get("imdb_id"),
+                     "tvdb_id": item.get("tvdb_id", ""),
+                     "tmdb_id": item.get("tmdb_id", "") }
+
+        self.network = item.get("network", "")
+        self.country = item.get("country", "")
+        self.language = item.get("language", "")
+        self.aired_at = item.get("aired_at", EPOCH)
+        self.year = item.get("year", 1970)
         self.genres = item.get("genres", [])
         self.aliases = item.get("aliases", {})
 
-        # Plex related
-        self.key = item.get("key")
-        self.guid = item.get("guid")
-        self.update_folder = item.get("update_folder")
-
-        # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
-        #Post processing
-        self.subtitles = item.get("subtitles", [])
+        self.profiles: list[MediaItemProfileData] = []
 
     def store_state(self) -> None:
         if self.last_state and self.last_state != self._determine_state():
             ws_manager.send_item_update(json.dumps(self.to_dict()))
         self.last_state = self._determine_state()
 
-    def is_stream_blacklisted(self, stream: Stream):
-        """Check if a stream is blacklisted for this item."""
-        session = object_session(self)
-        if session:
-            session.refresh(self, attribute_names=['blacklisted_streams'])
-        return stream in self.blacklisted_streams
-
-    def blacklist_stream(self, stream: Stream):
-        value = blacklist_stream(self, stream)
-        if value:
-            logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
-        return value
-
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        if self.aired_at and self.aired_at <= datetime.now():
+        if self.aired_at != EPOCH and self.aired_at <= datetime.now():
             return True
         return False
 
@@ -165,21 +189,14 @@ class MediaItem(db.Model):
         return self._determine_state()
 
     def _determine_state(self):
-        if self.key or self.update_folder == "updated":
+        if all(profile.last_state == States.Completed for profile in self.profiles):
             return States.Completed
-        elif self.symlinked:
-            return States.Symlinked
-        elif self.file and self.folder:
-            return States.Downloaded
-        elif self.is_scraped():
-            return States.Scraped
-        elif self.title and self.is_released:
-            return States.Indexed
-        elif self.title:
+        elif any(profile.last_state == States.Completed for profile in self.profiles) and any(profile.last_state != States.Completed for profile in self.profiles):
+            return States.PartiallyCompleted
+        elif not self.is_released:
             return States.Unreleased
-        elif self.imdb_id and self.requested_by:
+        else:
             return States.Requested
-        return States.Unknown
 
     def copy_other_media_attr(self, other):
         """Copy attributes from another media item."""
@@ -522,6 +539,7 @@ class Season(MediaItem):
     """Season class"""
     __tablename__ = "Season"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show._id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
     episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Episode.number")
@@ -630,6 +648,7 @@ class Episode(MediaItem):
     """Episode class"""
     __tablename__ = "Episode"
     _id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem._id"), primary_key=True)
+    number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season._id"), use_existing_column=True)
     parent: Mapped["Season"] = relationship(back_populates="episodes", foreign_keys="Episode.parent_id", lazy="joined")
 
