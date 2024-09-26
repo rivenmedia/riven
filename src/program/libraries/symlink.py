@@ -188,7 +188,7 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
                     broken_symlinks.append((full_path, target))
     return broken_symlinks
 
-def fix_broken_symlinks(library_path, rclone_path, max_workers=8):
+def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
     """Find and fix all broken symlinks in the library path using files from the rclone path."""
     missing_files = 0
 
