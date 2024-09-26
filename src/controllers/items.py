@@ -282,18 +282,30 @@ def add_torrent(request: Request, id: int, magnet: str):
     
     return set_torrent_rd(request, id, torrent_id)
 
+def reset_item_to_scraped(item: MediaItem):
+    item.last_state = States.Scraped
+    item.symlinked = False
+    item.symlink_path = None
+    item.symlinked_at = None
+    item.symlinked_times = 0
+    item.update_folder = None
+    item.file = None
+    item.folder = None
+
+def create_stream(hash, torrent_info):
+    try:
+        torrent: Torrent = rtn.rank(
+            raw_title=torrent_info["filename"],
+            infohash=hash,
+            remove_trash=False
+        )
+        return Stream(torrent)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rank torrent: {e}") from e
+
 @router.post("/{id}/set_torrent_rd", description="Set a torrent for a media item using RD torrent ID.")
 def set_torrent_rd(request: Request, id: int, torrent_id: str):
-    def reset_item_to_scraped(item: MediaItem):
-        item.last_state = States.Scraped
-        item.symlinked = False
-        item.symlink_path = None
-        item.symlinked_at = None
-        item.symlinked_times = 0
-        item.update_folder = None
-        item.file = None
-        item.folder = None
-    
+
     downloader: Downloader = request.app.program.services.get(Downloader)
     settings_model = settings_manager.settings.ranking
     ranking_model = models.get(settings_model.profile)
@@ -312,15 +324,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
 
         # Create stream if it doesn't exist
         if stream is None:
-            try:
-                torrent: Torrent = rtn.rank(
-                    raw_title=fetched_torrent_info["filename"],
-                    infohash=hash,
-                    remove_trash=False
-                )
-                stream = Stream(torrent)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to rank torrent: {e}") from e
+            stream = create_stream(hash, fetched_torrent_info)
 
         # check if the stream exists in the item
         stream_exists_in_item = next((stream for stream in item.streams if stream.infohash == hash), None)
@@ -337,19 +341,20 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
 
         needed_media = get_needed_media(item)
         cached_streams = downloader.get_cached_streams([hash], needed_media)
-        if len(cached_streams) > 0:
-            item.active_stream = cached_streams[0]
-            try:
-                downloader.download(item, item.active_stream)
-            except Exception as e:
-                logger.error(f"Failed to download {item.log_string}: {e}")
-                if item.active_stream.get("infohash", None):
-                    downloader._delete_and_reset_active_stream(item)
-                session.rollback()
-                raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
-        else:
+
+        if len(cached_streams) == 0:
             session.rollback()
             raise HTTPException(status_code=400, detail=f"No cached torrents found for {item.log_string}")
+
+        item.active_stream = cached_streams[0]
+        try:
+            downloader.download(item, item.active_stream)
+        except Exception as e:
+            logger.error(f"Failed to download {item.log_string}: {e}")
+            if item.active_stream.get("infohash", None):
+                downloader._delete_and_reset_active_stream(item)
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
 
         session.commit()
 
