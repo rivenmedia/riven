@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 import Levenshtein
+from RTN import RTN, Torrent
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.exc import NoResultFound
@@ -19,6 +20,12 @@ from program.db.db_functions import (
 from program.media.item import MediaItem
 from program.media.state import States
 from program.symlink import Symlinker
+from program.downloaders import Downloader, get_needed_media
+from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_magnet, torrent_info
+from program.settings.versions import models
+from program.settings.manager import settings_manager
+from program.media.stream import Stream
+from program.types import Event
 from utils.logger import logger
 
 router = APIRouter(
@@ -264,6 +271,96 @@ async def remove_item(request: Request, ids: str):
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"success": True, "message": f"Removed items with ids {ids}"}
+
+@router.post("/{id}/set_torrent_rd_magnet", description="Set a torrent for a media item using a magnet link.")
+def add_torrent(request: Request, id: int, magnet: str):
+    torrent_id = ""
+    try:
+        torrent_id = add_torrent_magnet(magnet)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
+    
+    return set_torrent_rd(request, id, torrent_id)
+
+def reset_item_to_scraped(item: MediaItem):
+    item.last_state = States.Scraped
+    item.symlinked = False
+    item.symlink_path = None
+    item.symlinked_at = None
+    item.symlinked_times = 0
+    item.update_folder = None
+    item.file = None
+    item.folder = None
+
+def create_stream(hash, torrent_info):
+    try:
+        torrent: Torrent = rtn.rank(
+            raw_title=torrent_info["filename"],
+            infohash=hash,
+            remove_trash=False
+        )
+        return Stream(torrent)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rank torrent: {e}") from e
+
+@router.post("/{id}/set_torrent_rd", description="Set a torrent for a media item using RD torrent ID.")
+def set_torrent_rd(request: Request, id: int, torrent_id: str):
+
+    downloader: Downloader = request.app.program.services.get(Downloader)
+    settings_model = settings_manager.settings.ranking
+    ranking_model = models.get(settings_model.profile)
+    rtn = RTN(settings_model, ranking_model)
+
+    with db.Session() as session:
+        item: MediaItem = session.execute(select(MediaItem).where(MediaItem._id == id).outerjoin(MediaItem.streams)).unique().scalar_one_or_none()
+
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        fetched_torrent_info = torrent_info(torrent_id)
+
+        stream = session.execute(select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])).scalar_one_or_none()
+        hash = fetched_torrent_info["hash"]
+
+        # Create stream if it doesn't exist
+        if stream is None:
+            stream = create_stream(hash, fetched_torrent_info)
+
+        # check if the stream exists in the item
+        stream_exists_in_item = next((stream for stream in item.streams if stream.infohash == hash), None)
+        if stream_exists_in_item is None:
+            item.streams.append(stream)
+        
+        reset_item_to_scraped(item)
+
+        # reset episodes if it's a season
+        if item.type == "season":
+            logger.debug(f"Resetting episodes for {item.title}")
+            for episode in item.episodes:
+                reset_item_to_scraped(episode)
+
+        needed_media = get_needed_media(item)
+        cached_streams = downloader.get_cached_streams([hash], needed_media)
+
+        if len(cached_streams) == 0:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=f"No cached torrents found for {item.log_string}")
+
+        item.active_stream = cached_streams[0]
+        try:
+            downloader.download(item, item.active_stream)
+        except Exception as e:
+            logger.error(f"Failed to download {item.log_string}: {e}")
+            if item.active_stream.get("infohash", None):
+                downloader._delete_and_reset_active_stream(item)
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
+
+        session.commit()
+
+        request.app.program.em.add_event(Event("Symlinker", item))
+
+        return {"success": True, "message": f"Set torrent for {item.title} to {torrent_id}"}
 
 # These require downloaders to be refactored
 
