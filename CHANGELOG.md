@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.2](https://github.com/rivenmedia/riven/compare/v0.14.1...v0.14.2) (2024-09-26)
+
+
+### Bug Fixes
+
+* lower worker count on symlink repair from 8 to 4 workers ([8380b7c](https://github.com/rivenmedia/riven/commit/8380b7cecb47484730335946f8a2e0d8758c1ab3))
+* remove reverse on event sort ([13a278f](https://github.com/rivenmedia/riven/commit/13a278f3b76c9b28ef9fe43742c5f7d99f896fad))
+
 ## [0.14.1](https://github.com/rivenmedia/riven/compare/v0.14.0...v0.14.1) (2024-09-24)
 
 
