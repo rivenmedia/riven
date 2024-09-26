@@ -7,15 +7,7 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from rich.console import Console
 from rich.live import Live
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
 
 import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
@@ -32,7 +24,7 @@ from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
 from utils.event_manager import EventManager
-from utils.logger import log_cleaner, logger
+from utils.logger import create_progress_bar, log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -357,18 +349,7 @@ class Program(threading.Thread):
                 if settings_manager.settings.map_metadata:
                     logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
                     items = self.services[SymlinkLibrary].run()
-                    console = Console()
-                    progress = Progress(
-                        SpinnerColumn(),
-                        TextColumn("[progress.description]{task.description}"),
-                        BarColumn(),
-                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                        TimeRemainingColumn(),
-                        TextColumn("[progress.completed]{task.completed}/{task.total}", justify="right"),
-                        TextColumn("[progress.log]{task.fields[log]}", justify="right"),
-                        console=console,
-                        transient=True
-                    )
+                    progress, console = create_progress_bar(len(items))
 
                     task = progress.add_task("Enriching items with metadata", total=len(items), log="")
                     with Live(progress, console=console, refresh_per_second=10):

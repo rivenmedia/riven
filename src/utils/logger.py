@@ -7,6 +7,13 @@ from datetime import datetime
 
 from loguru import logger
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from program.settings.manager import settings_manager
 from utils import data_dir_path
@@ -122,6 +129,23 @@ def log_cleaner():
             logger.log("COMPLETED", "Cleaned up old logs that were older than 8 hours.")
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
+
+
+def create_progress_bar(total_items: int) -> Progress:
+    """Setup a progress bar for the console"""
+    console = Console()
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        TextColumn(f"[progress.completed]{{task.completed}}/{total_items}", justify="right"),
+        TextColumn("[progress.log]{task.fields[log]}", justify="right"),
+        console=console,
+        transient=True
+    )
+    return progress, console
 
 
 console = Console()

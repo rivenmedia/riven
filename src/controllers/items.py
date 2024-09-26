@@ -25,6 +25,7 @@ from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_mag
 from program.settings.versions import models
 from program.settings.manager import settings_manager
 from program.media.stream import Stream
+from program.scrapers.shared import rtn
 from program.types import Event
 from utils.logger import logger
 
@@ -84,7 +85,7 @@ async def get_items(
         filter_lower = state.lower()
         filter_state = None
         for state_enum in States:
-            if Levenshtein.distance(filter_lower, state_enum.name.lower()) <= 0.82:
+            if Levenshtein.ratio(filter_lower, state_enum.name.lower()) <= 0.82:
                 filter_state = state_enum
                 break
         if filter_state:
@@ -307,10 +308,6 @@ def create_stream(hash, torrent_info):
 def set_torrent_rd(request: Request, id: int, torrent_id: str):
 
     downloader: Downloader = request.app.program.services.get(Downloader)
-    settings_model = settings_manager.settings.ranking
-    ranking_model = models.get(settings_model.profile)
-    rtn = RTN(settings_model, ranking_model)
-
     with db.Session() as session:
         item: MediaItem = session.execute(select(MediaItem).where(MediaItem._id == id).outerjoin(MediaItem.streams)).unique().scalar_one_or_none()
 
