@@ -284,6 +284,16 @@ def add_torrent(request: Request, id: int, magnet: str):
 
 @router.post("/{id}/set_torrent_rd", description="Set a torrent for a media item using RD torrent ID.")
 def set_torrent_rd(request: Request, id: int, torrent_id: str):
+    def reset_item_to_scraped(item: MediaItem):
+        item.last_state = States.Scraped
+        item.symlinked = False
+        item.symlink_path = None
+        item.symlinked_at = None
+        item.symlinked_times = 0
+        item.update_folder = None
+        item.file = None
+        item.folder = None
+    
     downloader: Downloader = request.app.program.services.get(Downloader)
     settings_model = settings_manager.settings.ranking
     ranking_model = models.get(settings_model.profile)
@@ -317,7 +327,14 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
         if stream_exists_in_item is None:
             item.streams.append(stream)
         
-        item.last_state = States.Scraped
+        reset_item_to_scraped(item)
+
+        # reset episodes if it's a season
+        if item.type == "season":
+            logger.debug(f"Resetting episodes for {item.title}")
+            for episode in item.episodes:
+                reset_item_to_scraped(episode)
+
         needed_media = get_needed_media(item)
         cached_streams = downloader.get_cached_streams([hash], needed_media)
         if len(cached_streams) > 0:
@@ -328,21 +345,15 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
                 logger.error(f"Failed to download {item.log_string}: {e}")
                 if item.active_stream.get("infohash", None):
                     downloader._delete_and_reset_active_stream(item)
+                session.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
-
-        next_service = Symlinker
-        item.last_state = States.Downloaded
-        item.symlinked = False
-        item.symlink_path = None
-        item.symlinked_at = None
-        item.symlinked_times = 0
-        item.update_folder = None
+        else:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=f"No cached torrents found for {item.log_string}")
 
         session.commit()
 
-        event = Event(next_service.__name__, item)
-        request.app.program.em.add_event_to_running(Event(next_service.__name__, item))
-        request.app.program.em.submit_job(next_service, request.app.program, event)
+        request.app.program.em.add_event(Event("Symlinker", item))
 
         return {"success": True, "message": f"Set torrent for {item.title} to {torrent_id}"}
 
