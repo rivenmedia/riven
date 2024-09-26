@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.0](https://github.com/rivenmedia/riven/compare/v0.14.2...v0.15.0) (2024-09-26)
+
+
+### Features
+
+* add magnets for use in frontend ([7fc5b1b](https://github.com/rivenmedia/riven/commit/7fc5b1b9be4b662a7ac3c2056cedab80e675a447))
+* added magnet handling for use in frontend ([40636dc](https://github.com/rivenmedia/riven/commit/40636dc35e5545ee5c3669145f40f1915c36b212))
+
+
+### Bug Fixes
+
+* housekeeping ([2308ce5](https://github.com/rivenmedia/riven/commit/2308ce5d2c1462f8dec2b5a0ebbd674d466cbf08))
+
 ## [0.14.2](https://github.com/rivenmedia/riven/compare/v0.14.1...v0.14.2) (2024-09-26)
 
 
