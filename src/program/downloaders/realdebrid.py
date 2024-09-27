@@ -1,14 +1,12 @@
 from datetime import datetime
 
 from loguru import logger
-from requests import ConnectTimeout
-
-import utils.request as request
-from program.media.item import MediaItem
 from program.settings.manager import settings_manager as settings
+from requests import ConnectTimeout
+from utils import request
 from utils.ratelimiter import RateLimiter
 
-from .shared import VIDEO_EXTENSIONS, FileFinder
+from .shared import VIDEO_EXTENSIONS, FileFinder, premium_days_left
 
 BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
@@ -39,17 +37,7 @@ class RealDebridDownloader:
             if user_info:
                 expiration = user_info.get("expiration", "")
                 expiration_datetime = datetime.fromisoformat(expiration.replace("Z", "+00:00")).replace(tzinfo=None)
-                time_left = expiration_datetime - datetime.utcnow().replace(tzinfo=None)
-                days_left = time_left.days
-                hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
-                expiration_message = ""
-
-                if days_left > 0:
-                    expiration_message = f"Your account expires in {days_left} days."
-                elif hours_left > 0:
-                    expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
-                else:
-                    expiration_message = "Your account expires soon."
+                expiration_message = premium_days_left(expiration_datetime)
 
                 if user_info.get("type", "") != "premium":
                     logger.error("You are not a premium member.")
@@ -97,7 +85,7 @@ class RealDebridDownloader:
             def all_files_valid(file_dict: dict) -> bool:
                 return all(
                     any(
-                        file["filename"].endswith(f'.{ext}') and "sample" not in file["filename"].lower()
+                        file["filename"].endswith(f".{ext}") and "sample" not in file["filename"].lower()
                         for ext in VIDEO_EXTENSIONS
                     )
                     for file in file_dict.values()
@@ -158,7 +146,7 @@ def delete(url):
 
 def add_torrent(infohash: str) -> int:
     try:
-        id = post(f"torrents/addMagnet", data={"magnet": f"magnet:?xt=urn:btih:{infohash}"})["id"]
+        id = post("torrents/addMagnet", data={"magnet": f"magnet:?xt=urn:btih:{infohash}"})["id"]
     except:
         logger.warning(f"Failed to add torrent with infohash {infohash}")
         id = None
@@ -174,7 +162,7 @@ def add_torrent_magnet(magnet: str) -> str:
 
 def select_files(id: str, files: list[str]):
     try:
-        post(f"torrents/selectFiles/{id}", data={"files": ','.join(files)})
+        post(f"torrents/selectFiles/{id}", data={"files": ",".join(files)})
     except:
         logger.warning(f"Failed to select files for torrent with id {id}")
 

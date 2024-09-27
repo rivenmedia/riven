@@ -1,0 +1,16 @@
+{
+    "status": "success",
+    "data": {
+        "magnets": [
+            {
+                "magnet": "magnet:?xt=urn:btih:3648baf850d5930510c1f172b534200ebb5496e6",
+                "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "name": "Ubuntu 24.04",
+                "filename_original": "",
+                "size": 8869638144,
+                "ready": true,
+                "id": 251993753
+            }
+        ]
+    }
+}

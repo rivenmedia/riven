@@ -1,0 +1,12 @@
+ {
+    "status": "success",
+    "data": {
+        "magnets": [
+            {
+                "magnet": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "instant": false
+            }
+        ]
+    }
+}

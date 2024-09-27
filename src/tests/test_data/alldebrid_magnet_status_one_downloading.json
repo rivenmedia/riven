@@ -1,0 +1,25 @@
+{
+    "status": "success",
+    "data": {
+        "magnets": {
+            "id": 251993753,
+            "filename": "Ubuntu 24.04",
+            "size": 8869638144,
+            "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+            "status": "Downloading",
+            "statusCode": 1,
+            "downloaded": 165063971,
+            "uploaded": 0,
+            "seeders": 6,
+            "downloadSpeed": 4782727,
+            "processingPerc": 0,
+            "uploadSpeed": 0,
+            "uploadDate": 1727454272,
+            "completionDate": 0,
+            "links": [],
+            "type": "m",
+            "notified": false,
+            "version": 2
+        }
+    }
+}

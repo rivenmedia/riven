@@ -4,6 +4,8 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.settings.manager import settings_manager
 
+from datetime import datetime
+
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "m4v", "webm", "mpg", "mpeg", "m2ts", "ts"]
 
@@ -83,3 +85,18 @@ def get_needed_media(item: MediaItem) -> dict:
     elif item.type == "episode":
         needed_media = {item.parent.number: [item.number]}
     return needed_media
+
+def premium_days_left(expiration: datetime) -> str:
+    """Convert an expiration date into a message showing days remaining on the user's premium account"""
+    time_left = expiration - datetime.utcnow()
+    days_left = time_left.days
+    hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
+    expiration_message = ""
+
+    if days_left > 0:
+        expiration_message = f"Your account expires in {days_left} days."
+    elif hours_left > 0:
+        expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+    else:
+        expiration_message = "Your account expires soon."
+    return expiration_message
