@@ -1,0 +1,40 @@
+{
+    "status": "success",
+    "data": {
+        "magnets": {
+            "id": 251993753,
+            "filename": "Ubuntu 24.04",
+            "size": 8869638144,
+            "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+            "status": "Ready",
+            "statusCode": 4,
+            "downloaded": 8869638144,
+            "uploaded": 0,
+            "seeders": 0,
+            "downloadSpeed": 0,
+            "processingPerc": 0,
+            "uploadSpeed": 0,
+            "uploadDate": 1727454272,
+            "completionDate": 1727454803,
+            "links": [
+                {
+                    "filename": "ubuntu-24.04-desktop-amd64.iso",
+                    "size": 6114656256,
+                    "files": [{"n": "ubuntu-24.04-desktop-amd64.iso", "s": 6114656256}],
+                    "link": "https://alldebrid.com/f/REDACTED"
+                },
+                {
+                    "filename": "ubuntu-24.04-live-server-amd64.iso",
+                    "size": 2754981888,
+                    "files": [
+                        {"n": "ubuntu-24.04-live-server-amd64.iso", "s": 2754981888}
+                    ],
+                    "link": "https://alldebrid.com/f/REDACTED"
+                }
+            ],
+            "type": "m",
+            "notified": false,
+            "version": 2
+        }
+    }
+}

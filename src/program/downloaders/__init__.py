@@ -17,7 +17,7 @@ class Downloader:
         self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
         self.service = next((service for service in [
             RealDebridDownloader(),
-            #AllDebridDownloader(),
+            AllDebridDownloader(),
             #TorBoxDownloader()
             ] if service.initialized), None)
 

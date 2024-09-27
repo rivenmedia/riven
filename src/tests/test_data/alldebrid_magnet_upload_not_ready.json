@@ -1,0 +1,16 @@
+{
+    "status": "success",
+    "data": {
+        "magnets": [
+            {
+                "magnet": "magnet:?xt=urn:btih:3648baf850d5930510c1f172b534200ebb5496e6",
+                "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "name": "noname",
+                "filename_original": "",
+                "size": 0,
+                "ready": false,
+                "id": 251993753
+            }
+        ]
+    }
+}
