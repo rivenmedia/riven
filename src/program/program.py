@@ -141,26 +141,10 @@ class Program(threading.Thread):
         run_migrations()
         self._init_db_from_symlinks()
 
-        with db.Session() as session:
-            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
-            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one() # noqa
-            total_symlinks = movies_symlinks + episodes_symlinks
-            total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
-            total_shows = session.execute(select(func.count(Show._id))).scalar_one()
-            total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
-            total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
-            total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
-
-            logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
-            logger.log("ITEM", f"Shows: {total_shows}")
-            logger.log("ITEM", f"Seasons: {total_seasons}")
-            logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
-            logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
-
         self.executors = []
         self.scheduler = BackgroundScheduler()
-        self._schedule_services()
-        self._schedule_functions()
+        # self._schedule_services()
+        # self._schedule_functions()
 
         super().start()
         self.scheduler.start()
