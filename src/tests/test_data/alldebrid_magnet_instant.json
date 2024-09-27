@@ -1,0 +1,16 @@
+{
+    "status": "success",
+    "data": {
+        "magnets": [
+            {
+                "magnet": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+                "instant": true,
+                "files": [
+                    {"n": "ubuntu-24.04-desktop-amd64.iso", "s": 6114656256},
+                    {"n": "ubuntu-24.04-live-server-amd64.iso", "s": 2754981888}
+                ]
+            }
+        ]
+    }
+}
