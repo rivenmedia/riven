@@ -316,12 +316,13 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
 
         fetched_torrent_info = torrent_info(torrent_id)
 
-        stream = session.execute(select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])).scalar_one_or_none()
+        stream = session.execute(select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])).scalars().first()
         hash = fetched_torrent_info["hash"]
 
         # Create stream if it doesn't exist
         if stream is None:
             stream = create_stream(hash, fetched_torrent_info)
+            item.streams.append(stream)
 
         # check if the stream exists in the item
         stream_exists_in_item = next((stream for stream in item.streams if stream.infohash == hash), None)
