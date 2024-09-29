@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/rivenmedia/riven/compare/v0.15.0...v0.15.1) (2024-09-29)
+
+
+### Bug Fixes
+
+* prevent error when more than two streams with the same hash in set_torrent_rd ([eaefd63](https://github.com/rivenmedia/riven/commit/eaefd631bf87cbdcd209204f36b716285a9c3046))
+
 ## [0.15.0](https://github.com/rivenmedia/riven/compare/v0.14.2...v0.15.0) (2024-09-26)
 
 
