@@ -203,7 +203,7 @@ class TMDB:
             "Authorization": f"Bearer {TMDB_READ_ACCESS_TOKEN}",
         }
 
-    def getMoviesNowPlaying(self, params: str) -> Optional[TmdbPagedResultsWithDates]:
+    def getMoviesNowPlaying(self, params: str) -> Optional[TmdbPagedResultsWithDates[TmdbItem]]:
         url = f"{self.API_URL}/movie/now_playing?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
