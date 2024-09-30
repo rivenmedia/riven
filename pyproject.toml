@@ -91,7 +91,8 @@ ignore = [
   "S101", # ruff: Ignore assert warnings on tests
   "RET505", #
   "RET503",  # ruff: Ignore required explicit returns (is this desired?)
-  "SLF001" # private member accessing from pickle
+  "SLF001", # private member accessing from pickle
+  "B904" # ruff: ignore raising exceptions from except for the API
 ]
 extend-select = [
   "I",   # isort
