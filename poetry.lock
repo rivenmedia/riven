@@ -1846,13 +1846,13 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pyperf"
-version = "2.7.0"
+version = "2.8.0"
 description = "Python module to run and analyze benchmarks"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyperf-2.7.0-py3-none-any.whl", hash = "sha256:dce63053b916b73d8736a77404309328f938851b5c2c5e8493cde910ce37e362"},
-    {file = "pyperf-2.7.0.tar.gz", hash = "sha256:4201c6601032f374e9c900c6d2544a2f5891abedc1a96eec0e7b2338a6247589"},
+    {file = "pyperf-2.8.0-py3-none-any.whl", hash = "sha256:1a775b5a09882f18bf876430ef78e07646f773f50774546f5f6a8b34d60e3968"},
+    {file = "pyperf-2.8.0.tar.gz", hash = "sha256:b30a20465819daf102b6543b512f6799a5a879ff2a123981e6cd732d0e6a7a79"},
 ]
 
 [package.dependencies]
@@ -3261,4 +3261,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "42f7ca2f6421e5c1b7e3d6727f6e595eefb0efc9f167072d793ec72d3dfb8c97"
+content-hash = "12697497078c81adc85346788c9a835233b698e6ac1e8b620b8320bea04ca5e4"

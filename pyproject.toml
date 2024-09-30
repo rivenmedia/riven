@@ -39,7 +39,7 @@ scalar-fastapi = "^1.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
-pyperf = "^2.2.0"
+pyperf = "^2.8.0"
 pytest = "^8.3.2"
 pyfakefs = "^5.4.1"
 ruff = "^0.3.0"
