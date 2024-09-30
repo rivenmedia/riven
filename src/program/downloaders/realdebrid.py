@@ -1,7 +1,10 @@
 from datetime import datetime
+from enum import Enum
+from typing import Union
 
 from loguru import logger
 from program.settings.manager import settings_manager as settings
+from pydantic import BaseModel
 from requests import ConnectTimeout
 from utils import request
 from utils.ratelimiter import RateLimiter
@@ -12,6 +15,30 @@ BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 torrent_limiter = RateLimiter(1, 1)
 overall_limiter = RateLimiter(60, 60)
+
+class RDTorrentStatus(str, Enum):
+    magnet_error = "magnet_error"
+    magnet_conversion = "magnet_conversion"
+    waiting_files_selection = "waiting_files_selection"
+    downloading = "downloading"
+    downloaded = "downloaded"
+    error = "error"
+    seeding = "seeding"
+    dead = "dead"
+    uploading = "uploading"
+    compressing = "compressing"
+
+class RDTorrent(BaseModel):
+    id: str
+    hash: str
+    filename: str
+    bytes: int
+    status: RDTorrentStatus
+    added: datetime
+    links: list[str]
+    ended: Union[datetime, None]
+    speed: Union[int, None]
+    seeders: Union[int, None]
 
 class RealDebridDownloader:
     def __init__(self):
@@ -174,7 +201,7 @@ def torrent_info(id: str) -> dict:
         info = {}
     return info
 
-def get_torrents(limit: int) -> list[dict]:
+def get_torrents(limit: int) -> list[RDTorrent]:
     try:
         torrents = get(f"torrents?limit={str(limit)}")
     except:

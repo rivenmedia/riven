@@ -1,23 +1,37 @@
 """Scrape controller."""
 
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import select
-from program.scrapers import Scraping
-from program.media.item import MediaItem
 from program.db.db import db
-from program.downloaders.realdebrid import get_torrents
+from program.downloaders.realdebrid import RDTorrent, get_torrents
 from program.indexers.trakt import TraktIndexer
+from program.media.item import MediaItem
+from program.scrapers import Scraping
+from pydantic import BaseModel
 from sqlalchemy import select
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
+class ScrapedTorrent(BaseModel):
+    rank: int
+    raw_title: str
+    infohash: str
+
+
+class ScrapeResponse(BaseModel):
+    success: bool
+    data: list[ScrapedTorrent]
+
+
 @router.get(
-    "", summary="Scrape Media Item", description="Scrape media item based on IMDb ID."
+    "",
+    summary="Scrape Media Item",
+    description="Scrape media item based on IMDb ID.",
+    operation_id="scrape",
 )
 async def scrape(
     request: Request, imdb_id: str, season: int = None, episode: int = None
-):
+) -> ScrapeResponse:
     """
     Scrape media item based on IMDb ID.
 
@@ -92,13 +106,13 @@ async def scrape(
 
     return {"success": True, "data": data}
 
-
 @router.get(
     "/rd",
     summary="Get Real-Debrid Torrents",
     description="Get torrents from Real-Debrid.",
+    operation_id="get_rd_torrents",
 )
-async def get_rd_torrents(limit: int = 1000):
+async def get_rd_torrents(limit: int = 1000) -> list[RDTorrent]:
     """
     Get torrents from Real-Debrid.
 
