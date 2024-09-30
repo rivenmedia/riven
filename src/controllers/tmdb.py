@@ -1,9 +1,10 @@
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends
-from program.indexers.tmdb import tmdb
+from program.indexers.tmdb import TmdbItem, TmdbPagedResults, tmdb
+from pydantic import BaseModel
 
 router = APIRouter(
     prefix="/tmdb",
@@ -139,12 +140,18 @@ class TVSearchParams:
         self.year = year
 
 
-@router.get("/trending/{type}/{window}")
+class GetTrendingResponse(BaseModel):
+    success: bool
+    data: Optional[TmdbPagedResults[TmdbItem]]
+    message: Optional[str]
+
+
+@router.get("/trending/{type}/{window}", operation_id="get_trending")
 async def get_trending(
     params: Annotated[TrendingParams, Depends()],
     type: TrendingType,
     window: TrendingWindow,
-):
+) -> GetTrendingResponse:
     trending = tmdb.getTrending(
         params=dict_to_query_string(params.__dict__),
         type=type.value,

@@ -1,3 +1,8 @@
+from datetime import date
+from enum import Enum
+from typing import Generic, Literal, Optional, TypeVar
+
+from pydantic import BaseModel
 from utils.logger import logger
 from utils.request import get
 
@@ -5,6 +10,191 @@ TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Z
 
 # TODO: Maybe remove the else condition ? It's not necessary since exception is raised 400-450, 500-511, 408, 460, 504, 520, 524, 522, 598 and 599
 
+ItemT = TypeVar("ItemT")
+
+class TmdbMediaType(str, Enum):
+    movie = "movie"
+    tv = "tv"
+    episode = "tv_episode"
+    season = "tv_season"
+
+
+class TmdbItem(BaseModel):
+    adult: bool
+    backdrop_path: str
+    id: int
+    title: str
+    original_title: str
+    original_language: str
+    overview: str
+    poster_path: str
+    media_type: TmdbMediaType
+    genre_ids: list[int]
+    popularity: float
+    release_date: str
+    video: bool
+    vote_average: float
+    vote_count: int
+
+class TmdbEpisodeItem(BaseModel):
+    id: int
+    name: str
+    overview: str
+    media_type: Literal["tv_episode"]
+    vote_average: float
+    vote_count: int
+    air_date: date
+    episode_number: int
+    episode_type: str
+    production_code: str
+    runtime: int
+    season_number: int
+    show_id: int
+    still_path: str
+
+class TmdbSeasonItem(BaseModel):
+    id: int
+    name: str
+    overview: str
+    poster_path: str
+    media_type: Literal["tv_season"]
+    vote_average: float
+    air_date: date
+    season_number: int
+    show_id: int
+    episode_count: int
+
+
+class TmdbPagedResults(BaseModel, Generic[ItemT]):
+    page: int
+    results: list[ItemT]
+    total_pages: int
+    total_results: int
+
+class TmdbPagedResultsWithDates(TmdbPagedResults[ItemT], Generic[ItemT]):
+    class Dates(BaseModel):
+        maximum: date
+        minimum: date
+    dates: Dates
+
+class TmdbFindResults(BaseModel):
+    movie_results: list[TmdbItem]
+    tv_results: list[TmdbItem]
+    tv_episode_results: list[TmdbEpisodeItem]
+    tv_season_results: list[TmdbSeasonItem]
+
+class Genre(BaseModel):
+    id: int
+    name: str
+
+class BelongsToCollection(BaseModel):
+    id: int
+    name: str
+    poster_path: Optional[str]
+    backdrop_path: Optional[str]
+
+
+class ProductionCompany(BaseModel):
+    id: int
+    logo_path: Optional[str]
+    name: str
+    origin_country: str
+
+
+class ProductionCountry(BaseModel):
+    iso_3166_1: str
+    name: str
+
+
+class SpokenLanguage(BaseModel):
+    english_name: str
+    iso_639_1: str
+    name: str
+
+class Network(BaseModel):
+    id: int
+    logo_path: Optional[str]
+    name: str
+    origin_country: str
+
+class TmdbMovieDetails(BaseModel):
+    adult: bool
+    backdrop_path: Optional[str]
+    belongs_to_collection: Optional[BelongsToCollection]
+    budget: int
+    genres: list[Genre]
+    homepage: Optional[str]
+    id: int
+    imdb_id: Optional[str]
+    original_language: str
+    original_title: str
+    overview: Optional[str]
+    popularity: float
+    poster_path: Optional[str]
+    production_companies: list[ProductionCompany]
+    production_countries: list[ProductionCountry]
+    release_date: Optional[str]
+    revenue: int
+    runtime: Optional[int]
+    spoken_languages: list[SpokenLanguage]
+    status: Optional[str]
+    tagline: Optional[str]
+    title: str
+    video: bool
+    vote_average: float
+    vote_count: int
+
+class TmdbTVDetails(BaseModel):
+    adult: bool
+    backdrop_path: Optional[str]
+    episode_run_time: list[int]
+    first_air_date: str
+    genres: list[Genre]
+    homepage: Optional[str]
+    id: int
+    in_production: bool
+    languages: list[str]
+    last_air_date: Optional[str]
+    last_episode_to_air: Optional[TmdbEpisodeItem]
+    name: str
+    next_episode_to_air: Optional[str]
+    networks: list[Network]
+    number_of_episodes: int
+    number_of_seasons: int
+    origin_country: list[str]
+    original_language: str
+    original_name: str
+    overview: Optional[str]
+    popularity: float
+    poster_path: Optional[str]
+    production_companies: list[ProductionCompany]
+    production_countries: list[ProductionCountry]
+    seasons: list[TmdbSeasonItem]
+    spoken_languages: list[str]
+    status: Optional[str]
+    tagline: Optional[str]
+    type: Optional[str]
+    vote_average: float
+    vote_count: int
+
+class TmdbCollectionDetails(BaseModel):
+    adult: bool
+    backdrop_path: Optional[str]
+    id: int
+    name: str
+    overview: str
+    original_language: str
+    original_name: str
+    poster_path: Optional[str]
+
+class TmdbEpisodeDetails(TmdbEpisodeItem):
+    crew: list[dict]
+    guest_stars: list[dict]
+
+class TmdbSeasonDetails(BaseModel):
+    _id: str
+    air_date: str
+    episodes: list[TmdbEpisodeDetails]
 
 class TMDB:
     def __init__(self):
@@ -13,7 +203,7 @@ class TMDB:
             "Authorization": f"Bearer {TMDB_READ_ACCESS_TOKEN}",
         }
 
-    def getMoviesNowPlaying(self, params: str):
+    def getMoviesNowPlaying(self, params: str) -> Optional[TmdbPagedResultsWithDates]:
         url = f"{self.API_URL}/movie/now_playing?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -28,7 +218,7 @@ class TMDB:
             )
             return None
 
-    def getMoviesPopular(self, params: str):
+    def getMoviesPopular(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/movie/popular?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -41,7 +231,7 @@ class TMDB:
             logger.error(f"An error occurred while getting popular movies: {str(e)}")
             return None
 
-    def getMoviesTopRated(self, params: str):
+    def getMoviesTopRated(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/movie/top_rated?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -54,7 +244,7 @@ class TMDB:
             logger.error(f"An error occurred while getting top rated movies: {str(e)}")
             return None
 
-    def getMoviesUpcoming(self, params: str):
+    def getMoviesUpcoming(self, params: str) -> Optional[TmdbPagedResultsWithDates[TmdbItem]]:
         url = f"{self.API_URL}/movie/upcoming?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -67,7 +257,7 @@ class TMDB:
             logger.error(f"An error occurred while getting upcoming movies: {str(e)}")
             return None
 
-    def getTrending(self, params: str, type: str, window: str):
+    def getTrending(self, params: str, type: str, window: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/trending/{type}/{window}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -80,7 +270,7 @@ class TMDB:
             logger.error(f"An error occurred while getting trending {type}: {str(e)}")
             return None
 
-    def getTVAiringToday(self, params: str):
+    def getTVAiringToday(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/airing_today?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -93,7 +283,7 @@ class TMDB:
             logger.error(f"An error occurred while getting TV airing today: {str(e)}")
             return None
 
-    def getTVOnTheAir(self, params: str):
+    def getTVOnTheAir(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/on_the_air?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -106,7 +296,7 @@ class TMDB:
             logger.error(f"An error occurred while getting TV on the air: {str(e)}")
             return None
 
-    def getTVPopular(self, params: str):
+    def getTVPopular(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/popular?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -119,7 +309,7 @@ class TMDB:
             logger.error(f"An error occurred while getting popular TV shows: {str(e)}")
             return None
 
-    def getTVTopRated(self, params: str):
+    def getTVTopRated(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/top_rated?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -134,7 +324,7 @@ class TMDB:
             )
             return None
 
-    def getFromExternalID(self, params: str, external_id: str):
+    def getFromExternalID(self, params: str, external_id: str) -> Optional[TmdbFindResults]:
         url = f"{self.API_URL}/find/{external_id}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -147,7 +337,7 @@ class TMDB:
             logger.error(f"An error occurred while getting from external ID: {str(e)}")
             return None
 
-    def getMovieDetails(self, params: str, movie_id: str):
+    def getMovieDetails(self, params: str, movie_id: str) -> Optional[TmdbMovieDetails]:
         url = f"{self.API_URL}/movie/{movie_id}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -160,7 +350,7 @@ class TMDB:
             logger.error(f"An error occurred while getting movie details: {str(e)}")
             return None
 
-    def getTVDetails(self, params: str, series_id: str):
+    def getTVDetails(self, params: str, series_id: str) -> Optional[TmdbTVDetails]:
         url = f"{self.API_URL}/tv/{series_id}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -173,7 +363,7 @@ class TMDB:
             logger.error(f"An error occurred while getting TV details: {str(e)}")
             return None
 
-    def getCollectionSearch(self, params: str):
+    def getCollectionSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbCollectionDetails]]:
         url = f"{self.API_URL}/search/collection?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -186,7 +376,7 @@ class TMDB:
             logger.error(f"An error occurred while searching collections: {str(e)}")
             return None
 
-    def getMovieSearch(self, params: str):
+    def getMovieSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/movie?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -199,7 +389,7 @@ class TMDB:
             logger.error(f"An error occurred while searching movies: {str(e)}")
             return None
 
-    def getMultiSearch(self, params: str):
+    def getMultiSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/multi?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -212,7 +402,7 @@ class TMDB:
             logger.error(f"An error occurred while searching multi: {str(e)}")
             return None
 
-    def getTVSearch(self, params: str):
+    def getTVSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/tv?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -225,7 +415,7 @@ class TMDB:
             logger.error(f"An error occurred while searching TV shows: {str(e)}")
             return None
 
-    def getTVSeasonDetails(self, params: str, series_id: int, season_number: int):
+    def getTVSeasonDetails(self, params: str, series_id: int, season_number: int) -> Optional[TmdbSeasonDetails]:
         url = f"{self.API_URL}/tv/{series_id}/season/{season_number}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
@@ -240,7 +430,7 @@ class TMDB:
 
     def getTVSeasonEpisodeDetails(
         self, params: str, series_id: int, season_number: int, episode_number: int
-    ):
+    ) -> Optional[TmdbEpisodeDetails]:
         url = f"{self.API_URL}/tv/{series_id}/season/{season_number}/episode/{episode_number}?{params}"
         try:
             response = get(url, additional_headers=self.HEADERS)
