@@ -60,19 +60,19 @@ class Mediafusion:
             return False
 
         payload = {
-            "streaming_provider": {
-                "token": self.api_key,
-                "service": self.downloader,
-                "enable_watchlist_catalogs": False
+            "sp": {
+                "sv": self.downloader,
+                "tk": self.api_key,
+                "ewc": False
             },
-            "selected_catalogs": self.settings.catalogs,
-            "selected_resolutions": ["4K", "2160p", "1440p", "1080p", "720p"],
-            "enable_catalogs": False,
-            "max_size": "inf",
-            "max_streams_per_resolution": "10",
-            "torrent_sorting_priority": ["cached", "resolution", "size", "seeders", "created_at"],
-            "show_full_torrent_name": True,
-            "api_password": None
+            "sc": self.settings.catalogs,
+            "sr": ["4k", "2160p", "1440p", "1080p", "720p", "480p", None],
+            "ec": False,
+            "eim": False,
+            "sftn": True,
+            "tsp": ["cached"],  # sort order, but this doesnt matter as we sort later
+            "nf": ["Disable"],  # nudity filter
+            "cf": ["Disable"]   # certification filter
         }
 
         url = f"{self.settings.url}/encrypt-user-data"
@@ -116,16 +116,7 @@ class Mediafusion:
             logger.error(f"Mediafusion exception thrown: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
-        if data:
-            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return data
-
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
@@ -152,4 +143,9 @@ class Mediafusion:
 
             torrents[info_hash] = raw_title
 
-        return torrents, len(response.data.streams)
+        if torrents:
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        else:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+
+        return torrents

@@ -66,7 +66,7 @@ class Downloader:
         results = []
         priority_index = 0
 
-        with ThreadPoolExecutor(thread_name_prefix="Downloader") as executor:
+        with ThreadPoolExecutor(thread_name_prefix="Downloader", max_workers=4) as executor:
             futures = []
 
             def cancel_all():

@@ -153,4 +153,4 @@ class Orionoid:
                 continue
             torrents[stream.file.hash] = stream.file.name
 
-        return torrents, len(response.data.data.streams)
+        return torrents
