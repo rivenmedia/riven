@@ -2,9 +2,8 @@ from copy import copy
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ValidationError
-
 from program.settings.manager import settings_manager
+from pydantic import BaseModel, ValidationError
 
 
 class SetSettings(BaseModel):

@@ -1,5 +1,4 @@
 from fastapi import WebSocket
-
 from utils.websockets import manager
 
 from .default import router

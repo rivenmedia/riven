@@ -3,7 +3,6 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends
-
 from program.indexers.tmdb import tmdb
 
 router = APIRouter(

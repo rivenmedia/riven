@@ -1,13 +1,12 @@
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from sqlalchemy import func, select
-
 from program.content.trakt import TraktContent
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
+from sqlalchemy import func, select
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -36,13 +35,17 @@ async def get_rd_user():
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    proxy = settings_manager.settings.downloaders.real_debrid.proxy_url if settings_manager.settings.downloaders.real_debrid.proxy_enabled else None
+    proxy = (
+        settings_manager.settings.downloaders.real_debrid.proxy_url
+        if settings_manager.settings.downloaders.real_debrid.proxy_enabled
+        else None
+    )
 
     response = requests.get(
         "https://api.real-debrid.com/rest/1.0/user",
         headers=headers,
         proxies=proxy if proxy else None,
-        timeout=10
+        timeout=10,
     )
 
     if response.status_code != 200:
@@ -102,9 +105,12 @@ async def trakt_oauth_callback(code: str, request: Request):
 async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
-
-        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
-        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+        movies_symlinks = session.execute(
+            select(func.count(Movie._id)).where(Movie.symlinked == True)
+        ).scalar_one()
+        episodes_symlinks = session.execute(
+            select(func.count(Episode._id)).where(Episode.symlinked == True)
+        ).scalar_one()
         total_symlinks = movies_symlinks + episodes_symlinks
 
         total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
@@ -113,21 +119,30 @@ async def get_stats(_: Request):
         total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
         total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
 
-    # Select only the IDs of incomplete items
-        _incomplete_items = session.execute(
-            select(MediaItem._id)
-            .where(MediaItem.last_state != States.Completed)
-        ).scalars().all()
-        
+        # Select only the IDs of incomplete items
+        _incomplete_items = (
+            session.execute(
+                select(MediaItem._id).where(MediaItem.last_state != States.Completed)
+            )
+            .scalars()
+            .all()
+        )
+
         incomplete_retries = {}
         if _incomplete_items:
-            media_items = session.query(MediaItem).filter(MediaItem._id.in_(_incomplete_items)).all()
+            media_items = (
+                session.query(MediaItem)
+                .filter(MediaItem._id.in_(_incomplete_items))
+                .all()
+            )
             for media_item in media_items:
                 incomplete_retries[media_item.log_string] = media_item.scraped_times
 
         states = {}
         for state in States:
-            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state)).scalar_one()
+            states[state] = session.execute(
+                select(func.count(MediaItem._id)).where(MediaItem.last_state == state)
+            ).scalar_one()
 
         payload["total_items"] = total_items
         payload["total_movies"] = total_movies
@@ -141,6 +156,7 @@ async def get_stats(_: Request):
 
         return {"success": True, "data": payload}
 
+
 @router.get("/logs", operation_id="logs")
 async def get_logs():
     log_file_path = None
@@ -153,13 +169,14 @@ async def get_logs():
         return {"success": False, "message": "Log file handler not found"}
 
     try:
-        with open(log_file_path, 'r') as log_file:
+        with open(log_file_path, "r") as log_file:
             log_contents = log_file.read()
         return {"success": True, "logs": log_contents}
     except Exception as e:
         logger.error(f"Failed to read log file: {e}")
         return {"success": False, "message": "Failed to read log file"}
-    
+
+
 @router.get("/events", operation_id="events")
 async def get_events(request: Request):
     return {"success": True, "data": request.app.program.em.get_event_updates()}
@@ -169,8 +186,10 @@ async def get_events(request: Request):
 async def get_rclone_files():
     """Get all files in the rclone mount."""
     import os
+
     rclone_dir = settings_manager.settings.symlink.rclone_path
     file_map = {}
+
     def scan_dir(path):
         with os.scandir(path) as entries:
             for entry in entries:
@@ -179,6 +198,5 @@ async def get_rclone_files():
                 elif entry.is_dir():
                     scan_dir(entry.path)
 
-    scan_dir(rclone_dir) # dict of `filename: filepath``
+    scan_dir(rclone_dir)  # dict of `filename: filepath``
     return {"success": True, "data": file_map}
-
