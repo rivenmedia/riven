@@ -3,11 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 import Levenshtein
-from RTN import RTN, Torrent
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select
-from sqlalchemy.exc import NoResultFound
-
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
@@ -17,16 +13,21 @@ from program.db.db_functions import (
     get_parent_items_by_ids,
     reset_media_item,
 )
+from program.downloaders import Downloader, get_needed_media
+from program.downloaders.realdebrid import (
+    add_torrent_magnet,
+    torrent_info,
+)
 from program.media.item import MediaItem
 from program.media.state import States
-from program.symlink import Symlinker
-from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_magnet, torrent_info
-from program.settings.versions import models
-from program.settings.manager import settings_manager
 from program.media.stream import Stream
 from program.scrapers.shared import rtn
+from program.symlink import Symlinker
 from program.types import Event
+from pydantic import BaseModel
+from RTN import Torrent
+from sqlalchemy import func, select
+from sqlalchemy.exc import NoResultFound
 from utils.logger import logger
 
 router = APIRouter(
@@ -35,23 +36,41 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 def handle_ids(ids: str) -> list[int]:
     ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
         raise HTTPException(status_code=400, detail="No item ID provided")
     return ids
 
-@router.get("/states")
-async def get_states():
+
+class StateResponse(BaseModel):
+    success: bool
+    states: list[str]
+
+
+@router.get("/states", operation_id="get_states")
+async def get_states() -> StateResponse:
     return {
         "success": True,
         "states": [state for state in States],
     }
 
+
+class ItemsResponse(BaseModel):
+    success: bool
+    items: list[dict]
+    page: int
+    limit: int
+    total_items: int
+    total_pages: int
+
+
 @router.get(
     "",
     summary="Retrieve Media Items",
     description="Fetch media items with optional filters and pagination",
+    operation_id="get_items",
 )
 async def get_items(
     _: Request,
@@ -62,7 +81,7 @@ async def get_items(
     sort: Optional[str] = "date_desc",
     search: Optional[str] = None,
     extended: Optional[bool] = False,
-):
+) -> ItemsResponse:
     if page < 1:
         raise HTTPException(status_code=400, detail="Page number must be 1 or greater.")
 
@@ -77,8 +96,8 @@ async def get_items(
             query = query.where(MediaItem.imdb_id == search_lower)
         else:
             query = query.where(
-                (func.lower(MediaItem.title).like(f"%{search_lower}%")) |
-                (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
+                (func.lower(MediaItem.title).like(f"%{search_lower}%"))
+                | (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
             )
 
     if state:
@@ -104,9 +123,10 @@ async def get_items(
                 if type not in ["movie", "show", "season", "episode"]:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']")
+                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
+                    )
         else:
-            types=[type]
+            types = [type]
         query = query.where(MediaItem.type.in_(types))
 
     if sort and not search:
@@ -126,14 +146,24 @@ async def get_items(
             )
 
     with db.Session() as session:
-        total_items = session.execute(select(func.count()).select_from(query.subquery())).scalar_one()
-        items = session.execute(query.offset((page - 1) * limit).limit(limit)).unique().scalars().all()
+        total_items = session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
+        items = (
+            session.execute(query.offset((page - 1) * limit).limit(limit))
+            .unique()
+            .scalars()
+            .all()
+        )
 
         total_pages = (total_items + limit - 1) // limit
 
         return {
             "success": True,
-            "items": [item.to_extended_dict() if extended else item.to_dict() for item in items],
+            "items": [
+                item.to_extended_dict() if extended else item.to_dict()
+                for item in items
+            ],
             "page": page,
             "limit": limit,
             "total_items": total_items,
@@ -141,15 +171,18 @@ async def get_items(
         }
 
 
-@router.post(
-        "/add",
-        summary="Add Media Items",
-        description="Add media items with bases on imdb IDs",
-)
-async def add_items(
-    request: Request, imdb_ids: str = None
-):
+class AddItemsResponse(BaseModel):
+    success: bool
+    message: str
 
+
+@router.post(
+    "/add",
+    summary="Add Media Items",
+    description="Add media items with bases on imdb IDs",
+    operation_id="add_items",
+)
+async def add_items(request: Request, imdb_ids: str = None) -> AddItemsResponse:
     if not imdb_ids:
         raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
 
@@ -167,47 +200,77 @@ async def add_items(
 
     with db.Session() as _:
         for id in valid_ids:
-            item = MediaItem({"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+            item = MediaItem(
+                {"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()}
+            )
             request.app.program.em.add_item(item)
 
     return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
+
+
+class ItemResponse(BaseModel):
+    success: bool
+    item: dict
+
 
 @router.get(
     "/{id}",
     summary="Retrieve Media Item",
     description="Fetch a single media item by ID",
+    operation_id="get_item",
 )
-async def get_item(request: Request, id: int):
+async def get_item(request: Request, id: int) -> ItemResponse:
     with db.Session() as session:
         try:
-            item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
+            item = (
+                session.execute(select(MediaItem).where(MediaItem._id == id))
+                .unique()
+                .scalar_one()
+            )
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Item not found")
         return {"success": True, "item": item.to_extended_dict()}
+
+
+class ItemsByImdbResponse(BaseModel):
+    success: bool
+    items: list[dict]
+
 
 @router.get(
     "/{imdb_ids}",
     summary="Retrieve Media Items By IMDb IDs",
     description="Fetch media items by IMDb IDs",
+    operation_id="get_items_by_imdb_ids",
 )
-async def get_items_by_imdb_ids(request: Request, imdb_ids: str):
+async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> ItemsByImdbResponse:
     ids = imdb_ids.split(",")
     with db.Session() as session:
         items = []
         for id in ids:
-            item = session.execute(select(MediaItem).where(MediaItem.imdb_id == id)).unique().scalar_one()
+            item = (
+                session.execute(select(MediaItem).where(MediaItem.imdb_id == id))
+                .unique()
+                .scalar_one()
+            )
             if item:
                 items.append(item)
         return {"success": True, "items": [item.to_extended_dict() for item in items]}
 
+
+class ResetResponse(BaseModel):
+    success: bool
+    message: str
+    ids: list[str]
+
+
 @router.post(
-        "/reset",
-        summary="Reset Media Items",
-        description="Reset media items with bases on item IDs",
+    "/reset",
+    summary="Reset Media Items",
+    description="Reset media items with bases on item IDs",
+    operation_id="reset_items",
 )
-async def reset_items(
-    request: Request, ids: str
-):
+async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids = handle_ids(ids)
     try:
         media_items = get_media_items_by_ids(ids)
@@ -222,15 +285,23 @@ async def reset_items(
                 logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
                 continue
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"success": True, "message": f"Reset items with id {ids}"}
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"success": True, "message": f"Reset items with id {ids}", "ids": ids}
+
+
+class RetryResponse(BaseModel):
+    success: bool
+    message: str
+    ids: list[str]
+
 
 @router.post(
-        "/retry",
-        summary="Retry Media Items",
-        description="Retry media items with bases on item IDs",
+    "/retry",
+    summary="Retry Media Items",
+    description="Retry media items with bases on item IDs",
+    operation_id="retry_items",
 )
-async def retry_items(request: Request, ids: str):
+async def retry_items(request: Request, ids: str) -> RetryResponse:
     ids = handle_ids(ids)
     try:
         media_items = get_media_items_by_ids(ids)
@@ -238,19 +309,27 @@ async def retry_items(request: Request, ids: str):
             raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
         for media_item in media_items:
             request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1) # Ensure cancellation is processed
+            await asyncio.sleep(0.1)  # Ensure cancellation is processed
             request.app.program.em.add_item(media_item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Retried items with ids {ids}"}
+    return {"success": True, "message": f"Retried items with ids {ids}", "ids": ids}
+
+
+class RemoveResponse(BaseModel):
+    success: bool
+    message: str
+    ids: list[str]
+
 
 @router.delete(
     "/remove",
     summary="Remove Media Items",
     description="Remove media items based on item IDs",
+    operation_id="remove_item",
 )
-async def remove_item(request: Request, ids: str):
+async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids = handle_ids(ids)
     try:
         media_items = get_parent_items_by_ids(ids)
@@ -259,29 +338,45 @@ async def remove_item(request: Request, ids: str):
         for media_item in media_items:
             logger.debug(f"Removing item {media_item.title} with ID {media_item._id}")
             request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1) # Ensure cancellation is processed
+            await asyncio.sleep(0.1)  # Ensure cancellation is processed
             clear_streams(media_item)
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
                 symlink_service.delete_item_symlinks(media_item)
             if media_item.requested_by == "overseerr" and media_item.requested_id:
-                logger.debug(f"Item was originally requested by Overseerr, deleting request within Overseerr...")
+                logger.debug(
+                    f"Item was originally requested by Overseerr, deleting request within Overseerr..."
+                )
                 Overseerr.delete_request(media_item.requested_id)
             delete_media_item(media_item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Removed items with ids {ids}"}
+    return {"success": True, "message": f"Removed items with ids {ids}", "ids": ids}
 
-@router.post("/{id}/set_torrent_rd_magnet", description="Set a torrent for a media item using a magnet link.")
-def add_torrent(request: Request, id: int, magnet: str):
+
+class SetTorrentRDResponse(BaseModel):
+    success: bool
+    message: str
+    item_id: int
+    torrent_id: str
+
+
+@router.post(
+    "/{id}/set_torrent_rd_magnet",
+    name="Set torrent RD magnet",
+    description="Set a torrent for a media item using a magnet link.",
+    operation_id="set_torrent_rd_magnet",
+)
+def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
     torrent_id = ""
     try:
         torrent_id = add_torrent_magnet(magnet)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
-    
+
     return set_torrent_rd(request, id, torrent_id)
+
 
 def reset_item_to_scraped(item: MediaItem):
     item.last_state = States.Scraped
@@ -293,30 +388,48 @@ def reset_item_to_scraped(item: MediaItem):
     item.file = None
     item.folder = None
 
+
 def create_stream(hash, torrent_info):
     try:
         torrent: Torrent = rtn.rank(
-            raw_title=torrent_info["filename"],
-            infohash=hash,
-            remove_trash=False
+            raw_title=torrent_info["filename"], infohash=hash, remove_trash=False
         )
         return Stream(torrent)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to rank torrent: {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to rank torrent: {e}"
+        ) from e
 
-@router.post("/{id}/set_torrent_rd", description="Set a torrent for a media item using RD torrent ID.")
+
+@router.post(
+    "/{id}/set_torrent_rd",
+    description="Set a torrent for a media item using RD torrent ID.",
+)
 def set_torrent_rd(request: Request, id: int, torrent_id: str):
-
     downloader: Downloader = request.app.program.services.get(Downloader)
     with db.Session() as session:
-        item: MediaItem = session.execute(select(MediaItem).where(MediaItem._id == id).outerjoin(MediaItem.streams)).unique().scalar_one_or_none()
+        item: MediaItem = (
+            session.execute(
+                select(MediaItem)
+                .where(MediaItem._id == id)
+                .outerjoin(MediaItem.streams)
+            )
+            .unique()
+            .scalar_one_or_none()
+        )
 
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
 
         fetched_torrent_info = torrent_info(torrent_id)
 
-        stream = session.execute(select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])).scalars().first()
+        stream = (
+            session.execute(
+                select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])
+            )
+            .scalars()
+            .first()
+        )
         hash = fetched_torrent_info["hash"]
 
         # Create stream if it doesn't exist
@@ -325,10 +438,12 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
             item.streams.append(stream)
 
         # check if the stream exists in the item
-        stream_exists_in_item = next((stream for stream in item.streams if stream.infohash == hash), None)
+        stream_exists_in_item = next(
+            (stream for stream in item.streams if stream.infohash == hash), None
+        )
         if stream_exists_in_item is None:
             item.streams.append(stream)
-        
+
         reset_item_to_scraped(item)
 
         # reset episodes if it's a season
@@ -342,7 +457,10 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
 
         if len(cached_streams) == 0:
             session.rollback()
-            raise HTTPException(status_code=400, detail=f"No cached torrents found for {item.log_string}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"No cached torrents found for {item.log_string}",
+            )
 
         item.active_stream = cached_streams[0]
         try:
@@ -352,13 +470,21 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
             if item.active_stream.get("infohash", None):
                 downloader._delete_and_reset_active_stream(item)
             session.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to download {item.log_string}: {e}") from e
+            raise HTTPException(
+                status_code=500, detail=f"Failed to download {item.log_string}: {e}"
+            ) from e
 
         session.commit()
 
         request.app.program.em.add_event(Event("Symlinker", item))
 
-        return {"success": True, "message": f"Set torrent for {item.title} to {torrent_id}"}
+        return {
+            "success": True,
+            "message": f"Set torrent for {item.title} to {torrent_id}",
+            "item_id": item._id,
+            "torrent_id": torrent_id,
+        }
+
 
 # These require downloaders to be refactored
 
