@@ -21,14 +21,14 @@ class TmdbMediaType(str, Enum):
 
 class TmdbItem(BaseModel):
     adult: bool
-    backdrop_path: str
+    backdrop_path: Optional[str]
     id: int
     title: str
     original_title: str
     original_language: str
     overview: str
-    poster_path: str
-    media_type: TmdbMediaType
+    poster_path: Optional[str]
+    media_type: Optional[TmdbMediaType] = None
     genre_ids: list[int]
     popularity: float
     release_date: str

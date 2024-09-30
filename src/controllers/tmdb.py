@@ -156,8 +156,8 @@ T = TypeVar("T")
 
 class TmdbResponse(BaseModel, Generic[T]):
     success: bool
-    data: Optional[T]
-    message: Optional[str]
+    data: Optional[T] = None
+    message: Optional[str] = None
 
 
 @router.get("/trending/{type}/{window}", operation_id="get_trending")
