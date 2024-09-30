@@ -9,7 +9,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
-dill = "^0.3.8"
+dill = "^0.3.9"
 plexapi = "^4.15.10"
 requests = "^2.31.0"
 xmltodict = "^0.13.0"
