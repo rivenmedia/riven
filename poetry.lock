@@ -1863,13 +1863,13 @@ dev = ["importlib-metadata", "tox"]
 
 [[package]]
 name = "pyright"
-version = "1.1.382.post0"
+version = "1.1.382.post1"
 description = "Command line wrapper for pyright"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyright-1.1.382.post0-py3-none-any.whl", hash = "sha256:a82a20b6a6511d71c6c95de19c0f874f7e50a013f332e3799deaae66a4d237d1"},
-    {file = "pyright-1.1.382.post0.tar.gz", hash = "sha256:4b84dd4439b0cbc662dff6aaf012cc0860f1c788932ac4c2a4b5d6c1280a5e20"},
+    {file = "pyright-1.1.382.post1-py3-none-any.whl", hash = "sha256:21a4749dd1740e209f88d3a601e9f40748670d39481ea32b9d77edf7f3f1fb2e"},
+    {file = "pyright-1.1.382.post1.tar.gz", hash = "sha256:66a5d4e83be9452853d73e9dd9e95ba0ac3061845270e4e331d0070a597d3445"},
 ]
 
 [package.dependencies]
@@ -2038,13 +2038,13 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "1.2.1"
+version = "1.2.3"
 description = "Rank filenames based on user-defined rules!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-1.2.1-py3-none-any.whl", hash = "sha256:9a280b0f35c3d22709f0320a96b9fb6139b1eeb9a045158cb537d3525126d74b"},
-    {file = "rank_torrent_name-1.2.1.tar.gz", hash = "sha256:747f8063e1741ff001cae03562fbe3bf4cb65e4470fd1f156d94ce5432fcdae9"},
+    {file = "rank_torrent_name-1.2.3-py3-none-any.whl", hash = "sha256:7445676c2c33d1e52520e8004f3a9093a9e52afc0f696bb4ec591a6f4fc2b2be"},
+    {file = "rank_torrent_name-1.2.3.tar.gz", hash = "sha256:445be0a371f0dc2f85d9d868f399bc6a94e1167882516d4517a6204ac1921ad8"},
 ]
 
 [package.dependencies]

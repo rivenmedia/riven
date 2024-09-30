@@ -299,6 +299,14 @@ class MediaItem(db.Model):
         else:
             return self.title
 
+    def get_top_imdb_id(self) -> str:
+        """Get the imdb_id of the item at the top of the hierarchy."""
+        if self.type == "season":
+            return self.parent.imdb_id
+        elif self.type == "episode":
+            return self.parent.parent.imdb_id
+        return self.imdb_id
+
     def get_aliases(self) -> dict:
         """Get the aliases of the item."""
         if self.type == "season":

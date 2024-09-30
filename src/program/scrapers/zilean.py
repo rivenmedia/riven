@@ -18,12 +18,9 @@ class Zilean:
 
     def __init__(self):
         self.key = "zilean"
-        self.api_key = None
-        self.downloader = None
-        self.rate_limiter = None
-        self.app_settings: AppModel = settings_manager.settings
-        self.settings = self.app_settings.scraping.zilean
+        self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
+        self.rate_limiter = None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -50,44 +47,19 @@ class Zilean:
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
-        if not item:
-            return {}
-
         try:
             return self.scrape(item)
         except RateLimitExceeded:
             self.rate_limiter.limit_hit()
-        except ConnectTimeout:
-            logger.warning(f"Zilean connection timeout for item: {item.log_string}")
-        except ReadTimeout:
-            logger.warning(f"Zilean read timeout for item: {item.log_string}")
-        except RequestException as e:
-            logger.error(f"Zilean request exception: {e}")
         except Exception as e:
             logger.error(f"Zilean exception thrown: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, item_count = self.api_scrape(item)
-        if data:
-            logger.log("SCRAPER", f"Found {len(data)} entries out of {item_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No entries found for {item.log_string}")
-        return data
-
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
-        """Wrapper for `Zilean` scrape method"""
-        title = item.get_top_title()
-        if not title:
-            return {}, 0
-
-        url = f"{self.settings.url}/dmm/filtered"
-        params = {"Query": title}
-
+    def _build_query_params(self, item: MediaItem) -> Dict[str, str]:
+        """Build the query params for the Zilean API"""
+        params = {"Query": item.get_top_title()}
         if isinstance(item, MediaItem) and hasattr(item, "year"):
             params["Year"] = item.year
-
         if isinstance(item, Show):
             params["Season"] = 1
         elif isinstance(item, Season):
@@ -95,10 +67,16 @@ class Zilean:
         elif isinstance(item, Episode):
             params["Season"] = item.parent.number
             params["Episode"] = item.number
+        return params
+
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
+        """Wrapper for `Zilean` scrape method"""
+        url = f"{self.settings.url}/dmm/filtered"
+        params = self._build_query_params(item)
 
         response = get(url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not response.data:
-            return {}, 0
+            return {}
 
         torrents: Dict[str, str] = {}
         for result in response.data:
@@ -106,4 +84,9 @@ class Zilean:
                 continue
             torrents[result.info_hash] = result.raw_title
 
-        return torrents, len(response.data)
+        if torrents:
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        else:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+
+        return torrents

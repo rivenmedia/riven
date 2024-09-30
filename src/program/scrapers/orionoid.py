@@ -1,10 +1,7 @@
 """ Orionoid scraper module """
 from typing import Dict
 
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
-
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
@@ -105,42 +102,33 @@ class Orionoid:
             return self.scrape(item)
         except RateLimitExceeded:
             self.rate_limiter.limit_hit()
-        except ConnectTimeout:
-            logger.warning(f"Orionoid connection timeout for item: {item.log_string}")
-        except ReadTimeout:
-            logger.error(f"Orionoid read timeout for item: {item.log_string}")
-        except RequestException as e:
-            logger.error(f"Orionoid request exception: {e}")
         except Exception as e:
-            logger.error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+            logger.opt(exception=True).error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
-        if len(data) > 0:
-            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return data
+    def _build_query_params(self, item: MediaItem) -> dict:
+        """Construct the query parameters for the Orionoid API based on the media item."""
+        media_type = "movie" if item.type == "movie" else "show"
+        imdbid: str = item.get_top_imdb_id()
+        if not imdbid:
+            raise ValueError("IMDB ID is missing for the media item")
 
-    def construct_url(self, media_type, imdb_id, season=None, episode=None) -> str:
-        """Construct the URL for the Orionoid API."""
         params = {
             "keyapp": KEY_APP,
             "keyuser": self.settings.api_key,
             "mode": "stream",
             "action": "retrieve",
             "type": media_type,
-            "idimdb": imdb_id[2:],
+            "idimdb": imdbid[2:],
             "streamtype": "torrent",
             "protocoltorrent": "magnet"
         }
 
-        if season:
-            params["numberseason"] = season
-        if episode:
-            params["numberepisode"] = episode
+        if item.type == "season":
+            params["numberseason"] = item.number
+        elif item.type == "episode":
+            params["numberseason"] = item.parent.number
+            params["numberepisode"] = item.number
 
         if self.settings.cached_results_only:
             params["access"] = "realdebridtorrent"
@@ -150,26 +138,14 @@ class Orionoid:
             if key not in params:
                 params[key] = value
 
-        return f"{self.base_url}?{'&'.join([f'{key}={value}' for key, value in params.items()])}"
+        return params
 
-    def api_scrape(self, item: MediaItem) -> tuple[Dict, int]:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Orionoid` scrape method"""
-        if isinstance(item, Movie):
-            imdb_id = item.imdb_id
-            url = self.construct_url("movie", imdb_id)
-        elif isinstance(item, Show):
-            imdb_id = item.imdb_id
-            url = self.construct_url("show", imdb_id, season=1)
-        elif isinstance(item, Season):
-            imdb_id = item.parent.imdb_id
-            url = self.construct_url("show", imdb_id, season=item.number)
-        elif isinstance(item, Episode):
-            imdb_id = item.parent.parent.imdb_id
-            url = self.construct_url("show", imdb_id, season=item.parent.number, episode=item.number)
-
-        response = get(url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
+        params = self._build_query_params(item)
+        response = get(self.base_url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not hasattr(response.data, "data"):
-            return {}, 0
+            return {}
 
         torrents = {}
         for stream in response.data.data.streams:

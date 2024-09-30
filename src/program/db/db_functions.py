@@ -3,7 +3,7 @@ import shutil
 from typing import TYPE_CHECKING, List
 
 import alembic
-from sqlalchemy import delete, exists, func, insert, select, text, union_all
+from sqlalchemy import delete, func, insert, select, text, union_all
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from program.libraries.symlink import fix_broken_symlinks
@@ -16,6 +16,7 @@ from .db import alembic, db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
+
 
 def get_media_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""

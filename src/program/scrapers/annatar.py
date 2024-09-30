@@ -4,8 +4,9 @@ from typing import Dict
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.scrapers.shared import _get_stremio_identifier
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get
@@ -57,9 +58,6 @@ class Annatar:
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Annatar site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
-            return {}
-
         try:
             return self.scrape(item)
         except RateLimitExceeded:
@@ -92,22 +90,7 @@ class Annatar:
 
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Annatar` scrape method"""
-        if isinstance(item, Show):
-            scrape_type = "series"
-            imdb_id = item.imdb_id
-            identifier = "season=1"
-        elif isinstance(item, Season):
-            scrape_type = "series"
-            imdb_id = item.parent.imdb_id
-            identifier = f"season={item.number}"
-        elif isinstance(item, Episode):
-            scrape_type = "series"
-            imdb_id = item.parent.parent.imdb_id
-            identifier = f"season={item.parent.number}&episode={item.number}"
-        elif isinstance(item, Movie):
-            identifier = None
-            scrape_type = "movie"
-            imdb_id = item.imdb_id
+        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
         if identifier is not None:
             url = f"{self.settings.url}/search/imdb/{scrape_type}/{imdb_id}?{identifier}&{self.query_limits}"

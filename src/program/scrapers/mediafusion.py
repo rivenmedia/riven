@@ -140,7 +140,7 @@ class Mediafusion:
             response = get(f"{url}.json", timeout=self.timeout)
 
         if not response.is_ok or len(response.data.streams) <= 0:
-            return {}, 0
+            return {}
 
         torrents: Dict[str, str] = {}
 

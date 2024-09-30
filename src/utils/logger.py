@@ -131,8 +131,7 @@ def log_cleaner():
         logger.error(f"Failed to clean old logs: {e}")
 
 
-def create_progress_bar(total_items: int) -> Progress:
-    """Setup a progress bar for the console"""
+def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
     console = Console()
     progress = Progress(
         SpinnerColumn(),
@@ -140,7 +139,7 @@ def create_progress_bar(total_items: int) -> Progress:
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         TimeRemainingColumn(),
-        TextColumn(f"[progress.completed]{{task.completed}}/{total_items}", justify="right"),
+        TextColumn("[progress.completed]{task.completed}/{task.total}", justify="right"),
         TextColumn("[progress.log]{task.fields[log]}", justify="right"),
         console=console,
         transient=True

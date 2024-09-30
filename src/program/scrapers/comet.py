@@ -1,14 +1,15 @@
 """ Comet scraper module """
 import base64
 import json
-from typing import Dict, Union
+from typing import Dict
 
 import regex
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem, Show
 from program.settings.manager import settings_manager
+from program.scrapers.shared import _get_stremio_identifier
 from utils.logger import logger
 from utils.request import RateLimiter, RateLimitExceeded, get, ping
 
@@ -64,7 +65,6 @@ class Comet:
             return {}
 
         try:
-            # Returns a dict of {infoHash: raw_title}
             return self.scrape(item)
         except RateLimitExceeded:
             if self.hour_limiter:
@@ -90,31 +90,11 @@ class Comet:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return data
 
-    
-    def _determine_scrape(self, item: Union[Show, Season, Episode, Movie]) -> tuple[str, str, str]:
-        """Determine the scrape type and identifier for the given media item"""
-        try:
-            if isinstance(item, Show):
-                identifier, scrape_type, imdb_id = f":{item.seasons[0].number}:1", "series", item.imdb_id
-            elif isinstance(item, Season):
-                identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-            elif isinstance(item, Episode):
-                identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
-            elif isinstance(item, Movie):
-                identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-            else:
-                logger.error("Invalid media item type")
-                return None, None, None
-            return identifier, scrape_type, imdb_id
-        except Exception as e:
-            logger.warning(f"Failed to determine scrape type or identifier for {item.log_string}: {e}")
-            return None, None, None
-
     def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
-        identifier, scrape_type, imdb_id = self._determine_scrape(item)
+        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
         if not imdb_id:
-            return {}, 0
+            return {}
 
         url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
@@ -125,13 +105,13 @@ class Comet:
             response = get(url, timeout=self.timeout)
 
         if not response.is_ok or not getattr(response.data, "streams", None):
-            return {}, 0
+            return {}
 
         torrents: Dict[str, str] = {}
         for stream in response.data.streams:
             if stream.title == "Invalid Comet config.":
                 logger.error("Invalid Comet config.")
-                return {}, 0
+                return {}
 
             infohash_pattern = regex.compile(r"(?!.*playback\/)[a-zA-Z0-9]{40}")
             infohash = infohash_pattern.search(stream.url).group()
@@ -143,4 +123,9 @@ class Comet:
 
             torrents[infohash] = title
 
-        return torrents, len(response.data.streams)
+        if torrents:
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        else:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+
+        return torrents

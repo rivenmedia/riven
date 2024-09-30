@@ -313,6 +313,11 @@ By following these guidelines, you help us maintain a high-quality codebase and 
 
 ---
 
+<div align="center">
+  <h1>Riven Analytics</h1>
+  <img alt="Alt" src="https://repobeats.axiom.co/api/embed/9a780bcd591b50aa26de6b8226b1de938bde5adb.svg" title="Repobeats analytics image">
+</div>
+
 ## License
 
 This project is licensed under the GNU GPLv3 License - see the [LICENSE](LICENSE) file for details

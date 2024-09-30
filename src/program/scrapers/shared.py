@@ -17,7 +17,7 @@ ranking_model = models.get(settings_model.profile)
 rtn = RTN(settings_model, ranking_model)
 
 
-def _get_stremio_identifier(item: MediaItem) -> str:
+def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
     """Get the stremio identifier for a media item based on its type."""
     if isinstance(item, Show):
         identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
@@ -70,6 +70,8 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "movie":
+                # Check if a movie is within a year range of +/- 1 year.
+                # Ex: [2018, 2019, 2020] for a 2019 movie
                 if _check_item_year(item, torrent.data):
                     torrents.add(torrent)
 

@@ -44,30 +44,7 @@ class Scraping:
     def validate(self):
         return any(service.initialized for service in self.services.values())
 
-    def yield_incomplete_children(self, item: MediaItem) -> Union[List[Season], List[Episode]]:
-        if isinstance(item, Season):
-            return [e for e in item.episodes if e.state != States.Completed and e.is_released and self.should_submit(e)]
-        if isinstance(item, Show):
-            return [s for s in item.seasons if s.state != States.Completed and s.is_released and self.should_submit(s)]
-        return None
-
-    def partial_state(self, item: MediaItem) -> bool:
-        if item.last_state != States.PartiallyCompleted or self.can_we_scrape(item):
-            return False
-        if isinstance(item, Show):
-            sres = [s for s in item.seasons if s.state != States.Completed and s.is_released and self.should_submit(s)]
-            res = []
-            for s in sres:
-                if all(episode.is_released and episode.state != States.Completed for episode in s.episodes):
-                    res.append(s)
-                else:
-                    res = res + [e for e in s.episodes if e.is_released  and e.state != States.Completed]
-            return res
-        if isinstance(item, Season):
-            return [e for e in item.episodes if e.is_released]
-        return item
-
-    def run(self, item: Union[Show, Season, Episode, Movie]) -> Generator[Union[Show, Season, Episode, Movie], None, None]:
+    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape an item."""
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
@@ -92,6 +69,11 @@ class Scraping:
         def run_service(service, item,):
             nonlocal total_results
             service_results = service.run(item)
+            
+            if not isinstance(service_results, dict):
+                logger.error(f"Service {service.__class__.__name__} returned invalid results: {service_results}")
+                return
+            
             with results_lock:
                 results.update(service_results)
                 total_results += len(service_results)
@@ -114,12 +96,13 @@ class Scraping:
             item_type = item.type.title()
             top_results = list(sorted_streams.values())[:10]
             for sorted_tor in top_results:
-                if isinstance(item, (Movie, Show)):
-                    logger.debug(f"[{item_type}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
-                if isinstance(item, Season):
-                    logger.debug(f"[{item_type} {item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
-                elif isinstance(item, Episode):
-                    logger.debug(f"[{item_type} {item.parent.number}:{item.number}] Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
+                item_info = f"[{item_type}]"
+                if item.type == "season":
+                    item_info = f"[{item_type} {item.number}]"
+                elif item.type == "episode":
+                    item_info = f"[{item_type} {item.parent.number}:{item.number}]"
+                logger.debug(f"{item_info} Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
+
         return sorted_streams
 
     @classmethod

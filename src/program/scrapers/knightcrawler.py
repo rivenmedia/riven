@@ -76,15 +76,6 @@ class Knightcrawler:
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
-        if data:
-            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return data
-
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Knightcrawler` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
@@ -93,26 +84,22 @@ class Knightcrawler:
             url += identifier
 
         if self.second_limiter:
-            with self.second_limiter:
-                response = get(f"{url}.json", timeout=self.timeout)
+            response = get(f"{url}.json", timeout=self.timeout, overall_rate_limiter=self.second_limiter)
         else:
             response = get(f"{url}.json", timeout=self.timeout)
 
         if not response.is_ok or len(response.data.streams) <= 0:
-            return {}, 0
+            return {}
 
-        torrents: Dict[str, str] = {}
+        torrents = {
+            stream.infoHash: "\n".join(stream.title.split("\n")[:-1]).split("\n")[0]
+            for stream in response.data.streams
+            if stream.infoHash
+        }
 
-        for stream in response.data.streams:
-            if not stream.infoHash:
-                continue
+        if torrents:
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        else:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
-            # For Movies and Episodes, we want the file name instead of the torrent title
-            # This should help with Special episodes and other misc. names
-            stream_title = stream.title.split("\n")[:-1]
-            joined_title = "\n".join(stream_title)
-            raw_title = joined_title.split("\n")[0]
-
-            torrents[stream.infoHash] = raw_title
-
-        return torrents, len(response.data.streams)
+        return torrents
