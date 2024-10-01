@@ -354,4 +354,9 @@ def get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
             file_path = rclone_path / folder / item.file
             if file_path.exists():
                 return file_path
+
+    # Not in a folder? Perhaps it's just sitting in the root.
+    file = rclone_path / item.file
+    if file.exists() and file.is_file():
+        return file
     return None
