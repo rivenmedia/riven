@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.2](https://github.com/rivenmedia/riven/compare/v0.15.1...v0.15.2) (2024-10-01)
+
+
+### Bug Fixes
+
+* add log back to orion ([5a81a0c](https://github.com/rivenmedia/riven/commit/5a81a0c14b76f6b90b2d4224b53948707d867040))
+* changed to speed mode by default for downloaders ([7aeca0b](https://github.com/rivenmedia/riven/commit/7aeca0bf4fe38ec6ebe7d513ca8e305ef8223b08))
+* orionoid and mediafusion fixed ([52f466e](https://github.com/rivenmedia/riven/commit/52f466e35e2d2d3e2cfc9ce81f903a8c0df5e9f4))
+* prevent error when more than two streams with the same hash in set_torrent_rd ([c9b8010](https://github.com/rivenmedia/riven/commit/c9b80109c598a2083929214006114d3abe9d6b49))
+* refactor and re-enable alldebrid ([4ca9ca2](https://github.com/rivenmedia/riven/commit/4ca9ca2c27203e3ed5b7b9285a77b683db542a85))
+* refactor and re-enable alldebrid ([61bc680](https://github.com/rivenmedia/riven/commit/61bc6803eed86d138dd46836a1f271c1c53102c1))
+* support files in rclone root ([6ad6d4d](https://github.com/rivenmedia/riven/commit/6ad6d4ddbf01593453c12b39773c07cd028bd261))
+
 ## [0.15.1](https://github.com/rivenmedia/riven/compare/v0.15.0...v0.15.1) (2024-09-29)
 
 
