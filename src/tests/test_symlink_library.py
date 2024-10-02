@@ -11,7 +11,11 @@ from program.settings.manager import settings_manager
 
 class MockSettings:
     def __init__(self, library_path):
-        self.symlink = type("symlink", (), {"library_path": Path(library_path)})
+        self.force_refresh = False
+        self.symlink = type("symlink", (), {
+            "library_path": Path(library_path),
+            "separate_anime_dirs": True,
+        })
 
 @pytest.fixture
 def symlink_library(fs):
