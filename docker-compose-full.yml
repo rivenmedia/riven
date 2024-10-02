@@ -22,7 +22,7 @@ services:
       - ORIGIN=http://localhost:3000  # Set to IP or FQDN of the server
       - BACKEND_URL=http://riven:8080
       - DIALECT=postgres
-      - DATABASE_URL=postgres://postgres:postgres@riven-db/riven
+      - DATABASE_URL=postgres://postgres:postgres@riven-db/riven 
       - TZ=America/Los_Angeles
     depends_on:
       riven:
@@ -95,7 +95,7 @@ services:
     volumes:
       - ./zilean/data:/app/data
     environment:
-      Zilean__Database__ConnectionString: "Host=zilean-db;Port=5432;Database=zilean;Username=postgres;Password=postgres"  # Point to zilean-db
+      Zilean__Database__ConnectionString: "Host=riven_postgres;Port=5432;Database=riven;Username=postgres;Password=postgres"  # Point to riven_postgres
       #Zilean__Dmm__ImportBatched: "false"         # Allows enabling batched import - this is for low-end systems.
       #Zilean__Dmm__MaxFilteredResults: 500       # Allows changing the maximum number of filtered results returned by the DMM API. 200 is the default.
       #Zilean__Dmm__MinimumScoreMatch: 0.97       # Allows changing the minimum score match for the DMM API. 0.85 is the default. Values between 0 and 1 are accepted.
@@ -105,28 +105,8 @@ services:
       interval: 30s
       retries: 10
     depends_on:
-      zilean-db:
+      riven_postgres:
         condition: service_healthy
-
-  zilean-db:
-    image: postgres:latest
-    container_name: zilean-db
-    restart: unless-stopped
-    environment:
-      PGDATA: /var/lib/postgresql/data/pgdata
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: zilean  # Database for Zilean
-    ports:
-      - 5432:5432
-    volumes:
-      - ./zilean-db/data:/var/lib/postgresql/data/
-      - ./zilean-db/pg-data:/var/lib/postgresql/data/pgdata
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   ## Prowlarr (optional indexer service)
   prowlarr:
