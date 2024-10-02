@@ -76,7 +76,16 @@ echo "Container Initialization complete."
 
 echo "Starting Riven (Backend)..."
 if [ "$PUID" = "0" ]; then
-    cd /riven/src && poetry run python3 main.py
+    if [ "${DEBUG}" != "" ]; then  # check if DEBUG is set to a truthy value
+        cd /riven/src && poetry add debugpy && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py
+    else
+        cd /riven/src && poetry run python3 main.py
+    fi
 else
-    su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
+    if [ "${DEBUG}" != "" ]; then  # check if DEBUG is set to a truthy value
+        poetry add debugpy 
+        exec su -m $USERNAME -c "cd /riven/src && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py"
+    else
+        su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
+    fi
 fi
