@@ -146,54 +146,7 @@ class Symlinker:
 
     def symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
-        if not item:
-            logger.error("Invalid item sent to Symlinker: None")
-            return False
-
-        if item.file is None:
-            logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
-            return False
-
-        if not item.folder:
-            logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
-            return False
-
-        filename = self._determine_file_name(item)
-        if not filename:
-            logger.error(f"Symlink filename is None for {item.log_string}, cannot create symlink.")
-            return False
-
-        extension = os.path.splitext(item.file)[1][1:]
-        symlink_filename = f"{filename}.{extension}"
-        destination = self._create_item_folders(item, symlink_filename)
-        source = os.path.join(self.rclone_path, item.folder, item.file)
-
-        try:
-            if os.path.islink(destination):
-                os.remove(destination)
-            os.symlink(source, destination)
-        except PermissionError as e:
-            # This still creates the symlinks, however they will have wrong perms. User needs to fix their permissions.
-            # TODO: Maybe we validate symlink class by symlinking a test file, then try removing it and see if it still exists
-            logger.exception(f"Permission denied when creating symlink for {item.log_string}: {e}")
-        except OSError as e:
-            if e.errno == 36:
-                # This will cause a loop if it hits this.. users will need to fix their paths
-                # TODO: Maybe create an alternative naming scheme to cover this?
-                logger.error(f"Filename too long when creating symlink for {item.log_string}: {e}")
-            else:
-                logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
-            return False
-
-        if os.readlink(destination) != source:
-            logger.error(f"Symlink validation failed: {destination} does not point to {source} for {item.log_string}")
-            return False
-
-        item.set("symlinked", True)
-        item.set("symlinked_at", datetime.now())
-        item.set("symlinked_times", item.symlinked_times + 1)
-        item.set("symlink_path", destination)
-        return True
+        return self._symlink(item)
 
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
