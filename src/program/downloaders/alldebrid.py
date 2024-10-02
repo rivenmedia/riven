@@ -7,8 +7,14 @@ from typing import Optional
 from utils import request
 from utils.ratelimiter import RateLimiter
 
-from .shared import VIDEO_EXTENSIONS, FileFinder, DownloaderBase, premium_days_left, hash_from_uri
-from .shared import DebridTorrentId, InfoHash # Types
+from .shared import (
+    VIDEO_EXTENSIONS,
+    FileFinder,
+    DownloaderBase,
+    premium_days_left,
+    hash_from_uri,
+)
+from .shared import DebridTorrentId, InfoHash  # Types
 
 AD_BASE_URL = "https://api.alldebrid.com/v4"
 AD_AGENT = "Riven"
@@ -142,9 +148,9 @@ class AllDebridDownloader(DownloaderBase):
         if id:
             delete_torrent(id)
 
-
     def get_torrent_info(self, torrent_id: DebridTorrentId) -> dict:
         return get_status(torrent_id)
+
 
 def walk_alldebrid_files(files: list[dict]) -> (str, int):
     """Walks alldebrid's `files` nested dicts and returns (filename, filesize) for each file, discarding path information"""
@@ -171,9 +177,11 @@ def get(url, **params) -> dict:
         response_type=dict,
         specific_rate_limiter=inner_rate_limit,
         overall_rate_limiter=overall_rate_limiter,
-        proxies=settings.settings.downloaders.all_debrid.proxy_url
-        if settings.settings.downloaders.all_debrid.proxy_enabled
-        else None,
+        proxies=(
+            settings.settings.downloaders.all_debrid.proxy_url
+            if settings.settings.downloaders.all_debrid.proxy_enabled
+            else None
+        ),
     ).data
 
 
@@ -196,10 +204,8 @@ def get_instant_availability(infohashes: list[InfoHash]) -> list[dict]:
 
 def add_torrent(infohash: str) -> DebridTorrentId:
     try:
-        params={"magnets[]": infohash}
-        id = get(
-            "magnet/upload", **params
-        )["data"]["magnets"][0]["id"]
+        params = {"magnets[]": infohash}
+        id = get("magnet/upload", **params)["data"]["magnets"][0]["id"]
     except Exception:
         logger.warning(f"Failed to add torrent with infohash {infohash}")
         id = None
@@ -225,6 +231,7 @@ def get_torrents() -> list[dict]:
         logger.warning("Failed to get torrents.")
         torrents = []
     return torrents
+
 
 def delete_torrent(id: str):
     try:

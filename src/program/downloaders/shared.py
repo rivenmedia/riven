@@ -9,17 +9,35 @@ from typing import Optional
 from datetime import datetime
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
-ALLOWED_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "m4v", "webm", "mpg", "mpeg", "m2ts", "ts"]
+ALLOWED_VIDEO_EXTENSIONS = [
+    "mp4",
+    "mkv",
+    "avi",
+    "mov",
+    "wmv",
+    "flv",
+    "m4v",
+    "webm",
+    "mpg",
+    "mpeg",
+    "m2ts",
+    "ts",
+]
 
-VIDEO_EXTENSIONS = settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
+VIDEO_EXTENSIONS = (
+    settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
+)
 VIDEO_EXTENSIONS = [ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS]
 
 if not VIDEO_EXTENSIONS:
     VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
 
 # Type aliases
-InfoHash = str # A torrent hash
-DebridTorrentId = str # Identifier issued by the debrid service for a torrent in their cache
+InfoHash = str  # A torrent hash
+DebridTorrentId = (
+    str  # Identifier issued by the debrid service for a torrent in their cache
+)
+
 
 class DownloaderBase(ABC):
     """
@@ -27,7 +45,9 @@ class DownloaderBase(ABC):
     """
 
     @abstractmethod
-    def process_hashes(self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]) -> dict:
+    def process_hashes(
+        self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]
+    ) -> dict:
         """
         Search for debrid-cached media in a list of torrent hashes, returning a dictionary with the files found.
 
@@ -82,7 +102,6 @@ class DownloaderBase(ABC):
         - infohash: Hash of the torrent.
         """
 
-
     @abstractmethod
     def add_torrent_magnet(self, magnet_uri: str) -> DebridTorrentId:
         """
@@ -101,6 +120,7 @@ class DownloaderBase(ABC):
         The returned dict has at least "hash" and "filename".
         """
 
+
 class FileFinder:
     """
     A class that helps you find files.
@@ -113,8 +133,15 @@ class FileFinder:
         self.filename_attr = name
         self.filesize_attr = size
 
-    def get_cached_container(self, needed_media: dict[int, list[int]], break_pointer: list[bool] = [False], container: dict = {}) -> dict:
-        if not needed_media or len(container) >= len([episode for season in needed_media for episode in needed_media[season]]):
+    def get_cached_container(
+        self,
+        needed_media: dict[int, list[int]],
+        break_pointer: list[bool] = [False],
+        container: dict = {},
+    ) -> dict:
+        if not needed_media or len(container) >= len(
+            [episode for season in needed_media for episode in needed_media[season]]
+        ):
             matched_files = self.cache_matches(container, needed_media, break_pointer)
             if matched_files:
                 return {"all_files": container, "matched_files": matched_files}
@@ -134,16 +161,27 @@ class FileFinder:
         except Exception:
             return None
 
-    def cache_matches(self, cached_files: dict, needed_media: dict[int, list[int]], break_pointer: list[bool] = [False]):
+    def cache_matches(
+        self,
+        cached_files: dict,
+        needed_media: dict[int, list[int]],
+        break_pointer: list[bool] = [False],
+    ):
         if needed_media:
             # Convert needed_media to a set of (season, episode) tuples
-            needed_episodes = {(season, episode) for season in needed_media for episode in needed_media[season]}
+            needed_episodes = {
+                (season, episode)
+                for season in needed_media
+                for episode in needed_media[season]
+            }
             matches_dict = {}
 
             for file in cached_files.values():
                 if break_pointer[1] and break_pointer[0]:
                     break
-                matched_season, matched_episodes = self.filename_matches_show(file[self.filename_attr])
+                matched_season, matched_episodes = self.filename_matches_show(
+                    file[self.filename_attr]
+                )
                 if matched_season and matched_episodes:
                     for episode in matched_episodes:
                         if (matched_season, episode) in needed_episodes:
@@ -155,21 +193,48 @@ class FileFinder:
             if not needed_episodes:
                 return matches_dict
         else:
-            biggest_file = max(cached_files.values(), key=lambda x: x[self.filesize_attr])
-            if biggest_file and self.filename_matches_movie(biggest_file[self.filename_attr]):
+            biggest_file = max(
+                cached_files.values(), key=lambda x: x[self.filesize_attr]
+            )
+            if biggest_file and self.filename_matches_movie(
+                biggest_file[self.filename_attr]
+            ):
                 return {1: {1: biggest_file}}
 
+
 def get_needed_media(item: MediaItem) -> dict:
-    acceptable_states = [States.Indexed, States.Scraped, States.Unknown, States.Failed, States.PartiallyCompleted, States.Ongoing]
+    acceptable_states = [
+        States.Indexed,
+        States.Scraped,
+        States.Unknown,
+        States.Failed,
+        States.PartiallyCompleted,
+        States.Ongoing,
+    ]
     if item.type == "movie":
         needed_media = None
     elif item.type == "show":
-        needed_media = {season.number: [episode.number for episode in season.episodes if episode.state in acceptable_states] for season in item.seasons if season.state in acceptable_states}
+        needed_media = {
+            season.number: [
+                episode.number
+                for episode in season.episodes
+                if episode.state in acceptable_states
+            ]
+            for season in item.seasons
+            if season.state in acceptable_states
+        }
     elif item.type == "season":
-        needed_media = {item.number: [episode.number for episode in item.episodes if episode.state in acceptable_states]}
+        needed_media = {
+            item.number: [
+                episode.number
+                for episode in item.episodes
+                if episode.state in acceptable_states
+            ]
+        }
     elif item.type == "episode":
         needed_media = {item.parent.number: [item.number]}
     return needed_media
+
 
 def premium_days_left(expiration: datetime) -> str:
     """Convert an expiration date into a message showing days remaining on the user's premium account"""
@@ -181,14 +246,17 @@ def premium_days_left(expiration: datetime) -> str:
     if days_left > 0:
         expiration_message = f"Your account expires in {days_left} days."
     elif hours_left > 0:
-        expiration_message = f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+        expiration_message = (
+            f"Your account expires in {hours_left} hours and {minutes_left} minutes."
+        )
     else:
         expiration_message = "Your account expires soon."
     return expiration_message
+
 
 def hash_from_uri(magnet_uri: str) -> str:
     if len(magnet_uri) == 40:
         # Probably already a hash
         return magnet_uri
     start = magnet_uri.index("urn:btih:") + len("urn:btih:")
-    return magnet_uri[start:start+40]
+    return magnet_uri[start : start + 40]
