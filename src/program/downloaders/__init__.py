@@ -2,7 +2,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
@@ -107,6 +107,14 @@ class Downloader:
         torrent_names = self.service.get_torrent_names(torrent_id)
         update_item_attributes(item, torrent_names)
         logger.log("DEBRID", f"Downloaded {item.log_string} from '{item.active_stream['name']}' [{item.active_stream['infohash']}]")
+
+    def add_torrent_magnet(self, magnet_link: str):
+        return self.service.add_torrent_magnet(magnet_link)
+
+
+    def get_torrent_info(self, torrent_id: str):
+        return self.service.get_torrent_info(torrent_id)
+
 
 def update_item_attributes(item: MediaItem, names: tuple[str, str]):
     """ Update the item attributes with the downloaded files and active stream """
