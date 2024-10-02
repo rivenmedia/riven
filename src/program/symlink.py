@@ -59,9 +59,9 @@ class Symlinker:
         if not library_path.is_absolute():
             logger.error(f"library_path is not an absolute path: {library_path}")
             return False
-        return self.create_initial_folders()
+        return self._create_initial_folders()
 
-    def create_initial_folders(self):
+    def _create_initial_folders(self):
         """Create the initial library folders."""
         try:
             self.library_path_movies = self.settings.library_path / "movies"
@@ -90,40 +90,39 @@ class Symlinker:
 
     def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
-        items = self.get_items_to_update(item)
-        if not self.should_submit(items):
+        items = self._get_items_to_update(item)
+        if not self._should_submit(items):
             if item.symlinked_times == 5:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
                 item.reset(True)
                 yield item
-            next_attempt = self.calculate_next_attempt(item)
+            next_attempt = self._calculate_next_attempt(item)
             logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")
             item.symlinked_times += 1
             yield (item, next_attempt)
         try:
             for _item in items:
-                self.update_item_folder(_item)
                 self._symlink(_item)
             logger.log("SYMLINKER", f"Symlinks created for {item.log_string}")
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
         yield item
 
-    def calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
+    def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
         base_delay = timedelta(seconds=5)
         next_attempt_delay = base_delay * (2 ** item.symlinked_times)
         next_attempt_time = datetime.now() + next_attempt_delay
         return next_attempt_time
 
-    def should_submit(self, items: Union[Movie, Show, Season, Episode]) -> bool:
+    def _should_submit(self, items: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""
         random_item = random.choice(items)
-        if not get_item_path(random_item):
+        if not _get_item_path(random_item):
             return False
         else:
             return True
 
-    def get_items_to_update(self, item: Union[Movie, Show, Season, Episode]) -> List[Union[Movie, Episode]]:
+    def _get_items_to_update(self, item: Union[Movie, Show, Season, Episode]) -> List[Union[Movie, Episode]]:
         items = []
         if item.type in ["episode", "movie"]:
             items.append(item)
@@ -139,11 +138,6 @@ class Symlinker:
                     items.append(episode)
         return items
 
-    def update_item_folder(self, item: Union[Movie, Episode]):
-        path = get_item_path(item)
-        if path:
-            item.set("folder", path.parent.name)
-
     def symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
         return self._symlink(item)
@@ -151,15 +145,12 @@ class Symlinker:
     def _symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
         if not item:
-            logger.error("Invalid item sent to Symlinker: None")
+            logger.error(f"Invalid item sent to Symlinker: {item}")
             return False
 
-        if item.file is None:
-            logger.error(f"Item file is None for {item.log_string}, cannot create symlink.")
-            return False
-
-        if not item.folder:
-            logger.error(f"Item folder is None for {item.log_string}, cannot create symlink.")
+        source = _get_item_path(item)
+        if not source:
+            logger.error(f"Could not find path for {item.log_string}, cannot create symlink.")
             return False
 
         filename = self._determine_file_name(item)
@@ -170,7 +161,6 @@ class Symlinker:
         extension = os.path.splitext(item.file)[1][1:]
         symlink_filename = f"{filename}.{extension}"
         destination = self._create_item_folders(item, symlink_filename)
-        source = os.path.join(self.rclone_path, item.folder, item.file)
 
         try:
             if os.path.islink(destination):
@@ -189,7 +179,7 @@ class Symlinker:
                 logger.error(f"OS error when creating symlink for {item.log_string}: {e}")
             return False
 
-        if os.readlink(destination) != source:
+        if Path(destination).readlink() != source:
             logger.error(f"Symlink validation failed: {destination} does not point to {source} for {item.log_string}")
             return False
 
@@ -243,7 +233,7 @@ class Symlinker:
 
         return os.path.join(destination_folder, filename.replace("/", "-"))
 
-    def _determine_file_name(self, item) -> str | None:
+    def _determine_file_name(self, item: Union[Movie, Episode]) -> str | None:
         """Determine the filename of the symlink."""
         filename = None
         if isinstance(item, Movie):
@@ -297,8 +287,11 @@ def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
         logger.error(f"Failed to delete symlink for {item.log_string}, error: {e}")
     return False
 
-def get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
+def _get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
     """Quickly check if the file exists in the rclone path."""
+    if not item.file:
+        return None
+
     rclone_path = Path(settings_manager.settings.symlink.rclone_path)
     possible_folders = [item.folder, item.file, item.alternative_folder]
 
