@@ -6,6 +6,7 @@ from queue import Empty
 from threading import Lock
 
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy.orm.exc import StaleDataError
 from subliminal import Episode, Movie
 
@@ -15,6 +16,14 @@ from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
 from program.media.item import Season, Show
 from program.types import Event
 
+class EventUpdate(BaseModel):
+    item_id: str
+    imdb_id: str
+    title: str
+    type: str
+    emitted_by: str
+    run_at: str
+    last_state: str
 
 class EventManager:
     """
@@ -324,7 +333,7 @@ class EventManager:
         """
         self.add_event(Event(service, item))
 
-    def get_event_updates(self):
+    def get_event_updates(self) -> dict[str, list[EventUpdate]]:
         """
         Returns a formatted list of event updates.
 

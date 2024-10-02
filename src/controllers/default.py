@@ -1,4 +1,7 @@
+from typing import Literal
+
 import requests
+from controllers.models.shared import DataAndSuccessResponse, MessageAndSuccessResponse
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from program.content.trakt import TraktContent
@@ -6,32 +9,44 @@ from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from utils.event_manager import EventUpdate
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+class RootResponse(MessageAndSuccessResponse):
+    version: str
 
 @router.get("/", operation_id="root")
-async def root():
+async def root() -> RootResponse:
     return {
         "success": True,
         "message": "Riven is running!",
         "version": settings_manager.settings.version,
     }
 
-
 @router.get("/health", operation_id="health")
-async def health(request: Request):
+async def health(request: Request) -> MessageAndSuccessResponse:
     return {
         "success": True,
         "message": request.app.program.initialized,
     }
 
+class RDUser(BaseModel):
+    id: int
+    username: str
+    email: str
+    points: int = Field(description="User's RD points")
+    locale: str
+    avatar: str = Field(description="URL to the user's avatar")
+    type: Literal["free", "premium"]
+    premium: int = Field(description="Premium subscription left in seconds")
 
 @router.get("/rd", operation_id="rd")
-async def get_rd_user():
+async def get_rd_user() -> DataAndSuccessResponse[RDUser]:
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -68,7 +83,7 @@ async def get_torbox_user():
 
 
 @router.get("/services", operation_id="services")
-async def get_services(request: Request):
+async def get_services(request: Request) -> DataAndSuccessResponse[dict]:
     data = {}
     if hasattr(request.app.program, "services"):
         for service in request.app.program.all_services.values():
@@ -79,9 +94,11 @@ async def get_services(request: Request):
                 data[sub_service.key] = sub_service.initialized
     return {"success": True, "data": data}
 
+class TraktOAuthInitiateResponse(BaseModel):
+    auth_url: str
 
 @router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
-async def initiate_trakt_oauth(request: Request):
+async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
@@ -90,7 +107,7 @@ async def initiate_trakt_oauth(request: Request):
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
-async def trakt_oauth_callback(code: str, request: Request):
+async def trakt_oauth_callback(code: str, request: Request) -> MessageAndSuccessResponse:
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
@@ -100,9 +117,19 @@ async def trakt_oauth_callback(code: str, request: Request):
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
+class StatsResponse(BaseModel):
+    total_items: int
+    total_movies: int
+    total_shows: int
+    total_seasons: int
+    total_episodes: int
+    total_symlinks: int
+    incomplete_items: int
+    incomplete_retries: dict[str, int] = Field(description="Media item log string: number of retries")
+    states: dict[States, int]
 
 @router.get("/stats", operation_id="stats")
-async def get_stats(_: Request):
+async def get_stats(_: Request) -> DataAndSuccessResponse[StatsResponse]:
     payload = {}
     with db.Session() as session:
         movies_symlinks = session.execute(
@@ -157,8 +184,12 @@ async def get_stats(_: Request):
         return {"success": True, "data": payload}
 
 
+class LogsResponse(BaseModel):
+    success: bool
+    logs: str
+
 @router.get("/logs", operation_id="logs")
-async def get_logs():
+async def get_logs() -> LogsResponse:
     log_file_path = None
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
@@ -178,12 +209,12 @@ async def get_logs():
 
 
 @router.get("/events", operation_id="events")
-async def get_events(request: Request):
+async def get_events(request: Request) -> DataAndSuccessResponse[dict[str, list[EventUpdate]]]:
     return {"success": True, "data": request.app.program.em.get_event_updates()}
 
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files():
+async def get_rclone_files() -> DataAndSuccessResponse[dict[str, str]]:
     """Get all files in the rclone mount."""
     import os
 
