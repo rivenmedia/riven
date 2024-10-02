@@ -6,14 +6,16 @@ from requests import ConnectTimeout
 from utils import request
 from utils.ratelimiter import RateLimiter
 
-from .shared import VIDEO_EXTENSIONS, FileFinder, premium_days_left
+from .shared import VIDEO_EXTENSIONS, FileFinder, DownloaderBase, premium_days_left
+# Types
+from .shared import InfoHash, DebridTorrentId
 
 BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
 torrent_limiter = RateLimiter(1, 1)
 overall_limiter = RateLimiter(60, 60)
 
-class RealDebridDownloader:
+class RealDebridDownloader(DownloaderBase):
     def __init__(self):
         self.key = "realdebrid"
         self.settings = settings.settings.downloaders.real_debrid
@@ -54,11 +56,11 @@ class RealDebridDownloader:
             logger.error("Couldn't parse user data response from Real-Debrid.")
         return False
 
-    def process_hashes(self, chunk: list[str], needed_media: dict, break_pointer: list[bool]) -> dict:
+    def process_hashes(self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]) -> dict:
         cached_containers = self.get_cached_containers(chunk, needed_media, break_pointer)
         return cached_containers
 
-    def download_cached(self, active_stream: dict) -> str:
+    def download_cached(self, active_stream: dict) -> DebridTorrentId:
         torrent_id = add_torrent(active_stream.get("infohash"))
         if torrent_id:
             self.existing_hashes.append(active_stream.get("infohash"))
@@ -103,7 +105,7 @@ class RealDebridDownloader:
                             break
         return cached_containers
 
-    def get_torrent_names(self, id: str) -> dict:
+    def get_torrent_names(self, id: str) -> tuple[str, str]:
         info = torrent_info(id)
         return (info["filename"], info["original_filename"])
 
@@ -111,6 +113,12 @@ class RealDebridDownloader:
         id = next(torrent["id"] for torrent in get_torrents(1000) if torrent["hash"] == infohash)
         if id:
             delete_torrent(id)
+
+    def add_torrent_magnet(magnet: str) -> str:
+        return add_torrent_magnet(magnet)
+
+    def get_torrent_info(id: str) -> dict:
+        return torrent_info(id)
 
 def get(url):
     return request.get(

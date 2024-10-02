@@ -21,9 +21,6 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.symlink import Symlinker
 from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_magnet, torrent_info
-from program.settings.versions import models
-from program.settings.manager import settings_manager
 from program.media.stream import Stream
 from program.scrapers.shared import rtn
 from program.types import Event
@@ -275,9 +272,9 @@ async def remove_item(request: Request, ids: str):
 
 @router.post("/{id}/set_torrent_rd_magnet", description="Set a torrent for a media item using a magnet link.")
 def add_torrent(request: Request, id: int, magnet: str):
-    torrent_id = ""
+    downloader: Downloader = request.app.program.services.get(Downloader)
     try:
-        torrent_id = add_torrent_magnet(magnet)
+        torrent_id = downloader.add_torrent_magnet(magnet)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
     
@@ -314,7 +311,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str):
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        fetched_torrent_info = torrent_info(torrent_id)
+        fetched_torrent_info = downloader.get_torrent_info(torrent_id)
 
         stream = session.execute(select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])).scalars().first()
         hash = fetched_torrent_info["hash"]

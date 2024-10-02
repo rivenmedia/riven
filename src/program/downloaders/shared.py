@@ -1,8 +1,10 @@
 from RTN import parse
 
+from abc import ABC, abstractmethod
 from program.media.item import MediaItem
 from program.media.state import States
 from program.settings.manager import settings_manager
+from typing import Optional
 
 from datetime import datetime
 
@@ -15,6 +17,89 @@ VIDEO_EXTENSIONS = [ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTE
 if not VIDEO_EXTENSIONS:
     VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
 
+# Type aliases
+InfoHash = str # A torrent hash
+DebridTorrentId = str # Identifier issued by the debrid service for a torrent in their cache
+
+class DownloaderBase(ABC):
+    """
+    The abstract base class for all Downloader implementations.
+    """
+
+    @abstractmethod
+    def process_hashes(self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]) -> dict:
+        """
+        Search for debrid-cached media in a list of torrent hashes, returning a dictionary with the files found.
+
+        - chunk:         A list of infohashes to scan.
+        - needed_media:  The media needed for completing this show. A dict of {season: [episodeList]}.
+                         season and episodeList are ints. For movies, needed_media is None.
+        - break_pointer: A list of two booleans. The first must be set to True once the needed_media is found.
+                         If the second bool is True, continue scanning all chunks, else break once needed_media is found.
+
+        Return value looks like this. FileFinder is a helper that can be used to build the inner dict based on needed_media.
+        ```
+        {
+            "69033cebd0f892bf7e9181b8002923936b9ac604": {
+                "matched_files": {
+                    1: {                # Season (or 1 for movies)
+                        1: {            # Episode (or 1 for movies)
+                            "filename": "Big.Buck.Bunny.4K.WEBDL.2160p.X265.AAR.UTR.mkv"
+                        }
+                    }
+                }
+            }
+        }
+        ```
+        """
+
+    @abstractmethod
+    def download_cached(self, active_stream: dict) -> DebridTorrentId:
+        """
+        Instructs the debrid service to download this content.
+
+        - active_stream: A dict containing the key "infohash", the torrent hash to download.
+
+        Returns an identifier used by the debrid service to reference this torrent later.
+        """
+
+    @abstractmethod
+    def get_torrent_names(self, id: DebridTorrentId) -> tuple[str, Optional[str]]:
+        """
+        Gets the name(s) of the torrent with this debrid-specific identifier
+
+        - active_stream: A dict containing the key "infohash", whose value is the torrent hash to download.
+
+        Returns the name of the torrent, and an alternative / original name if the debrid service provides one
+        (None otherwise).
+        """
+
+    @abstractmethod
+    def delete_torrent_with_infohash(self, infohash: InfoHash) -> None:
+        """
+        Deletes a torrent from the debrid service.
+
+        - infohash: Hash of the torrent.
+        """
+
+
+    @abstractmethod
+    def add_torrent_magnet(self, magnet_uri: str) -> DebridTorrentId:
+        """
+        Adds a torrent to the debrid service using a magnet URI.
+
+        - magnet_uri: The URI of the torrent to add (like magnet:?xt=urn:btih:<infohash>)
+        """
+
+    @abstractmethod
+    def get_torrent_info(self, torrent_id: DebridTorrentId) -> dict:
+        """
+        Gets information about a cached torrent.
+
+        - torrent_id: The identifier used by the debrid service for this torrent.
+
+        The returned dict has at least "hash" and "filename".
+        """
 
 class FileFinder:
     """
@@ -100,3 +185,10 @@ def premium_days_left(expiration: datetime) -> str:
     else:
         expiration_message = "Your account expires soon."
     return expiration_message
+
+def hash_from_uri(magnet_uri: str) -> str:
+    if len(magnet_uri) == 40:
+        # Probably already a hash
+        return magnet_uri
+    start = magnet_uri.index("urn:btih:") + len("urn:btih:")
+    return magnet_uri[start:start+40]

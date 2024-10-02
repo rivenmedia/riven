@@ -61,7 +61,7 @@ def test_download_cached(downloader):
 
 def test_get_torrent_names(downloader):
     names = downloader.get_torrent_names(123)
-    assert names == ("Ubuntu 24.04", "Ubuntu 24.04")
+    assert names == ("Ubuntu 24.04", None)
 
 
 ## API parsing tests
