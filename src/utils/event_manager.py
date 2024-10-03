@@ -344,6 +344,7 @@ class EventManager:
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
         return {
             event_type.lower(): [
+                EventUpdate.model_validate(
                 {
                     "item_id": event.item._id,
                     "imdb_id": event.item.imdb_id,
@@ -352,7 +353,7 @@ class EventManager:
                     "emitted_by": event.emitted_by if isinstance(event.emitted_by, str) else event.emitted_by.__name__,
                     "run_at": event.run_at.isoformat(),
                     "last_state": event.item.last_state.name if event.item.last_state else "N/A"
-                }
+                })
                 for event in events if event.emitted_by == event_type
             ]
             for event_type in event_types

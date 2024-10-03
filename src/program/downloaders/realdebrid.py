@@ -1,10 +1,10 @@
 from datetime import datetime
 from enum import Enum
-from typing import Union
+from typing import Optional, Union
 
 from loguru import logger
 from program.settings.manager import settings_manager as settings
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from requests import ConnectTimeout
 from utils import request
 from utils.ratelimiter import RateLimiter
@@ -36,9 +36,11 @@ class RDTorrent(BaseModel):
     status: RDTorrentStatus
     added: datetime
     links: list[str]
-    ended: Union[datetime, None]
-    speed: Union[int, None]
-    seeders: Union[int, None]
+    ended: Optional[datetime] = None
+    speed: Optional[int] = None
+    seeders: Optional[int] = None
+
+rd_torrent_list = TypeAdapter(list[RDTorrent])
 
 class RealDebridDownloader:
     def __init__(self):
@@ -46,7 +48,7 @@ class RealDebridDownloader:
         self.settings = settings.settings.downloaders.real_debrid
         self.initialized = self.validate()
         if self.initialized:
-            self.existing_hashes = [torrent["hash"] for torrent in get_torrents(1000)]
+            self.existing_hashes = [torrent.hash for torrent in get_torrents(1000)]
             self.file_finder = FileFinder("filename", "filesize")
 
     def validate(self) -> bool:
@@ -135,7 +137,7 @@ class RealDebridDownloader:
         return (info["filename"], info["original_filename"])
 
     def delete_torrent_with_infohash(self, infohash: str):
-        id = next(torrent["id"] for torrent in get_torrents(1000) if torrent["hash"] == infohash)
+        id = next(torrent.id for torrent in get_torrents(1000) if torrent.hash == infohash)
         if id:
             delete_torrent(id)
 
@@ -203,7 +205,7 @@ def torrent_info(id: str) -> dict:
 
 def get_torrents(limit: int) -> list[RDTorrent]:
     try:
-        torrents = get(f"torrents?limit={str(limit)}")
+        torrents = rd_torrent_list.validate_python(get(f"torrents?limit={str(limit)}"))
     except:
         logger.warning("Failed to get torrents.")
         torrents = []
