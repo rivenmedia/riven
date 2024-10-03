@@ -17,7 +17,7 @@ from program.media.item import Season, Show
 from program.types import Event
 
 class EventUpdate(BaseModel):
-    item_id: str
+    item_id: int
     imdb_id: str
     title: str
     type: str

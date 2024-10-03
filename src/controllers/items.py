@@ -320,7 +320,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
 class RemoveResponse(BaseModel):
     success: bool
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.delete(
