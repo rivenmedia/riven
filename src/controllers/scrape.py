@@ -2,10 +2,8 @@
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 from program.scrapers import Scraping
-from program.db.db_functions import get_item_by_imdb_id
 from program.indexers.trakt import TraktIndexer
 from program.media.item import MediaItem
-from program.downloaders.realdebrid import get_torrents
 from program.db.db import db
 
 router = APIRouter(
@@ -78,17 +76,3 @@ async def scrape(request: Request, imdb_id: str, season: int = None, episode: in
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"success": True, "data": data}
-
-
-@router.get(
-    "/rd",
-    summary="Get Real-Debrid Torrents",
-    description="Get torrents from Real-Debrid."
-)
-async def get_rd_torrents(limit: int = 1000):
-    """
-    Get torrents from Real-Debrid.
-
-    - **limit**: Limit the number of torrents to get.
-    """
-    return get_torrents(limit)

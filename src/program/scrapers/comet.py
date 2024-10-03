@@ -81,16 +81,7 @@ class Comet:
             logger.error(f"Comet exception thrown: {str(e)}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
-        if data:
-            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return data
-
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
         if not imdb_id:

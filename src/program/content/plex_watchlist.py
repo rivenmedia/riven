@@ -3,6 +3,7 @@ from typing import Generator, Union
 
 from plexapi.myplex import MyPlexAccount
 from requests import HTTPError, Session
+from urllib3 import HTTPConnectionPool
 
 from program.db.db_functions import _filter_existing_items
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -64,7 +65,7 @@ class PlexWatchlist:
             watchlist_items: list[str] = self._get_items_from_watchlist()
             rss_items: list[str] = self._get_items_from_rss() if self.rss_enabled else []
         except Exception as e:
-            logger.error(f"Error fetching items: {e}")
+            logger.warning(f"Error fetching items: {e}")
             return
 
         plex_items: set[str] = set(watchlist_items) | set(rss_items)
@@ -88,6 +89,7 @@ class PlexWatchlist:
                     imdb_id = self._extract_imdb_ids(_item.get("guids", []))
                     if imdb_id and imdb_id.startswith("tt"):
                         rss_items.append(imdb_id)
+                        self.recurring_items.add(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Failed to extract IMDb ID from {_item['title']}")
             except Exception as e:
@@ -104,12 +106,13 @@ class PlexWatchlist:
                     imdb_id: str = next((guid.id.split("//")[-1] for guid in item.guids if guid.id.startswith("imdb://")), "")
                     if imdb_id and imdb_id.startswith("tt"):
                         watchlist_items.append(imdb_id)
+                        self.recurring_items.add(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}")
                 else:
                     logger.log("NOT_FOUND", f"{item.title} ({item.year}) is missing guids attribute from Plex")
             except Exception as e:
-                logger.error(f"An unexpected error occurred while fetching Plex watchlist item {item.log_string}: {e}")
+                logger.error(f"An unexpected error occurred while fetching Plex watchlist item {item.title}: {e}")
         return watchlist_items
 
     def _extract_imdb_ids(self, guids: list) -> str | None:

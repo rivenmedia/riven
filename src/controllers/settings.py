@@ -3,7 +3,6 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
-from RTN.models import SettingsModel
 
 from program.settings.manager import settings_manager
 
