@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request
@@ -26,7 +26,7 @@ from program.symlink import Symlinker
 from program.types import Event
 from pydantic import BaseModel
 from RTN import Torrent
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
 from utils.logger import logger
 
@@ -77,10 +77,13 @@ async def get_items(
     limit: Optional[int] = 50,
     page: Optional[int] = 1,
     type: Optional[str] = None,
-    state: Optional[str] = None,
-    sort: Optional[str] = "date_desc",
+    states: Optional[str] = None,
+    sort: Optional[
+        Literal["date_desc", "date_asc", "title_asc", "title_desc"]
+    ] = "date_desc",
     search: Optional[str] = None,
     extended: Optional[bool] = False,
+    is_anime: Optional[bool] = False,
 ) -> ItemsResponse:
     if page < 1:
         raise HTTPException(status_code=400, detail="Page number must be 1 or greater.")
@@ -100,34 +103,51 @@ async def get_items(
                 | (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
             )
 
-    if state:
-        filter_lower = state.lower()
-        filter_state = None
-        for state_enum in States:
-            if Levenshtein.ratio(filter_lower, state_enum.name.lower()) <= 0.82:
-                filter_state = state_enum
-                break
-        if filter_state:
-            query = query.where(MediaItem.last_state == filter_state)
+    if states:
+        states = states.split(",")
+        filter_states = []
+        for state in states:
+            filter_lower = state.lower()
+            for state_enum in States:
+                if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
+                    filter_states.append(state_enum)
+                    break
+        if len(filter_states) == len(states):
+            query = query.where(MediaItem.last_state in filter_states)
         else:
             valid_states = [state_enum.name for state_enum in States]
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid filter state: {state}. Valid states are: {valid_states}",
+                detail=f"Invalid filter states: {states}. Valid states are: {valid_states}",
             )
 
     if type:
         if "," in type:
             types = type.split(",")
             for type in types:
-                if type not in ["movie", "show", "season", "episode"]:
+                if type not in ["movie", "show", "season", "episode", "anime"]:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode']",
+                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode', 'anime']",
                     )
         else:
             types = [type]
-        query = query.where(MediaItem.type.in_(types))
+        if "anime" in types:
+            types = [type for type in types if type != "anime"]
+            query = query.where(
+                or_(
+                    and_(
+                        MediaItem.type.in_(["movie", "show"]),
+                        MediaItem.is_anime == True,
+                    ),
+                    MediaItem.type.in_(types),
+                )
+            )
+        else:
+            query = query.where(MediaItem.type.in_(types))
+
+    if is_anime:
+        query = query.where(MediaItem.is_anime is True)
 
     if sort and not search:
         sort_lower = sort.lower()
@@ -219,17 +239,20 @@ class ItemResponse(BaseModel):
     description="Fetch a single media item by ID",
     operation_id="get_item",
 )
-async def get_item(request: Request, id: int) -> ItemResponse:
+async def get_item(
+    _: Request, id: int, use_tmdb_id: Optional[bool] = False
+) -> dict:
     with db.Session() as session:
         try:
-            item = (
-                session.execute(select(MediaItem).where(MediaItem._id == id))
-                .unique()
-                .scalar_one()
-            )
+            query = select(MediaItem)
+            if use_tmdb_id:
+                query = query.where(MediaItem.tmdb_id == str(id))
+            else:
+                query = query.where(MediaItem._id == id)
+            item = session.execute(query).unique().scalar_one()
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Item not found")
-        return {"success": True, "item": item.to_extended_dict()}
+        return item.to_extended_dict(with_streams=False)
 
 
 class ItemsByImdbResponse(BaseModel):

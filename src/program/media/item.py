@@ -222,7 +222,7 @@ class MediaItem(db.Model):
             "scraped_times": self.scraped_times,
         }
 
-    def to_extended_dict(self, abbreviated_children=False):
+    def to_extended_dict(self, abbreviated_children=False, with_streams=True):
         """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
         match self:
@@ -244,8 +244,9 @@ class MediaItem(db.Model):
         dict["active_stream"] = (
             self.active_stream if hasattr(self, "active_stream") else None
         )
-        dict["streams"] = getattr(self, "streams", [])
-        dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
+        if with_streams:
+            dict["streams"] = getattr(self, "streams", [])
+            dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
         dict["number"] = self.number if hasattr(self, "number") else None
         dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
         dict["symlinked_at"] = (
