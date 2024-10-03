@@ -1,9 +1,9 @@
 from typing import Dict
 
 from requests import RequestException
-from requests.exceptions import ConnectTimeout, ReadTimeout, RetryError
+from requests.exceptions import ConnectTimeout
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded

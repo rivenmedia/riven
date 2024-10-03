@@ -10,10 +10,9 @@ from sqlalchemy.orm import Session, aliased, joinedload
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.settings.manager import settings_manager
-from utils import alembic_dir
-from utils.logger import logger
+from loguru import logger
 
-from .db import alembic, db
+from .db import alembic, db, script_location, ensure_alembic_version_table
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -397,7 +396,32 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
 
 def hard_reset_database():
     """Resets the database to a fresh state."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine.url import make_url
+
     logger.log("DATABASE", "Starting Hard Reset of Database")
+
+    # Get the database connection string from settings
+    db_url = settings_manager.settings.database.host
+    url = make_url(db_url)
+
+    # Create an engine for the default database to drop and recreate the target database
+    default_db_url = url.set(database="postgres")
+    default_engine = create_engine(default_db_url, isolation_level="AUTOCOMMIT")
+
+    try:
+        # Drop and recreate the database
+        with default_engine.connect() as connection:
+            connection.execute(text(f"DROP DATABASE IF EXISTS {url.database}"))
+            connection.execute(text(f"CREATE DATABASE {url.database}"))
+            logger.log("DATABASE", f"Database '{url.database}' dropped and recreated")
+    except sqlalchemy.exc.OperationalError as e:
+        logger.error(f"OperationalError: {e}")
+        exit(0)
+
+    # Reconnect to the new database
+    db.engine.dispose()
+    db.engine = create_engine(db_url)
 
     # Disable foreign key checks temporarily
     with db.engine.connect() as connection:
@@ -407,19 +431,6 @@ def hard_reset_database():
             connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
 
         try:
-            for table in reversed(db.Model.metadata.sorted_tables):
-                try:
-                    table.drop(connection, checkfirst=True)
-                    logger.log("DATABASE", f"Dropped table: {table.name}")
-                except Exception as e:
-                    logger.log("DATABASE", f"Error dropping table {table.name}: {str(e)}")
-
-            try:
-                connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
-                logger.log("DATABASE", "Alembic version table dropped")
-            except Exception as e:
-                logger.log("DATABASE", f"Error dropping alembic_version table: {str(e)}")
-
             db.Model.metadata.create_all(connection)
             logger.log("DATABASE", "All tables recreated")
 
@@ -437,9 +448,10 @@ def hard_reset_database():
 
     try:
         logger.log("DATABASE", "Removing Alembic Directory")
-        shutil.rmtree(alembic_dir, ignore_errors=True)
-        os.makedirs(alembic_dir, exist_ok=True)
-        alembic.init(alembic_dir)
+        shutil.rmtree(script_location, ignore_errors=True)
+        os.makedirs(script_location, exist_ok=True)
+        alembic.init(script_location)
+        ensure_alembic_version_table()
         logger.log("DATABASE", "Alembic reinitialized")
     except Exception as e:
         logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
