@@ -20,13 +20,13 @@ rtn = RTN(settings_model, ranking_model)
 def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
     """Get the stremio identifier for a media item based on its type."""
     if isinstance(item, Show):
-        identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
+        identifier, scrape_type, imdb_id = ":1:1", "series", item.ids["imdb_id"]
     elif isinstance(item, Season):
-        identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+        identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.ids["imdb_id"]
     elif isinstance(item, Episode):
-        identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+        identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.ids["imdb_id"]
     elif isinstance(item, Movie):
-        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
+        identifier, scrape_type, imdb_id = None, "movie", item.ids["imdb_id"]
     else:
         return None, None, None
     return identifier, scrape_type, imdb_id

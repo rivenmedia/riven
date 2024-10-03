@@ -174,7 +174,7 @@ class Prowlarr:
         if indexer.movie_search_capabilities and "year" in indexer.movie_search_capabilities:
             if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
         if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
-            params["imdbid"] = item.imdb_id
+            params["imdbid"] = item.ids["imdb_id"]
         url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "movie")
 
@@ -197,7 +197,7 @@ class Prowlarr:
         if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
         if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
         if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
+            params["imdbid"] = item.ids["imdb_id"] if isinstance(item, [Episode, Show]) else item.parent.ids["imdb_id"]
 
         url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
         return self._fetch_results(url, params, indexer.title, "series")

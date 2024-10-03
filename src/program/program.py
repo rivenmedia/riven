@@ -15,7 +15,7 @@ from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.libraries.symlink import fix_broken_symlinks
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Profile, Season, Show
 from program.media.state import States
 from program.post_processing import PostProcessing
 from program.scrapers import Scraping
@@ -143,7 +143,8 @@ class Program(threading.Thread):
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
-        # self._schedule_services()
+        self.initialize_db()
+        self._schedule_services()
         # self._schedule_functions()
 
         super().start()
@@ -156,7 +157,7 @@ class Program(threading.Thread):
         count = 0
         with db.Session() as session:
             count = session.execute(
-                select(func.count(MediaItem._id))
+                select(func.count(MediaItem.id))
                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
@@ -314,6 +315,13 @@ class Program(threading.Thread):
             self.scheduler.shutdown(wait=False)
         logger.log("PROGRAM", "Riven has been stopped.")
 
+    def initialize_db(self):
+        with db.Session() as session:
+            existing = session.query(Profile).filter(Profile.name == settings_manager.settings.ranking.profile).first()
+            if not existing:
+                session.add(Profile(settings_manager.settings.ranking))
+                session.commit()
+
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
             enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
@@ -326,7 +334,7 @@ class Program(threading.Thread):
         """Initialize the database from symlinks."""
         start_time = datetime.now()
         with db.Session() as session:
-            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            res = session.execute(select(func.count(MediaItem.id))).scalar_one()
             added = []
             errors = []
             if res == 0:
@@ -352,7 +360,7 @@ class Program(threading.Thread):
                                             added.append(enhanced_item.item_id)
                                             enhanced_item.store_state()
                                             session.add(enhanced_item)
-                                            log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
+                                            log_message = f"Indexed IMDb Id: {enhanced_item.ids['imdb_id']} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
                                 except Exception as e:
                                     logger.exception(f"Error processing {item.log_string}: {e}")
                                 finally:

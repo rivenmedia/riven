@@ -103,8 +103,8 @@ async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
 
-        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
-        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+        movies_symlinks = session.execute(select(func.count(Movie.id)).where(Movie.symlinked == True)).scalar_one()
+        episodes_symlinks = session.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one()
         total_symlinks = movies_symlinks + episodes_symlinks
 
         total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
@@ -118,7 +118,7 @@ async def get_stats(_: Request):
             select(MediaItem._id)
             .where(MediaItem.last_state != States.Completed)
         ).scalars().all()
-        
+
         incomplete_retries = {}
         if _incomplete_items:
             media_items = session.query(MediaItem).filter(MediaItem._id.in_(_incomplete_items)).all()
@@ -127,7 +127,7 @@ async def get_stats(_: Request):
 
         states = {}
         for state in States:
-            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state)).scalar_one()
+            states[state] = session.execute(select(func.count(MediaItem.id)).where(MediaItem.last_state == state)).scalar_one()
 
         payload["total_items"] = total_items
         payload["total_movies"] = total_movies

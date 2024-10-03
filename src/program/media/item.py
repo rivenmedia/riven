@@ -1,66 +1,83 @@
-"""MediaItem class"""
 from collections import defaultdict
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Self
 
-import sqlalchemy
 from RTN import SettingsModel, parse
-from sqlalchemy import Index
-from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+import sqlalchemy
+from sqlalchemy import Index, Column, Integer, String, DateTime, Boolean, ForeignKey, JSON, func
+from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
+from program.settings.models import RivenSettingsModel
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.media.state import States
 from program.media.subtitle import Subtitle
 from utils.logger import logger
-from sqlmodel import SQLModel, Field, Relationship, ForeignKey
-
-from ..db.db_functions import blacklist_stream, reset_streams
+from ..db.db_functions import blacklist_stream
 from .stream import Stream
+
 
 EPOCH = datetime.fromtimestamp(0)
 
-class ProfileDataLink(SQLModel, table=True):
-    __tablename__ = "profile_data_link"
 
-    data_id:                Optional[int]               = Field(default=None, foreign_key="profile_data.id", primary_key=True)
-    profile_id:             Optional[int]               = Field(default=None, foreign_key="profiles.id", primary_key=True)
+class ProfileDataLink(db.Model):
+    __tablename__ = 'profiledatalink'
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    data_id = Column(Integer, ForeignKey('profiledata.id'))
+    profile_id = Column(Integer, ForeignKey('profile.id'))
 
-class Profile(SQLModel, SettingsModel, table=True):
-    __tablename__ = "profiles"
+class Profile(db.Model):
+    __tablename__ = 'profile'
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    profile_data = relationship("ProfileData", secondary="profiledatalink", back_populates="profile")
+    model = mapped_column(JSONB, nullable=False)
 
-    id:                     int                         = Field(primary_key=True)
-    profile_datas:          list["ProfileData"]         = Relationship(back_populates="profile", link_model=ProfileDataLink)
+    def __init__(self, model: RivenSettingsModel) -> None:
+        self.model = model.to_dict()
+        self.name = model.profile
 
-class ProfileData(SQLModel, table=True):
-    __tablename__ =  "profile_data"
+    @property
+    def settings_model(self) -> RivenSettingsModel:
+        # Convert the stored dictionary back to RTNSettingsModel when accessing
+        return RivenSettingsModel(**self.model)
 
-    id:                     int                         = Field(primary_key=True)
-    parent:                 "MediaItem"                 = Relationship("MediaItem", back_populates="profiles", cascade_delete=True)
+    @settings_model.setter
+    def settings_model(self, value: RivenSettingsModel):
+        # Convert RTNSettingsModel to dictionary when setting
+        self.model = value.to_dict()
 
-    profile:                Profile                     = Relationship(back_populates="profile_datas", link_model=ProfileDataLink)
-    last_state:             States
-    last_try:               datetime
+class ProfileData(db.Model):
+    __tablename__ = 'profiledata'
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    parent_id = Column(Integer, ForeignKey('mediaitem.id', ondelete="CASCADE"))
+    parent: Mapped["MediaItem"] = relationship("MediaItem", back_populates="profiles")
 
-    scraped_at:             datetime
-    scraped_times:          int
-    streams:                list[Stream]                = Relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
-    blacklisted_streams:    list[Stream]                = Relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
+    profile: Mapped[Profile] = relationship("Profile", secondary="profiledatalink", back_populates="profile_data")
+    last_state = Column(sqlalchemy.Enum(States))
+    last_try = Column(DateTime)
 
-    active_stream:          Optional[Stream]            = Relationship(ForeignKey("Stream._id"), nullable=True)
-    download_path:          Optional[Path]
+    scraped_at = Column(DateTime)
+    scraped_times = Column(Integer)
+    streams: Mapped[List["Stream"]] = relationship(secondary="streamrelation", back_populates="parents")
+    blacklisted_streams: Mapped[List["Stream"]] = relationship(secondary="streamblacklistrelation", back_populates="blacklisted_parents")
 
-    symlink_path:           Optional[Path]
-    symlinked_times:        Optional[int]
+    active_stream_id = Column(Integer, ForeignKey('stream.id'))
+    active_stream: Mapped[Optional["Stream"]] = relationship("Stream")
+    download_path = Column(String)
 
-    subtitles:              List[Subtitle]              = Relationship("Subtitle", back_populates="parent", lazy="joined", cascade="all, delete-orphan")
+    symlink_path = Column(String)
+    symlinked_times = Column(Integer)
 
-    def __init__(self, profile: SettingsModel) -> None:
+    subtitles: Mapped[List["Subtitle"]] = relationship(back_populates="parent")
+
+    def __init__(self, profile: Profile) -> None:
         self.last_state: States = States.Unknown
 
-        self.profile: Profile = Profile(**profile)
+        self.profile: Profile = profile
 
         self.scraped_at: datetime = EPOCH
         self.scraped_times: int = 0
@@ -122,33 +139,33 @@ class ProfileData(SQLModel, table=True):
         self.subtitles = []
 
 class MediaItem(db.Model):
-    """MediaItem class"""
-    __tablename__ = "MediaItem"
+    __tablename__ = 'mediaitem'
 
-    id:            Mapped[int] = mapped_column(primary_key=True)
-    type:           Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    type = Column(String)
+    last_state = Column(sqlalchemy.Enum(States))
 
-    title:          Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    year:           Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    genres:         Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    language:       Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    title = Column(String)
+    year = Column(Integer)
+    genres = Column(JSONB)
+    language = Column(String)
 
-    ids:            Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default=defaultdict({"imdb": None, "tmdb": None, "tvdb": None}))
-    network:        Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    country:        Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    aired_at:       Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    ids = Column(JSONB, default={"imdb": "", "tvdb": "", "tmdb": ""})
+    network = Column(String)
+    country = Column(String)
+    aired_at = Column(DateTime)
 
-    requested_at:   Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
-    requested_by:   Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    requested_id:   Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    indexed_at:     Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    requested_at = Column(DateTime)
+    requested_by = Column(String)
+    requested_id = Column(Integer)
+    indexed_at = Column(DateTime)
 
-    aliases:        Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
-    is_anime:       Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    aliases = Column(JSONB)
+    is_anime = Column(Boolean)
 
-    overseerr_id:   Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    overseerr_id = Column(Integer)
 
-    profiles:       Mapped[list[ProfileData]] = relationship(ProfileData, back_populates="parent", lazy="joined", cascade="all")
+    profiles: Mapped[List["ProfileData"]] = relationship("ProfileData", back_populates="parent")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -161,9 +178,9 @@ class MediaItem(db.Model):
         Index('ix_mediaitem_type', 'type'),
         Index('ix_mediaitem_requested_by', 'requested_by'),
         Index('ix_mediaitem_title', 'title'),
-        Index('ix_mediaitem_ids_imdb_id', 'ids["imdb"]'),
-        Index('ix_mediaitem_ids_tvdb_id', 'tvdb_id'),
-        Index('ix_mediaitem_ids_tmdb_id', 'tmdb_id'),
+        Index('ix_mediaitem_ids_imdb_id', func.cast(func.jsonb_extract_path_text(ids, 'imdb'), sqlalchemy.String)),
+        Index('ix_mediaitem_ids_tvdb_id', func.cast(func.jsonb_extract_path_text(ids, 'tvdb'), sqlalchemy.String)),
+        Index('ix_mediaitem_ids_tmdb_id', func.cast(func.jsonb_extract_path_text(ids, 'tmdb'), sqlalchemy.String)),
         Index('ix_mediaitem_network', 'network'),
         Index('ix_mediaitem_country', 'country'),
         Index('ix_mediaitem_language', 'language'),
@@ -197,7 +214,12 @@ class MediaItem(db.Model):
 
         self.overseerr_id = item.get("overseerr_id")
 
-        self.profiles: list[MediaItemProfile] = []
+        self.profiles: list[ProfileData] = []
+        with db.Session() as session:
+            db_profiles = session.query(Profile).all()
+            for profile in db_profiles:
+                data = ProfileData(profile)
+                self.profiles.append(data)
 
     def store_state(self) -> None:
         _state = self._determine_state()
@@ -308,12 +330,11 @@ class MediaItem(db.Model):
         return self.parent.collection if self.parent else self.ids["imdb_id"]
 
 class Movie(MediaItem):
-    """Movie class"""
-    __tablename__ = "Movie"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
+    __tablename__ = 'movie'
+    id = Column(Integer, ForeignKey('mediaitem.id'), primary_key=True)
+
     __mapper_args__ = {
         "polymorphic_identity": "movie",
-        "polymorphic_load": "inline",
     }
 
     def copy(self, other):
@@ -328,14 +349,12 @@ class Movie(MediaItem):
         return f"Movie:{self.log_string}:{self.last_state.name}"
 
 class Show(MediaItem):
-    """Show class"""
-    __tablename__ = "Show"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
+    __tablename__ = 'show'
+    id = Column(Integer, ForeignKey('mediaitem.id'), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(back_populates="parent", foreign_keys="Season.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Season.number")
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
-        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):
@@ -416,16 +435,15 @@ class Show(MediaItem):
 
 
 class Season(MediaItem):
-    """Season class"""
-    __tablename__ = "Season"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
+    __tablename__ = "season"
+    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("mediaitem.id"), primary_key=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show.id"), use_existing_column=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("show.id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
     episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Episode.number")
+
     __mapper_args__ = {
         "polymorphic_identity": "season",
-        "polymorphic_load": "inline",
     }
 
     def store_state(self) -> None:
@@ -498,16 +516,14 @@ class Season(MediaItem):
 
 
 class Episode(MediaItem):
-    """Episode class"""
-    __tablename__ = "Episode"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
-    number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season.id"), use_existing_column=True)
+    __tablename__ = 'episode'
+    id = Column(Integer, ForeignKey('mediaitem.id'), primary_key=True)
+    number = Column(Integer)
+    parent_id = Column(Integer, ForeignKey('season.id'))
     parent: Mapped["Season"] = relationship(back_populates="episodes", foreign_keys="Episode.parent_id", lazy="joined")
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",
-        "polymorphic_load": "inline",
     }
 
     def __init__(self, item):

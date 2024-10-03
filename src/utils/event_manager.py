@@ -103,7 +103,7 @@ class EventManager:
         """
         with self.mutex:
             for event in self._queued_events:
-                if event.item.imdb_id == item.imdb_id:
+                if event.item.ids["imdb_id"] == item.ids["imdb_id"]:
                     self._queued_events.remove(event)
                     logger.debug(f"Removed {item.log_string} from the queue.")
                     return
@@ -128,7 +128,7 @@ class EventManager:
         """
         with self.mutex:
             for event in self._running_events:
-                if event.item._id == item._id or (event.item.type == "mediaitem" and event.item.imdb_id == item.imdb_id):
+                if event.item.id == item.id or (event.item.type == "mediaitem" and event.item.ids["imdb_id"] == item.ids["imdb_id"]):
                     self._running_events.remove(event)
                     logger.debug(f"Removed {item.log_string} from the running events.")
                     return
@@ -202,8 +202,8 @@ class EventManager:
                 self._futures.remove(future)
 
         # Clear from queued and running events
-        self._queued_events = [event for event in self._queued_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
-        self._running_events = [event for event in self._running_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+        self._queued_events = [event for event in self._queued_events if event.item.id != item.id and event.item.ids["imdb_id"] != item.ids["imdb_id"]]
+        self._running_events = [event for event in self._running_events if event.item.id != item.id and event.item.ids["imdb_id"] != item.ids["imdb_id"]]
 
         logger.debug(f"Canceled jobs for item {item.log_string} and its children.")
 
@@ -236,7 +236,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
-        return any(event.item._id == _id for event in self._queued_events)
+        return any(event.item.id == _id for event in self._queued_events)
 
     def _id_in_running_events(self, _id):
         """
@@ -248,7 +248,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
-        return any(event.item._id == _id for event in self._running_events)
+        return any(event.item.id == _id for event in self._running_events)
 
     def _imdb_id_in_queue(self, imdb_id):
         """
@@ -260,7 +260,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
-        return any(event.item.imdb_id == imdb_id for event in self._queued_events)
+        return any(event.item.ids["imdb_id"] == imdb_id for event in self._queued_events)
 
     def _imdb_id_in_running_events(self, imdb_id):
         """
@@ -272,7 +272,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
-        return any(event.item.imdb_id == imdb_id for event in self._running_events)
+        return any(event.item.ids["imdb_id"] == imdb_id for event in self._running_events)
 
     def add_event(self, event):
         """
@@ -288,22 +288,22 @@ class EventManager:
         with db.Session() as session:
             item_id, related_ids = _get_item_ids(session, event.item)
         if item_id:
-            if self._id_in_queue(item_id):
+            if self.id_in_queue(item_id):
                 logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
                 return False
-            if self._id_in_running_events(item_id):
+            if self.id_in_running_events(item_id):
                 logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
             for related_id in related_ids:
-                if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
+                if self.id_in_queue(related_id) or self.id_in_running_events(related_id):
                     logger.debug(f"Child of {event.item.log_string} is already in the queue or running, skipping.")
                     return False
         else:
             # Items that are not in the database
-            if self._imdb_id_in_queue(event.item.imdb_id):
+            if self._imdb_id_in_queue(event.item.ids["imdb_id"]):
                 logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
                 return False
-            elif self._imdb_id_in_running_events(event.item.imdb_id):
+            elif self._imdb_id_in_running_events(event.item.ids["imdb_id"]):
                 logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
 
@@ -336,8 +336,8 @@ class EventManager:
         return {
             event_type.lower(): [
                 {
-                    "item_id": event.item._id,
-                    "imdb_id": event.item.imdb_id,
+                    "item_id": event.item.id,
+                    "imdb_id": event.item.ids["imdb_id"],
                     "title": event.item.log_string,
                     "type": event.item.type,
                     "emitted_by": event.emitted_by if isinstance(event.emitted_by, str) else event.emitted_by.__name__,

@@ -22,10 +22,10 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     no_further_processing: ProcessedEvent = (None, None, [])
     items_to_submit = []
 
-    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
+    source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent, "ApiAdd")
     if emitted_by in source_services or item.state in [States.Requested]:
         next_service = TraktIndexer
-        if _imdb_exists_in_db(item.imdb_id) and item.last_state == States.Completed:
+        if _imdb_exists_in_db(item.ids["imdb_id"]) and item.last_state == States.Completed:
             logger.debug(f"Item {item.log_string} already exists in the database.")
             return no_further_processing
         if isinstance(item, Season):
