@@ -48,6 +48,7 @@ codecov = "^2.1.13"
 httpx = "^0.27.0"
 memray = "^1.13.4"
 testcontainers = "^4.8.0"
+mypy = "^1.11.2"
 
 [tool.poetry.group.test]
 optional = true
