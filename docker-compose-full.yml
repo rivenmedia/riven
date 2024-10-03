@@ -1,4 +1,4 @@
-# This is a full setup for Riven with Plex, Overseerr, Zilean, and Torrentio.
+# This is a full setup for Riven with Plex, Overseerr, and Zilean.
 # This compose assumes you already setup rclone and zurg. See notes below!
 
 ## Notes:
@@ -128,31 +128,17 @@ services:
     volumes:
       - zilean_data:/app/data
     environment:
-        Zilean__ElasticSearch__Url: http://elasticsearch:9200
+        # You may have to create the zilean database manually with the following command:
+        # docker exec -it riven-db createdb -U postgres -W zilean
+        Zilean__Database__ConnectionString: "Host=riven-db;Port=5432;Database=zilean;Username=postgres;Password=postgres"
     healthcheck:
       test: curl --connect-timeout 10 --silent --show-error --fail http://localhost:8181/healthchecks/ping
       timeout: 60s
       interval: 30s
       retries: 10
     depends_on:
-      elasticsearch:
+      riven_postgres:
         condition: service_healthy
 
-  elasticsearch:
-    image: elasticsearch:8.14.1@sha256:ff3998ab3d8a84984e5298d33d01a174fc5f8abed15ad58d0a54364fc63d68d9
-    container_name: elasticsearch
-    environment:
-      ES_SETTING_DISCOVERY_TYPE: single-node
-      ES_SETTING_XPACK_SECURITY_ENABLED: false
-      ES_SETTING_BOOTSTRAP_MEMORY__LOCK: true
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    healthcheck:
-      test: curl -s http://localhost:9200 >/dev/null || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    volumes:
-      - elastic_data:/usr/share/elasticsearch/data:rw
+volumes:
+  zilean_data:
