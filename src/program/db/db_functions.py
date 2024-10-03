@@ -3,7 +3,8 @@ import shutil
 from typing import TYPE_CHECKING, List
 
 import alembic
-from sqlalchemy import delete, func, insert, select, text, union_all
+import sqlalchemy
+from sqlalchemy import cast, delete, func, insert, select, text, union_all
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from program.libraries.symlink import fix_broken_symlinks

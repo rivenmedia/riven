@@ -107,13 +107,12 @@ async def get_stats(_: Request):
         episodes_symlinks = session.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one()
         total_symlinks = movies_symlinks + episodes_symlinks
 
-        total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
-        total_shows = session.execute(select(func.count(Show._id))).scalar_one()
-        total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
-        total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
-        total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
+        total_movies = session.execute(select(func.count(Movie.id))).scalar_one()
+        total_shows = session.execute(select(func.count(Show.id))).scalar_one()
+        total_seasons = session.execute(select(func.count(Season.id))).scalar_one()
+        total_episodes = session.execute(select(func.count(Episode.id))).scalar_one()
+        total_items = session.execute(select(func.count(MediaItem.id))).scalar_one()
 
-    # Select only the IDs of incomplete items
         _incomplete_items = session.execute(
             select(MediaItem._id)
             .where(MediaItem.last_state != States.Completed)

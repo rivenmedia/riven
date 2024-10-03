@@ -1,24 +1,31 @@
-from collections import defaultdict
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Self
 
-from RTN import SettingsModel, parse
 import sqlalchemy
-from sqlalchemy import Index, Column, Integer, String, DateTime, Boolean, ForeignKey, JSON, func
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
-from program.settings.models import RivenSettingsModel
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.media.state import States
 from program.media.subtitle import Subtitle
+from program.settings.models import RivenSettingsModel
 from utils.logger import logger
+
 from ..db.db_functions import blacklist_stream
 from .stream import Stream
-
 
 EPOCH = datetime.fromtimestamp(0)
 
