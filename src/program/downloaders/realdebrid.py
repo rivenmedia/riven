@@ -132,7 +132,7 @@ class RealDebridDownloader:
                             break
         return cached_containers
 
-    def get_torrent_names(self, id: str) -> dict:
+    def get_torrent_names(self, id: str) -> tuple[str,str]:
         info = torrent_info(id)
         return (info["filename"], info["original_filename"])
 
