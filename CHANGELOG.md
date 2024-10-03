@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.3](https://github.com/rivenmedia/riven/compare/v0.15.2...v0.15.3) (2024-10-03)
+
+
+### Bug Fixes
+
+* fixed comet unpack issue ([6ae2a68](https://github.com/rivenmedia/riven/commit/6ae2a686456c3c60390d635fcd6ddb24bdcd6a78))
+
 ## [0.15.2](https://github.com/rivenmedia/riven/compare/v0.15.1...v0.15.2) (2024-10-01)
 
 
