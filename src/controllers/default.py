@@ -17,8 +17,10 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 class RootResponse(MessageAndSuccessResponse):
     version: str
+
 
 @router.get("/", operation_id="root")
 async def root() -> RootResponse:
@@ -28,12 +30,14 @@ async def root() -> RootResponse:
         "version": settings_manager.settings.version,
     }
 
+
 @router.get("/health", operation_id="health")
 async def health(request: Request) -> MessageAndSuccessResponse:
     return {
         "success": True,
         "message": request.app.program.initialized,
     }
+
 
 class RDUser(BaseModel):
     id: int
@@ -44,6 +48,7 @@ class RDUser(BaseModel):
     avatar: str = Field(description="URL to the user's avatar")
     type: Literal["free", "premium"]
     premium: int = Field(description="Premium subscription left in seconds")
+
 
 @router.get("/rd", operation_id="rd")
 async def get_rd_user() -> DataAndSuccessResponse[RDUser]:
@@ -83,7 +88,7 @@ async def get_torbox_user():
 
 
 @router.get("/services", operation_id="services")
-async def get_services(request: Request) -> DataAndSuccessResponse[dict]:
+async def get_services(request: Request) -> dict[str, bool]:
     data = {}
     if hasattr(request.app.program, "services"):
         for service in request.app.program.all_services.values():
@@ -92,10 +97,12 @@ async def get_services(request: Request) -> DataAndSuccessResponse[dict]:
                 continue
             for sub_service in service.services.values():
                 data[sub_service.key] = sub_service.initialized
-    return {"success": True, "data": data}
+    return data
+
 
 class TraktOAuthInitiateResponse(BaseModel):
     auth_url: str
+
 
 @router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
 async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
@@ -107,7 +114,9 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
-async def trakt_oauth_callback(code: str, request: Request) -> MessageAndSuccessResponse:
+async def trakt_oauth_callback(
+    code: str, request: Request
+) -> MessageAndSuccessResponse:
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
@@ -117,6 +126,7 @@ async def trakt_oauth_callback(code: str, request: Request) -> MessageAndSuccess
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
+
 class StatsResponse(BaseModel):
     total_items: int
     total_movies: int
@@ -125,11 +135,14 @@ class StatsResponse(BaseModel):
     total_episodes: int
     total_symlinks: int
     incomplete_items: int
-    incomplete_retries: dict[str, int] = Field(description="Media item log string: number of retries")
+    incomplete_retries: dict[str, int] = Field(
+        description="Media item log string: number of retries"
+    )
     states: dict[States, int]
 
+
 @router.get("/stats", operation_id="stats")
-async def get_stats(_: Request) -> DataAndSuccessResponse[StatsResponse]:
+async def get_stats(_: Request) -> StatsResponse:
     payload = {}
     with db.Session() as session:
         movies_symlinks = session.execute(
@@ -180,13 +193,13 @@ async def get_stats(_: Request) -> DataAndSuccessResponse[StatsResponse]:
         payload["incomplete_items"] = len(_incomplete_items)
         payload["incomplete_retries"] = incomplete_retries
         payload["states"] = states
-
-        return {"success": True, "data": payload}
+        return payload
 
 
 class LogsResponse(BaseModel):
     success: bool
     logs: str
+
 
 @router.get("/logs", operation_id="logs")
 async def get_logs() -> LogsResponse:
@@ -209,7 +222,9 @@ async def get_logs() -> LogsResponse:
 
 
 @router.get("/events", operation_id="events")
-async def get_events(request: Request) -> DataAndSuccessResponse[dict[str, list[EventUpdate]]]:
+async def get_events(
+    request: Request,
+) -> DataAndSuccessResponse[dict[str, list[EventUpdate]]]:
     return {"success": True, "data": request.app.program.em.get_event_updates()}
 
 
