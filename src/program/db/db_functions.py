@@ -317,13 +317,13 @@ def _get_item_from_db(session, item: "MediaItem"):
         case "movie":
             r = session.execute(
                 select(Movie)
-                .where(MediaItem.ids["imdb_id"] == item.ids["imdb_id"])
+                .where(cast(MediaItem.ids['imdb_id'].astext, sqlalchemy.String) == item.ids["imdb_id"])
             ).unique().scalar_one()
             return r
         case "show":
             r = session.execute(
                 select(Show)
-                .where(MediaItem.ids["imdb_id"] == item.ids["imdb_id"])
+                .where(cast(MediaItem.ids['imdb_id'].astext, sqlalchemy.String) == item.ids["imdb_id"])
                 .options(joinedload(Show.seasons).joinedload(Season.episodes))
             ).unique().scalar_one()
             return r

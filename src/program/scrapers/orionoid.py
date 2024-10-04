@@ -1,7 +1,7 @@
 """ Orionoid scraper module """
 from typing import Dict
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, ProfileData
 from program.settings.manager import settings_manager
 from utils.logger import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
@@ -87,11 +87,8 @@ class Orionoid:
             logger.error(f"Orionoid failed to check limit: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
+    def run(self, data: ProfileData) -> Dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
-        if not item:
-            return {}
-
         if not self.is_unlimited:
             limit_hit = self.check_limit()
             if limit_hit:
@@ -99,17 +96,17 @@ class Orionoid:
                 return {}
 
         try:
-            return self.scrape(item)
+            return self.scrape(data)
         except RateLimitExceeded:
             self.rate_limiter.limit_hit()
         except Exception as e:
-            logger.opt(exception=True).error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+            logger.opt(exception=True).error(f"Orionoid exception for item: {data.log_string} - Exception: {e}")
         return {}
 
-    def _build_query_params(self, item: MediaItem) -> dict:
+    def _build_query_params(self, data: ProfileData) -> dict:
         """Construct the query parameters for the Orionoid API based on the media item."""
-        media_type = "movie" if item.type == "movie" else "show"
-        imdbid: str = item.get_top_imdb_id()
+        media_type = "movie" if data.parent.type == "movie" else "show"
+        imdbid: str = data.parent.get_top_imdb_id()
         if not imdbid:
             raise ValueError("IMDB ID is missing for the media item")
 
@@ -124,11 +121,11 @@ class Orionoid:
             "protocoltorrent": "magnet"
         }
 
-        if item.type == "season":
-            params["numberseason"] = item.number
-        elif item.type == "episode":
-            params["numberseason"] = item.parent.number
-            params["numberepisode"] = item.number
+        if data.parent.type == "season":
+            params["numberseason"] = data.parent.number
+        elif data.parent.type == "episode":
+            params["numberseason"] = data.parent.parent.number
+            params["numberepisode"] = data.parent.number
 
         if self.settings.cached_results_only:
             params["access"] = "realdebridtorrent"

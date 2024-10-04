@@ -34,12 +34,11 @@ class ProfileDataLink(db.Model):
     __tablename__ = 'profiledatalink'
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     data_id = Column(Integer, ForeignKey('profiledata.id'))
-    profile_id = Column(Integer, ForeignKey('profile.id'))
+    profile_name = Column(String, ForeignKey('profile.name'))
 
 class Profile(db.Model):
     __tablename__ = 'profile'
-    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    name: Mapped[str] = mapped_column(sqlalchemy.String, primary_key=True)
     profile_data = relationship("ProfileData", secondary="profiledatalink", back_populates="profile")
     model = mapped_column(JSONB, nullable=False)
 
@@ -49,13 +48,11 @@ class Profile(db.Model):
 
     @property
     def settings_model(self) -> RivenSettingsModel:
-        # Convert the stored dictionary back to RTNSettingsModel when accessing
         return RivenSettingsModel(**self.model)
 
     @settings_model.setter
     def settings_model(self, value: RivenSettingsModel):
-        # Convert RTNSettingsModel to dictionary when setting
-        self.model = value.to_dict()
+        self.model = value.model_dump_json()
 
 class ProfileData(db.Model):
     __tablename__ = 'profiledata'
@@ -82,7 +79,7 @@ class ProfileData(db.Model):
     subtitles: Mapped[List["Subtitle"]] = relationship(back_populates="parent")
 
     def __init__(self, profile: Profile) -> None:
-        self.last_state: States = States.Unknown
+        self.last_state: States = States.Requested
 
         self.profile: Profile = profile
 
@@ -111,6 +108,10 @@ class ProfileData(db.Model):
         return (len(self.streams) > 0
             and any(not stream in self.blacklisted_streams for stream in self.streams))
 
+    @property
+    def log_string(self):
+        return self.parent.log_string
+
     def _determine_state(self) -> States:
         if self.symlink_path:
             return States.Completed
@@ -134,6 +135,7 @@ class ProfileData(db.Model):
         return value
 
     def reset(self, soft_reset: bool = False):
+        self.type = "profiledata"
         self.scraped_at = EPOCH
         self.scraped_times = 0
         self.streams = []
@@ -293,10 +295,10 @@ class MediaItem(db.Model):
     def get_top_imdb_id(self) -> str:
         """Get the imdb_id of the item at the top of the hierarchy."""
         if self.type == "season":
-            return self.parent.imdb_id
+            return self.parent.ids["imdb_id"]
         elif self.type == "episode":
-            return self.parent.parent.imdb_id
-        return self.imdb_id
+            return self.parent.parent.ids["imdb_id"]
+        return self.ids["imdb_id"]
 
     def get_aliases(self) -> dict:
         """Get the aliases of the item."""

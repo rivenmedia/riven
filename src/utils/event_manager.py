@@ -12,7 +12,7 @@ from subliminal import Episode, Movie
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
-from program.media.item import Season, Show
+from program.media.item import ProfileData, Season, Show
 from program.types import Event
 
 
@@ -183,9 +183,11 @@ class EventManager:
             for future in self._futures:
                 future_item_id = None
                 future_related_ids = []
-                
+
                 if hasattr(future, 'event') and hasattr(future.event, 'item'):
                     future_item = future.event.item
+                    if isinstance(future_item, ProfileData):
+                        future_item = future_item.parent
                     future_item_id, future_related_ids = _get_item_ids(session, future_item)
 
                 if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
@@ -288,14 +290,14 @@ class EventManager:
         with db.Session() as session:
             item_id, related_ids = _get_item_ids(session, event.item)
         if item_id:
-            if self.id_in_queue(item_id):
+            if self._id_in_queue(item_id):
                 logger.debug(f"Item {event.item.log_string} is already in the queue, skipping.")
                 return False
-            if self.id_in_running_events(item_id):
+            if self._id_in_running_events(item_id):
                 logger.debug(f"Item {event.item.log_string} is already running, skipping.")
                 return False
             for related_id in related_ids:
-                if self.id_in_queue(related_id) or self.id_in_running_events(related_id):
+                if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
                     logger.debug(f"Child of {event.item.log_string} is already in the queue or running, skipping.")
                     return False
         else:

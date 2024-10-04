@@ -285,14 +285,14 @@ class Program(threading.Thread):
 
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
-                processed_item, next_service, items_to_submit = process_event(
+                processed_item, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
                 )
 
                 self.em.remove_item_from_running(event.item)
 
                 if items_to_submit:
-                    for item_to_submit in items_to_submit:
+                    for item_to_submit, next_service in items_to_submit:
                         if not next_service:
                             self.em.add_event_to_queue(Event("StateTransition", item_to_submit))
                         else:
