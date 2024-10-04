@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
+from controllers.models.shared import MessageResponse
 from fastapi import APIRouter, HTTPException, Request
 from program.content import Overseerr
 from program.db.db import db
@@ -28,7 +29,6 @@ from pydantic import BaseModel
 from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
-from src.controllers.models.shared import MessageResponse
 from utils.logger import logger
 
 router = APIRouter(
@@ -269,6 +269,7 @@ class ResetResponse(BaseModel):
     message: str
     ids: list[str]
 
+
 @router.post(
     "/reset",
     summary="Reset Media Items",
@@ -298,6 +299,7 @@ class RetryResponse(BaseModel):
     message: str
     ids: list[str]
 
+
 @router.post(
     "/retry",
     summary="Retry Media Items",
@@ -323,6 +325,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
 class RemoveResponse(BaseModel):
     message: str
     ids: list[int]
+
 
 @router.delete(
     "/remove",
@@ -360,6 +363,7 @@ class SetTorrentRDResponse(BaseModel):
     message: str
     item_id: int
     torrent_id: str
+
 
 @router.post(
     "/{id}/set_torrent_rd_magnet",

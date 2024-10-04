@@ -1,7 +1,7 @@
 from typing import Literal
 
 import requests
-from controllers.models.shared import DataAndSuccessResponse, MessageAndSuccessResponse, MessageResponse
+from controllers.models.shared import MessageResponse
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from program.content.trakt import TraktContent
@@ -18,23 +18,21 @@ router = APIRouter(
 )
 
 
-class RootResponse(MessageAndSuccessResponse):
+class RootResponse(MessageResponse):
     version: str
 
 
 @router.get("/", operation_id="root")
 async def root() -> RootResponse:
     return {
-        "success": True,
         "message": "Riven is running!",
         "version": settings_manager.settings.version,
     }
 
 
 @router.get("/health", operation_id="health")
-async def health(request: Request) -> MessageAndSuccessResponse:
+async def health(request: Request) -> MessageResponse:
     return {
-        "success": True,
         "message": request.app.program.initialized,
     }
 
@@ -72,6 +70,7 @@ async def get_rd_user() -> RDUser:
         return {"success": False, "message": response.json()}
 
     return response.json()
+
 
 @router.get("/torbox", operation_id="torbox")
 async def get_torbox_user():
