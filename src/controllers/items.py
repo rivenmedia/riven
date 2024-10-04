@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
+from src.controllers.models.shared import MessageResponse
 from utils.logger import logger
 
 router = APIRouter(
@@ -191,18 +192,13 @@ async def get_items(
         }
 
 
-class AddItemsResponse(BaseModel):
-    success: bool
-    message: str
-
-
 @router.post(
     "/add",
     summary="Add Media Items",
     description="Add media items with bases on imdb IDs",
     operation_id="add_items",
 )
-async def add_items(request: Request, imdb_ids: str = None) -> AddItemsResponse:
+async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
     if not imdb_ids:
         raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
 
@@ -225,12 +221,7 @@ async def add_items(request: Request, imdb_ids: str = None) -> AddItemsResponse:
             )
             request.app.program.em.add_item(item)
 
-    return {"success": True, "message": f"Added {len(valid_ids)} item(s) to the queue"}
-
-
-class ItemResponse(BaseModel):
-    success: bool
-    item: dict
+    return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
 
 
 @router.get(
@@ -239,9 +230,7 @@ class ItemResponse(BaseModel):
     description="Fetch a single media item by ID",
     operation_id="get_item",
 )
-async def get_item(
-    _: Request, id: int, use_tmdb_id: Optional[bool] = False
-) -> dict:
+async def get_item(_: Request, id: int, use_tmdb_id: Optional[bool] = False) -> dict:
     with db.Session() as session:
         try:
             query = select(MediaItem)
@@ -255,18 +244,13 @@ async def get_item(
         return item.to_extended_dict(with_streams=False)
 
 
-class ItemsByImdbResponse(BaseModel):
-    success: bool
-    items: list[dict]
-
-
 @router.get(
     "/{imdb_ids}",
     summary="Retrieve Media Items By IMDb IDs",
     description="Fetch media items by IMDb IDs",
     operation_id="get_items_by_imdb_ids",
 )
-async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> ItemsByImdbResponse:
+async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
     ids = imdb_ids.split(",")
     with db.Session() as session:
         items = []
@@ -278,14 +262,12 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> ItemsByImdbR
             )
             if item:
                 items.append(item)
-        return {"success": True, "items": [item.to_extended_dict() for item in items]}
+        return [item.to_extended_dict() for item in items]
 
 
 class ResetResponse(BaseModel):
-    success: bool
     message: str
     ids: list[str]
-
 
 @router.post(
     "/reset",
@@ -309,14 +291,12 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
                 continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"success": True, "message": f"Reset items with id {ids}", "ids": ids}
+    return {"message": f"Reset items with id {ids}", "ids": ids}
 
 
 class RetryResponse(BaseModel):
-    success: bool
     message: str
     ids: list[str]
-
 
 @router.post(
     "/retry",
@@ -337,14 +317,12 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Retried items with ids {ids}", "ids": ids}
+    return {"message": f"Retried items with ids {ids}", "ids": ids}
 
 
 class RemoveResponse(BaseModel):
-    success: bool
     message: str
     ids: list[int]
-
 
 @router.delete(
     "/remove",
@@ -375,15 +353,13 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Removed items with ids {ids}", "ids": ids}
+    return {"message": f"Removed items with ids {ids}", "ids": ids}
 
 
 class SetTorrentRDResponse(BaseModel):
-    success: bool
     message: str
     item_id: int
     torrent_id: str
-
 
 @router.post(
     "/{id}/set_torrent_rd_magnet",
@@ -428,7 +404,7 @@ def create_stream(hash, torrent_info):
     "/{id}/set_torrent_rd",
     description="Set a torrent for a media item using RD torrent ID.",
 )
-def set_torrent_rd(request: Request, id: int, torrent_id: str):
+def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDResponse:
     downloader: Downloader = request.app.program.services.get(Downloader)
     with db.Session() as session:
         item: MediaItem = (

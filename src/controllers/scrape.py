@@ -18,11 +18,6 @@ class ScrapedTorrent(BaseModel):
     infohash: str
 
 
-class ScrapeResponse(BaseModel):
-    success: bool
-    data: list[ScrapedTorrent]
-
-
 @router.get(
     "",
     summary="Scrape Media Item",
@@ -31,7 +26,7 @@ class ScrapeResponse(BaseModel):
 )
 async def scrape(
     request: Request, imdb_id: str, season: int = None, episode: int = None
-) -> ScrapeResponse:
+) -> list[ScrapedTorrent]:
     """
     Scrape media item based on IMDb ID.
 
@@ -104,7 +99,7 @@ async def scrape(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {"success": True, "data": data}
+    return data
 
 @router.get(
     "/rd",

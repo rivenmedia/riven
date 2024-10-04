@@ -1,7 +1,7 @@
 from typing import Literal
 
 import requests
-from controllers.models.shared import DataAndSuccessResponse, MessageAndSuccessResponse
+from controllers.models.shared import DataAndSuccessResponse, MessageAndSuccessResponse, MessageResponse
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from program.content.trakt import TraktContent
@@ -51,7 +51,7 @@ class RDUser(BaseModel):
 
 
 @router.get("/rd", operation_id="rd")
-async def get_rd_user() -> DataAndSuccessResponse[RDUser]:
+async def get_rd_user() -> RDUser:
     api_key = settings_manager.settings.downloaders.real_debrid.api_key
     headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -71,11 +71,7 @@ async def get_rd_user() -> DataAndSuccessResponse[RDUser]:
     if response.status_code != 200:
         return {"success": False, "message": response.json()}
 
-    return {
-        "success": True,
-        "data": response.json(),
-    }
-
+    return response.json()
 
 @router.get("/torbox", operation_id="torbox")
 async def get_torbox_user():
@@ -114,15 +110,13 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
-async def trakt_oauth_callback(
-    code: str, request: Request
-) -> MessageAndSuccessResponse:
+async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
     trakt = request.app.program.services.get(TraktContent)
     if trakt is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
     success = trakt.handle_oauth_callback(code)
     if success:
-        return {"success": True, "message": "OAuth token obtained successfully"}
+        return {"message": "OAuth token obtained successfully"}
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
@@ -197,12 +191,11 @@ async def get_stats(_: Request) -> StatsResponse:
 
 
 class LogsResponse(BaseModel):
-    success: bool
     logs: str
 
 
 @router.get("/logs", operation_id="logs")
-async def get_logs() -> LogsResponse:
+async def get_logs() -> str:
     log_file_path = None
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
@@ -215,21 +208,21 @@ async def get_logs() -> LogsResponse:
     try:
         with open(log_file_path, "r") as log_file:
             log_contents = log_file.read()
-        return {"success": True, "logs": log_contents}
+        return {"logs": log_contents}
     except Exception as e:
         logger.error(f"Failed to read log file: {e}")
-        return {"success": False, "message": "Failed to read log file"}
+        raise HTTPException(status_code=500, detail="Failed to read log file")
 
 
 @router.get("/events", operation_id="events")
 async def get_events(
     request: Request,
-) -> DataAndSuccessResponse[dict[str, list[EventUpdate]]]:
-    return {"success": True, "data": request.app.program.em.get_event_updates()}
+) -> dict[str, list[EventUpdate]]:
+    return request.app.program.em.get_event_updates()
 
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files() -> DataAndSuccessResponse[dict[str, str]]:
+async def get_rclone_files() -> dict[str, str]:
     """Get all files in the rclone mount."""
     import os
 
@@ -245,4 +238,4 @@ async def get_rclone_files() -> DataAndSuccessResponse[dict[str, str]]:
                     scan_dir(entry.path)
 
     scan_dir(rclone_dir)  # dict of `filename: filepath``
-    return {"success": True, "data": file_map}
+    return file_map
