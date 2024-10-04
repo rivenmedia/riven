@@ -9,8 +9,7 @@ from program.db.db import db
 from utils.logger import logger
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
-    from program.media.state import States
+    from program.media.item import ProfileData
 
 
 class StreamRelation(db.Model):

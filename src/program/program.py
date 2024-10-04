@@ -15,7 +15,7 @@ from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
 from program.libraries.symlink import fix_broken_symlinks
-from program.media.item import Episode, MediaItem, Movie, Profile, Season, Show
+from program.media.item import MediaItem, Movie, Profile, Show
 from program.media.state import States
 from program.post_processing import PostProcessing
 from program.scrapers import Scraping

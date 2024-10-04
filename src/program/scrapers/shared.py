@@ -4,7 +4,7 @@ from typing import Dict, Set, Union
 from RTN import RTN, ParsedData, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 
-from program.media.item import Episode, MediaItem, Movie, ProfileData, Season, Show
+from program.media.item import ProfileData
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
@@ -17,16 +17,17 @@ ranking_model = models.get(settings_model.profile)
 rtn = RTN(settings_model, ranking_model)
 
 
-def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
+def _get_stremio_identifier(profile: ProfileData) -> tuple[str | None, str, str]:
     """Get the stremio identifier for a media item based on its type."""
-    if isinstance(item, Show):
-        identifier, scrape_type, imdb_id = ":1:1", "series", item.ids["imdb_id"]
-    elif isinstance(item, Season):
-        identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.ids["imdb_id"]
-    elif isinstance(item, Episode):
-        identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.ids["imdb_id"]
-    elif isinstance(item, Movie):
-        identifier, scrape_type, imdb_id = None, "movie", item.ids["imdb_id"]
+    imdb_id = profile.parent.get_top_imdb_id()
+    if profile.parent.type == "show":
+        identifier, scrape_type, imdb_id = ":1:1", "series", imdb_id
+    elif profile.parent.type == "season":
+        identifier, scrape_type, imdb_id = f":{profile.parent.number}:1", "series", imdb_id
+    elif profile.parent.type == "episode":
+        identifier, scrape_type, imdb_id = f":{profile.parent.parent.number}:{profile.parent.number}", "series", imdb_id
+    elif profile.parent.type == "movie":
+        identifier, scrape_type, imdb_id = None, "movie", imdb_id
     else:
         return None, None, None
     return identifier, scrape_type, imdb_id
@@ -134,27 +135,27 @@ def _parse_results(profile: ProfileData, results: Dict[str, str], log_msg: bool 
 
 # helper functions
 
-def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
+def _check_item_year(profile: ProfileData, parsed_data: ParsedData) -> bool:
     """Check if the year of the torrent is within the range of the item."""
-    year_range = [item.aired_at.year - 1, item.aired_at.year, item.aired_at.year + 1]
-    if item.type == "movie" and data.year:
-        return data.year in year_range
+    year_range = [profile.parent.aired_at.year - 1, profile.parent.aired_at.year, profile.parent.aired_at.year + 1]
+    if profile.parent.type == "movie" and parsed_data.year:
+        return parsed_data.year in year_range
     return False
 
-def _get_item_country(item: MediaItem) -> str:
+def _get_item_country(profile: ProfileData) -> str:
     """Get the country code for a country."""
-    if item.type == "season":
-        return item.parent.country.upper()
-    elif item.type == "episode":
-        return item.parent.parent.country.upper()
-    return item.country.upper()
+    if profile.parent.type == "season":
+        return profile.parent.country.upper()
+    elif profile.parent.type == "episode":
+        return profile.parent.parent.country.upper()
+    return profile.parent.country.upper()
 
-def _get_needed_seasons(item: Union[Show, Season, Episode]) -> list[int]:
+def _get_needed_seasons(profile: ProfileData) -> list[int]:
     """Get the seasons that are needed for the item."""
-    if item.type == "show":
-        return [season.number for season in item.seasons if season.last_state != States.Completed]
-    elif item.type == "season":
-        return [season.number for season in item.parent.seasons if season.last_state != States.Completed]
-    elif item.type == "episode":
-        return [season.number for season in item.parent.parent.seasons if season.last_state != States.Completed]
+    if profile.parent.type == "show":
+        return [season.number for season in profile.parent.seasons if season.last_state != States.Completed]
+    elif profile.parent.type == "season":
+        return [season.number for season in profile.parent.seasons if season.last_state != States.Completed]
+    elif profile.parent.type == "episode":
+        return [season.number for season in profile.parent.parent.seasons if season.last_state != States.Completed]
     return []

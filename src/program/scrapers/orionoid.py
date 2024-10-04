@@ -87,7 +87,7 @@ class Orionoid:
             logger.error(f"Orionoid failed to check limit: {e}")
             return False
 
-    def run(self, data: ProfileData) -> Dict[str, str]:
+    def run(self, profile: ProfileData) -> Dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
         if not self.is_unlimited:
             limit_hit = self.check_limit()
@@ -96,17 +96,17 @@ class Orionoid:
                 return {}
 
         try:
-            return self.scrape(data)
+            return self.scrape(profile)
         except RateLimitExceeded:
             self.rate_limiter.limit_hit()
         except Exception as e:
-            logger.opt(exception=True).error(f"Orionoid exception for item: {data.log_string} - Exception: {e}")
+            logger.opt(exception=True).error(f"Orionoid exception for item: {profile.log_string} - Exception: {e}")
         return {}
 
-    def _build_query_params(self, data: ProfileData) -> dict:
+    def _build_query_params(self, profile: ProfileData) -> dict:
         """Construct the query parameters for the Orionoid API based on the media item."""
-        media_type = "movie" if data.parent.type == "movie" else "show"
-        imdbid: str = data.parent.get_top_imdb_id()
+        media_type = "movie" if profile.parent.type == "movie" else "show"
+        imdbid: str = profile.parent.get_top_imdb_id()
         if not imdbid:
             raise ValueError("IMDB ID is missing for the media item")
 
@@ -121,11 +121,11 @@ class Orionoid:
             "protocoltorrent": "magnet"
         }
 
-        if data.parent.type == "season":
-            params["numberseason"] = data.parent.number
-        elif data.parent.type == "episode":
-            params["numberseason"] = data.parent.parent.number
-            params["numberepisode"] = data.parent.number
+        if profile.parent.type == "season":
+            params["numberseason"] = profile.parent.number
+        elif profile.parent.type == "episode":
+            params["numberseason"] = profile.parent.parent.number
+            params["numberepisode"] = profile.parent.number
 
         if self.settings.cached_results_only:
             params["access"] = "realdebridtorrent"
@@ -137,9 +137,9 @@ class Orionoid:
 
         return params
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, profile: ProfileData) -> Dict[str, str]:
         """Wrapper for `Orionoid` scrape method"""
-        params = self._build_query_params(item)
+        params = self._build_query_params(profile)
         response = get(self.base_url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
         if not response.is_ok or not hasattr(response.data, "data"):
             return {}
@@ -151,8 +151,8 @@ class Orionoid:
             torrents[stream.file.hash] = stream.file.name
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {profile.log_string}")
         else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+            logger.log("NOT_FOUND", f"No streams found for {profile.log_string}")
 
         return torrents

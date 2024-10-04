@@ -1,9 +1,8 @@
 import threading
 from datetime import datetime
-from typing import Dict, Generator, List, Union
+from typing import Dict, Generator, List
 
-from program.media.item import Episode, MediaItem, Movie, ProfileData, Season, Show
-from program.media.state import States
+from program.media.item import ProfileData
 from program.media.stream import Stream
 from program.scrapers.annatar import Annatar
 from program.scrapers.comet import Comet
@@ -77,7 +76,7 @@ class Scraping:
                 results.update(service_results)
                 total_results += len(service_results)
 
-        for service_name, service in self.services.items():
+        for service_name, service in self.services.profiles():
             if service.initialized:
                 thread = threading.Thread(target=run_service, args=(service, profile), name=service_name.__name__)
                 threads.append(thread)
@@ -105,13 +104,13 @@ class Scraping:
         return sorted_streams
 
     @classmethod
-    def can_we_scrape(cls, item: MediaItem) -> bool:
-        """Check if we can scrape an item."""
-        if not item.is_released:
-            logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
+    def can_we_scrape(cls, profile: ProfileData) -> bool:
+        """Check if we can scrape an profile."""
+        if not profile.is_released:
+            logger.debug(f"Cannot scrape {profile.parent.log_string}: item is not released")
             return False
-        if not cls.should_submit(item):
-            logger.debug(f"Cannot scrape {item.log_string}: Item has been scraped recently, backing off")
+        if not cls.should_submit(profile):
+            logger.debug(f"Cannot scrape {profile.parent.log_string}: profile has been scraped recently, backing off")
             return False
         return True
 
