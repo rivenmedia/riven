@@ -1,6 +1,7 @@
 from copy import copy
 from typing import Any, Dict, List
 
+from controllers.models.shared import MessageResponse
 from fastapi import APIRouter, HTTPException
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
@@ -26,48 +27,29 @@ async def get_settings_schema() -> dict[str, Any]:
     """
     return settings_manager.settings.model_json_schema()
 
-class LoadSettingsResponse(BaseModel):
-    success: bool
-    message: str
-
 @router.get("/load", operation_id="load_settings")
-async def load_settings() -> LoadSettingsResponse:
+async def load_settings() -> MessageResponse:
     settings_manager.load()
     return {
-        "success": True,
         "message": "Settings loaded!",
     }
 
-class SaveSettingsResponse(BaseModel):
-    success: bool
-    message: str
-
 @router.post("/save", operation_id="save_settings")
-async def save_settings() -> SaveSettingsResponse:
+async def save_settings() -> MessageResponse:
     settings_manager.save()
     return {
-        "success": True,
         "message": "Settings saved!",
     }
 
-class GetAllSettingsResponse(BaseModel):
-    success: bool
-    data: AppModel
 
 @router.get("/get/all", operation_id="get_all_settings")
-async def get_all_settings() -> GetAllSettingsResponse:
-    return {
-        "success": True,
-        "data": copy(settings_manager.settings),
-    }
+async def get_all_settings() -> dict[str, Any]:
+    return copy(settings_manager.settings)
 
-class GetSettingsResponse(BaseModel):
-    success: bool
-    data: dict[str, Any]
 
 @router.get("/get/{paths}", operation_id="get_settings")
-async def get_settings(paths: str) -> GetSettingsResponse:
-    current_settings = settings_manager.settings.dict()
+async def get_settings(paths: str) -> dict[str, Any]:
+    current_settings = settings_manager.settings.model_dump()
     data = {}
     for path in paths.split(","):
         keys = path.split(".")
@@ -79,18 +61,11 @@ async def get_settings(paths: str) -> GetSettingsResponse:
             current_obj = current_obj[k]
 
         data[path] = current_obj
+    return data
 
-    return {
-        "success": True,
-        "data": data,
-    }
-
-class SetAllSettingsResponse(BaseModel):
-    success: bool
-    message: str
 
 @router.post("/set/all", operation_id="set_all_settings")
-async def set_all_settings(new_settings: Dict[str, Any]) -> SetAllSettingsResponse:
+async def set_all_settings(new_settings: Dict[str, Any]) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
     def update_settings(current_obj, new_obj):
@@ -111,16 +86,11 @@ async def set_all_settings(new_settings: Dict[str, Any]) -> SetAllSettingsRespon
         raise HTTPException(status_code=400, detail=str(e))
 
     return {
-        "success": True,
         "message": "All settings updated successfully!",
     }
 
-class SetSettingsResponse(BaseModel):
-    success: bool
-    message: str
-
-@router.post("/set")
-async def set_settings(settings: List[SetSettings]) -> SetSettingsResponse:
+@router.post("/set", operation_id="set_settings")
+async def set_settings(settings: List[SetSettings]) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
     for setting in settings:
@@ -156,5 +126,4 @@ async def set_settings(settings: List[SetSettings]) -> SetSettingsResponse:
             detail=f"Failed to update settings: {str(e)}",
         )
 
-    return {"success": True, "message": "Settings updated successfully."}
-
+    return {"message": "Settings updated successfully."}
