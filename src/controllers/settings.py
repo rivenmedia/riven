@@ -43,7 +43,7 @@ async def save_settings() -> MessageResponse:
 
 
 @router.get("/get/all", operation_id="get_all_settings")
-async def get_all_settings() -> dict[str, Any]:
+async def get_all_settings() -> AppModel:
     return copy(settings_manager.settings)
 
 
