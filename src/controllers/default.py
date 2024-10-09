@@ -113,17 +113,23 @@ async def get_stats(_: Request):
         total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
         total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
 
-    # Select only the IDs of incomplete items
-        _incomplete_items = session.execute(
-            select(MediaItem._id)
-            .where(MediaItem.last_state != States.Completed)
-        ).scalars().all()
-        
+        # Use a server-side cursor for batch processing
         incomplete_retries = {}
-        if _incomplete_items:
-            media_items = session.query(MediaItem).filter(MediaItem._id.in_(_incomplete_items)).all()
-            for media_item in media_items:
-                incomplete_retries[media_item.log_string] = media_item.scraped_times
+        batch_size = 1000
+
+        with session.connection().execution_options(stream_results=True) as conn:
+            result = conn.execute(
+                select(MediaItem._id, MediaItem.scraped_times)
+                .where(MediaItem.last_state != States.Completed)
+            )
+
+            while True:
+                batch = result.fetchmany(batch_size)
+                if not batch:
+                    break
+
+                for media_item_id, scraped_times in batch:
+                    incomplete_retries[media_item_id] = scraped_times
 
         states = {}
         for state in States:
@@ -135,7 +141,7 @@ async def get_stats(_: Request):
         payload["total_seasons"] = total_seasons
         payload["total_episodes"] = total_episodes
         payload["total_symlinks"] = total_symlinks
-        payload["incomplete_items"] = len(_incomplete_items)
+        payload["incomplete_items"] = len(incomplete_retries)
         payload["incomplete_retries"] = incomplete_retries
         payload["states"] = states
 
