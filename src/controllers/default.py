@@ -102,22 +102,22 @@ async def trakt_oauth_callback(code: str, request: Request):
 async def get_stats(_: Request):
     payload = {}
     with db.Session() as session:
-
-        movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
-        episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
-        total_symlinks = movies_symlinks + episodes_symlinks
-
-        total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
-        total_shows = session.execute(select(func.count(Show._id))).scalar_one()
-        total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
-        total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
-        total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
-
-        # Use a server-side cursor for batch processing
-        incomplete_retries = {}
-        batch_size = 1000
-
+        # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
+            movies_symlinks = conn.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one()
+            episodes_symlinks = conn.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one()
+            total_symlinks = movies_symlinks + episodes_symlinks
+
+            total_movies = conn.execute(select(func.count(Movie._id))).scalar_one()
+            total_shows = conn.execute(select(func.count(Show._id))).scalar_one()
+            total_seasons = conn.execute(select(func.count(Season._id))).scalar_one()
+            total_episodes = conn.execute(select(func.count(Episode._id))).scalar_one()
+            total_items = conn.execute(select(func.count(MediaItem._id))).scalar_one()
+
+            # Use a server-side cursor for batch processing
+            incomplete_retries = {}
+            batch_size = 1000
+
             result = conn.execute(
                 select(MediaItem._id, MediaItem.scraped_times)
                 .where(MediaItem.last_state != States.Completed)
@@ -131,21 +131,21 @@ async def get_stats(_: Request):
                 for media_item_id, scraped_times in batch:
                     incomplete_retries[media_item_id] = scraped_times
 
-        states = {}
-        for state in States:
-            states[state] = session.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state)).scalar_one()
+            states = {}
+            for state in States:
+                states[state] = conn.execute(select(func.count(MediaItem._id)).where(MediaItem.last_state == state)).scalar_one()
 
-        payload["total_items"] = total_items
-        payload["total_movies"] = total_movies
-        payload["total_shows"] = total_shows
-        payload["total_seasons"] = total_seasons
-        payload["total_episodes"] = total_episodes
-        payload["total_symlinks"] = total_symlinks
-        payload["incomplete_items"] = len(incomplete_retries)
-        payload["incomplete_retries"] = incomplete_retries
-        payload["states"] = states
+            payload["total_items"] = total_items
+            payload["total_movies"] = total_movies
+            payload["total_shows"] = total_shows
+            payload["total_seasons"] = total_seasons
+            payload["total_episodes"] = total_episodes
+            payload["total_symlinks"] = total_symlinks
+            payload["incomplete_items"] = len(incomplete_retries)
+            payload["incomplete_retries"] = incomplete_retries
+            payload["states"] = states
 
-        return {"success": True, "data": payload}
+    return {"success": True, "data": payload}
 
 @router.get("/logs", operation_id="logs")
 async def get_logs():
