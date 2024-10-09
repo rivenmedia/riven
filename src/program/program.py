@@ -36,7 +36,7 @@ if settings_manager.settings.tracemalloc:
 from sqlalchemy import func, select, text
 
 import program.db.db_functions as DB
-from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
+from program.db.db import create_database_if_not_exists, db, run_migrations, vacuum_and_analyze_index_maintenance
 
 
 class Program(threading.Thread):
@@ -136,7 +136,11 @@ class Program(threading.Thread):
 
         if not self.validate_database():
             # We should really make this configurable via frontend...
-            return
+            logger.log("PROGRAM", "Database not found, trying to create database")
+            if not create_database_if_not_exists():
+                logger.error("Failed to create database, exiting")
+                return
+            logger.success("Database created successfully")
 
         run_migrations()
         self._init_db_from_symlinks()

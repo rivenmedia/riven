@@ -201,44 +201,41 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str):
         return {"success": True, "items": [item.to_extended_dict() for item in items]}
 
 @router.post(
-        "/reset",
-        summary="Reset Media Items",
-        description="Reset media items with bases on item IDs",
+    "/reset",
+    summary="Reset Media Items",
+    description="Reset media items with bases on item IDs",
 )
-async def reset_items(
-    request: Request, ids: str
-):
+async def reset_items(request: Request, ids: str):
     ids = handle_ids(ids)
     try:
-        media_items = get_media_items_by_ids(ids)
-        if not media_items or len(media_items) != len(ids):
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
-        for media_item in media_items:
+        media_items_generator = get_media_items_by_ids(ids)
+        for media_item in media_items_generator:
             try:
                 request.app.program.em.cancel_job(media_item)
                 clear_streams(media_item)
                 reset_media_item(media_item)
-            except Exception as e:
+            except ValueError as e:
                 logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error while resetting item with id {media_item._id}: {str(e)}")
                 continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"success": True, "message": f"Reset items with id {ids}"}
 
 @router.post(
-        "/retry",
-        summary="Retry Media Items",
-        description="Retry media items with bases on item IDs",
+    "/retry",
+    summary="Retry Media Items",
+    description="Retry media items with bases on item IDs",
 )
 async def retry_items(request: Request, ids: str):
     ids = handle_ids(ids)
     try:
-        media_items = get_media_items_by_ids(ids)
-        if not media_items or len(media_items) != len(ids):
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
-        for media_item in media_items:
+        media_items_generator = get_media_items_by_ids(ids)
+        for media_item in media_items_generator:
             request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1) # Ensure cancellation is processed
+            await asyncio.sleep(0.1)  # Ensure cancellation is processed
             request.app.program.em.add_item(media_item)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

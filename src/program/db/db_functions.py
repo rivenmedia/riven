@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List
 
 import alembic
 from sqlalchemy import delete, func, insert, select, text, union_all
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -21,41 +21,42 @@ if TYPE_CHECKING:
 def get_media_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
     from program.media.item import Episode, MediaItem, Movie, Season, Show
-    items = []
+
+    def get_item(session, media_item_id, item_type):
+        match item_type:
+            case "movie":
+                return session.execute(
+                    select(Movie)
+                    .where(MediaItem._id == media_item_id)
+                ).unique().scalar_one()
+            case "show":
+                return session.execute(
+                    select(Show)
+                    .where(MediaItem._id == media_item_id)
+                    .options(selectinload(Show.seasons).selectinload(Season.episodes))
+                ).unique().scalar_one()
+            case "season":
+                return session.execute(
+                    select(Season)
+                    .where(Season._id == media_item_id)
+                    .options(selectinload(Season.episodes))
+                ).unique().scalar_one()
+            case "episode":
+                return session.execute(
+                    select(Episode)
+                    .where(Episode._id == media_item_id)
+                ).unique().scalar_one()
+            case _:
+                return None
 
     with db.Session() as session:
         for media_item_id in media_item_ids:
-            item_type = session.execute(select(MediaItem.type).where(MediaItem._id==media_item_id)).scalar_one()
+            item_type = session.execute(select(MediaItem.type).where(MediaItem._id == media_item_id)).scalar_one()
             if not item_type:
                 continue
-            item = None
-            match item_type:
-                case "movie":
-                    item = session.execute(
-                        select(Movie)
-                        .where(MediaItem._id == media_item_id)
-                    ).unique().scalar_one()
-                case "show":
-                    item = session.execute(
-                        select(Show)
-                        .where(MediaItem._id == media_item_id)
-                        .options(joinedload(Show.seasons).joinedload(Season.episodes))
-                    ).unique().scalar_one()
-                case "season":
-                    item = session.execute(
-                        select(Season)
-                        .where(Season._id == media_item_id)
-                        .options(joinedload(Season.episodes))
-                    ).unique().scalar_one()
-                case "episode":
-                    item = session.execute(
-                        select(Episode)
-                        .where(Episode._id == media_item_id)
-                    ).unique().scalar_one()
+            item = get_item(session, media_item_id, item_type)
             if item:
-                items.append(item)
-
-    return items
+                yield item
 
 def get_parent_items_by_ids(media_item_ids: list[int]):
     """Retrieve multiple MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
@@ -312,36 +313,29 @@ def _get_item_from_db(session, item: "MediaItem"):
     if not _ensure_item_exists_in_db(item):
         return None
     session.expire_on_commit = False
-    type = _get_item_type_from_db(item)
-    match type:
+    match item.type:
         case "movie":
-            r = session.execute(
+            return session.execute(
                 select(Movie)
                 .where(MediaItem.imdb_id == item.imdb_id)
-            ).unique().scalar_one()
-            return r
+            ).unique().scalar_one_or_none()
         case "show":
-            r = session.execute(
+            return session.execute(
                 select(Show)
                 .where(MediaItem.imdb_id == item.imdb_id)
-                .options(joinedload(Show.seasons).joinedload(Season.episodes))
-            ).unique().scalar_one()
-            return r
+            ).unique().scalar_one_or_none()
         case "season":
-            r = session.execute(
+            return session.execute(
                 select(Season)
                 .where(Season._id == item._id)
-                .options(joinedload(Season.episodes))
-            ).unique().scalar_one()
-            return r
+            ).unique().scalar_one_or_none()
         case "episode":
-            r = session.execute(
+            return session.execute(
                 select(Episode)
                 .where(Episode._id == item._id)
-            ).unique().scalar_one()
-            return r
+            ).unique().scalar_one_or_none()
         case _:
-            logger.error(f"_get_item_from_db Failed to create item from type: {type}")
+            logger.error(f"_get_item_from_db Failed to create item from type: {item.type}")
             return None
 
 def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:

@@ -7,7 +7,7 @@ from threading import Lock
 
 from loguru import logger
 from sqlalchemy.orm.exc import StaleDataError
-from subliminal import Episode, Movie
+from concurrent.futures import CancelledError
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db
@@ -69,12 +69,11 @@ class EventManager:
             if item:
                 self.remove_item_from_running(item)
                 self.add_event(Event(emitted_by=service, item=item, run_at=timestamp))
-        except concurrent.futures.CancelledError:
-            # This is expected behavior when cancelling tasks
+        except (StaleDataError, CancelledError):
+            # Expected behavior when cancelling tasks or when the item was removed
             return
-        except StaleDataError:
-            # This is expected behavior when cancelling tasks
-            return
+        except ValueError as e:
+            logger.error(f"Error in future for {future}: {e}")
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())

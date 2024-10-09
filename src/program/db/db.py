@@ -25,10 +25,10 @@ engine_options={
 #     cursor.execute("SET statement_timeout = 300000")
 #     cursor.close()
 
-db = SQLAlchemy(settings_manager.settings.database.host, engine_options=engine_options)
+db_host = settings_manager.settings.database.host
+db = SQLAlchemy(db_host, engine_options=engine_options)
 
 script_location = data_dir_path / "alembic/"
-
 
 if not os.path.exists(script_location):
     os.makedirs(script_location)
@@ -36,6 +36,19 @@ if not os.path.exists(script_location):
 alembic = Alembic(db, script_location)
 alembic.init(script_location)
 
+
+def create_database_if_not_exists():
+    """Create the database if it doesn't exist."""
+    db_name = db_host.split('/')[-1]
+    db_base_host = '/'.join(db_host.split('/')[:-1])
+    try:
+        temp_db = SQLAlchemy(db_base_host, engine_options=engine_options)
+        with temp_db.engine.connect() as connection:
+            connection.execution_options(isolation_level="AUTOCOMMIT").execute(text(f"CREATE DATABASE {db_name}"))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create database {db_name}: {e}")
+        return False
 
 # https://stackoverflow.com/questions/61374525/how-do-i-check-if-alembic-migrations-need-to-be-generated
 def need_upgrade_check() -> bool:
