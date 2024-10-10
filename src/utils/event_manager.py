@@ -6,13 +6,14 @@ from queue import Empty
 from threading import Lock
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm.exc import StaleDataError
 from concurrent.futures import CancelledError
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
-from program.media.item import Season, Show
+from program.media.item import MediaItem, Season, Show
 from program.types import Event
 
 
@@ -25,6 +26,7 @@ class EventManager:
         self._futures = []
         self._queued_events = []
         self._running_events = []
+        self._remove_id_queue = []
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls) -> concurrent.futures.ThreadPoolExecutor:
@@ -60,7 +62,8 @@ class EventManager:
         """
         try:
             result = next(future.result(), None)
-            self._futures.remove(future)
+            if future in self._futures:
+                self._futures.remove(future)
             ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
             if isinstance(result, tuple):
                 item, timestamp = result
@@ -68,12 +71,16 @@ class EventManager:
                 item, timestamp = result, datetime.now()
             if item:
                 self.remove_item_from_running(item)
+                if item._id in self._remove_id_queue:
+                    # Item was removed while running
+                    logger.debug(f"Item {item.log_string} is in the removed queue, discarding result.")
+                    self._remove_id_queue.remove(item._id)
+                    self.remove_item_from_queue(item)
+                    return
                 self.add_event(Event(emitted_by=service, item=item, run_at=timestamp))
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return
-        except ValueError as e:
-            logger.error(f"Error in future for {future}: {e}")
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
@@ -201,10 +208,35 @@ class EventManager:
                 self._futures.remove(future)
 
         # Clear from queued and running events
-        self._queued_events = [event for event in self._queued_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
-        self._running_events = [event for event in self._running_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+        with self.mutex:
+            self._remove_id_queue.append(item._id)
+            self._queued_events = [event for event in self._queued_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+            self._running_events = [event for event in self._running_events if event.item._id != item._id and event.item.imdb_id != item.imdb_id]
+            self._futures = [future for future in self._futures if not hasattr(future, 'event') or future.event.item._id != item._id and future.event.item.imdb_id != item.imdb_id]
 
         logger.debug(f"Canceled jobs for item {item.log_string} and its children.")
+
+    def cancel_job_by_id(self, item_id, suppress_logs=False):
+        """
+        Cancels a job associated with the given media item ID.
+
+        Args:
+            item_id (int): The ID of the media item whose job needs to be canceled.
+            suppress_logs (bool): If True, suppresses debug logging for this operation.
+        """
+        with db.Session() as session:
+            # Fetch only the necessary fields
+            item = session.execute(
+                select(MediaItem).where(MediaItem._id == item_id)
+            ).unique().scalar_one_or_none()
+            
+            if not item:
+                if not suppress_logs:
+                    logger.error(f"No item found with ID {item_id}")
+                return
+
+            # Use the existing cancel_job logic with just the ID
+            self.cancel_job(item, suppress_logs)
 
     def next(self):
         """

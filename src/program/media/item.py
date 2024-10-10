@@ -196,10 +196,13 @@ class MediaItem(db.Model):
 
     def is_scraped(self):
         session = object_session(self)
-        if session:
-            session.refresh(self, attribute_names=['blacklisted_streams']) # Prom: Ensure these reflect the state of whats in the db.
-        return (len(self.streams) > 0
-            and any(not stream in self.blacklisted_streams for stream in self.streams))
+        if session and session.is_active:
+            try:
+                session.refresh(self, attribute_names=['blacklisted_streams'])
+                return (len(self.streams) > 0 and any(not stream in self.blacklisted_streams for stream in self.streams))
+            except (sqlalchemy.exc.InvalidRequestError, sqlalchemy.orm.exc.DetachedInstanceError):
+                return False
+        return False
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""

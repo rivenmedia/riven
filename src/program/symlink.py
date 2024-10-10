@@ -270,6 +270,15 @@ class Symlinker:
             item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
         return _delete_symlink(item, item_path)
 
+    def delete_item_symlinks_by_id(self, item_id: int) -> bool:
+        """Delete symlinks and directories based on the item ID."""
+        with db.Session() as session:
+            item = session.execute(select(MediaItem).where(MediaItem._id == item_id)).unique().scalar_one()
+            if not item:
+                logger.error(f"No item found with ID {item_id}")
+                return False
+            return self.delete_item_symlinks(item)
+
 def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
     try:
         if item_path.exists():

@@ -3,27 +3,28 @@ from datetime import datetime
 from typing import Optional
 
 import Levenshtein
-from RTN import RTN, Torrent
+from RTN import Torrent
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import NoResultFound
 
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
     clear_streams,
+    clear_streams_by_id,
     delete_media_item,
+    delete_media_item_by_id,
     get_media_items_by_ids,
+    get_parent_ids,
     get_parent_items_by_ids,
     reset_media_item,
 )
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Season
 from program.media.state import States
 from program.symlink import Symlinker
 from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import RealDebridDownloader, add_torrent_magnet, torrent_info
-from program.settings.versions import models
-from program.settings.manager import settings_manager
+from program.downloaders.realdebrid import add_torrent_magnet, torrent_info
 from program.media.stream import Stream
 from program.scrapers.shared import rtn
 from program.types import Event
@@ -246,29 +247,38 @@ async def retry_items(request: Request, ids: str):
     "/remove",
     summary="Remove Media Items",
     description="Remove media items based on item IDs",
+    operation_id="remove_item",
 )
 async def remove_item(request: Request, ids: str):
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
-        media_items = get_parent_items_by_ids(ids)
+        media_items: list[int] = get_parent_ids(ids)
         if not media_items:
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+            return HTTPException(status_code=404, detail="Item(s) not found")
+        
         for media_item in media_items:
-            logger.debug(f"Removing item {media_item.title} with ID {media_item._id}")
-            request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1) # Ensure cancellation is processed
-            clear_streams(media_item)
+            logger.debug(f"Removing item with ID {media_item}")
+            request.app.program.em.cancel_job_by_id(media_item)
+            await asyncio.sleep(0.2)  # Ensure cancellation is processed
+            clear_streams_by_id(media_item)
+
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks(media_item)
-            if media_item.requested_by == "overseerr" and media_item.requested_id:
-                logger.debug(f"Item was originally requested by Overseerr, deleting request within Overseerr...")
-                Overseerr.delete_request(media_item.requested_id)
-            delete_media_item(media_item)
+                symlink_service.delete_item_symlinks_by_id(media_item)
+
+            with db.Session() as session:
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == media_item)).scalar_one()
+                if requested_id:
+                    logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
+                    Overseerr.delete_request(requested_id)
+
+            logger.debug(f"Deleting item from database with ID {media_item}")
+            delete_media_item_by_id(media_item)
+            logger.info(f"Successfully removed item with ID {media_item}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Removed items with ids {ids}"}
+    return {"success": True, "message": f"Successfully removed items", "removed_ids": ids}
 
 @router.post("/{id}/set_torrent_rd_magnet", description="Set a torrent for a media item using a magnet link.")
 def add_torrent(request: Request, id: int, magnet: str):

@@ -3,8 +3,8 @@ import shutil
 from typing import TYPE_CHECKING, List
 
 import alembic
-from sqlalchemy import delete, func, insert, select, text, union_all
-from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy.orm import Session, selectinload
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -15,7 +15,7 @@ from utils.logger import logger
 from .db import alembic, db
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
+    from program.media.item import MediaItem, Episode, Season
 
 
 def get_media_items_by_ids(media_item_ids: list[int]):
@@ -69,6 +69,20 @@ def get_parent_items_by_ids(media_item_ids: list[int]):
                 items.append(item)
     return items
 
+def get_parent_ids(media_item_ids: list[int]):
+    """Retrieve the _ids of MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        parent_ids = []
+        for media_item_id in media_item_ids:
+            item_id = session.execute(
+                select(MediaItem._id)
+                .where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))
+            ).scalar_one()
+            if item_id:
+                parent_ids.append(item_id)
+    return parent_ids
+
 def get_item_by_imdb_id(imdb_id: str):
     """Retrieve a MediaItem of type 'movie' or 'show' by an IMDb ID."""
     from program.media.item import MediaItem
@@ -83,17 +97,68 @@ def delete_media_item(item: "MediaItem"):
         session.delete(item)
         session.commit()
 
-def delete_media_item_by_id(media_item_id: int):
-    """Delete a MediaItem and all its associated relationships by the MediaItem _id."""
-    from program.media.item import MediaItem
+def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
+    """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
+    from program.media.item import MediaItem, Show, Season, Episode
     with db.Session() as session:
-        item = session.query(MediaItem).filter_by(_id=media_item_id).first()
+        # First, retrieve the media item's type
+        media_item = session.execute(
+            select(MediaItem._id, MediaItem.type)
+            .where(MediaItem._id == media_item_id)
+        ).first()
 
-        if item:
-            session.delete(item)
-            session.commit()
-        else:
-            raise ValueError(f"MediaItem with id {media_item_id} does not exist.")
+        if not media_item:
+            logger.error(f"No item found with ID {media_item_id}")
+            return False
+        
+        media_item_id, media_item_type = media_item
+
+        if media_item_type == "movie":
+            # Directly delete movie
+            logger.debug(f"Deleting Movie with ID {media_item_id}")
+            session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
+            session.commit()  # Commit movie deletion immediately
+        
+        elif media_item_type == "show":
+            logger.debug(f"Deleting Show with ID {media_item_id}")
+            
+            # Delete Seasons and Episodes in batches, committing after each batch
+            delete_seasons_and_episodes(session, media_item_id, batch_size)
+
+            # Ensure no references exist in the Show table
+            session.execute(delete(Show).where(Show._id == media_item_id))
+
+            # Delete the Show itself
+            session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
+            session.commit()  # Commit show deletion at the end
+
+        return True
+
+def delete_seasons_and_episodes(session, show_id: int, batch_size: int):
+    """Delete seasons and episodes of a show in batches, committing after each batch."""
+    from program.media.item import Episode, Season
+
+    # Delete seasons one by one
+    season_ids = session.execute(
+        select(Season._id).where(Season.parent_id == show_id)
+    ).scalars().all()
+
+    for season_id in season_ids:
+        # Delete episodes in batches for each season
+        while True:
+            episode_ids = session.execute(
+                select(Episode._id)
+                .where(Episode.parent_id == season_id)
+                .limit(batch_size)
+            ).scalars().all()
+
+            if not episode_ids:
+                break
+
+            session.execute(delete(Episode).where(Episode._id.in_(episode_ids)))
+            session.commit()  # Commit after each batch of episodes
+        session.execute(delete(Season).where(Season._id == season_id))
+        session.commit()  # Commit after deleting the season
 
 def delete_media_item_by_item_id(item_id: str):
     """Delete a MediaItem and all its associated relationships by the MediaItem _id."""
@@ -153,6 +218,17 @@ def clear_streams(item: "MediaItem"):
         )
         session.execute(
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
+        )
+        session.commit()
+
+def clear_streams_by_id(media_item_id: int):
+    """Clear all streams for a media item by the MediaItem _id."""
+    with db.Session() as session:
+        session.execute(
+            delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
+        )
+        session.execute(
+            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id)
         )
         session.commit()
 
@@ -233,19 +309,37 @@ def load_streams_in_pages(session: Session, media_item_id: int, page_number: int
 
 def _get_item_ids(session, item):
     from program.media.item import Episode, Season
+
     if item.type == "show":
         show_id = item._id
 
-        season_alias = aliased(Season, flat=True)
-        season_query = select(Season._id.label('id')).where(Season.parent_id == show_id)
-        episode_query = (
-            select(Episode._id.label('id'))
-            .join(season_alias, Episode.parent_id == season_alias._id)
-            .where(season_alias.parent_id == show_id)
-        )
+        # season_alias = aliased(Season, flat=True)
+        # season_query = select(Season._id.label('id')).where(Season.parent_id == show_id)
+        # episode_query = (
+        #     select(Episode._id.label('id'))
+        #     .join(season_alias, Episode.parent_id == season_alias._id)
+        #     .where(season_alias.parent_id == show_id)
+        # )
 
-        combined_query = union_all(season_query, episode_query)
-        related_ids = session.execute(combined_query).scalars().all()
+        # combined_query = union_all(season_query, episode_query)
+        # related_ids = session.execute(combined_query).scalars().all()
+        # return show_id, related_ids
+
+        # Fetch season IDs
+        season_ids = session.execute(
+            select(Season._id).where(Season.parent_id == show_id)
+        ).scalars().all()
+
+        # Fetch episode IDs for each season
+        episode_ids = []
+        for season_id in season_ids:
+            episode_ids.extend(
+                session.execute(
+                    select(Episode._id).where(Episode.parent_id == season_id)
+                ).scalars().all()
+            )
+
+        related_ids = season_ids + episode_ids
         return show_id, related_ids
 
     elif item.type == "season":
@@ -262,6 +356,13 @@ def _get_item_ids(session, item):
         return parent_id, []
 
     return item._id, []
+
+def _get_item_ids_from_item_id(session, media_item_id: int):
+    from program.media.item import MediaItem
+    item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id)).unique().scalar_one_or_none()
+    if not item:
+        return None
+    return _get_item_ids(session, item)
 
 def _ensure_item_exists_in_db(item: "MediaItem") -> bool:
     from program.media.item import MediaItem, Movie, Show
