@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.16.0](https://github.com/rivenmedia/riven/compare/v0.15.3...v0.16.0) (2024-10-10)
+
+
+### Features
+
+* Add debugpy as optional to entrypoint script if DEBUG env variable is set to anything. ([24904fc](https://github.com/rivenmedia/riven/commit/24904fcc27ccba96dfa13245f8eb3add096b36dd))
+* Types for the FastAPI API and API refactor ([#748](https://github.com/rivenmedia/riven/issues/748)) ([9eec02d](https://github.com/rivenmedia/riven/commit/9eec02dd65ace8598edc8822f1c1d69c5a5b1537))
+
+
+### Bug Fixes
+
+* improved removing items from database ([e4b6e2b](https://github.com/rivenmedia/riven/commit/e4b6e2b61893517c01a35a272806a319c845dd77))
+* minor fixes post merge ([01a506f](https://github.com/rivenmedia/riven/commit/01a506faabc675226d6a1412cb2cd3065e3437ca))
+* reset the scraped time when replacing magnets ([82fe92d](https://github.com/rivenmedia/riven/commit/82fe92d952642408b98ea6a3f1fad51c86adffcb))
+* respect orm when removing items ([d6722fa](https://github.com/rivenmedia/riven/commit/d6722fa41e33bcfcb9ceaac32f4be4985af40b15))
+* stream results on stats endpoint ([ff14f85](https://github.com/rivenmedia/riven/commit/ff14f85532221997215e1a1f246a5b8041183e05))
+* switch to batched streaming stats endpoint for inc items ([a8a6aa9](https://github.com/rivenmedia/riven/commit/a8a6aa9f0670098441839042ab2ed3d4990860cd))
+* switch to generator for reset/retry endpoints ([bf4fc0e](https://github.com/rivenmedia/riven/commit/bf4fc0e79a31f2c4d8701e09ae662ebf3c5e2b3f))
+* update full compose with latest zilean changes ([d3ca7a4](https://github.com/rivenmedia/riven/commit/d3ca7a4abd2e0bc7cbef34ab5bbde201986acf55))
+
 ## [0.15.3](https://github.com/rivenmedia/riven/compare/v0.15.2...v0.15.3) (2024-10-03)
 
 
