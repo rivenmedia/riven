@@ -128,7 +128,7 @@ class StatsResponse(BaseModel):
     total_episodes: int
     total_symlinks: int
     incomplete_items: int
-    incomplete_retries: dict[str, int] = Field(
+    incomplete_retries: dict[int, int] = Field(
         description="Media item log string: number of retries"
     )
     states: dict[States, int]
@@ -181,7 +181,11 @@ async def get_stats(_: Request) -> StatsResponse:
             payload["incomplete_retries"] = incomplete_retries
             payload["states"] = states
 
-    return {"success": True, "data": payload}
+    return payload
+
+class LogsResponse(BaseModel):
+    logs: str
+
 
 @router.get("/logs", operation_id="logs")
 async def get_logs() -> str:

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import alembic
 from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.exc import IntegrityError
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -99,40 +100,46 @@ def delete_media_item(item: "MediaItem"):
 
 def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
-    from program.media.item import MediaItem, Show, Season, Episode
+    from program.media.item import MediaItem, Show, Movie
     with db.Session() as session:
-        # First, retrieve the media item's type
-        media_item = session.execute(
-            select(MediaItem._id, MediaItem.type)
-            .where(MediaItem._id == media_item_id)
-        ).first()
+        try:
+            # First, retrieve the media item's type
+            media_item = session.execute(
+                select(MediaItem._id, MediaItem.type)
+                .where(MediaItem._id == media_item_id)
+            ).first()
 
-        if not media_item:
-            logger.error(f"No item found with ID {media_item_id}")
-            return False
-        
-        media_item_id, media_item_type = media_item
-
-        if media_item_type == "movie":
-            # Directly delete movie
-            logger.debug(f"Deleting Movie with ID {media_item_id}")
-            session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
-            session.commit()  # Commit movie deletion immediately
-        
-        elif media_item_type == "show":
-            logger.debug(f"Deleting Show with ID {media_item_id}")
+            if not media_item:
+                logger.error(f"No item found with ID {media_item_id}")
+                return False
             
-            # Delete Seasons and Episodes in batches, committing after each batch
-            delete_seasons_and_episodes(session, media_item_id, batch_size)
+            media_item_id, media_item_type = media_item
 
-            # Ensure no references exist in the Show table
-            session.execute(delete(Show).where(Show._id == media_item_id))
+            if media_item_type not in ["movie", "show"]:
+                logger.error(f"Item with ID {media_item_id} is not a movie or show")
+                return False
 
-            # Delete the Show itself
+            if media_item_type == "movie":
+                session.execute(delete(Movie).where(Movie._id == media_item_id))
+                session.flush()  # Ensure the deletion is processed
+
+            elif media_item_type == "show":
+                delete_seasons_and_episodes(session, media_item_id, batch_size)
+                session.execute(delete(Show).where(Show._id == media_item_id))
+
+            # Finally, delete the MediaItem record
             session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
-            session.commit()  # Commit show deletion at the end
+            session.commit()
+            return True
 
-        return True
+        except IntegrityError as e:
+            logger.error(f"Integrity error while deleting media item with ID {media_item_id}: {e}")
+            session.rollback()
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error while deleting media item with ID {media_item_id}: {e}")
+            session.rollback()
+            return False
 
 def delete_seasons_and_episodes(session, show_id: int, batch_size: int):
     """Delete seasons and episodes of a show in batches, committing after each batch."""

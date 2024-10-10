@@ -5,7 +5,7 @@ from typing import Literal, Optional
 import Levenshtein
 from RTN import Torrent
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import NoResultFound
 
 from controllers.models.shared import MessageResponse
@@ -15,11 +15,9 @@ from program.db.db import db
 from program.db.db_functions import (
     clear_streams,
     clear_streams_by_id,
-    delete_media_item,
     delete_media_item_by_id,
     get_media_items_by_ids,
     get_parent_ids,
-    get_parent_items_by_ids,
     reset_media_item,
 )
 from program.downloaders import Downloader, get_needed_media
@@ -369,7 +367,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"success": True, "message": f"Successfully removed items", "removed_ids": ids}
+    return {"message": f"Removed items with ids {ids}", "ids": ids}
 
 
 class SetTorrentRDResponse(BaseModel):
