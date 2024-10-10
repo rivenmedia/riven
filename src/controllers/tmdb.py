@@ -1,10 +1,21 @@
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Generic, Optional, TypeVar
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends
-
-from program.indexers.tmdb import tmdb
+from program.indexers.tmdb import (
+    TmdbCollectionDetails,
+    TmdbEpisodeDetails,
+    TmdbFindResults,
+    TmdbItem,
+    TmdbMovieDetails,
+    TmdbPagedResults,
+    TmdbPagedResultsWithDates,
+    TmdbSeasonDetails,
+    TmdbTVDetails,
+    tmdb,
+)
+from pydantic import BaseModel
 
 router = APIRouter(
     prefix="/tmdb",
@@ -140,12 +151,21 @@ class TVSearchParams:
         self.year = year
 
 
-@router.get("/trending/{type}/{window}")
+T = TypeVar("T")
+
+
+class TmdbResponse(BaseModel, Generic[T]):
+    success: bool
+    data: Optional[T] = None
+    message: Optional[str] = None
+
+
+@router.get("/trending/{type}/{window}", operation_id="get_trending")
 async def get_trending(
     params: Annotated[TrendingParams, Depends()],
     type: TrendingType,
     window: TrendingWindow,
-):
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     trending = tmdb.getTrending(
         params=dict_to_query_string(params.__dict__),
         type=type.value,
@@ -163,8 +183,10 @@ async def get_trending(
         }
 
 
-@router.get("/movie/now_playing")
-async def get_movies_now_playing(params: Annotated[CommonListParams, Depends()]):
+@router.get("/movie/now_playing", operation_id="get_movies_now_playing")
+async def get_movies_now_playing(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResultsWithDates[TmdbItem]]:  # noqa: F821
     movies = tmdb.getMoviesNowPlaying(params=dict_to_query_string(params.__dict__))
     if movies:
         return {
@@ -178,8 +200,10 @@ async def get_movies_now_playing(params: Annotated[CommonListParams, Depends()])
         }
 
 
-@router.get("/movie/popular")
-async def get_movies_popular(params: Annotated[CommonListParams, Depends()]):
+@router.get("/movie/popular", operation_id="get_movies_popular")
+async def get_movies_popular(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     movies = tmdb.getMoviesPopular(params=dict_to_query_string(params.__dict__))
     if movies:
         return {
@@ -193,8 +217,10 @@ async def get_movies_popular(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/movie/top_rated")
-async def get_movies_top_rated(params: Annotated[CommonListParams, Depends()]):
+@router.get("/movie/top_rated", operation_id="get_movies_top_rated")
+async def get_movies_top_rated(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     movies = tmdb.getMoviesTopRated(params=dict_to_query_string(params.__dict__))
     if movies:
         return {
@@ -208,8 +234,10 @@ async def get_movies_top_rated(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/movie/upcoming")
-async def get_movies_upcoming(params: Annotated[CommonListParams, Depends()]):
+@router.get("/movie/upcoming", operation_id="get_movies_upcoming")
+async def get_movies_upcoming(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResultsWithDates[TmdbItem]]:
     movies = tmdb.getMoviesUpcoming(params=dict_to_query_string(params.__dict__))
     if movies:
         return {
@@ -226,11 +254,11 @@ async def get_movies_upcoming(params: Annotated[CommonListParams, Depends()]):
 # FastAPI has router preference, so /movie/now_playing, /movie/popular, /movie/top_rated and /movie/upcoming will be matched first before /movie/{movie_id}, same for /tv/{tv_id}
 
 
-@router.get("/movie/{movie_id}")
+@router.get("/movie/{movie_id}", operation_id="get_movie_details")
 async def get_movie_details(
     movie_id: str,
     params: Annotated[DetailsParams, Depends()],
-):
+) -> TmdbResponse[TmdbMovieDetails]:
     data = tmdb.getMovieDetails(
         params=dict_to_query_string(params.__dict__),
         movie_id=movie_id,
@@ -247,8 +275,10 @@ async def get_movie_details(
         }
 
 
-@router.get("/tv/airing_today")
-async def get_tv_airing_today(params: Annotated[CommonListParams, Depends()]):
+@router.get("/tv/airing_today", operation_id="get_tv_airing_today")
+async def get_tv_airing_today(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     tv = tmdb.getTVAiringToday(params=dict_to_query_string(params.__dict__))
     if tv:
         return {
@@ -262,8 +292,10 @@ async def get_tv_airing_today(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/tv/on_the_air")
-async def get_tv_on_the_air(params: Annotated[CommonListParams, Depends()]):
+@router.get("/tv/on_the_air", operation_id="get_tv_on_the_air")
+async def get_tv_on_the_air(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     tv = tmdb.getTVOnTheAir(params=dict_to_query_string(params.__dict__))
     if tv:
         return {
@@ -277,8 +309,10 @@ async def get_tv_on_the_air(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/tv/popular")
-async def get_tv_popular(params: Annotated[CommonListParams, Depends()]):
+@router.get("/tv/popular", operation_id="get_tv_popular")
+async def get_tv_popular(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     tv = tmdb.getTVPopular(params=dict_to_query_string(params.__dict__))
     if tv:
         return {
@@ -292,8 +326,10 @@ async def get_tv_popular(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/tv/top_rated")
-async def get_tv_top_rated(params: Annotated[CommonListParams, Depends()]):
+@router.get("/tv/top_rated", operation_id="get_tv_top_rated")
+async def get_tv_top_rated(
+    params: Annotated[CommonListParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     tv = tmdb.getTVTopRated(params=dict_to_query_string(params.__dict__))
     if tv:
         return {
@@ -307,11 +343,11 @@ async def get_tv_top_rated(params: Annotated[CommonListParams, Depends()]):
         }
 
 
-@router.get("/tv/{series_id}")
+@router.get("/tv/{series_id}", operation_id="get_tv_details")
 async def get_tv_details(
     series_id: str,
     params: Annotated[DetailsParams, Depends()],
-):
+) -> TmdbResponse[TmdbTVDetails]:
     data = tmdb.getTVDetails(
         params=dict_to_query_string(params.__dict__),
         series_id=series_id,
@@ -328,12 +364,14 @@ async def get_tv_details(
         }
 
 
-@router.get("/tv/{series_id}/season/{season_number}")
+@router.get(
+    "/tv/{series_id}/season/{season_number}", operation_id="get_tv_season_details"
+)
 async def get_tv_season_details(
     series_id: int,
     season_number: int,
     params: Annotated[DetailsParams, Depends()],
-):
+) -> TmdbResponse[TmdbSeasonDetails]:
     data = tmdb.getTVSeasonDetails(
         params=dict_to_query_string(params.__dict__),
         series_id=series_id,
@@ -351,13 +389,16 @@ async def get_tv_season_details(
         }
 
 
-@router.get("/tv/{series_id}/season/{season_number}/episode/{episode_number}")
+@router.get(
+    "/tv/{series_id}/season/{season_number}/episode/{episode_number}",
+    operation_id="get_tv_episode_details",
+)
 async def get_tv_episode_details(
     series_id: int,
     season_number: int,
     episode_number: int,
     params: Annotated[DetailsParams, Depends()],
-):
+) -> TmdbResponse[TmdbEpisodeDetails]:
     data = tmdb.getTVSeasonEpisodeDetails(
         params=dict_to_query_string(params.__dict__),
         series_id=series_id,
@@ -376,8 +417,10 @@ async def get_tv_episode_details(
         }
 
 
-@router.get("/search/collection")
-async def search_collection(params: Annotated[CollectionSearchParams, Depends()]):
+@router.get("/search/collection", operation_id="search_collection")
+async def search_collection(
+    params: Annotated[CollectionSearchParams, Depends()],
+) -> TmdbResponse[TmdbPagedResults[TmdbCollectionDetails]]:
     data = tmdb.getCollectionSearch(params=dict_to_query_string(params.__dict__))
     if data:
         return {
@@ -391,8 +434,8 @@ async def search_collection(params: Annotated[CollectionSearchParams, Depends()]
         }
 
 
-@router.get("/search/movie")
-async def search_movie(params: Annotated[MovieSearchParams, Depends()]):
+@router.get("/search/movie", operation_id="search_movie")
+async def search_movie(params: Annotated[MovieSearchParams, Depends()]) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     data = tmdb.getMovieSearch(params=dict_to_query_string(params.__dict__))
     if data:
         return {
@@ -406,8 +449,8 @@ async def search_movie(params: Annotated[MovieSearchParams, Depends()]):
         }
 
 
-@router.get("/search/multi")
-async def search_multi(params: Annotated[MultiSearchParams, Depends()]):
+@router.get("/search/multi", operation_id="search_multi")
+async def search_multi(params: Annotated[MultiSearchParams, Depends()]) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     data = tmdb.getMultiSearch(params=dict_to_query_string(params.__dict__))
     if data:
         return {
@@ -421,8 +464,8 @@ async def search_multi(params: Annotated[MultiSearchParams, Depends()]):
         }
 
 
-@router.get("/search/tv")
-async def search_tv(params: Annotated[TVSearchParams, Depends()]):
+@router.get("/search/tv", operation_id="search_tv")
+async def search_tv(params: Annotated[TVSearchParams, Depends()]) -> TmdbResponse[TmdbPagedResults[TmdbItem]]:
     data = tmdb.getTVSearch(params=dict_to_query_string(params.__dict__))
     if data:
         return {
@@ -436,11 +479,11 @@ async def search_tv(params: Annotated[TVSearchParams, Depends()]):
         }
 
 
-@router.get("/external_id/{external_id}")
+@router.get("/external_id/{external_id}", operation_id="get_from_external_id")
 async def get_from_external_id(
     external_id: str,
     params: Annotated[ExternalIDParams, Depends()],
-):
+) -> TmdbResponse[TmdbFindResults]:
     data = tmdb.getFromExternalID(
         params=dict_to_query_string(params.__dict__),
         external_id=external_id,

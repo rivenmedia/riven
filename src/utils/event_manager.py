@@ -7,6 +7,7 @@ from threading import Lock
 
 from loguru import logger
 from sqlalchemy import select
+from pydantic import BaseModel
 from sqlalchemy.orm.exc import StaleDataError
 from concurrent.futures import CancelledError
 
@@ -16,6 +17,14 @@ from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
 from program.media.item import MediaItem, Season, Show
 from program.types import Event
 
+class EventUpdate(BaseModel):
+    item_id: int
+    imdb_id: str
+    title: str
+    type: str
+    emitted_by: str
+    run_at: str
+    last_state: str
 
 class EventManager:
     """
@@ -355,7 +364,7 @@ class EventManager:
         """
         self.add_event(Event(service, item))
 
-    def get_event_updates(self):
+    def get_event_updates(self) -> dict[str, list[EventUpdate]]:
         """
         Returns a formatted list of event updates.
 
@@ -366,6 +375,7 @@ class EventManager:
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
         return {
             event_type.lower(): [
+                EventUpdate.model_validate(
                 {
                     "item_id": event.item._id,
                     "imdb_id": event.item.imdb_id,
@@ -374,7 +384,7 @@ class EventManager:
                     "emitted_by": event.emitted_by if isinstance(event.emitted_by, str) else event.emitted_by.__name__,
                     "run_at": event.run_at.isoformat(),
                     "last_state": event.item.last_state.name if event.item.last_state else "N/A"
-                }
+                })
                 for event in events if event.emitted_by == event_type
             ]
             for event_type in event_types

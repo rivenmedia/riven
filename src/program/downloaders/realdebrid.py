@@ -1,7 +1,10 @@
 from datetime import datetime
+from enum import Enum
+from typing import Optional, Union
 
 from loguru import logger
 from program.settings.manager import settings_manager as settings
+from pydantic import BaseModel, TypeAdapter
 from requests import ConnectTimeout
 from utils import request
 from utils.ratelimiter import RateLimiter
@@ -13,13 +16,39 @@ BASE_URL = "https://api.real-debrid.com/rest/1.0"
 torrent_limiter = RateLimiter(1, 1)
 overall_limiter = RateLimiter(60, 60)
 
+class RDTorrentStatus(str, Enum):
+    magnet_error = "magnet_error"
+    magnet_conversion = "magnet_conversion"
+    waiting_files_selection = "waiting_files_selection"
+    downloading = "downloading"
+    downloaded = "downloaded"
+    error = "error"
+    seeding = "seeding"
+    dead = "dead"
+    uploading = "uploading"
+    compressing = "compressing"
+
+class RDTorrent(BaseModel):
+    id: str
+    hash: str
+    filename: str
+    bytes: int
+    status: RDTorrentStatus
+    added: datetime
+    links: list[str]
+    ended: Optional[datetime] = None
+    speed: Optional[int] = None
+    seeders: Optional[int] = None
+
+rd_torrent_list = TypeAdapter(list[RDTorrent])
+
 class RealDebridDownloader:
     def __init__(self):
         self.key = "realdebrid"
         self.settings = settings.settings.downloaders.real_debrid
         self.initialized = self.validate()
         if self.initialized:
-            self.existing_hashes = [torrent["hash"] for torrent in get_torrents(1000)]
+            self.existing_hashes = [torrent.hash for torrent in get_torrents(1000)]
             self.file_finder = FileFinder("filename", "filesize")
 
     def validate(self) -> bool:
@@ -103,12 +132,12 @@ class RealDebridDownloader:
                             break
         return cached_containers
 
-    def get_torrent_names(self, id: str) -> dict:
+    def get_torrent_names(self, id: str) -> tuple[str,str]:
         info = torrent_info(id)
         return (info["filename"], info["original_filename"])
 
     def delete_torrent_with_infohash(self, infohash: str):
-        id = next(torrent["id"] for torrent in get_torrents(1000) if torrent["hash"] == infohash)
+        id = next(torrent.id for torrent in get_torrents(1000) if torrent.hash == infohash)
         if id:
             delete_torrent(id)
 
@@ -174,9 +203,9 @@ def torrent_info(id: str) -> dict:
         info = {}
     return info
 
-def get_torrents(limit: int) -> list[dict]:
+def get_torrents(limit: int) -> list[RDTorrent]:
     try:
-        torrents = get(f"torrents?limit={str(limit)}")
+        torrents = rd_torrent_list.validate_python(get(f"torrents?limit={str(limit)}"))
     except:
         logger.warning("Failed to get torrents.")
         torrents = []
