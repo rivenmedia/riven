@@ -386,6 +386,8 @@ def reset_item_to_scraped(item: MediaItem):
     item.symlinked = False
     item.symlink_path = None
     item.symlinked_at = None
+    item.scraped_at = datetime.now()
+    item.scraped_times = 1
     item.symlinked_times = 0
     item.update_folder = None
     item.file = None
