@@ -48,6 +48,7 @@ codecov = "^2.1.13"
 httpx = "^0.27.0"
 memray = "^1.13.4"
 testcontainers = "^4.8.0"
+mypy = "^1.11.2"
 
 [tool.poetry.group.test]
 optional = true
@@ -91,7 +92,8 @@ ignore = [
   "S101", # ruff: Ignore assert warnings on tests
   "RET505", #
   "RET503",  # ruff: Ignore required explicit returns (is this desired?)
-  "SLF001" # private member accessing from pickle
+  "SLF001", # private member accessing from pickle
+  "B904" # ruff: ignore raising exceptions from except for the API
 ]
 extend-select = [
   "I",   # isort

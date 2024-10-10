@@ -222,30 +222,31 @@ class MediaItem(db.Model):
             "scraped_times": self.scraped_times,
         }
 
-    def to_extended_dict(self, abbreviated_children=False):
+    def to_extended_dict(self, abbreviated_children=False, with_streams=True):
         """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
         match self:
             case Show():
                 dict["seasons"] = (
-                    [season.to_extended_dict() for season in self.seasons]
+                    [season.to_extended_dict(with_streams=with_streams) for season in self.seasons]
                     if not abbreviated_children
                     else self.represent_children
                 )
             case Season():
                 dict["episodes"] = (
-                    [episode.to_extended_dict() for episode in self.episodes]
+                    [episode.to_extended_dict(with_streams=with_streams) for episode in self.episodes]
                     if not abbreviated_children
                     else self.represent_children
                 )
         dict["language"] = self.language if hasattr(self, "language") else None
         dict["country"] = self.country if hasattr(self, "country") else None
         dict["network"] = self.network if hasattr(self, "network") else None
-        dict["active_stream"] = (
-            self.active_stream if hasattr(self, "active_stream") else None
-        )
-        dict["streams"] = getattr(self, "streams", [])
-        dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
+        if with_streams:
+            dict["streams"] = getattr(self, "streams", [])
+            dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
+            dict["active_stream"] = (
+                self.active_stream if hasattr(self, "active_stream") else None
+            )
         dict["number"] = self.number if hasattr(self, "number") else None
         dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
         dict["symlinked_at"] = (
