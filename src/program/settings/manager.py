@@ -1,7 +1,8 @@
 import json
 import os
 
-from program.settings.models import AppModel, Observable
+from program.settings.compress_json import compress_json, decompress_json
+from program.settings.models import AppModel, Observable, RTNSettingsModel
 from pydantic import ValidationError
 from utils import data_dir_path
 from loguru import logger
@@ -66,6 +67,11 @@ class SettingsManager:
                     if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
+            if self.settings.ranking.code and self.settings.ranking.code_import:
+                logger.debug("Decompressing settings model from code")
+                code = self.settings.ranking.code
+                self.settings.ranking = RTNSettingsModel.model_validate(decompress_json(code))
+                self.settings.ranking.code = code
             self.save()
         except ValidationError as e:
             logger.error(f"Error validating settings: {e}")
@@ -80,6 +86,10 @@ class SettingsManager:
 
     def save(self):
         """Save settings to file, using Pydantic model for JSON serialization."""
+        if not self.settings.ranking.code:
+            logger.debug("Compressing settings model")
+            self.settings.ranking.code = compress_json(self.settings.model_dump_json())
+            self.settings.ranking.code_import = False
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4))
 

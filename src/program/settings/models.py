@@ -302,6 +302,8 @@ class ScraperModel(Observable):
 
 
 class RTNSettingsModel(SettingsModel, Observable):
+    code: str = ""
+    code_import: bool = False
     profile: str = "default"
 
 
