@@ -174,6 +174,9 @@ class TraktModel(Updatable):
     trending_count: int = 10
     fetch_popular: bool = False
     popular_count: int = 10
+    fetch_most_watched: bool = False
+    most_watched_period: str = "weekly"
+    most_watched_count: int = 10
     update_interval: int = 300
     # oauth: TraktOauthModel = TraktOauthModel()
 
