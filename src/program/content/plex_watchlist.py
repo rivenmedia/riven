@@ -106,7 +106,6 @@ class PlexWatchlist:
                     imdb_id: str = next((guid.id.split("//")[-1] for guid in item.guids if guid.id.startswith("imdb://")), "")
                     if imdb_id and imdb_id.startswith("tt"):
                         watchlist_items.append(imdb_id)
-                        self.recurring_items.add(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}")
                 else:
