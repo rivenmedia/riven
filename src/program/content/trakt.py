@@ -3,6 +3,7 @@ import re
 import time
 from typing import Union
 from urllib.parse import urlencode
+from datetime import datetime, timedelta
 
 from requests import RequestException
 
@@ -13,6 +14,8 @@ from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, post
 
+# Global variable to track the last update time
+last_update = None
 
 class TraktContent:
     """Content class for Trakt"""
@@ -78,13 +81,25 @@ class TraktContent:
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
+        global last_update
 
         watchlist_ids = self._get_watchlist(self.settings.watchlist) if self.settings.watchlist else []
         collection_ids = self._get_collection(self.settings.collection) if self.settings.collection else []
         user_list_ids = self._get_list(self.settings.user_lists) if self.settings.user_lists else []
-        trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
-        popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
-        most_watched_ids = self._get_most_watched_items() if self.settings.fetch_most_watched else []
+
+        # Check if it's the first run or if a day has passed since the last update
+        current_time = datetime.now()
+        if last_update is None or (current_time - last_update) > timedelta(days=1):
+            trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
+            popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
+            most_watched_ids = self._get_most_watched_items() if self.settings.fetch_most_watched else []
+            last_update = current_time
+            logger.log("TRAKT", "Updated trending, popular, and most watched items.")
+        else:
+            trending_ids = []
+            popular_ids = []
+            most_watched_ids = []
+            logger.log("TRAKT", "Skipped updating trending, popular, and most watched items (last update was less than a day ago).")
 
         # Combine all IMDb IDs and types into a set to avoid duplicates
         all_ids = set(watchlist_ids + collection_ids + user_list_ids + trending_ids + popular_ids + most_watched_ids)
