@@ -89,7 +89,6 @@ class PlexWatchlist:
                     imdb_id = self._extract_imdb_ids(_item.get("guids", []))
                     if imdb_id and imdb_id.startswith("tt"):
                         rss_items.append(imdb_id)
-                        self.recurring_items.add(imdb_id)
                     else:
                         logger.log("NOT_FOUND", f"Failed to extract IMDb ID from {_item['title']}")
             except Exception as e:
