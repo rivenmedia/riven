@@ -35,6 +35,7 @@ class TraktContent:
         self.next_run_time = 0
         self.recurring_items = set()
         self.items_already_seen = set()
+        self.last_update = None
         self.missing()
         logger.success("Trakt initialized!")
 
@@ -81,19 +82,17 @@ class TraktContent:
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
-        global last_update
-
         watchlist_ids = self._get_watchlist(self.settings.watchlist) if self.settings.watchlist else []
         collection_ids = self._get_collection(self.settings.collection) if self.settings.collection else []
         user_list_ids = self._get_list(self.settings.user_lists) if self.settings.user_lists else []
 
         # Check if it's the first run or if a day has passed since the last update
         current_time = datetime.now()
-        if last_update is None or (current_time - last_update) > timedelta(days=1):
+        if self.last_update is None or (current_time - self.last_update) > timedelta(days=1):
             trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
             popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
             most_watched_ids = self._get_most_watched_items() if self.settings.fetch_most_watched else []
-            last_update = current_time
+            self.last_update = current_time
             logger.log("TRAKT", "Updated trending, popular, and most watched items.")
         else:
             trending_ids = []
