@@ -217,10 +217,10 @@ class Program(threading.Thread):
         if count == 0:
             return
 
-        number_of_rows_per_page = 100
-        max_events_to_add = 1000  # Limit the number of events to add at once
+        number_of_rows_per_page = 10
+        max_events_to_add = 100  # Limit the number of events to add at once
         events_added = 0
-        
+
         logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
 
         def fetch_items_in_batches():
