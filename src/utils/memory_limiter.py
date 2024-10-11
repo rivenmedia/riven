@@ -6,7 +6,7 @@ from program.settings.manager import settings_manager
 from loguru import logger
 
 limiter_enabled = os.getenv("RIVEN_ENABLE_MEMORY_LIMITER", "false").lower() in ["true", "1"]
-log_enabled = os.getenv("RIVEN_LOG_MEMORY_USAGE", "true").lower() in ["true", "1"]
+log_enabled = os.getenv("RIVEN_LOG_MEMORY_USAGE", "false").lower() in ["true", "1"]
 
 try:
     mem_limit = int(os.getenv("RIVEN_MEMORY_USAGE_LIMIT", "1024")) # 1GB Memory Limit
