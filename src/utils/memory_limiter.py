@@ -2,6 +2,7 @@ import psutil
 import os
 import time
 
+from program.settings.manager import settings_manager
 from loguru import logger
 
 limiter_enabled = os.getenv("RIVEN_ENABLE_MEMORY_LIMITER", "false").lower() in ["true", "1"]
@@ -23,7 +24,8 @@ def check_memory_limit() -> bool:
         bool: True if memory usage is below the limit, False otherwise.
     """
     memory_usage_mb = process.memory_info().rss / (1024 * 1024)
-    logger.debug(f"Current memory usage of Riven process: {memory_usage_mb:.2f} MB")
+    # enable this to see the fluctuations more for memory usage
+    # logger.debug(f"Current memory usage of Riven process: {memory_usage_mb:.2f} MB")
     if limiter_enabled:
         return memory_usage_mb <= mem_limit
     return True
@@ -47,11 +49,14 @@ def wait_for_memory(check_interval=5):
     if not check_memory_limit():
         if log_enabled:
             logger.warning(f"Memory usage exceeded {mem_limit} MB. Pausing processing.")
-            log_memory_usage()
+            if settings_manager.settings.tracemalloc:
+                log_memory_usage()
         while not check_memory_limit():
             time.sleep(check_interval)
         if log_enabled:
             logger.info("Memory usage is now below the limit. Resuming processing.")
+
+ # this isn't used anywhere yet, may have to tweak these
 
 def estimate_object_size(obj: object) -> int:
     """Estimate the size of an object in bytes."""

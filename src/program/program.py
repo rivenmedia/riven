@@ -9,7 +9,7 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
-from utils.memory_limiter import check_memory_limit, log_memory_summary, log_memory_usage, wait_for_memory
+from utils.memory_limiter import check_memory_limit, log_memory_usage, wait_for_memory
 import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
@@ -217,11 +217,10 @@ class Program(threading.Thread):
                 with db.Session() as session:
                     if not check_memory_limit():
                         logger.warning("Memory usage exceeded. Stopping retry process.")
-                        break
+                        return
                     item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
                     self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
                     events_added += 1
-
                     if events_added >= max_events_to_add:
                         logger.debug(f"Added batch of {len(batch)} items, waiting for the next batch")
                         break
@@ -313,6 +312,8 @@ class Program(threading.Thread):
             if not self.validate():
                 time.sleep(1)
                 continue
+
+            wait_for_memory()
 
             try:
                 event: Event = self.em.next()
