@@ -14,8 +14,6 @@ from utils.logger import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, post
 
-# Global variable to track the last update time
-last_update = None
 
 class TraktContent:
     """Content class for Trakt"""
@@ -73,12 +71,6 @@ class TraktContent:
             logger.log("TRAKT", "No collection configured.")
         if not self.settings.user_lists:
             logger.log("TRAKT", "No user lists configured.")
-        if not self.settings.fetch_trending:
-            logger.log("TRAKT", "Trending fetching is disabled.")
-        if not self.settings.fetch_popular:
-            logger.log("TRAKT", "Popular fetching is disabled.")
-        if not self.settings.fetch_most_watched:
-            logger.log("TRAKT", "Most watched fetching is disabled.")
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
