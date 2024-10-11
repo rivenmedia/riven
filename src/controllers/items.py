@@ -363,7 +363,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
 
             logger.debug(f"Deleting item from database with ID {media_item}")
             delete_media_item_by_id(media_item)
-            logger.info(f"Successfully removed item with ID {media_item}")
+            logger.success(f"Removed item with ID {media_item}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

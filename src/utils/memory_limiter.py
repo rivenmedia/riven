@@ -8,10 +8,9 @@ limiter_enabled = os.getenv("RIVEN_ENABLE_MEMORY_LIMITER", "false").lower() in [
 log_enabled = os.getenv("RIVEN_LOG_MEMORY_USAGE", "true").lower() in ["true", "1"]
 
 try:
-    mem_limit = int(os.getenv("RIVEN_MEMORY_USAGE_LIMIT", "2048")) # 2GB Memory Limit
+    mem_limit = int(os.getenv("RIVEN_MEMORY_USAGE_LIMIT", "1024")) # 1GB Memory Limit
 except ValueError:
-    logger.warning("Invalid memory limit value. Using default of 2048 MB.")
-    mem_limit = 2048
+    mem_limit = 1024
 
 process = psutil.Process(os.getpid())
 
@@ -24,9 +23,9 @@ def check_memory_limit() -> bool:
         bool: True if memory usage is below the limit, False otherwise.
     """
     memory_usage_mb = process.memory_info().rss / (1024 * 1024)
-    logger.debug(f"Current memory usage: {memory_usage_mb:.2f} MB")
+    logger.debug(f"Current memory usage of Riven process: {memory_usage_mb:.2f} MB")
     if limiter_enabled:
-        return memory_usage_mb < mem_limit
+        return memory_usage_mb <= mem_limit
     return True
 
 def get_memory_usage() -> float:
@@ -36,7 +35,7 @@ def get_memory_usage() -> float:
 def log_memory_usage():
     """Log the current memory usage of the process."""
     memory_usage_mb = process.memory_info().rss / (1024 * 1024)
-    logger.debug(f"Current memory usage: {memory_usage_mb:.2f} MB")
+    logger.debug(f"Current memory usage of Riven process: {memory_usage_mb:.2f} MB")
 
 def wait_for_memory(check_interval=5):
     """
@@ -45,7 +44,7 @@ def wait_for_memory(check_interval=5):
     Args:
         check_interval (int): The interval in seconds to wait between memory checks.
     """
-    if limiter_enabled and not check_memory_limit():
+    if not check_memory_limit():
         if log_enabled:
             logger.warning(f"Memory usage exceeded {mem_limit} MB. Pausing processing.")
             log_memory_usage()
@@ -53,3 +52,21 @@ def wait_for_memory(check_interval=5):
             time.sleep(check_interval)
         if log_enabled:
             logger.info("Memory usage is now below the limit. Resuming processing.")
+
+def estimate_object_size(obj: object) -> int:
+    """Estimate the size of an object in bytes."""
+    from pympler import asizeof
+    return asizeof.asizeof(obj)
+
+def log_object_size(obj: object, label: str = "Object"):
+    """Log the size of an object in megabytes."""
+    size = estimate_object_size(obj)
+    logger.debug(f"{label} size: {size / (1024 * 1024):.2f} MB")
+
+def log_memory_summary(objs: list[object] = None):
+    """Log a summary of memory usage."""
+    from pympler import muppy, summary
+    all_objects = objs if objs else muppy.get_objects()
+    mem_summary = summary.summarize(all_objects)
+    summary.print_(mem_summary)
+    log_memory_usage()

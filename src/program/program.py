@@ -9,7 +9,7 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
-from utils.memory_limiter import check_memory_limit, wait_for_memory
+from utils.memory_limiter import check_memory_limit, log_memory_summary, log_memory_usage, wait_for_memory
 import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
@@ -173,63 +173,17 @@ class Program(threading.Thread):
         ws_manager.send_health_update("running")
         self.initialized = True
 
-    def _push_nearly_completed(self) -> None:
-        """Push nearly completed items to the services."""
-        wait_for_memory()
-    
-        count = 0
-        with db.Session() as session:
-            count = session.execute(
-                select(func.count(MediaItem._id))
-                .where(MediaItem.last_state.in_([States.Downloaded, States.Symlinked]))
-                # .where(MediaItem.type.in_(["movie", "show"]))
-            ).scalar_one()
-
-        if count == 0:
-            return
-
-        logger.log("PROGRAM", f"Found {count} items that are nearly completed, letting services know.")
-
-        number_of_rows_per_page = 50
-        max_events_to_add = 500
-        events_added = 0
-
-        def fetch_items_in_batches():
-            for page_number in range(0, (count // number_of_rows_per_page) + 1):
-                with db.Session() as session:
-                    items_to_submit = session.execute(
-                        select(MediaItem._id)
-                        .where(MediaItem.last_state.in_([States.Downloaded, States.Symlinked]))
-                        # .where(MediaItem.type.in_(["movie", "show"]))
-                        .order_by(MediaItem.requested_at.desc())
-                        .limit(number_of_rows_per_page)
-                        .offset(page_number * number_of_rows_per_page)
-                    ).scalars().all()
-                    yield items_to_submit
-
-        for batch in fetch_items_in_batches():
-            if events_added >= max_events_to_add:
-                break
-
-            for item_id in batch:
-                with db.Session() as session:
-                    item = session.get(MediaItem, item_id)
-                    self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
-                    events_added += 1
-
-                    if events_added >= max_events_to_add:
-                        logger.debug(f"Added batch of {len(batch)} nearly completed items, waiting for the next batch")
-                        break
-
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
         wait_for_memory()
 
+        states_to_check = [States.Completed, States.Unreleased]
+
         count = 0
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem._id))
-                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                .where(MediaItem.last_state.not_in(states_to_check))
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
@@ -247,7 +201,7 @@ class Program(threading.Thread):
                 with db.Session() as session:
                     items_to_submit = session.execute(
                         select(MediaItem._id)  # Fetch only the IDs initially
-                        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                        .where(MediaItem.last_state.not_in(states_to_check))
                         .where(MediaItem.type.in_(["movie", "show"]))
                         .order_by(MediaItem.requested_at.desc())
                         .limit(number_of_rows_per_page)
@@ -261,6 +215,9 @@ class Program(threading.Thread):
 
             for item_id in batch:
                 with db.Session() as session:
+                    if not check_memory_limit():
+                        logger.warning("Memory usage exceeded. Stopping retry process.")
+                        break
                     item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
                     self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
                     events_added += 1
@@ -272,7 +229,6 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._push_nearly_completed: {"interval": 60 * 5},
             self._retry_library: {"interval": 60 * 10},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
@@ -344,6 +300,7 @@ class Program(threading.Thread):
             logger.debug("%s other: %.1f KiB" % (len(other), size / 1024))
         total = sum(stat.size for stat in top_stats)
         logger.debug("Total allocated size: %.1f KiB" % (total / 1024))
+        log_memory_usage()
 
     def dump_tracemalloc(self):
         if time.monotonic() - self.malloc_time > 60:
@@ -367,7 +324,6 @@ class Program(threading.Thread):
                     self.dump_tracemalloc()
                 time.sleep(0.1)
                 continue
-
 
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
