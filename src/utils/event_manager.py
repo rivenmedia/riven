@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm.exc import StaleDataError
 from concurrent.futures import CancelledError
 
+from utils.memory_limiter import check_memory_limit, wait_for_memory
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
@@ -30,7 +31,7 @@ class EventManager:
     """
     Manages the execution of services and the handling of events.
     """
-    def __init__(self):
+    def __init__(self, max_queue_size=100, max_memory_usage_mb=1024):
         self._executors: list[concurrent.futures.ThreadPoolExecutor] = []
         self._futures = []
         self._queued_events = []
@@ -87,6 +88,11 @@ class EventManager:
                     self.remove_item_from_queue(item)
                     return
                 self.add_event(Event(emitted_by=service, item=item, run_at=timestamp))
+        except RuntimeError as e:
+            if "cannot schedule new futures after" in str(e):
+                exit(0)
+            logger.error(f"Runtime error in future for {future}: {e}")
+            logger.exception(traceback.format_exc())
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return
@@ -167,6 +173,10 @@ class EventManager:
             program (Program): The program containing the service.
             item (Event, optional): The event item to process. Defaults to None.
         """
+        if not check_memory_limit():
+            logger.warning("Memory usage exceeded limit. Job not submitted.")
+            return
+        
         log_message = f"Submitting service {service.__name__} to be executed"
         item = None
         if event and event.item:
@@ -324,6 +334,10 @@ class EventManager:
         Returns:
             bool: True if the event was added to the queue, False if it was already present.
         """
+        if not check_memory_limit():
+            logger.warning("Memory usage exceeded limit. Event not added.")
+            return False
+
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
             item_id, related_ids = _get_item_ids(session, event.item)

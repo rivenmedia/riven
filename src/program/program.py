@@ -9,6 +9,7 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
+from utils.memory_limiter import check_memory_limit, wait_for_memory
 import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
@@ -172,40 +173,58 @@ class Program(threading.Thread):
         ws_manager.send_health_update("running")
         self.initialized = True
 
-    # def _retry_library(self) -> None:
-    #     count = 0
-    #     with db.Session() as session:
-    #         count = session.execute(
-    #             select(func.count(MediaItem._id))
-    #             .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-    #             .where(MediaItem.type.in_(["movie", "show"]))
-    #         ).scalar_one()
+    def _push_nearly_completed(self) -> None:
+        """Push nearly completed items to the services."""
+        wait_for_memory()
+    
+        count = 0
+        with db.Session() as session:
+            count = session.execute(
+                select(func.count(MediaItem._id))
+                .where(MediaItem.last_state.in_([States.Downloaded, States.Symlinked]))
+                .where(MediaItem.type.in_(["movie", "show"]))
+            ).scalar_one()
 
-    #     if count == 0:
-    #         return
+        if count == 0:
+            return
 
-    #     logger.log("PROGRAM", f"Found {count} items to retry")
+        logger.log("PROGRAM", f"Found {count} items that are nearly completed, letting services know.")
 
-    #     number_of_rows_per_page = 10
-    #     for page_number in range(0, (count // number_of_rows_per_page) + 1):
-    #         with db.Session() as session:
-    #             items_to_submit = []
-    #             items_to_submit += session.execute(
-    #                 select(MediaItem)
-    #                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-    #                 .where(MediaItem.type.in_(["movie", "show"]))
-    #                 .order_by(MediaItem.requested_at.desc())
-    #                 .limit(number_of_rows_per_page)
-    #                 .offset(page_number * number_of_rows_per_page)
-    #             ).unique().scalars().all()
+        number_of_rows_per_page = 50
+        max_events_to_add = 500  # Limit the number of events to add at once
+        events_added = 0
 
-    #             session.expunge_all()
-    #             session.close()
-    #             for item in items_to_submit:
-    #                 self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
+        def fetch_items_in_batches():
+            for page_number in range(0, (count // number_of_rows_per_page) + 1):
+                with db.Session() as session:
+                    items_to_submit = session.execute(
+                        select(MediaItem._id)  # Fetch only the IDs initially
+                        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                        .where(MediaItem.type.in_(["movie", "show"]))
+                        .order_by(MediaItem.requested_at.desc())
+                        .limit(number_of_rows_per_page)
+                        .offset(page_number * number_of_rows_per_page)
+                    ).scalars().all()
+                    yield items_to_submit
+
+        for batch in fetch_items_in_batches():
+            if events_added >= max_events_to_add:
+                break
+
+            for item_id in batch:
+                with db.Session() as session:
+                    item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
+                    self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
+                    events_added += 1
+
+                    if events_added >= max_events_to_add:
+                        logger.debug(f"Added batch of {len(batch)} items, waiting for the next batch")
+                        break
 
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
+        wait_for_memory()
+
         count = 0
         with db.Session() as session:
             count = session.execute(
@@ -277,7 +296,7 @@ class Program(threading.Thread):
                 max_instances=config.get("max_instances", 1),
                 replace_existing=True,
                 next_run_time=datetime.now(),
-                misfire_grace_time=30
+                misfire_grace_time=120
             )
             logger.debug(f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
@@ -300,6 +319,7 @@ class Program(threading.Thread):
                 replace_existing=True,
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
                 coalesce=False,
+                misfire_grace_time=120
             )
             logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
