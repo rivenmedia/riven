@@ -36,3 +36,11 @@ class Subtitle(db.Model):
             Path(self.file).unlink()
         self.file = None
         return self
+    
+    def to_dict(self):
+        return {
+            "id": str(self._id),
+            "language": self.language,
+            "file": self.file,
+            "parent_id": self.parent_id
+        }
