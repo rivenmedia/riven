@@ -3,15 +3,21 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
+from RTN import Torrent
+from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import func, select
+from sqlalchemy.exc import NoResultFound
+
 from controllers.models.shared import MessageResponse
 from fastapi import APIRouter, HTTPException, Request
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
     clear_streams,
-    delete_media_item,
+    clear_streams_by_id,
+    delete_media_item_by_id,
     get_media_items_by_ids,
-    get_parent_items_by_ids,
+    get_parent_ids,
     reset_media_item,
 )
 from program.downloaders import Downloader, get_needed_media
@@ -279,16 +285,17 @@ class ResetResponse(BaseModel):
 async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids = handle_ids(ids)
     try:
-        media_items = get_media_items_by_ids(ids)
-        if not media_items or len(media_items) != len(ids):
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
-        for media_item in media_items:
+        media_items_generator = get_media_items_by_ids(ids)
+        for media_item in media_items_generator:
             try:
                 request.app.program.em.cancel_job(media_item)
                 clear_streams(media_item)
                 reset_media_item(media_item)
-            except Exception as e:
+            except ValueError as e:
                 logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error while resetting item with id {media_item._id}: {str(e)}")
                 continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -309,10 +316,8 @@ class RetryResponse(BaseModel):
 async def retry_items(request: Request, ids: str) -> RetryResponse:
     ids = handle_ids(ids)
     try:
-        media_items = get_media_items_by_ids(ids)
-        if not media_items or len(media_items) != len(ids):
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
-        for media_item in media_items:
+        media_items_generator = get_media_items_by_ids(ids)
+        for media_item in media_items_generator:
             request.app.program.em.cancel_job(media_item)
             await asyncio.sleep(0.1)  # Ensure cancellation is processed
             request.app.program.em.add_item(media_item)
@@ -334,25 +339,31 @@ class RemoveResponse(BaseModel):
     operation_id="remove_item",
 )
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
-        media_items = get_parent_items_by_ids(ids)
+        media_items: list[int] = get_parent_ids(ids)
         if not media_items:
-            raise ValueError("Invalid item ID(s) provided. Some items may not exist.")
+            return HTTPException(status_code=404, detail="Item(s) not found")
+        
         for media_item in media_items:
-            logger.debug(f"Removing item {media_item.title} with ID {media_item._id}")
-            request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1)  # Ensure cancellation is processed
-            clear_streams(media_item)
+            logger.debug(f"Removing item with ID {media_item}")
+            request.app.program.em.cancel_job_by_id(media_item)
+            await asyncio.sleep(0.2)  # Ensure cancellation is processed
+            clear_streams_by_id(media_item)
+
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks(media_item)
-            if media_item.requested_by == "overseerr" and media_item.requested_id:
-                logger.debug(
-                    f"Item was originally requested by Overseerr, deleting request within Overseerr..."
-                )
-                Overseerr.delete_request(media_item.requested_id)
-            delete_media_item(media_item)
+                symlink_service.delete_item_symlinks_by_id(media_item)
+
+            with db.Session() as session:
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == media_item)).scalar_one()
+                if requested_id:
+                    logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
+                    Overseerr.delete_request(requested_id)
+
+            logger.debug(f"Deleting item from database with ID {media_item}")
+            delete_media_item_by_id(media_item)
+            logger.info(f"Successfully removed item with ID {media_item}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -386,6 +397,8 @@ def reset_item_to_scraped(item: MediaItem):
     item.symlinked = False
     item.symlink_path = None
     item.symlinked_at = None
+    item.scraped_at = datetime.now()
+    item.scraped_times = 1
     item.symlinked_times = 0
     item.update_folder = None
     item.file = None

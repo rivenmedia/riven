@@ -33,8 +33,8 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all")
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all")
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -59,7 +59,7 @@ class MediaItem(db.Model):
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="joined", cascade="all, delete-orphan")
+    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -196,10 +196,13 @@ class MediaItem(db.Model):
 
     def is_scraped(self):
         session = object_session(self)
-        if session:
-            session.refresh(self, attribute_names=['blacklisted_streams']) # Prom: Ensure these reflect the state of whats in the db.
-        return (len(self.streams) > 0
-            and any(not stream in self.blacklisted_streams for stream in self.streams))
+        if session and session.is_active:
+            try:
+                session.refresh(self, attribute_names=['blacklisted_streams'])
+                return (len(self.streams) > 0 and any(not stream in self.blacklisted_streams for stream in self.streams))
+            except (sqlalchemy.exc.InvalidRequestError, sqlalchemy.orm.exc.DetachedInstanceError):
+                return False
+        return False
 
     def to_dict(self):
         """Convert item to dictionary (API response)"""
@@ -262,7 +265,7 @@ class MediaItem(db.Model):
         dict["file"] = self.file if hasattr(self, "file") else None
         dict["folder"] = self.folder if hasattr(self, "folder") else None
         dict["symlink_path"] = self.symlink_path if hasattr(self, "symlink_path") else None
-        dict["subtitles"] = getattr(self, "subtitles", [])
+        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
         return dict
 
     def __iter__(self):

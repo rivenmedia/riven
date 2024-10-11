@@ -36,7 +36,7 @@ if settings_manager.settings.tracemalloc:
 from sqlalchemy import func, select, text
 
 import program.db.db_functions as DB
-from program.db.db import db, run_migrations, vacuum_and_analyze_index_maintenance
+from program.db.db import create_database_if_not_exists, db, run_migrations, vacuum_and_analyze_index_maintenance
 
 
 class Program(threading.Thread):
@@ -136,7 +136,11 @@ class Program(threading.Thread):
 
         if not self.validate_database():
             # We should really make this configurable via frontend...
-            return
+            logger.log("PROGRAM", "Database not found, trying to create database")
+            if not create_database_if_not_exists():
+                logger.error("Failed to create database, exiting")
+                return
+            logger.success("Database created successfully")
 
         run_migrations()
         self._init_db_from_symlinks()
@@ -168,7 +172,40 @@ class Program(threading.Thread):
         ws_manager.send_health_update("running")
         self.initialized = True
 
+    # def _retry_library(self) -> None:
+    #     count = 0
+    #     with db.Session() as session:
+    #         count = session.execute(
+    #             select(func.count(MediaItem._id))
+    #             .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+    #             .where(MediaItem.type.in_(["movie", "show"]))
+    #         ).scalar_one()
+
+    #     if count == 0:
+    #         return
+
+    #     logger.log("PROGRAM", f"Found {count} items to retry")
+
+    #     number_of_rows_per_page = 10
+    #     for page_number in range(0, (count // number_of_rows_per_page) + 1):
+    #         with db.Session() as session:
+    #             items_to_submit = []
+    #             items_to_submit += session.execute(
+    #                 select(MediaItem)
+    #                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+    #                 .where(MediaItem.type.in_(["movie", "show"]))
+    #                 .order_by(MediaItem.requested_at.desc())
+    #                 .limit(number_of_rows_per_page)
+    #                 .offset(page_number * number_of_rows_per_page)
+    #             ).unique().scalars().all()
+
+    #             session.expunge_all()
+    #             session.close()
+    #             for item in items_to_submit:
+    #                 self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
+
     def _retry_library(self) -> None:
+        """Retry items that failed to download."""
         count = 0
         with db.Session() as session:
             count = session.execute(
@@ -180,25 +217,38 @@ class Program(threading.Thread):
         if count == 0:
             return
 
-        logger.log("PROGRAM", f"Found {count} items to retry")
-
         number_of_rows_per_page = 10
-        for page_number in range(0, (count // number_of_rows_per_page) + 1):
-            with db.Session() as session:
-                items_to_submit = []
-                items_to_submit += session.execute(
-                    select(MediaItem)
-                    .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-                    .where(MediaItem.type.in_(["movie", "show"]))
-                    .order_by(MediaItem.requested_at.desc())
-                    .limit(number_of_rows_per_page)
-                    .offset(page_number * number_of_rows_per_page)
-                ).unique().scalars().all()
+        max_events_to_add = 100  # Limit the number of events to add at once
+        events_added = 0
 
-                session.expunge_all()
-                session.close()
-                for item in items_to_submit:
+        logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
+
+        def fetch_items_in_batches():
+            for page_number in range(0, (count // number_of_rows_per_page) + 1):
+                with db.Session() as session:
+                    items_to_submit = session.execute(
+                        select(MediaItem._id)  # Fetch only the IDs initially
+                        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                        .where(MediaItem.type.in_(["movie", "show"]))
+                        .order_by(MediaItem.requested_at.desc())
+                        .limit(number_of_rows_per_page)
+                        .offset(page_number * number_of_rows_per_page)
+                    ).scalars().all()
+                    yield items_to_submit
+
+        for batch in fetch_items_in_batches():
+            if events_added >= max_events_to_add:
+                break
+
+            for item_id in batch:
+                with db.Session() as session:
+                    item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
                     self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
+                    events_added += 1
+
+                    if events_added >= max_events_to_add:
+                        logger.debug(f"Added batch of {len(batch)} items, waiting for the next batch")
+                        break
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -214,9 +264,9 @@ class Program(threading.Thread):
                 "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
             }
 
-        if settings_manager.settings.post_processing.subliminal.enabled:
-            pass
+        # if settings_manager.settings.post_processing.subliminal.enabled:
             # scheduled_functions[self._download_subtitles] = {"interval": 60 * 60 * 24}
+
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
                 func,

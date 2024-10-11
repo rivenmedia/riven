@@ -47,8 +47,8 @@ class Stream(db.Model):
     rank: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
     lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
 
-    parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamRelation", back_populates="streams")
-    blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams")
+    parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamRelation", back_populates="streams", lazy="selectin")
+    blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams", lazy="selectin")
 
     __table_args__ = (
         Index('ix_stream_infohash', 'infohash'),
