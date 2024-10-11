@@ -31,7 +31,7 @@ class EventManager:
     """
     Manages the execution of services and the handling of events.
     """
-    def __init__(self, max_queue_size=100, max_memory_usage_mb=1024):
+    def __init__(self):
         self._executors: list[concurrent.futures.ThreadPoolExecutor] = []
         self._futures = []
         self._queued_events = []

@@ -182,7 +182,7 @@ class Program(threading.Thread):
             count = session.execute(
                 select(func.count(MediaItem._id))
                 .where(MediaItem.last_state.in_([States.Downloaded, States.Symlinked]))
-                .where(MediaItem.type.in_(["movie", "show"]))
+                # .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
         if count == 0:
@@ -191,16 +191,16 @@ class Program(threading.Thread):
         logger.log("PROGRAM", f"Found {count} items that are nearly completed, letting services know.")
 
         number_of_rows_per_page = 50
-        max_events_to_add = 500  # Limit the number of events to add at once
+        max_events_to_add = 500
         events_added = 0
 
         def fetch_items_in_batches():
             for page_number in range(0, (count // number_of_rows_per_page) + 1):
                 with db.Session() as session:
                     items_to_submit = session.execute(
-                        select(MediaItem._id)  # Fetch only the IDs initially
-                        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-                        .where(MediaItem.type.in_(["movie", "show"]))
+                        select(MediaItem._id)
+                        .where(MediaItem.last_state.in_([States.Downloaded, States.Symlinked]))
+                        # .where(MediaItem.type.in_(["movie", "show"]))
                         .order_by(MediaItem.requested_at.desc())
                         .limit(number_of_rows_per_page)
                         .offset(page_number * number_of_rows_per_page)
@@ -213,12 +213,12 @@ class Program(threading.Thread):
 
             for item_id in batch:
                 with db.Session() as session:
-                    item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
+                    item = session.get(MediaItem, item_id)
                     self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
                     events_added += 1
 
                     if events_added >= max_events_to_add:
-                        logger.debug(f"Added batch of {len(batch)} items, waiting for the next batch")
+                        logger.debug(f"Added batch of {len(batch)} nearly completed items, waiting for the next batch")
                         break
 
     def _retry_library(self) -> None:
@@ -272,6 +272,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
+            self._push_nearly_completed: {"interval": 60 * 5},
             self._retry_library: {"interval": 60 * 10},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},

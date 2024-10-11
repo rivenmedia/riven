@@ -8,10 +8,10 @@ limiter_enabled = os.getenv("RIVEN_ENABLE_MEMORY_LIMITER", "false").lower() in [
 log_enabled = os.getenv("RIVEN_LOG_MEMORY_USAGE", "true").lower() in ["true", "1"]
 
 try:
-    mem_limit = int(os.getenv("RIVEN_MEMORY_USAGE_LIMIT", "400"))
+    mem_limit = int(os.getenv("RIVEN_MEMORY_USAGE_LIMIT", "2048")) # 2GB Memory Limit
 except ValueError:
-    logger.warning("Invalid memory limit value. Using default of 400 MB.")
-    mem_limit = 400
+    logger.warning("Invalid memory limit value. Using default of 2048 MB.")
+    mem_limit = 2048
 
 process = psutil.Process(os.getpid())
 
@@ -49,7 +49,7 @@ def wait_for_memory(check_interval=5):
         if log_enabled:
             logger.warning(f"Memory usage exceeded {mem_limit} MB. Pausing processing.")
             log_memory_usage()
-        while not check_memory_limit(mem_limit):
+        while not check_memory_limit():
             time.sleep(check_interval)
         if log_enabled:
             logger.info("Memory usage is now below the limit. Resuming processing.")
