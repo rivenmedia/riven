@@ -15,11 +15,12 @@ class Downloader:
         self.key = "downloader"
         self.initialized = False
         self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
-        self.service = next((service for service in [
-            RealDebridDownloader(),
-            AllDebridDownloader(),
-            #TorBoxDownloader()
-            ] if service.initialized), None)
+        self.services = {
+            RealDebridDownloader: RealDebridDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
+            #TorBoxDownloader: TorBoxDownloader()
+        }
+        self.service = next((service for service in self.services.values() if service.initialized), None)
 
         self.initialized = self.validate()
 
