@@ -217,8 +217,8 @@ class Program(threading.Thread):
         if count == 0:
             return
 
-        number_of_rows_per_page = 10
-        max_events_to_add = 100  # Limit the number of events to add at once
+        number_of_rows_per_page = settings_manager.settings.rows_per_retry_page or 10
+        max_events_to_add = settings_manager.settings.max_concurrent_item_retries or 100  # Limit the number of events to add at once
         events_added = 0
 
         logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")

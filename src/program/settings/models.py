@@ -361,6 +361,8 @@ class AppModel(Observable):
     force_refresh: bool = False
     map_metadata: bool = True
     tracemalloc: bool = False
+    rows_per_retry_page: int = 10
+    max_concurrent_item_retries: int = 100
     symlink: SymlinkModel = SymlinkModel()
     updaters: UpdatersModel = UpdatersModel()
     downloaders: DownloadersModel = DownloadersModel()
