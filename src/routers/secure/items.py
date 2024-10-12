@@ -4,6 +4,12 @@ from typing import Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, HTTPException, Request, status
+from RTN import ParsedData, Torrent
+from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import func, select
+from sqlalchemy.exc import NoResultFound
+
+from fastapi import APIRouter, HTTPException, Request
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
@@ -27,7 +33,10 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
 from loguru import logger
 
+from program.indexers.trakt import TraktIndexer
+
 from ..models.shared import MessageResponse
+from utils.torrent import get_type_and_infohash
 
 router = APIRouter(
     prefix="/items",
@@ -220,6 +229,82 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
             request.app.program.em.add_item(item)
 
     return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
+
+
+@router.post(
+    "/add-manually",
+    summary="Add Media Items Manually",
+    description="Add media item manually with a magnet link or infohash",
+    operation_id="add_item_manually",
+)
+async def add_item_manually(request: Request, imdb_id: str = None, input: str = None) -> MessageResponse:
+    if not imdb_id:
+        raise HTTPException(status_code=400, detail="No IMDb ID provided")
+
+    if not imdb_id.startswith("tt"):
+        raise HTTPException(status_code=400, detail="No valid IMDb ID provided")
+    
+    type, infohash = get_type_and_infohash(input)
+
+    if not infohash:
+        raise HTTPException(status_code=400, detail="No valid input provided")
+
+    trakt: TraktIndexer = request.app.program.services.get(TraktIndexer)
+    downloader: Downloader = request.app.program.services.get(Downloader)
+    with db.Session() as session: 
+        item = MediaItem(
+                {"imdb_id": imdb_id, "requested_by": "user", "requested_at": datetime.now()}
+            )
+        item = next(trakt.run(item), None)
+        if item is None:
+            raise HTTPException(status_code=500, detail="Failed to index item")
+
+        needed_media = get_needed_media(item)
+        cached_streams = downloader.get_cached_streams([infohash], needed_media)        
+
+        if len(cached_streams) == 0:
+            session.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"The selected torrent is not cached for {item.log_string}",
+            )
+
+
+        raw_title = f"Manual Torrent for {imdb_id}"
+        torrent = Torrent(
+            raw_title=raw_title,
+            infohash=infohash,
+            data=ParsedData(raw_title=raw_title),
+        )
+        stream = Stream(torrent)
+        session.add(stream)
+        item.streams = [stream]
+        item.active_stream = cached_streams[0]
+        session.add(item)
+        session.commit()
+        
+        try:
+            downloader.download(item, item.active_stream)
+        except Exception as e:
+            logger.error(f"Failed to download {item.log_string}: {e}")
+            if item.active_stream.get("infohash", None):
+                downloader._delete_and_reset_active_stream(item)
+            session.rollback()
+            raise HTTPException(
+                status_code=500, detail=f"Failed to download {item.log_string}: {e}"
+            ) from e
+
+        item.last_state = States.Downloaded
+        session.commit()
+
+        request.app.program.em.add_event(Event("Symlinker", item._id))
+
+        return {
+            "success": True,
+            "message": f"Added {imdb_id} manually to the database (format was {type})",
+            "item_id": item._id,
+            "torrent_id": input,
+        }
 
 
 @router.get(
