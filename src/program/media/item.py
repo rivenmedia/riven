@@ -265,7 +265,7 @@ class MediaItem(db.Model):
         dict["file"] = self.file if hasattr(self, "file") else None
         dict["folder"] = self.folder if hasattr(self, "folder") else None
         dict["symlink_path"] = self.symlink_path if hasattr(self, "symlink_path") else None
-        dict["subtitles"] = getattr(self, "subtitles", [])
+        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
         return dict
 
     def __iter__(self):
