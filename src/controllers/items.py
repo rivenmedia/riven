@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
-from RTN import Torrent
+from RTN import ParsedData, Torrent
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.exc import NoResultFound
@@ -36,6 +36,7 @@ from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
 from utils.logger import logger
+from utils.torrent import get_type_and_infohash
 
 router = APIRouter(
     prefix="/items",
@@ -228,6 +229,40 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
             request.app.program.em.add_item(item)
 
     return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
+
+
+@router.post(
+    "/add-manually",
+    summary="Add Media Items Manually",
+    description="Add media item manually with a magnet link or infohash",
+    operation_id="add_item_manually",
+)
+async def add_item_manually(request: Request, imdb_id: str = None, input: str = None) -> MessageResponse:
+    if not imdb_id:
+        raise HTTPException(status_code=400, detail="No IMDb ID provided")
+
+    if not imdb_id.startswith("tt"):
+        raise HTTPException(status_code=400, detail="No valid IMDb ID provided")
+    
+    type, infohash = get_type_and_infohash(input)
+
+    if not infohash:
+        raise HTTPException(status_code=400, detail="No valid input provided")
+
+    with db.Session() as _:
+            raw_title = f"Manual Torrent for {imdb_id}"
+            torrent = Torrent(
+                raw_title=raw_title,
+                infohash=infohash,
+                data=ParsedData(raw_title=raw_title),
+            )
+            item = MediaItem(
+                {"imdb_id": imdb_id, "requested_by": "riven", "requested_at": datetime.now(), "state": States.Requested}
+            )
+            item.streams = [Stream(torrent)]
+            request.app.program.em.add_item(item)
+
+    return {"message": f"Added {imdb_id} manually to the database (format was {type})"}
 
 
 @router.get(
