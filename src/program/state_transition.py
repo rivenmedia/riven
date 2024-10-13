@@ -58,9 +58,6 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
                 updated_item = item = existing_item
             if existing_item.last_state == States.Completed:
                 return existing_item, None, []
-            elif existing_item.streams:
-                next_service = Downloader
-                items_to_submit = [existing_item]
             elif not emitted_by == Scraping and Scraping.can_we_scrape(existing_item):
                 items_to_submit = [existing_item]
             elif item.type == "show":
