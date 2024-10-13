@@ -301,6 +301,8 @@ class Program(threading.Thread):
             logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
+        import psutil
+        process = psutil.Process(os.getpid())
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
 
         logger.debug("Top %s lines" % limit)
@@ -317,9 +319,10 @@ class Program(threading.Thread):
         other = top_stats[limit:]
         if other:
             size = sum(stat.size for stat in other)
-            logger.debug("%s other: %.1f KiB" % (len(other), size / 1024))
+            logger.debug("%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
         total = sum(stat.size for stat in top_stats)
-        logger.debug("Total allocated size: %.1f KiB" % (total / 1024))
+        logger.opt(ansi=True).debug("Total allocated size: <red>%.1f MiB</red>" % (total / (1024 * 1024)))
+        logger.opt(ansi=True).debug(f"Process memory: <red>{process.memory_info().rss / (1024 * 1024):.2f} MiB</red>")
 
     def dump_tracemalloc(self):
         if time.monotonic() - self.malloc_time > 60:
@@ -335,8 +338,7 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.em.next()
-                if event.item_id:
-                    self.em.add_event_to_running(event)
+                self.em.add_event_to_running(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
@@ -349,7 +351,7 @@ class Program(threading.Thread):
             with db.Session() as session:
                 existing_item: MediaItem | None = DB._get_item_from_db(session, event.item_id)
                 processed_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item_id  # item_id is None if the item doesnt already exist. needs fixing!
+                    existing_item, event.emitted_by, existing_item
                 )
 
                 self.em.remove_event_from_running(event.item_id)
