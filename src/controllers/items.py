@@ -341,25 +341,25 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
 
-        for media_item in media_items:
-            logger.debug(f"Removing item with ID {media_item}")
-            request.app.program.em.cancel_job_by_id(media_item)
+        for item_id in media_items:
+            logger.debug(f"Removing item with ID {item_id}")
+            request.app.program.em.cancel_job(item_id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            clear_streams_by_id(media_item)
+            clear_streams_by_id(item_id)
 
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(media_item)
+                symlink_service.delete_item_symlinks_by_id(item_id)
 
             with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == media_item)).scalar_one()
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == item_id)).scalar_one()
                 if requested_id:
                     logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
                     Overseerr.delete_request(requested_id)
 
-            logger.debug(f"Deleting item from database with ID {media_item}")
-            delete_media_item_by_id(media_item)
-            logger.info(f"Successfully removed item with ID {media_item}")
+            logger.debug(f"Deleting item from database with ID {item_id}")
+            delete_media_item_by_id(item_id)
+            logger.info(f"Successfully removed item with ID {item_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -489,7 +489,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         session.commit()
 
-        request.app.program.em.add_event(Event("Symlinker", item))
+        request.app.program.em.add_event(Event("Symlinker", item._id))
 
         return {
             "success": True,
