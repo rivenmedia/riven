@@ -248,19 +248,22 @@ async def add_item_manually(request: Request, imdb_id: str = None, input: str = 
 
     if not infohash:
         raise HTTPException(status_code=400, detail="No valid input provided")
-
-    with db.Session() as _:
-            raw_title = f"Manual Torrent for {imdb_id}"
-            torrent = Torrent(
-                raw_title=raw_title,
-                infohash=infohash,
-                data=ParsedData(raw_title=raw_title),
-            )
-            item = MediaItem(
-                {"imdb_id": imdb_id, "requested_by": "riven", "requested_at": datetime.now(), "state": States.Requested}
-            )
-            item.streams = [Stream(torrent)]
-            request.app.program.em.add_item(item)
+    
+    with db.Session() as session:
+        raw_title = f"Manual Torrent for {imdb_id}"
+        torrent = Torrent(
+            raw_title=raw_title,
+            infohash=infohash,
+            data=ParsedData(raw_title=raw_title),
+        )
+        item = MediaItem(
+            {"imdb_id": imdb_id, "requested_by": "riven", "requested_at": datetime.now(), "state": States.Requested}
+        )
+        stream = Stream(torrent)
+        session.add(stream)
+        session.commit()
+        item.streams = [stream]
+        request.app.program.em.add_item(item)
 
     return {"message": f"Added {imdb_id} manually to the database (format was {type})"}
 
