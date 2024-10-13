@@ -123,6 +123,9 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
                 delete_seasons_and_episodes(session, media_item_id, batch_size)
                 session.execute(delete(Show).where(Show._id == media_item_id))
 
+            if media_item_type == "movie":
+                session.execute(delete(Movie).where(Movie._id == media_item_id))
+
             session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
             session.commit()
             return True
