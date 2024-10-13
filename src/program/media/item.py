@@ -23,7 +23,7 @@ class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
     _id: Mapped[int] = mapped_column(primary_key=True)
-    item_id: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    # item_id: Mapped[str] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
@@ -68,7 +68,7 @@ class MediaItem(db.Model):
     }
 
     __table_args__ = (
-        Index('ix_mediaitem_item_id', 'item_id'),
+        # Index('ix_mediaitem_item_id', 'item_id'),
         Index('ix_mediaitem_type', 'type'),
         Index('ix_mediaitem_requested_by', 'requested_by'),
         Index('ix_mediaitem_title', 'title'),
@@ -112,8 +112,8 @@ class MediaItem(db.Model):
         self.imdb_id =  item.get("imdb_id")
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
-            if not hasattr(self, "item_id"):
-                self.item_id = self.imdb_id
+            # if not hasattr(self, "item_id"):
+            #     self.item_id = self.imdb_id
         self.tvdb_id = item.get("tvdb_id")
         self.tmdb_id = item.get("tmdb_id")
         self.network = item.get("network")
@@ -321,7 +321,7 @@ class MediaItem(db.Model):
             return self.aliases
 
     def __hash__(self):
-        return hash(self.item_id)
+        return hash(self._id)
 
     def reset(self, soft_reset: bool = False):
         """Reset item attributes."""
@@ -381,7 +381,7 @@ class MediaItem(db.Model):
 
     @property
     def collection(self):
-        return self.parent.collection if self.parent else self.item_id
+        return self.parent.collection if self.parent else self._id
 
 
 class Movie(MediaItem):
@@ -401,7 +401,7 @@ class Movie(MediaItem):
         self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
-        self.item_id = self.imdb_id
+        # self.item_id = self.imdb_id
 
     def __repr__(self):
         return f"Movie:{self.log_string}:{self.state.name}"
@@ -425,13 +425,13 @@ class Show(MediaItem):
         self.type = "show"
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
-        self.item_id = item.get("imdb_id")
+        # self.item_id = item.get("imdb_id")
         self.propagate_attributes_to_childs()
 
-    def get_season_index_by_id(self, item_id):
-        """Find the index of an season by its item_id."""
+    def get_season_index_by_id(self, _id):
+        """Find the index of an season by its _id."""
         for i, season in enumerate(self.seasons):
-            if season.item_id == item_id:
+            if season._id == _id:
                 return i
         return None
 
@@ -545,7 +545,7 @@ class Season(MediaItem):
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
-        self.item_id = self.number
+        # self.item_id = self.number
         self.parent = item.get("parent", None)
         super().__init__(item)
         if self.parent and isinstance(self.parent, Show):
@@ -602,10 +602,10 @@ class Season(MediaItem):
             if e.number not in existing_episodes:
                 self.add_episode(e)
 
-    def get_episode_index_by_id(self, item_id):
-        """Find the index of an episode by its item_id."""
+    def get_episode_index_by_id(self, _id):
+        """Find the index of an episode by its _id."""
         for i, episode in enumerate(self.episodes):
-            if episode.item_id == item_id:
+            if episode._id == _id:
                 return i
         return None
 
@@ -646,7 +646,7 @@ class Episode(MediaItem):
         self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
-        self.item_id = self.number# , parent_id=item.get("parent_id"))
+        # self.item_id = self.number# , parent_id=item.get("parent_id"))
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime

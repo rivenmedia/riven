@@ -5,6 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
+from typing import Iterator, List
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
@@ -217,38 +218,34 @@ class Program(threading.Thread):
         if count == 0:
             return
 
-        number_of_rows_per_page = 10
-        max_events_to_add = 100  # Limit the number of events to add at once
-        events_added = 0
-
         logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
 
-        def fetch_items_in_batches():
-            for page_number in range(0, (count // number_of_rows_per_page) + 1):
-                with db.Session() as session:
-                    items_to_submit = session.execute(
-                        select(MediaItem._id)  # Fetch only the IDs initially
-                        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-                        .where(MediaItem.type.in_(["movie", "show"]))
-                        .order_by(MediaItem.requested_at.desc())
-                        .limit(number_of_rows_per_page)
-                        .offset(page_number * number_of_rows_per_page)
-                    ).scalars().all()
-                    yield items_to_submit
+        def fetch_items_in_batches(batch_size: int = 1000) -> Iterator[List[int]]:
+            with db.Session() as session:
+                items_query = (
+                    select(MediaItem._id)
+                    .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                    .where(MediaItem.type.in_(["movie", "show"]))
+                    .order_by(MediaItem.requested_at.desc())
+                )
+
+                # Use yield_per to fetch in chunks
+                result = session.execute(items_query).yield_per(batch_size)
+
+                batch = []
+                for item_id in result.scalars():
+                    batch.append(item_id)
+                    if len(batch) == batch_size:
+                        yield batch
+                        batch = []
+
+                # Yield any remaining items
+                if batch:
+                    yield batch
 
         for batch in fetch_items_in_batches():
-            if events_added >= max_events_to_add:
-                break
-
             for item_id in batch:
-                with db.Session() as session:
-                    item = session.get(MediaItem, item_id)  # Fetch the full item only when needed
-                    self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
-                    events_added += 1
-
-                    if events_added >= max_events_to_add:
-                        logger.debug(f"Added batch of {len(batch)} items, waiting for the next batch")
-                        break
+                self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -338,7 +335,8 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.em.next()
-                self.em.add_event_to_running(event)
+                if event.item_id:
+                    self.em.add_event_to_running(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
@@ -349,20 +347,20 @@ class Program(threading.Thread):
 
 
             with db.Session() as session:
-                existing_item: MediaItem | None = DB._get_item_from_db(session, event.item)
+                existing_item: MediaItem | None = DB._get_item_from_db(session, event.item_id)
                 processed_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item
+                    existing_item, event.emitted_by, existing_item if existing_item is not None else event.item_id  # item_id is None if the item doesnt already exist. needs fixing!
                 )
 
-                self.em.remove_item_from_running(event.item)
+                self.em.remove_event_from_running(event.item_id)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:
                         if not next_service:
-                            self.em.add_event_to_queue(Event("StateTransition", item_to_submit))
+                            self.em.add_event_to_queue(Event("StateTransition", item_to_submit._id))
                         else:
-                            event = Event(next_service.__name__, item_to_submit)
-                            self.em.add_event_to_running(Event(next_service.__name__, item_to_submit))
+                            event = Event(next_service.__name__, item_to_submit._id)
+                            self.em.add_event_to_running(event)
                             self.em.submit_job(next_service, self, event)
                 if isinstance(processed_item, MediaItem):
                     processed_item.store_state()
@@ -384,8 +382,7 @@ class Program(threading.Thread):
         try:
             enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
             return enhanced_item
-        except StopIteration as e:
-            logger.error(f"Failed to enhance metadata for {item.title} ({item.item_id}): {e}")
+        except StopIteration:
             return None
 
     def _init_db_from_symlinks(self):
@@ -411,11 +408,11 @@ class Program(threading.Thread):
                                 try:
                                     enhanced_item = future.result()
                                     if enhanced_item:
-                                        if enhanced_item.item_id in added:
+                                        if enhanced_item._id in added:
                                             errors.append(f"Duplicate Symlink found: {enhanced_item.log_string}")
                                             continue
                                         else:
-                                            added.append(enhanced_item.item_id)
+                                            added.append(enhanced_item._id)
                                             enhanced_item.store_state()
                                             session.add(enhanced_item)
                                             log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
