@@ -268,7 +268,7 @@ class TorBoxDownloader:
 
         # If it doesnt, lets download it and refresh the torrent_list
         if not exists:
-            id = self.create_torrent(item.active_stream["hash"])
+            id = self.add_torrent(item.active_stream["hash"])
             torrent_list = self.get_torrent_list()
 
         # Find the torrent, correct file and we gucci
@@ -316,8 +316,8 @@ class TorBoxDownloader:
         )
         return response.data["data"]
 
-    def create_torrent(self, hash) -> int:
-        magnet_url = f"magnet:?xt=urn:btih:{hash}&dn=&tr="
+    def add_torrent(self, infohash) -> int:
+        magnet_url = f"magnet:?xt=urn:btih:{infohash}&dn=&tr="
         response = post(
             f"{self.base_url}/torrents/createtorrent",
             data={"magnet": magnet_url, "seed": 1, "allow_zip": False},
