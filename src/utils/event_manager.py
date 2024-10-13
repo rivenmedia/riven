@@ -12,7 +12,7 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db
-from program.db.db_functions import _get_item_ids, _run_thread_with_db_item
+from program.db.db_functions import _check_for_and_run_insertion_required, _get_item_ids, _run_thread_with_db_item
 from program.types import Event
 
 
@@ -96,10 +96,7 @@ class EventManager:
         """
         with self.mutex:
             self._queued_events.append(event)
-            if event.item_id:
-                logger.debug(f"Added Item ID {event.item_id} to the queue.")
-            else:
-                logger.debug(f"Added newly requested item to the queue.")
+            logger.debug(f"Added Item ID {event.item_id} to the queue.")
 
     def remove_event_from_queue(self, item_id: int):
         """
@@ -110,13 +107,8 @@ class EventManager:
         """
         with self.mutex:
             for event in self._queued_events:
-                if event.item_id == item_id:
-                    self._queued_events.remove(event)
-                    logger.debug(f"Removed Item ID {item_id} from the queue.")
-                    return
-                elif None in self._queued_events:
-                    logger.debug("Removed None from the queue.")
-                    self._queued_events.remove(None)
+                self._queued_events.remove(event)
+                logger.debug(f"Removed Item ID {item_id} from the queue.")
 
     def add_event_to_running(self, event):
         """
@@ -126,11 +118,8 @@ class EventManager:
             event (Event): The event to add to the running events.
         """
         with self.mutex:
-            if event.item_id:
-                self._running_events.append(event)
-                logger.debug(f"Added Item ID {event.item_id} to running events.")
-            else:
-                logger.debug("Added newly requested item to running events.")
+            self._running_events.append(event)
+            logger.debug(f"Added Item ID {event.item_id} to running events.")
 
     def remove_event_from_running(self, item_id: int):
         """
@@ -141,10 +130,8 @@ class EventManager:
         """
         with self.mutex:
             for event in self._running_events:
-                if event.item_id == item_id:
-                    self._running_events.remove(event)
-                    logger.debug(f"Removed Item ID {item_id} from running events.")
-                    return
+                self._running_events.remove(event)
+                logger.debug(f"Removed Item ID {item_id} from running events.")
 
     def remove_event_from_queues(self, item_id: int):
         """
@@ -313,10 +300,16 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        if not item:
-            logger.error("Item is None, skipping.")
-            return
+        with db.Session() as session:
+            if item._id is None:
+                if _check_for_and_run_insertion_required(session, item):
+                    logger.debug(f"Inserted new item with ID {item._id} into the database.")
+                else:
+                    logger.error(f"Failed to insert new item: {item.log_string}")
+                    return
+
         self.add_event(Event(service, item_id=item._id))
+        logger.debug(f"Added item with ID {item._id} to the queue.")
 
     def get_event_updates(self) -> dict[str, list[EventUpdate]]:
         """
