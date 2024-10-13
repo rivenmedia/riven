@@ -467,7 +467,8 @@ def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
     torrent_id = ""
     downloader: Downloader = request.app.program.services.get(Downloader).service
     try:
-        torrent_id = downloader.add_torrent_magnet(magnet)
+        _, infohash = get_type_and_infohash(magnet)
+        torrent_id = downloader.add_torrent(infohash)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
 
