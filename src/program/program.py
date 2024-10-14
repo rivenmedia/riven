@@ -175,7 +175,6 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
-        count = 0
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem._id))
@@ -183,37 +182,41 @@ class Program(threading.Thread):
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
-        if count == 0:
-            return
+            if count == 0:
+                return
 
-        logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
+            logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
 
-        def fetch_items_in_batches(batch_size: int = 1000) -> Iterator[List[int]]:
-            with db.Session() as session:
-                items_query = (
-                    select(MediaItem._id)
-                    .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-                    .where(MediaItem.type.in_(["movie", "show"]))
-                    .order_by(MediaItem.requested_at.desc())
-                )
+            items_query = (
+                select(MediaItem._id)
+                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                .where(MediaItem.type.in_(["movie", "show"]))
+                .order_by(MediaItem.requested_at.desc())
+            )
 
-                # Use yield_per to fetch in chunks
-                result = session.execute(items_query).yield_per(batch_size)
+            # Fetch items in batches
+            batch_size = 1000
+            result = session.execute(items_query).yield_per(batch_size)
 
-                batch = []
-                for item_id in result.scalars():
-                    batch.append(item_id)
-                    if len(batch) == batch_size:
-                        yield batch
-                        batch = []
+            batch = []
+            total_processed = 0
+            for item_id in result.scalars():
+                batch.append(item_id)
+                if len(batch) == batch_size:
+                    total_processed += len(batch)
+                    self._process_retry_batch(batch, total_processed, count)
+                    batch = []
 
-                # Yield any remaining items
-                if batch:
-                    yield batch
+            # Process any remaining items
+            if batch:
+                total_processed += len(batch)
+                self._process_retry_batch(batch, total_processed, count)
 
-        for batch in fetch_items_in_batches():
-            for item_id in batch:
-                self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+    def _process_retry_batch(self, batch: List[int], total_processed: int, total_count: int) -> None:
+        """Process a batch of item IDs."""
+        for item_id in batch:
+            self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id), log_message=False)
+        logger.debug(f"Processed {total_processed}/{total_count} items.")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -317,12 +320,7 @@ class Program(threading.Thread):
 
 
             with db.Session() as session:
-                # existing_item: MediaItem = DB._get_item_from_db(session, event.item_id)
-                existing_item = session.get(MediaItem, event.item_id)
-                if not existing_item:
-                    logger.error(f"Item {event.item_id} not found in the database.")
-                    continue
-
+                existing_item: MediaItem = DB._get_item_from_db(session, event.item_id)
                 processed_item, next_service, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item
                 )
