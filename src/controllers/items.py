@@ -41,7 +41,10 @@ router = APIRouter(
 
 
 def handle_ids(ids: str) -> list[int]:
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+    if isinstance(ids, int):
+        ids = [ids]
+    else:
+        ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
         raise HTTPException(status_code=400, detail="No item ID provided")
     return ids
@@ -269,7 +272,7 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -278,13 +281,13 @@ class ResetResponse(BaseModel):
     description="Reset media items with bases on item IDs",
     operation_id="reset_items",
 )
-async def reset_items(request: Request, ids: str) -> ResetResponse:
+async def reset_items(request: Request, ids: int) -> ResetResponse:
     ids = handle_ids(ids)
     try:
         media_items_generator = get_media_items_by_ids(ids)
         for media_item in media_items_generator:
             try:
-                request.app.program.em.cancel_job(media_item)
+                request.app.program.em.cancel_job(media_item._id)
                 clear_streams(media_item)
                 reset_media_item(media_item)
             except ValueError as e:
@@ -300,7 +303,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -309,12 +312,12 @@ class RetryResponse(BaseModel):
     description="Retry media items with bases on item IDs",
     operation_id="retry_items",
 )
-async def retry_items(request: Request, ids: str) -> RetryResponse:
+async def retry_items(request: Request, ids: int) -> RetryResponse:
     ids = handle_ids(ids)
     try:
         media_items_generator = get_media_items_by_ids(ids)
         for media_item in media_items_generator:
-            request.app.program.em.cancel_job(media_item)
+            request.app.program.em.cancel_job(media_item._id)
             await asyncio.sleep(0.1)  # Ensure cancellation is processed
             request.app.program.em.add_item(media_item)
     except ValueError as e:
@@ -489,7 +492,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         session.commit()
 
-        request.app.program.em.add_event(Event("Symlinker", item._id))
+        request.app.program.em.add_event(Event("Symlinker", item._))
 
         return {
             "success": True,
