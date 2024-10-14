@@ -1,11 +1,10 @@
 import os
 import shutil
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 import alembic
 from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.exc import IntegrityError
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -16,7 +15,7 @@ from utils.logger import logger
 from .db import alembic, db
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem, Episode, Season
+    from program.media.item import MediaItem
 
 
 def get_media_items_by_ids(media_item_ids: list[int]):
@@ -466,12 +465,13 @@ def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
             return True
     return False
 
-def _run_thread_with_db_item(fn, service, program, input_id: int | None):
+def _run_thread_with_db_item(fn, service, program, input_id: int):
     from program.media.item import MediaItem
 
-    if input_id is not None:
+    if input_id:
         with db.Session() as session:
-            input_item = _get_item_from_db(session, input_id)
+            # input_item = _get_item_from_db(session, input_id)
+            input_item = session.get(MediaItem, input_id)
             if input_item is not None and not _check_for_and_run_insertion_required(session, input_item):
                 pass
             for res in fn(input_item):
@@ -481,7 +481,7 @@ def _run_thread_with_db_item(fn, service, program, input_id: int | None):
                     item = res
                 if not isinstance(item, MediaItem):
                     logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
-                    program.em.remove_event_from_running(input_item)
+                    program.em.remove_id_from_running(input_item)
                     continue
 
                 input_item.store_state()
