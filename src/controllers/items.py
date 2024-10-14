@@ -120,7 +120,7 @@ async def get_items(
                     filter_states.append(state_enum)
                     break
         if len(filter_states) == len(states):
-            query = query.where(MediaItem.last_state in filter_states)
+            query = query.where(MediaItem.last_state.in_(filter_states))
         else:
             valid_states = [state_enum.name for state_enum in States]
             raise HTTPException(
