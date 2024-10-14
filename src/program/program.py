@@ -216,7 +216,7 @@ class Program(threading.Thread):
         """Process a batch of item IDs."""
         for item_id in batch:
             self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id), log_message=False)
-        logger.debug(f"Processed {total_processed}/{total_count} items.")
+        logger.debug(f"Added {total_processed}/{total_count} items to the queue.")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
@@ -317,7 +317,6 @@ class Program(threading.Thread):
                     self.dump_tracemalloc()
                 time.sleep(0.1)
                 continue
-
 
             with db.Session() as session:
                 existing_item: MediaItem = DB._get_item_from_db(session, event.item_id)

@@ -465,36 +465,85 @@ def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
             return True
     return False
 
-def _run_thread_with_db_item(fn, service, program, input_id: int):
-    from program.media.item import MediaItem
+# def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = None):
+#     from program.media.item import Episode, MediaItem, Movie, Season, Show
+#     if input_item:
+#         with db.Session() as session:
+#             if isinstance(input_item, (Movie, Show, Season, Episode)):
+#                 if not _check_for_and_run_insertion_required(session, input_item):
+#                     pass
+#                 input_item = _get_item_from_db(session, input_item)
+#                 for res in fn(input_item):
+#                     if isinstance(res, tuple):
+#                         item, _ = res
+#                     else:
+#                         item = res
+#                     if not isinstance(item, MediaItem):
+#                         logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
+#                         program.em.remove_item_from_running(input_item)
 
+#                     input_item.store_state()
+#                     session.commit()
+
+#                     session.expunge_all()
+#                     yield res
+#             else:
+#                 #Content services
+#                 for i in fn(input_item):
+#                     if isinstance(i, (MediaItem)):
+#                         with db.Session() as session:
+#                             _check_for_and_run_insertion_required(session, i)
+#                     yield i
+#         return
+#     else:
+#         # Content services
+#         for i in fn():
+#             if isinstance(i, (MediaItem)):
+#                 program.em.add_item(i, service)
+#             elif isinstance(i, list) and all(isinstance(item, MediaItem) for item in i):
+#                 for item in i:
+#                     program.em.add_item(item, service)
+#         return
+
+def _run_thread_with_db_item(fn, service, program, input_id: int = None):
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
     if input_id:
         with db.Session() as session:
-            # input_item = _get_item_from_db(session, input_id)
-            input_item = session.get(MediaItem, input_id)
-            if input_item is not None and not _check_for_and_run_insertion_required(session, input_item):
-                pass
-            for res in fn(input_item):
-                if isinstance(res, tuple):
-                    item, _ = res
-                else:
-                    item = res
-                if not isinstance(item, MediaItem):
-                    logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
-                    program.em.remove_id_from_running(input_item)
-                    continue
+            input_item = _get_item_from_db(session, input_id)
+            if isinstance(input_item, (Movie, Show, Season, Episode)):
+                if not _check_for_and_run_insertion_required(session, input_item):
+                    pass
+                for res in fn(input_item):
+                    if isinstance(res, tuple):
+                        item, _ = res
+                    else:
+                        item = res
+                    if not isinstance(item, MediaItem):
+                        logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
+                        program.em.remove_item_from_running(input_item)
 
-                input_item.store_state()
-                session.commit()
-                session.expunge_all()
-                yield res
+                    input_item.store_state()
+                    session.commit()
+
+                    session.expunge_all()
+                    yield res
+            else:
+                #Content services
+                for i in fn(input_item):
+                    if isinstance(i, (MediaItem)):
+                        with db.Session() as session:
+                            _check_for_and_run_insertion_required(session, i)
+                    yield i
+        return
     else:
         # Content services
         for i in fn():
-            if isinstance(i, MediaItem):
+            if isinstance(i, (MediaItem)):
+                _store_item(i)
                 program.em.add_item(i, service)
             elif isinstance(i, list) and all(isinstance(item, MediaItem) for item in i):
                 for item in i:
+                    _store_item(item)
                     program.em.add_item(item, service)
         return
 
