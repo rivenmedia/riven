@@ -319,7 +319,8 @@ async def retry_items(request: Request, ids: int) -> RetryResponse:
         for media_item in media_items_generator:
             request.app.program.em.cancel_job(media_item._id)
             await asyncio.sleep(0.1)  # Ensure cancellation is processed
-            request.app.program.em.add_item(media_item)
+            # request.app.program.em.add_item(media_item)
+            request.app.program.em.add_event(Event("RetryItem", media_item._id))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
