@@ -12,7 +12,12 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 
 import utils.websockets.manager as ws_manager
 from program.db.db import db
-from program.db.db_functions import _check_for_and_run_insertion_required, _get_item_ids, _run_thread_with_db_item
+from program.db.db_functions import (
+    _check_for_and_run_insertion_required,
+    _get_item_ids,
+    _run_thread_with_db_item,
+    _store_item
+)
 from program.types import Event
 
 
@@ -73,17 +78,9 @@ class EventManager:
                 item, timestamp = result
             else:
                 item, timestamp = result, datetime.now()
+            if item and not hasattr(item, "_id"):
+                _store_item(item)
             if item:
-                with db.Session() as session:
-                    item = session.merge(item)
-                    if not item._id:
-                        if _check_for_and_run_insertion_required(session, item):
-                            session.add(item)
-                            session.commit()
-                            logger.debug(f"Item {item.log_string} added to the database.")
-                        else:
-                            logger.error(f"Failed to insert new item: {item.log_string}")
-                            return
                 self.remove_id_from_running(item._id)
                 self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
         except (StaleDataError, CancelledError):
@@ -249,7 +246,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
-        return _id in {event.item_id for event in self._queued_events}
+        return any(event.item_id == _id for event in self._queued_events)
 
     def _id_in_running_events(self, _id):
         """
@@ -261,7 +258,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
-        return _id in {event.item_id for event in self._running_events}
+        return any(event.item_id == _id for event in self._running_events)
 
     def add_event(self, event, log_message=True):
         """
@@ -289,7 +286,10 @@ class EventManager:
                     return False
         else:
             # Items that are not in the database
-            if self._id_in_queue(event.item_id):
+            if not event.item_id:
+                logger.debug(f"Item ID {event.item_id} is not in the database, skipping.")
+                return False
+            elif self._id_in_queue(event.item_id):
                 logger.debug(f"Item ID {event.item_id} is already in the queue, skipping.")
                 return False
             elif self._id_in_running_events(event.item_id):
@@ -319,8 +319,8 @@ class EventManager:
                     logger.error(f"Failed to insert new item: {item.log_string}")
                     return
 
-        self.add_event(Event(service, item_id=item._id))
-        logger.debug(f"Added item with ID {item._id} to the queue.")
+        if self.add_event(Event(service, item_id=item._id)):
+            logger.debug(f"Added item with ID {item._id} to the queue.")
 
     def get_event_updates(self) -> dict[str, list[EventUpdate]]:
         """
