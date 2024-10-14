@@ -75,10 +75,15 @@ class EventManager:
                 item, timestamp = result, datetime.now()
             if item:
                 with db.Session() as session:
-                    if not item._id and not _check_for_and_run_insertion_required(session, item):
-                        session.add(item)
-                        session.commit()
-                        logger.debug(f"Item {item.log_string} added to the database.")
+                    item = session.merge(item)
+                    if not item._id:
+                        if _check_for_and_run_insertion_required(session, item):
+                            session.add(item)
+                            session.commit()
+                            logger.debug(f"Item {item.log_string} added to the database.")
+                        else:
+                            logger.error(f"Failed to insert new item: {item.log_string}")
+                            return
                 self.remove_id_from_running(item._id)
                 self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
         except (StaleDataError, CancelledError):
@@ -92,7 +97,7 @@ class EventManager:
             log_message += f" with item_id: {future.event.item_id}"
         logger.debug(log_message)
 
-    def add_event_to_queue(self, event):
+    def add_event_to_queue(self, event, log_message=True):
         """
         Adds an event to the queue.
 
@@ -101,7 +106,8 @@ class EventManager:
         """
         with self.mutex:
             self._queued_events.append(event)
-            logger.debug(f"Added Item ID {event.item_id} to the queue.")
+            if log_message:
+                logger.debug(f"Added Item ID {event.item_id} to the queue.")
 
     def remove_id_from_queue(self, item_id: int):
         """
@@ -257,7 +263,7 @@ class EventManager:
         """
         return _id in {event.item_id for event in self._running_events}
 
-    def add_event(self, event):
+    def add_event(self, event, log_message=True):
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
@@ -295,7 +301,7 @@ class EventManager:
         #     logger.debug(f"Added Item ID {event.item_id} to the queue")
         # else:
         #     logger.debug(f"Re-added Item ID {event.item_id} to the queue")
-        self.add_event_to_queue(event)
+        self.add_event_to_queue(event, log_message)
         return True
 
     def add_item(self, item, service="Manual"):
