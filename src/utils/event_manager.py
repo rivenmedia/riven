@@ -16,7 +16,7 @@ from program.db.db_functions import (
     _check_for_and_run_insertion_required,
     _get_item_ids,
     _run_thread_with_db_item,
-    _store_item
+    store_or_update_item
 )
 from program.types import Event
 
@@ -79,7 +79,7 @@ class EventManager:
             else:
                 item, timestamp = result, datetime.now()
             if item and not hasattr(item, "_id"):
-                _store_item(item)
+                store_or_update_item(item)
             if item:
                 self.remove_id_from_running(item._id)
                 self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
@@ -175,7 +175,7 @@ class EventManager:
         ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
         future.add_done_callback(lambda f:self._process_future(f, service))
 
-    def cancel_job(self, item_id, suppress_logs=False):
+    def cancel_job(self, item_id: int, suppress_logs=False):
         """
         Cancels a job associated with the given item.
 
@@ -287,7 +287,6 @@ class EventManager:
         else:
             # Items that are not in the database
             if not event.item_id:
-                logger.debug(f"Item ID {event.item_id} is not in the database, skipping.")
                 return False
             elif self._id_in_queue(event.item_id):
                 logger.debug(f"Item ID {event.item_id} is already in the queue, skipping.")
