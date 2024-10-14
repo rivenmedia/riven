@@ -380,11 +380,11 @@ class Program(threading.Thread):
                                 try:
                                     enhanced_item = future.result()
                                     if enhanced_item:
-                                        if enhanced_item._id in added:
+                                        if enhanced_item.imdb_id in added:
                                             errors.append(f"Duplicate Symlink found: {enhanced_item.log_string}")
                                             continue
                                         else:
-                                            added.append(enhanced_item._id)
+                                            added.append(enhanced_item.imdb_id)
                                             enhanced_item.store_state()
                                             session.add(enhanced_item)
                                             log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
