@@ -173,38 +173,6 @@ class Program(threading.Thread):
         ws_manager.send_health_update("running")
         self.initialized = True
 
-    # def _retry_library(self) -> None:
-    #     count = 0
-    #     with db.Session() as session:
-    #         count = session.execute(
-    #             select(func.count(MediaItem._id))
-    #             .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-    #             .where(MediaItem.type.in_(["movie", "show"]))
-    #         ).scalar_one()
-
-    #     if count == 0:
-    #         return
-
-    #     logger.log("PROGRAM", f"Found {count} items to retry")
-
-    #     number_of_rows_per_page = 10
-    #     for page_number in range(0, (count // number_of_rows_per_page) + 1):
-    #         with db.Session() as session:
-    #             items_to_submit = []
-    #             items_to_submit += session.execute(
-    #                 select(MediaItem)
-    #                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
-    #                 .where(MediaItem.type.in_(["movie", "show"]))
-    #                 .order_by(MediaItem.requested_at.desc())
-    #                 .limit(number_of_rows_per_page)
-    #                 .offset(page_number * number_of_rows_per_page)
-    #             ).unique().scalars().all()
-
-    #             session.expunge_all()
-    #             session.close()
-    #             for item in items_to_submit:
-    #                 self.em.add_event(Event(emitted_by="RetryLibrary", item=item))
-
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
         count = 0
@@ -321,8 +289,8 @@ class Program(threading.Thread):
             size = sum(stat.size for stat in other)
             logger.debug("%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
         total = sum(stat.size for stat in top_stats)
-        logger.opt(ansi=True).debug("Total allocated size: <red>%.1f MiB</red>" % (total / (1024 * 1024)))
-        logger.opt(ansi=True).debug(f"Process memory: <red>{process.memory_info().rss / (1024 * 1024):.2f} MiB</red>")
+        logger.debug("Total allocated size: %.1f MiB" % (total / (1024 * 1024)))
+        logger.debug(f"Process memory: {process.memory_info().rss / (1024 * 1024):.2f} MiB")
 
     def dump_tracemalloc(self):
         if time.monotonic() - self.malloc_time > 60:
@@ -349,12 +317,17 @@ class Program(threading.Thread):
 
 
             with db.Session() as session:
-                existing_item: MediaItem | None = DB._get_item_from_db(session, event.item_id)
+                # existing_item: MediaItem = DB._get_item_from_db(session, event.item_id)
+                existing_item = session.get(MediaItem, event.item_id)
+                if not existing_item:
+                    logger.error(f"Item {event.item_id} not found in the database.")
+                    continue
+
                 processed_item, next_service, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item
                 )
 
-                self.em.remove_event_from_running(event.item_id)
+                self.em.remove_id_from_running(event.item_id)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:

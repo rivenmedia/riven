@@ -56,7 +56,7 @@ class EventManager:
             logger.debug(f"Created executor for {service_name} with {max_workers} max workers.")
             return _executor
 
-    def _process_future(self, future: Future, service):
+    def _process_future(self, future, service):
         """
         Processes the result of a future once it is completed.
 
@@ -74,9 +74,14 @@ class EventManager:
             else:
                 item, timestamp = result, datetime.now()
             if item:
-                self.remove_event_from_running(item._id)
+                with db.Session() as session:
+                    if not item._id and not _check_for_and_run_insertion_required(session, item):
+                        session.add(item)
+                        session.commit()
+                        logger.debug(f"Item {item.log_string} added to the database.")
+                self.remove_id_from_running(item._id)
                 self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
-        except (StaleDataError, CancelledError) as e:
+        except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return
         except Exception as e:
@@ -98,7 +103,7 @@ class EventManager:
             self._queued_events.append(event)
             logger.debug(f"Added Item ID {event.item_id} to the queue.")
 
-    def remove_event_from_queue(self, item_id: int):
+    def remove_id_from_queue(self, item_id: int):
         """
         Removes an item from the queue.
 
@@ -110,7 +115,7 @@ class EventManager:
                 self._queued_events.remove(event)
                 logger.debug(f"Removed Item ID {item_id} from the queue.")
 
-    def add_event_to_running(self, event):
+    def add_event_to_running(self, event: Event):
         """
         Adds an event to the running events.
 
@@ -121,7 +126,7 @@ class EventManager:
             self._running_events.append(event)
             logger.debug(f"Added Item ID {event.item_id} to running events.")
 
-    def remove_event_from_running(self, item_id: int):
+    def remove_id_from_running(self, item_id: int):
         """
         Removes an item from the running events.
 
@@ -133,15 +138,15 @@ class EventManager:
                 self._running_events.remove(event)
                 logger.debug(f"Removed Item ID {item_id} from running events.")
 
-    def remove_event_from_queues(self, item_id: int):
+    def remove_id_from_queues(self, item_id: int):
         """
         Removes an item from both the queue and the running events.
 
         Args:
             item (MediaItem): The event item to remove from both the queue and the running events.
         """
-        self.remove_event_from_queue(item_id)
-        self.remove_event_from_running(item_id)
+        self.remove_id_from_queue(item_id)
+        self.remove_id_from_running(item_id)
 
     def submit_job(self, service, program, event=None):
         """
@@ -189,7 +194,7 @@ class EventManager:
                     future_item_id, future_related_ids = _get_item_ids(session, future_item)
 
                 if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
-                    self.remove_event_from_queues(future_item)
+                    self.remove_id_from_queues(future_item)
                     futures_to_remove.append(future)
                     if not future.done() and not future.cancelled():
                         try:
@@ -238,7 +243,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
-        return any(event.item_id == _id for event in self._queued_events)
+        return _id in {event.item_id for event in self._queued_events}
 
     def _id_in_running_events(self, _id):
         """
@@ -250,7 +255,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
-        return any(event.item_id == _id for event in self._running_events)
+        return _id in {event.item_id for event in self._running_events}
 
     def add_event(self, event):
         """
