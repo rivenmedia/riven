@@ -1,6 +1,5 @@
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.content.trakt import TraktContent
-from program.db.db_functions import _item_id_exists_in_db
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
@@ -25,7 +24,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
     if emitted_by in source_services or item.last_state in [States.Requested]:
         next_service = TraktIndexer
-        if _item_id_exists_in_db(item._id) and item.last_state == States.Completed:
+        if item._id and item.last_state == States.Completed:
             logger.debug(f"Item {item.log_string} already exists in the database.")
             return no_further_processing
         if isinstance(item, Season):

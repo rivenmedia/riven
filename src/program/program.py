@@ -324,7 +324,7 @@ class Program(threading.Thread):
                     existing_item, event.emitted_by, existing_item
                 )
 
-                self.em.remove_id_from_running(event.item_id)
+                self.em.remove_event_from_running(event.item_id)
 
                 if items_to_submit:
                     for item_to_submit in items_to_submit:

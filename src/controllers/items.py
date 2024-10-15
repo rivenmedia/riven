@@ -493,7 +493,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         session.commit()
 
-        request.app.program.em.add_event(Event("Symlinker", item._))
+        request.app.program.em.add_event(Event("Symlinker", item._id))
 
         return {
             "success": True,
