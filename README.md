@@ -32,7 +32,6 @@ Services currently supported:
 | Plex Watchlist RSS | ✅        |
 | Torrentio          | ✅        |
 | Orionoid           | ✅        |
-| Jackett            | ✅        |
 | Listrr             | ✅        |
 
 | and more to come!
