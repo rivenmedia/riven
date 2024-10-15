@@ -13,7 +13,6 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import (
-    _check_for_and_run_insertion_required,
     _get_item_ids,
     _run_thread_with_db_item,
     store_or_update_item
@@ -79,9 +78,9 @@ class EventManager:
             else:
                 item, timestamp = result, datetime.now()
             if item and not hasattr(item, "_id"):
-                store_or_update_item(item)
+                store_or_update_item(item) # new items have to have an _id set to be processed
             if item:
-                self.remove_id_from_running(item._id)
+                self.remove_event_from_running(item._id)
                 self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
@@ -91,7 +90,7 @@ class EventManager:
             logger.exception(traceback.format_exc())
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event") and hasattr(future.event, "item_id"):
-            log_message += f" with item_id: {future.event.item_id}"
+            log_message += f" with Item ID: {future.event.item_id}"
         logger.debug(log_message)
 
     def add_event_to_queue(self, event, log_message=True):
@@ -129,7 +128,7 @@ class EventManager:
             self._running_events.append(event)
             logger.debug(f"Added Item ID {event.item_id} to running events.")
 
-    def remove_id_from_running(self, item_id: int):
+    def remove_event_from_running(self, item_id: int):
         """
         Removes an item from the running events.
 
@@ -149,7 +148,7 @@ class EventManager:
             item (MediaItem): The event item to remove from both the queue and the running events.
         """
         self.remove_id_from_queue(item_id)
-        self.remove_id_from_running(item_id)
+        self.remove_event_from_running(item_id)
 
     def submit_job(self, service, program, event=None):
         """
@@ -295,11 +294,6 @@ class EventManager:
                 logger.debug(f"Item ID {event.item_id} is already running, skipping.")
                 return False
 
-        # Log the addition of the event to the queue
-        # if not event.item.type in ["show", "movie", "season", "episode"]:
-        #     logger.debug(f"Added Item ID {event.item_id} to the queue")
-        # else:
-        #     logger.debug(f"Re-added Item ID {event.item_id} to the queue")
         self.add_event_to_queue(event, log_message)
         return True
 
@@ -310,13 +304,8 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        with db.Session() as session:
-            if item._id is None:
-                if _check_for_and_run_insertion_required(session, item):
-                    logger.debug(f"Inserted new item with ID {item._id} into the database.")
-                else:
-                    logger.error(f"Failed to insert new item: {item.log_string}")
-                    return
+        if not item._id:
+            store_or_update_item(item)
 
         if self.add_event(Event(service, item_id=item._id)):
             logger.debug(f"Added item with ID {item._id} to the queue.")

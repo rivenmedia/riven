@@ -264,74 +264,64 @@ def _get_item_ids(session, item_id: int) -> tuple[int, list[int]]:
     from program.media.item import MediaItem, Episode, Season
 
     item_type = session.query(MediaItem.type).filter(MediaItem._id == item_id).scalar()
+    related_ids = []
 
     if item_type == "show":
-        # Fetch season IDs for the show
         season_ids = session.execute(
             select(Season._id).where(Season.parent_id == item_id)
         ).scalars().all()
 
-        # Fetch episode IDs for each season
-        episode_ids = []
         for season_id in season_ids:
-            episode_ids.extend(
-                session.execute(
-                    select(Episode._id).where(Episode.parent_id == season_id)
-                ).scalars().all()
-            )
-
-        related_ids = season_ids + episode_ids
-        return item_id, related_ids
+            episode_ids = session.execute(
+                select(Episode._id).where(Episode.parent_id == season_id)
+            ).scalars().all()
+            related_ids.extend(episode_ids)
+        related_ids.extend(season_ids)
 
     elif item_type == "season":
-        # Fetch episode IDs for the season
         episode_ids = session.execute(
             select(Episode._id).where(Episode.parent_id == item_id)
         ).scalars().all()
-        return item_id, episode_ids
+        related_ids.extend(episode_ids)
 
-    elif item_type == "episode":
-        # An episode has no children, return its own ID
-        return item_id, []
-
-    # # If the item has a parent, return the parent's ID
-    # parent_id = session.execute(
-    #     select(MediaItem.parent_id).where(MediaItem._id == item_id)
-    # ).scalar_one_or_none()
-
-    # if parent_id:
-    #     return parent_id, []
-
-    return item_id, []
+    return item_id, related_ids
 
 def store_or_update_item(item: "MediaItem"):
-    from program.media.item import Movie, Show, Season, Episode
+    """Store or update a MediaItem in the database."""
+    from program.media.item import MediaItem
+
     with db.Session() as session:
-        if isinstance(item, (Movie, Show, Season, Episode)):
-            if item._id is None:
+        # Check for existing item with the same imdb_id
+        if not item._id and item.type in ["movie", "show", "mediaitem"]:
+            existing_item = session.query(MediaItem).filter_by(imdb_id=item.imdb_id).first()
+            if existing_item:
+                # Update existing item
+                existing_item.store_state()
+                session.commit()
+                logger.log("DATABASE", f"Updated {existing_item.log_string} in the database.")
+            else:
+                # Add new item
                 item.store_state()
                 session.add(item)
                 session.commit()
                 logger.log("DATABASE", f"Inserted {item.log_string} into the database.")
-            else:
-                # Update existing item
-                item.store_state()
-                session.merge(item)
-                session.commit()
-                logger.log("DATABASE", f"{item.log_string} Updated!")
+        else:
+            # Update existing item
+            item.store_state()
+            session.merge(item)
+            session.commit()
+            logger.log("DATABASE", f"Updated {item.log_string} in the database.")
+
+        session.expunge_all()
 
 def _ensure_item_exists_in_db(item: "MediaItem") -> bool:
+    """Ensure a MediaItem exists in the database."""
     from program.media.item import MediaItem
     with db.Session() as session:
         query = select(func.count(MediaItem._id)).where(
             (MediaItem._id == item._id) if item._id is not None else (MediaItem.imdb_id == item.imdb_id)
         ).where(MediaItem.type.in_(["movie", "show"]))
         return session.execute(query).scalar_one() != 0
-
-def _item_id_exists_in_db(item_id: int) -> bool:
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        return session.execute(select(func.count(MediaItem._id)).where(MediaItem._id == item_id)).scalar_one() != 0
 
 def _filter_existing_items(items: list["MediaItem"]) -> list["MediaItem"]:
     """Return a list of MediaItems that do not exist in the database."""
@@ -352,10 +342,8 @@ def _get_item_type_from_db(item: "MediaItem") -> str:
             return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
 
 def _get_item_from_db(session: Session, item_id: int) -> "MediaItem":
+    """Get a MediaItem from the database by _id."""
     from program.media.item import MediaItem, Movie, Show, Season, Episode
-
-    if not item_id:
-        raise AttributeError("Missing Item ID")
 
     item_type = session.execute(
         select(MediaItem.type).where(MediaItem._id == item_id)
@@ -391,23 +379,14 @@ def _get_item_from_db(session: Session, item_id: int) -> "MediaItem":
             logger.error(f"Unknown item type for ID {item_id}")
             return None
 
-def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
-    from program.media.item import MediaItem
-    if item._id is None and isinstance(item, MediaItem):
-        item.store_state()
-        session.add(item)
-        session.commit()
-        logger.log("DATABASE", f"{item.log_string} Inserted into the database.")
-        return True
-    return False
-
 def _run_thread_with_db_item(fn, service, program, input_id: int = None):
     from program.media.item import Episode, MediaItem, Movie, Season, Show
     if input_id:
         with db.Session() as session:
             input_item = _get_item_from_db(session, input_id)
             if isinstance(input_item, (Movie, Show, Season, Episode)):
-                if not _check_for_and_run_insertion_required(session, input_item):
+                # check if the item needs insertion
+                if input_item._id is None and isinstance(input_item, MediaItem):
                     pass
                 for res in fn(input_item):
                     if isinstance(res, tuple):
@@ -427,8 +406,7 @@ def _run_thread_with_db_item(fn, service, program, input_id: int = None):
                 #Content services
                 for i in fn(input_item):
                     if isinstance(i, (MediaItem)):
-                        with db.Session() as session:
-                            store_or_update_item(i)
+                        store_or_update_item(i)
                     yield i
         return
     else:
