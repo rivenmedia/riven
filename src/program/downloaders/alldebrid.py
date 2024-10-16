@@ -116,7 +116,7 @@ class AllDebridDownloader(DownloaderBase):
             # We avoid compressed downloads this way
             def all_files_valid(files: list) -> bool:
                 filenames = [f.lower() for f, _ in walk_alldebrid_files(files)]
-                return all(
+                return len(filenames) >= 1 and all(
                     "sample" not in file and file.rsplit(".", 1)[-1] in VIDEO_EXTENSIONS
                     for file in filenames
                 )
