@@ -394,6 +394,7 @@ class Program(threading.Thread):
                                     progress.update(task, advance=1, log=log_message)
                             progress.update(task, log="Finished Indexing Symlinks!")
                     session.commit()
+                    session.expunge_all()
 
                     # lets log the errors at the end in case we need user intervention
                     if errors:
