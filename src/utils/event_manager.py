@@ -13,6 +13,8 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import (
+    _check_for_and_run_insertion_required,
+    _ensure_item_exists_in_db,
     _get_item_ids,
     _run_thread_with_db_item,
     store_or_update_item
@@ -81,7 +83,7 @@ class EventManager:
                 store_or_update_item(item) # new items have to have an _id set to be processed
             if item:
                 self.remove_event_from_running(item._id)
-                self.add_event(Event(emitted_by=service, item_id=item._id, run_at=timestamp))
+                self.add_event(Event(emitted_by=service.__name__, item_id=item._id, run_at=timestamp))
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return
@@ -208,12 +210,6 @@ class EventManager:
             for future in futures_to_remove:
                 self._futures.remove(future)
 
-        # Clear from queued and running events
-        # with self.mutex:
-        #     self._queued_events = [event for event in self._queued_events if event.item_id != item._id and event.item.imdb_id != item.imdb_id]
-        #     self._running_events = [event for event in self._running_events if event.item_id != item._id and event.item.imdb_id != item.imdb_id]
-        #     self._futures = [future for future in self._futures if not hasattr(future, 'event') or future.event.item_id != item._id and future.event.item.imdb_id != item.imdb_id]
-
         logger.debug(f"Canceled jobs for Item ID {item_id} and its children.")
 
     def next(self):
@@ -304,11 +300,12 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        if not item._id:
+        if not _ensure_item_exists_in_db(item):
             store_or_update_item(item)
 
         if self.add_event(Event(service, item_id=item._id)):
             logger.debug(f"Added item with ID {item._id} to the queue.")
+
 
     def get_event_updates(self) -> dict[str, list[EventUpdate]]:
         """
