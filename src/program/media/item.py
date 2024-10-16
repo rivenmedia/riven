@@ -6,7 +6,7 @@ from typing import List, Optional, Self
 
 import sqlalchemy
 from RTN import parse
-from sqlalchemy import Index
+from sqlalchemy import Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 import utils.websockets.manager as ws_manager
@@ -67,6 +67,7 @@ class MediaItem(db.Model):
     }
 
     __table_args__ = (
+        UniqueConstraint('imdb_id', name='uix_imdb_id'),
         Index('ix_mediaitem_type', 'type'),
         Index('ix_mediaitem_requested_by', 'requested_by'),
         Index('ix_mediaitem_title', 'title'),

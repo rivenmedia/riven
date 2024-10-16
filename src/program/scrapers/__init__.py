@@ -69,11 +69,11 @@ class Scraping:
         def run_service(service, item,):
             nonlocal total_results
             service_results = service.run(item)
-            
+
             if not isinstance(service_results, dict):
                 logger.error(f"Service {service.__class__.__name__} returned invalid results: {service_results}")
                 return
-            
+
             with results_lock:
                 results.update(service_results)
                 total_results += len(service_results)
