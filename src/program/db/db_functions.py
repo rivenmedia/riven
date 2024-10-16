@@ -389,12 +389,12 @@ def store_or_update_item(item: "MediaItem"):
                 session.add(item)
                 logger.log("DATABASE", f"Inserted {item.log_string} into the database.")
 
-            session.commit()  # Commit the transaction
+            session.commit()
         except Exception as e:
             session.rollback()
             logger.error(f"Error during store_or_update_item: {e}")
         finally:
-            session.close()  # Ensure the session is closed properly
+            session.close()
 
 def _run_thread_with_db_item(fn, service, program, input_id: int = None):
     from program.media.item import MediaItem

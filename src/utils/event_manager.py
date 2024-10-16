@@ -303,8 +303,14 @@ class EventManager:
         if not _ensure_item_exists_in_db(item):
             store_or_update_item(item)
 
-        if self.add_event(Event(service, item_id=item._id)):
-            logger.debug(f"Added item with ID {item._id} to the queue.")
+        # Get the item's ID before closing or detaching the session
+        with db.Session() as session:
+            item_in_session = session.merge(item)  # Ensure it's attached to this session
+            item_id = item_in_session._id  # Access the _id while still in session
+
+        # Add the event after the session has been closed
+        if self.add_event(Event(service, item_id=item_id)):
+            logger.debug(f"Added item with ID {item_id} to the queue.")
 
 
     def get_event_updates(self) -> dict[str, list[EventUpdate]]:
