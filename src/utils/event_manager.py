@@ -76,14 +76,12 @@ class EventManager:
                 self._futures.remove(future)
             ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
             if isinstance(result, tuple):
-                item, timestamp = result
+                item_id, timestamp = result
             else:
-                item, timestamp = result, datetime.now()
-            if item and not hasattr(item, "_id"):
-                store_or_update_item(item) # new items have to have an _id set to be processed
-            if item:
-                self.remove_event_from_running(item._id)
-                self.add_event(Event(emitted_by=service.__name__, item_id=item._id, run_at=timestamp))
+                item_id, timestamp = result, datetime.now()
+            if item_id:
+                self.remove_event_from_running(item_id)
+                self.add_event(Event(emitted_by=service.__name__, item_id=item_id, run_at=timestamp))
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return
@@ -192,7 +190,7 @@ class EventManager:
             for future in self._futures:
                 future_item_id = None
                 future_related_ids = []
-                
+
                 if hasattr(future, 'event') and hasattr(future.event, 'item'):
                     future_item = future.event.item_id
                     future_item_id, future_related_ids = _get_item_ids(session, future_item)

@@ -353,7 +353,7 @@ def _get_item_from_db(session: Session, item_id: int) -> "MediaItem":
 
 def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
     from program.media.item import Episode, Movie, Season, Show
-    
+
     # Ensure the item exists in the DB
     if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
         # Detach the item if it is already attached to any session
@@ -407,12 +407,14 @@ def _run_thread_with_db_item(fn, service, program, input_id: int = None):
                     pass
                 for res in fn(input_item):
                     if isinstance(res, tuple):
-                        item, _ = res
+                        item, run_at = res
+                        res = item._id, run_at
                     else:
                         item = res
+                        res = item._id
                     if not isinstance(item, MediaItem):
                         logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
-                        program.em.remove_item_from_running(input_item)
+                        program.em.remove_id_from_queues(input_item._id)
 
                     input_item.store_state()
                     session.commit()
@@ -420,29 +422,29 @@ def _run_thread_with_db_item(fn, service, program, input_id: int = None):
                     session.expunge_all()
                     yield res
             else:
-                # Handle other content services
-                for i in fn(input_item):
-                    if isinstance(i, MediaItem):
-                        with db.Session() as session:
-                            i = session.merge(i)  # Reattach the item to the session
-                            _check_for_and_run_insertion_required(session, i)
-                            session.commit()  # Commit the session
-                            program.em.add_item(i, service)
-                    yield i
+                # Indexing returns a copy of the item, was too lazy to create a copy attr func so this will do for now
+                indexed_item = next(fn(input_item))
+                if indexed_item.type != "mediaitem":
+                    indexed_item.store_state()
+                    session.delete(input_item)
+                    indexed_item = session.merge(indexed_item)
+                    session.commit()
+                    logger.debug(f"{input_item._id} is now {indexed_item._id} after indexing...")
+                    yield indexed_item._id
         return
     else:
         # Content services
         for i in fn():
             if isinstance(i, MediaItem):
-                with db.Session() as session:
-                    _check_for_and_run_insertion_required(session, i)
-                program.em.add_item(i, service)
-            elif isinstance(i, list) and all(isinstance(item, MediaItem) for item in i):
+                i = [i]
+            if isinstance(i, list):
                 for item in i:
-                    with db.Session() as session:
-                        _check_for_and_run_insertion_required(session, item)
                     program.em.add_item(item, service)
         return
+
+def _imdb_exists_in_database(session, imdb_id):
+    from program.media.item import MediaItem
+    return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == imdb_id)).scalar_one() != 0
 
 def hard_reset_database():
     """Resets the database to a fresh state."""
