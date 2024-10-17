@@ -80,7 +80,7 @@ class EventManager:
                 item_id, timestamp = result, datetime.now()
             if item_id:
                 self.remove_event_from_running(item_id)
-                self.add_event(Event(emitted_by=service.__name__, item_id=item_id, run_at=timestamp))
+                self.add_event(Event(emitted_by=service, item_id=item_id, run_at=timestamp))
         except (StaleDataError, CancelledError):
             # Expected behavior when cancelling tasks or when the item was removed
             return

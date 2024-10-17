@@ -311,7 +311,7 @@ class Program(threading.Thread):
                         if not next_service:
                             self.em.add_event_to_queue(Event("StateTransition", item_to_submit._id))
                         else:
-                            event = Event(next_service.__name__, item_to_submit._id)
+                            event = Event(next_service, item_to_submit._id)
                             self.em.add_event_to_running(event)
                             self.em.submit_job(next_service, self, event)
                 if isinstance(processed_item, MediaItem):
