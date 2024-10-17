@@ -253,7 +253,7 @@ class EventManager:
         """
         return any(event.item_id == _id for event in self._running_events)
 
-    def add_event(self, event, log_message=True):
+    def add_event(self, event):
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
@@ -288,7 +288,7 @@ class EventManager:
                 logger.debug(f"Item ID {event.item_id} is already running, skipping.")
                 return False
 
-        self.add_event_to_queue(event, log_message)
+        self.add_event_to_queue(event)
         return True
 
     def add_item(self, item, service="Manual"):

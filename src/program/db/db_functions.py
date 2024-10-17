@@ -565,3 +565,9 @@ if reset is not None and reset.lower() in ["true","1"]:
 if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     exit(0)
+
+# Resolve Duplicates
+if os.getenv("RESOLVE_DUPLICATES", None) is not None and os.getenv("RESOLVE_DUPLICATES").lower() in ["true","1"]:
+    resolve_duplicates()
+    exit(0)
+

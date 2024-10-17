@@ -185,7 +185,7 @@ class Program(threading.Thread):
             if count == 0:
                 return
 
-            logger.log("PROGRAM", f"Starting retry process for {count} items. Processing in batches.")
+            logger.log("PROGRAM", f"Starting retry process for {count} items.")
 
             items_query = (
                 select(MediaItem._id)
@@ -194,34 +194,14 @@ class Program(threading.Thread):
                 .order_by(MediaItem.requested_at.desc())
             )
 
-            # Fetch items in batches
-            batch_size = 1000
-            result = session.execute(items_query).yield_per(batch_size)
-
-            batch = []
-            total_processed = 0
+            result = session.execute(items_query)
             for item_id in result.scalars():
-                batch.append(item_id)
-                if len(batch) == batch_size:
-                    total_processed += len(batch)
-                    self._process_retry_batch(batch, total_processed, count)
-                    batch = []
-
-            # Process any remaining items
-            if batch:
-                total_processed += len(batch)
-                self._process_retry_batch(batch, total_processed, count)
-
-    def _process_retry_batch(self, batch: List[int], total_processed: int, total_count: int) -> None:
-        """Process a batch of item IDs."""
-        for item_id in batch:
-            self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id), log_message=False)
-        logger.debug(f"Added {total_processed}/{total_count} items to the queue.")
+                self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._retry_library: {"interval": 60 * 10},
+            self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
@@ -362,55 +342,53 @@ class Program(threading.Thread):
         start_time = datetime.now()
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
-            added = set()
             errors = []
-            if res == 0:
-                if settings_manager.settings.map_metadata:
-                    logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
-                    items = self.services[SymlinkLibrary].run()
-                    progress, console = create_progress_bar(len(items))
+            added_items = set()
 
-                    task = progress.add_task("Enriching items with metadata", total=len(items), log="")
-                    with Live(progress, console=console, refresh_per_second=10):
-                        workers = os.getenv("SYMLINK_MAX_WORKERS", 4)
-                        with ThreadPoolExecutor(max_workers=int(workers)) as executor:
-                            future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
-                            for future in as_completed(future_to_item):
+            if res == 0 and settings_manager.settings.map_metadata:
+                logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
+                items = self.services[SymlinkLibrary].run()
+                progress, console = create_progress_bar(len(items))
+
+                task = progress.add_task("Enriching items with metadata", total=len(items), log="")
+                with Live(progress, console=console, refresh_per_second=10):
+                    workers = os.getenv("SYMLINK_MAX_WORKERS", 4)
+                    with ThreadPoolExecutor(max_workers=int(workers)) as executor:
+                        future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
+                        for future in as_completed(future_to_item):
+                            try:
                                 item = future_to_item[future]
-                                try:
-                                    enhanced_item = future.result()
-                                    if enhanced_item:
-                                        if enhanced_item.imdb_id in added:
-                                            errors.append(f"Duplicate Symlink found: {enhanced_item.log_string}")
-                                            continue
-                                        # Check if the item already exists in the database
-                                        existing_item = session.execute(
-                                            select(MediaItem).where(MediaItem.imdb_id == enhanced_item.imdb_id)
-                                        ).scalar_one_or_none()
-                                        if existing_item:
-                                            errors.append(f"Duplicate in database: {enhanced_item.log_string}")
-                                            continue
+                                if item and item.imdb_id not in added_items:
+                                    # Check for existing item in the database
+                                    existing_item = session.query(MediaItem).filter_by(imdb_id=item.imdb_id).first()
+                                    if existing_item:
+                                        errors.append(f"Duplicate item found in database for imdb_id: {item.imdb_id}")
+                                        continue
 
-                                        added.add(enhanced_item.imdb_id)
-                                        enhanced_item.store_state()
-                                        session.add(enhanced_item)
-                                        log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
-                                except Exception as e:
-                                    logger.exception(f"Error processing {item.log_string}: {e}")
-                                finally:
-                                    progress.update(task, advance=1, log=log_message)
-                            progress.update(task, log="Finished Indexing Symlinks!")
+                                    added_items.add(item.imdb_id)
+                                    enhanced_item = future.result()
+                                    enhanced_item.store_state()
+                                    session.add(enhanced_item)
+                                    log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
+                                else:
+                                    errors.append(f"Duplicate Symlink found: {item.log_string}")
+                                    continue
+                            except Exception as e:
+                                logger.exception(f"Error processing {item.log_string}: {e}")
+                            finally:
+                                progress.update(task, advance=1, log=log_message if 'log_message' in locals() else "")
+                        progress.update(task, log="Finished Indexing Symlinks!")
+
                     session.commit()
                     session.expunge_all()
 
-                    # lets log the errors at the end in case we need user intervention
-                    if errors:
-                        logger.error("Errors encountered during initialization")
-                        for error in errors:
-                            logger.error(error)
+                if errors:
+                    logger.error("Errors encountered during initialization")
+                    for error in errors:
+                        logger.error(error)
 
-                    elapsed_time = datetime.now() - start_time
-                    total_seconds = elapsed_time.total_seconds()
-                    hours, remainder = divmod(total_seconds, 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    logger.success(f"Database initialized, time taken: h{int(hours):02d}:m{int(minutes):02d}:s{int(seconds):02d}")
+                elapsed_time = datetime.now() - start_time
+                total_seconds = elapsed_time.total_seconds()
+                hours, remainder = divmod(total_seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                logger.success(f"Database initialized, time taken: h{int(hours):02d}:m{int(minutes):02d}:s{int(seconds):02d}")

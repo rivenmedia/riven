@@ -67,7 +67,7 @@ class MediaItem(db.Model):
     }
 
     __table_args__ = (
-        UniqueConstraint('imdb_id', name='uix_imdb_id'),
+        # UniqueConstraint('imdb_id', name='uix_imdb_id'),
         Index('ix_mediaitem_type', 'type'),
         Index('ix_mediaitem_requested_by', 'requested_by'),
         Index('ix_mediaitem_title', 'title'),
