@@ -41,10 +41,7 @@ router = APIRouter(
 
 
 def handle_ids(ids: str) -> list[int]:
-    if isinstance(ids, int):
-        ids = [ids]
-    else:
-        ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
         raise HTTPException(status_code=400, detail="No item ID provided")
     return ids
@@ -281,7 +278,7 @@ class ResetResponse(BaseModel):
     description="Reset media items with bases on item IDs",
     operation_id="reset_items",
 )
-async def reset_items(request: Request, ids: int) -> ResetResponse:
+async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids = handle_ids(ids)
     try:
         media_items_generator = get_media_items_by_ids(ids)
@@ -312,7 +309,8 @@ class RetryResponse(BaseModel):
     description="Retry media items with bases on item IDs",
     operation_id="retry_items",
 )
-async def retry_items(request: Request, ids: int) -> RetryResponse:
+async def retry_items(request: Request, ids: str) -> RetryResponse:
+    """Re-add items to the queue"""
     ids = handle_ids(ids)
     try:
         media_items_generator = get_media_items_by_ids(ids)
