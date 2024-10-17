@@ -386,6 +386,7 @@ def run_thread_with_db_item(fn, service, program, input_id: int = None):
                 # Indexing returns a copy of the item, was too lazy to create a copy attr func so this will do for now
                 indexed_item = next(fn(input_item), None)
                 if indexed_item is None:
+                    logger.debug(f"Unable to index {input_item.log_string}")
                     pass
                 if indexed_item.type != "mediaitem":
                     indexed_item.store_state()
