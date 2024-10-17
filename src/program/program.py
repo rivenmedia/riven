@@ -353,7 +353,7 @@ class Program(threading.Thread):
                 task = progress.add_task("Enriching items with metadata", total=len(items), log="")
                 with Live(progress, console=console, refresh_per_second=10):
                     workers = os.getenv("SYMLINK_MAX_WORKERS", 4)
-                    with ThreadPoolExecutor(max_workers=int(workers)) as executor:
+                    with ThreadPoolExecutor(thread_name_prefix="EnhanceSymlinks", max_workers=int(workers)) as executor:
                         future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
                         for future in as_completed(future_to_item):
                             try:
