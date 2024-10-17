@@ -3,7 +3,7 @@ from typing import Any, Dict
 import pydantic
 from fastapi import APIRouter, Request
 from program.content.overseerr import Overseerr
-from program.db.db_functions import _ensure_item_exists_in_db
+from program.db.db_functions import ensure_item_exists_in_db
 from program.indexers.trakt import get_imdbid_from_tmdb, get_imdbid_from_tvdb
 from program.media.item import MediaItem
 from requests import RequestException
@@ -41,7 +41,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         return {"success": False, "message": "Overseerr not initialized"}
 
     new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "requested_id": req.request.request_id})
-    if _ensure_item_exists_in_db(new_item):
+    if ensure_item_exists_in_db(new_item):
         logger.log("API", "Request already in queue or already exists in the database")
         return {"success": True}
 

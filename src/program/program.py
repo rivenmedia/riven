@@ -299,7 +299,7 @@ class Program(threading.Thread):
                 continue
 
             with db.Session() as session:
-                existing_item: MediaItem = DB._get_item_from_db(session, event.item_id)
+                existing_item: MediaItem = DB.get_item_from_db(session, event.item_id)
                 processed_item, next_service, items_to_submit = process_event(
                     existing_item, event.emitted_by, existing_item
                 )
