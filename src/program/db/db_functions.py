@@ -527,7 +527,8 @@ def resolve_duplicates(batch_size: int = 100):
                     # Keep the first item (most recent) and delete the others
                     for item_id in [item._id for item in duplicate_items[1:]]:
                         logger.debug(f"Deleting duplicate item with imdb_id {imdb_id} and ID {item_id}")
-                        session.execute(delete(MediaItem).where(MediaItem._id == item_id))
+                        delete_media_item_by_id(item_id)
+                        # session.execute(delete(MediaItem).where(MediaItem._id == item_id))
 
                     session.commit()
                     offset += batch_size
