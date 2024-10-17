@@ -3,10 +3,18 @@ from datetime import datetime
 from loguru import logger
 from program.settings.manager import settings_manager as settings
 from requests import ConnectTimeout
+from typing import Optional
 from utils import request
 from utils.ratelimiter import RateLimiter
 
-from .shared import VIDEO_EXTENSIONS, FileFinder, premium_days_left
+from .shared import (
+    VIDEO_EXTENSIONS,
+    FileFinder,
+    DownloaderBase,
+    premium_days_left,
+    hash_from_uri,
+)
+from .shared import DebridTorrentId, InfoHash  # Types
 
 AD_BASE_URL = "https://api.alldebrid.com/v4"
 AD_AGENT = "Riven"
@@ -15,7 +23,7 @@ inner_rate_limit = RateLimiter(12, 1)  # 12 requests per second
 overall_rate_limiter = RateLimiter(600, 60)  # 600 requests per minute
 
 
-class AllDebridDownloader:
+class AllDebridDownloader(DownloaderBase):
     """All-Debrid API Wrapper"""
 
     def __init__(self):
@@ -60,19 +68,29 @@ class AllDebridDownloader:
         return False
 
     def process_hashes(
-        self, chunk: list[str], needed_media: dict, break_pointer: list[bool]
+        self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]
     ) -> dict:
         return self.get_cached_containers(chunk, needed_media, break_pointer)
 
-    def download_cached(self, active_stream: dict) -> str:
+    def download_cached(self, active_stream: dict) -> DebridTorrentId:
         torrent_id = add_torrent(active_stream.get("infohash"))
         if torrent_id:
             self.existing_hashes.append(active_stream.get("infohash"))
-            return torrent_id
+            return str(torrent_id)
+        raise Exception("Failed to download torrent.")
+
+    def add_torrent_magnet(self, magnet_uri: str) -> DebridTorrentId:
+        hash = hash_from_uri(magnet_uri)
+        if not hash:
+            raise Exception(f"Bad magnet: {magnet_uri}")
+        torrent_id = add_torrent(hash)
+        if torrent_id:
+            self.existing_hashes.append(hash)
+            return str(torrent_id)
         raise Exception("Failed to download torrent.")
 
     def get_cached_containers(
-        self, infohashes: list[str], needed_media: dict, break_pointer: list[bool]
+        self, infohashes: list[InfoHash], needed_media: dict, break_pointer: list[bool]
     ) -> dict:
         """
         Get containers that are available in the debrid cache containing `needed_media`
@@ -98,7 +116,7 @@ class AllDebridDownloader:
             # We avoid compressed downloads this way
             def all_files_valid(files: list) -> bool:
                 filenames = [f.lower() for f, _ in walk_alldebrid_files(files)]
-                return all(
+                return len(filenames) >= 1 and all(
                     "sample" not in file and file.rsplit(".", 1)[-1] in VIDEO_EXTENSIONS
                     for file in filenames
                 )
@@ -119,19 +137,22 @@ class AllDebridDownloader:
 
         return cached_containers
 
-    def get_torrent_names(self, id: str) -> dict:
+    def get_torrent_names(self, id: DebridTorrentId) -> tuple[str, Optional[str]]:
         info = get_status(id)
-        return info["filename"], info["filename"]
+        return info["filename"], None
 
-    def delete_torrent_with_infohash(self, infohash: str):
+    def delete_torrent_with_infohash(self, infohash: InfoHash):
         id = next(
             torrent["id"] for torrent in get_torrents() if torrent["hash"] == infohash
         )
         if id:
             delete_torrent(id)
 
+    def get_torrent_info(self, torrent_id: DebridTorrentId) -> dict:
+        return get_status(torrent_id)
 
-def walk_alldebrid_files(files: dict) -> (str, int):
+
+def walk_alldebrid_files(files: list[dict]) -> (str, int):
     """Walks alldebrid's `files` nested dicts and returns (filename, filesize) for each file, discarding path information"""
     dirs = []
     for f in files:
@@ -156,9 +177,11 @@ def get(url, **params) -> dict:
         response_type=dict,
         specific_rate_limiter=inner_rate_limit,
         overall_rate_limiter=overall_rate_limiter,
-        proxies=settings.settings.downloaders.all_debrid.proxy_url
-        if settings.settings.downloaders.all_debrid.proxy_enabled
-        else None,
+        proxies=(
+            settings.settings.downloaders.all_debrid.proxy_url
+            if settings.settings.downloaders.all_debrid.proxy_enabled
+            else None
+        ),
     ).data
 
 
@@ -166,7 +189,7 @@ def get_user() -> dict:
     return get("user")
 
 
-def get_instant_availability(infohashes: list[str]) -> list[dict]:
+def get_instant_availability(infohashes: list[InfoHash]) -> list[dict]:
     try:
         params = dict(
             (f"magnets[{i}]", infohash) for i, infohash in enumerate(infohashes)
@@ -179,12 +202,10 @@ def get_instant_availability(infohashes: list[str]) -> list[dict]:
     return magnets
 
 
-def add_torrent(infohash: str) -> int:
+def add_torrent(infohash: str) -> DebridTorrentId:
     try:
-        params={"magnets[]": f"magnet:?xt=urn:btih:{infohash}"}
-        id = get(
-            "magnet/upload", **params
-        )["data"]["magnets"][0]["id"]
+        params = {"magnets[]": infohash}
+        id = get("magnet/upload", **params)["data"]["magnets"][0]["id"]
     except Exception:
         logger.warning(f"Failed to add torrent with infohash {infohash}")
         id = None
@@ -193,7 +214,7 @@ def add_torrent(infohash: str) -> int:
 
 def get_status(id: str) -> dict:
     try:
-        info = get("magnet/status", id=f"{id}")["data"]["magnets"]
+        info = get("magnet/status", id=id)["data"]["magnets"]
         # Error if filename not present
         info.get("filename")
     except Exception:
@@ -210,6 +231,7 @@ def get_torrents() -> list[dict]:
         logger.warning("Failed to get torrents.")
         torrents = []
     return torrents
+
 
 def delete_torrent(id: str):
     try:
