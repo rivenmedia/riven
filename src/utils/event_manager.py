@@ -16,7 +16,7 @@ from program.db.db_functions import (
     ensure_item_exists_in_db,
     get_item_ids,
     run_thread_with_db_item,
-    store_or_update_item
+    store_item
 )
 from program.types import Event
 
@@ -298,7 +298,7 @@ class EventManager:
             item (MediaItem): The item to add to the queue as an event.
         """
         if not ensure_item_exists_in_db(item):
-            store_or_update_item(item)
+            store_item(item)
 
         # Get the item's ID before closing or detaching the session
         with db.Session() as session:

@@ -341,26 +341,15 @@ def get_item_from_db(session: Session, item_id: int) -> "MediaItem":
             logger.error(f"Unknown item type for ID {item_id}")
             return None
 
-def store_or_update_item(item: "MediaItem"):
-    """Store or update a MediaItem in the database."""
+def store_item(item: "MediaItem"):
+    """Store a MediaItem in the database."""
     from program.media.item import MediaItem
 
     with db.Session() as session:
         try:
-            # Check if the item exists in the database
-            existing_item = session.query(MediaItem).filter_by(imdb_id=item.imdb_id).first()
-
-            if existing_item:
-                # Merge the existing item to ensure it's bound to the session
-                existing_item.store_state()
-                session.merge(existing_item)
-                logger.log("DATABASE", f"Updated {existing_item.log_string} in the database.")
-            else:
-                # Ensure the item is attached to the current session
-                item.store_state()
-                session.add(item)
-                logger.log("DATABASE", f"Inserted {item.log_string} into the database.")
-
+            item.store_state()
+            session.add(item)
+            logger.log("DATABASE", f"Inserted {item.log_string} into the database.")
             session.commit()
         except Exception as e:
             session.rollback()
