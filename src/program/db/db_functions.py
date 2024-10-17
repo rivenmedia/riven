@@ -308,11 +308,10 @@ def _filter_existing_items(items: list["MediaItem"]) -> list["MediaItem"]:
         )
         return [item for item in items if item.imdb_id not in existing_items]
 
-def _get_item_type_from_db(item: "MediaItem") -> str:
+def _get_item_type_from_db(item_id: int) -> str:
     from program.media.item import MediaItem
     with db.Session() as session:
-        if item._id is None:
-            return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
+        return session.execute(select(MediaItem.type).where(MediaItem._id == item_id)).scalar_one()
 
 def _get_item_from_db(session: Session, item_id: int) -> "MediaItem":
     """Get a MediaItem from the database by _id."""
@@ -526,9 +525,15 @@ def resolve_duplicates(batch_size: int = 100):
 
                     # Keep the first item (most recent) and delete the others
                     for item_id in [item._id for item in duplicate_items[1:]]:
-                        logger.debug(f"Deleting duplicate item with imdb_id {imdb_id} and ID {item_id}")
-                        delete_media_item_by_id(item_id)
-                        # session.execute(delete(MediaItem).where(MediaItem._id == item_id))
+                        try:
+                            item_type = _get_item_type_from_db(item_id)
+                            if item_type in ["show", "movie"]:
+                                delete_media_item_by_id(item_id)
+                            else:
+                                session.execute(delete(MediaItem).where(MediaItem._id == item_id))
+                            logger.debug(f"Deleted duplicate item with imdb_id {imdb_id} and ID {item_id}")
+                        except Exception as e:
+                            logger.error(f"Error deleting duplicate item with imdb_id {imdb_id} and ID {item_id}: {str(e)}")
 
                     session.commit()
                     offset += batch_size
