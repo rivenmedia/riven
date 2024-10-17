@@ -40,5 +40,5 @@ class ProcessedEvent:
 @dataclass
 class Event:
     emitted_by: Service
-    item: MediaItem
+    item_id: int
     run_at: datetime = datetime.now()

@@ -1,6 +1,6 @@
 import argparse
 
-from program.db.db_functions import hard_reset_database
+from program.db.db_functions import hard_reset_database, resolve_duplicates
 from program.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from utils.logger import log_cleaner, logger
@@ -39,6 +39,11 @@ def handle_args():
         default=8080,
         help='Port to run the server on (default: 8000)'
     )
+    parser.add_argument(
+        "--resolve_duplicates",
+        action="store_true",
+        help="Resolve duplicate items.",
+    )
 
     args = parser.parse_args()
 
@@ -54,6 +59,10 @@ def handle_args():
 
     if args.fix_symlinks:
         fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
+        exit(0)
+
+    if args.resolve_duplicates:
+        resolve_duplicates()
         exit(0)
 
     if args.plex_listener:

@@ -1,11 +1,11 @@
 import os
 import shutil
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import alembic
-from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy import delete, func, insert, select, text, desc
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import SQLAlchemyError
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -16,11 +16,11 @@ from utils.logger import logger
 from .db import alembic, db
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem, Episode, Season
+    from program.media.item import MediaItem
 
 
 def get_media_items_by_ids(media_item_ids: list[int]):
-    """Retrieve multiple MediaItems by a list of MediaItem _ids using the _get_item_from_db method."""
+    """Retrieve multiple MediaItems by a list of MediaItem _ids using the get_item_from_db method."""
     from program.media.item import Episode, MediaItem, Movie, Season, Show
 
     def get_item(session, media_item_id, item_type):
@@ -59,17 +59,6 @@ def get_media_items_by_ids(media_item_ids: list[int]):
             if item:
                 yield item
 
-def get_parent_items_by_ids(media_item_ids: list[int]):
-    """Retrieve multiple MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        items = []
-        for media_item_id in media_item_ids:
-            item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
-            if item:
-                items.append(item)
-    return items
-
 def get_parent_ids(media_item_ids: list[int]):
     """Retrieve the _ids of MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
     from program.media.item import MediaItem
@@ -84,13 +73,6 @@ def get_parent_ids(media_item_ids: list[int]):
                 parent_ids.append(item_id)
     return parent_ids
 
-def get_item_by_imdb_id(imdb_id: str):
-    """Retrieve a MediaItem of type 'movie' or 'show' by an IMDb ID."""
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        item = session.execute(select(MediaItem).where(MediaItem.imdb_id == imdb_id, MediaItem.type.in_(["movie", "show"]))).unique().scalar_one_or_none()
-    return item
-
 def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""
     with db.Session() as session:
@@ -100,8 +82,12 @@ def delete_media_item(item: "MediaItem"):
 
 def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
-    from program.media.item import MediaItem, Show, Movie
+    from program.media.item import MediaItem, Show, Movie, Season, Episode
     from sqlalchemy.exc import IntegrityError
+
+    if not media_item_id:
+        logger.error("Item ID can not be empty")
+        return False
 
     with db.Session() as session:
         try:
@@ -115,16 +101,23 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
                 logger.error(f"No item found with ID {media_item_id}")
                 return False
 
-            if media_item_type not in ["movie", "show"]:
-                logger.error(f"Item with ID {media_item_id} is not a movie or show")
-                return False
-
             if media_item_type == "show":
-                delete_seasons_and_episodes(session, media_item_id, batch_size)
+                season_ids = session.execute(
+                    select(Season._id).where(Season.parent_id == media_item_id)
+                ).scalars().all()
+
+                delete_seasons_and_episodes(session, season_ids, batch_size)
                 session.execute(delete(Show).where(Show._id == media_item_id))
 
             if media_item_type == "movie":
                 session.execute(delete(Movie).where(Movie._id == media_item_id))
+
+            if media_item_type == "season":
+                delete_seasons_and_episodes(session, [media_item_id], batch_size)
+                session.execute(delete(Season).where(Season._id == media_item_id))
+
+            if media_item_type == "episode":
+                session.execute(delete(Episode).where(Episode._id == media_item_id))
 
             session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
             session.commit()
@@ -139,15 +132,11 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
             session.rollback()
             return False
 
-def delete_seasons_and_episodes(session, show_id: int, batch_size: int = 30):
+def delete_seasons_and_episodes(session, season_ids: list[int], batch_size: int = 30):
     """Delete seasons and episodes of a show in batches, committing after each batch."""
     from program.media.item import Episode, Season
     from program.media.stream import StreamRelation, StreamBlacklistRelation
     from program.media.subtitle import Subtitle
-
-    season_ids = session.execute(
-        select(Season._id).where(Season.parent_id == show_id)
-    ).scalars().all()
 
     for season_id in season_ids:
         # Load the season object
@@ -173,28 +162,6 @@ def delete_seasons_and_episodes(session, show_id: int, batch_size: int = 30):
 
         session.delete(season)  # Delete the season itself
         session.commit()  # Commit after deleting the season
-
-def delete_media_item_by_item_id(item_id: str):
-    """Delete a MediaItem and all its associated relationships by the MediaItem _id."""
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        item = session.query(MediaItem).filter_by(item_id=item_id).first()
-
-        if item:
-            session.delete(item)
-            session.commit()
-        else:
-            raise ValueError(f"MediaItem with item_id {item_id} does not exist.")
-
-def delete_media_items_by_ids(media_item_ids: list[int]):
-    """Delete multiple MediaItems and all their associated relationships by a list of MediaItem _ids."""
-    try:
-        for media_item_id in media_item_ids:
-            delete_media_item_by_id(media_item_id)
-    except Exception as e:
-        error = f"Failed to delete media items: {e}"
-        logger.error(error)
-        raise ValueError(error)
 
 def reset_media_item(item: "MediaItem"):
     """Reset a MediaItem."""
@@ -277,30 +244,9 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
             session.commit()
             return True
         return False
-    # except Exception as e:
-    #     if close_session:
-    #         session.rollback()
-    #     logger.log("DATABASE", f"Failed to blacklist stream {stream.infohash} for {item.log_string}: {e}")
-    #     raise e
     finally:
         if close_session:
             session.close()
-
-def filter_existing_streams(media_item_id: int, scraped_streams: List[Stream]) -> List[Stream]:
-    from program.media.item import MediaItem
-    """Return streams that are not already associated with the media item."""
-    scraped_hashes = [stream.infohash for stream in scraped_streams]
-
-    with db.Session() as session:
-        existing_streams = session.execute(
-            select(Stream.infohash)
-            .join(Stream.parents)
-            .where(MediaItem._id == media_item_id)
-            .where(Stream.infohash.in_(scraped_hashes))
-        ).scalars().all()
-        existing_hashes = set(existing_streams)
-        new_streams = [stream for stream in scraped_streams if stream.infohash not in existing_hashes]
-        return new_streams
 
 def get_stream_count(media_item_id: int) -> int:
     from program.media.item import MediaItem
@@ -321,164 +267,115 @@ def load_streams_in_pages(session: Session, media_item_id: int, page_number: int
         stream = session.query(Stream).get(stream_id)
         yield stream_id, infohash, stream
 
-def _get_item_ids(session, item):
-    from program.media.item import Episode, Season
+def get_item_ids(session, item_id: int) -> tuple[int, list[int]]:
+    """Get the item ID and all related item IDs for a given MediaItem."""
+    from program.media.item import MediaItem, Episode, Season
 
-    if item.type == "show":
-        show_id = item._id
+    item_type = session.query(MediaItem.type).filter(MediaItem._id == item_id).scalar()
+    related_ids = []
 
-        # season_alias = aliased(Season, flat=True)
-        # season_query = select(Season._id.label('id')).where(Season.parent_id == show_id)
-        # episode_query = (
-        #     select(Episode._id.label('id'))
-        #     .join(season_alias, Episode.parent_id == season_alias._id)
-        #     .where(season_alias.parent_id == show_id)
-        # )
-
-        # combined_query = union_all(season_query, episode_query)
-        # related_ids = session.execute(combined_query).scalars().all()
-        # return show_id, related_ids
-
-        # Fetch season IDs
+    if item_type == "show":
         season_ids = session.execute(
-            select(Season._id).where(Season.parent_id == show_id)
+            select(Season._id).where(Season.parent_id == item_id)
         ).scalars().all()
 
-        # Fetch episode IDs for each season
-        episode_ids = []
         for season_id in season_ids:
-            episode_ids.extend(
-                session.execute(
-                    select(Episode._id).where(Episode.parent_id == season_id)
-                ).scalars().all()
-            )
-
-        related_ids = season_ids + episode_ids
-        return show_id, related_ids
-
-    elif item.type == "season":
-        season_id = item._id
-        episode_ids = session.execute(
-            select(Episode._id)
-            .where(Episode.parent_id == season_id)
-        ).scalars().all()
-        return season_id, episode_ids
-    elif item.type == "episode":
-        return item._id, []
-    elif hasattr(item, "parent"):
-        parent_id = item.parent._id
-        return parent_id, []
-
-    return item._id, []
-
-def _get_item_ids_from_item_id(session, media_item_id: int):
-    from program.media.item import MediaItem
-    item = session.execute(select(MediaItem).where(MediaItem._id == media_item_id)).unique().scalar_one_or_none()
-    if not item:
-        return None
-    return _get_item_ids(session, item)
-
-def _ensure_item_exists_in_db(item: "MediaItem") -> bool:
-    from program.media.item import MediaItem, Movie, Show
-    if isinstance(item, (Movie, Show)):
-        with db.Session() as session:
-            if item._id is None:
-                return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == item.imdb_id)).scalar_one() != 0
-            return session.execute(select(func.count(MediaItem._id)).where(MediaItem._id == item._id)).scalar_one() != 0
-    return bool(item and item._id)
-
-def _filter_existing_items(items: list["MediaItem"]) -> list["MediaItem"]:
-    """Return a list of MediaItems that do not exist in the database."""
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        existing_items = set(
-            session.execute(
-                select(MediaItem.imdb_id)
-                .where(MediaItem.imdb_id.in_([item.imdb_id for item in items]))
+            episode_ids = session.execute(
+                select(Episode._id).where(Episode.parent_id == season_id)
             ).scalars().all()
-        )
-        return [item for item in items if item.imdb_id not in existing_items]
+            related_ids.extend(episode_ids)
+        related_ids.extend(season_ids)
 
-def _get_item_type_from_db(item: "MediaItem") -> str:
+    elif item_type == "season":
+        episode_ids = session.execute(
+            select(Episode._id).where(Episode.parent_id == item_id)
+        ).scalars().all()
+        related_ids.extend(episode_ids)
+
+    return item_id, related_ids
+
+def ensure_item_exists_in_db(item: "MediaItem") -> bool:
+    """Ensure a MediaItem exists in the database."""
     from program.media.item import MediaItem
     with db.Session() as session:
-        if item._id is None:
-            return session.execute(select(MediaItem.type).where((MediaItem.imdb_id==item.imdb_id) & (MediaItem.type.in_(["show", "movie"])))).scalar_one()
-        return session.execute(select(MediaItem.type).where(MediaItem._id==item._id)).scalar_one()
+        query = select(func.count(MediaItem._id)).where(
+            (MediaItem._id == item._id) if item._id is not None else (MediaItem.imdb_id == item.imdb_id)
+        ).where(MediaItem.type.in_(["movie", "show"]))
+        return session.execute(query).scalar_one() != 0
 
-def _store_item(item: "MediaItem"):
-    from program.media.item import Episode, Movie, Season, Show
-    if isinstance(item, (Movie, Show, Season, Episode)) and item._id is not None:
-        with db.Session() as session:
-            item.store_state()
-            session.merge(item)
-            session.commit()
-            logger.log("DATABASE", f"{item.log_string} Updated!")
-    else:
-        with db.Session() as session:
-            _check_for_and_run_insertion_required(session, item)
+def get_item_from_db(session: Session, item_id: int) -> "MediaItem":
+    """Get a MediaItem from the database by _id."""
+    from program.media.item import MediaItem, Movie, Show, Season, Episode
 
-def _imdb_exists_in_db(imdb_id: str) -> bool:
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        return session.execute(select(func.count(MediaItem._id)).where(MediaItem.imdb_id == imdb_id)).scalar_one() != 0
+    item_type = session.execute(
+        select(MediaItem.type).where(MediaItem._id == item_id)
+    ).scalar_one_or_none()
 
-def _get_item_from_db(session, item: "MediaItem"):
-    from program.media.item import Episode, MediaItem, Movie, Season, Show
-    if not _ensure_item_exists_in_db(item):
-        return None
     session.expire_on_commit = False
-    match item.type:
+    match item_type:
         case "movie":
             return session.execute(
-                select(Movie)
-                .where(MediaItem.imdb_id == item.imdb_id)
+                select(Movie).where(Movie._id == item_id)
             ).unique().scalar_one_or_none()
         case "show":
             return session.execute(
                 select(Show)
-                .where(MediaItem.imdb_id == item.imdb_id)
+                .where(Show._id == item_id)
+                .options(selectinload(Show.seasons).selectinload(Season.episodes))
             ).unique().scalar_one_or_none()
         case "season":
             return session.execute(
                 select(Season)
-                .where(Season._id == item._id)
+                .where(Season._id == item_id)
+                .options(selectinload(Season.episodes))
             ).unique().scalar_one_or_none()
         case "episode":
             return session.execute(
-                select(Episode)
-                .where(Episode._id == item._id)
+                select(Episode).where(Episode._id == item_id)
+            ).unique().scalar_one_or_none()
+        case "mediaitem":
+            return session.execute(
+                select(MediaItem).where(MediaItem._id == item_id)
             ).unique().scalar_one_or_none()
         case _:
-            logger.error(f"_get_item_from_db Failed to create item from type: {item.type}")
+            logger.error(f"Unknown item type for ID {item_id}")
             return None
 
-def _check_for_and_run_insertion_required(session, item: "MediaItem") -> bool:
-    from program.media.item import Episode, Movie, Season, Show
-    if not _ensure_item_exists_in_db(item) and isinstance(item, (Show, Movie, Season, Episode)):
+def store_item(item: "MediaItem"):
+    """Store a MediaItem in the database."""
+    from program.media.item import MediaItem
+
+    with db.Session() as session:
+        try:
             item.store_state()
             session.add(item)
+            logger.log("DATABASE", f"Inserted {item.log_string} into the database.")
             session.commit()
-            logger.log("DATABASE", f"{item.log_string} Inserted into the database.")
-            return True
-    return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error during store_or_update_item: {e}")
+        finally:
+            session.close()
 
-def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = None):
-    from program.media.item import Episode, MediaItem, Movie, Season, Show
-    if input_item:
+def run_thread_with_db_item(fn, service, program, input_id: int = None):
+    from program.media.item import MediaItem
+    if input_id:
         with db.Session() as session:
-            if isinstance(input_item, (Movie, Show, Season, Episode)):
-                if not _check_for_and_run_insertion_required(session, input_item):
+            input_item = get_item_from_db(session, input_id)
+            if input_item.type in ["movie", "show", "season", "episode"]:
+                # check if the item needs insertion
+                if input_item._id is None:
                     pass
-                input_item = _get_item_from_db(session, input_item)
                 for res in fn(input_item):
                     if isinstance(res, tuple):
-                        item, _ = res
+                        item, run_at = res
+                        res = item._id, run_at
                     else:
                         item = res
+                        res = item._id
                     if not isinstance(item, MediaItem):
                         logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
-                        program.em.remove_item_from_running(input_item)
+                        program.em.remove_id_from_queues(input_item._id)
 
                     input_item.store_state()
                     session.commit()
@@ -486,19 +383,25 @@ def _run_thread_with_db_item(fn, service, program, input_item: "MediaItem" = Non
                     session.expunge_all()
                     yield res
             else:
-                #Content services
-                for i in fn(input_item):
-                    if isinstance(i, (MediaItem)):
-                        with db.Session() as session:
-                            _check_for_and_run_insertion_required(session, i)
-                    yield i
+                # Indexing returns a copy of the item, was too lazy to create a copy attr func so this will do for now
+                indexed_item = next(fn(input_item), None)
+                if indexed_item is None:
+                    logger.debug(f"Unable to index {input_item.log_string}")
+                    return
+                elif indexed_item.type != "mediaitem":
+                    indexed_item.store_state()
+                    session.delete(input_item)
+                    indexed_item = session.merge(indexed_item)
+                    session.commit()
+                    logger.debug(f"{input_item._id} is now {indexed_item._id} after indexing...")
+                    yield indexed_item._id
         return
     else:
         # Content services
         for i in fn():
-            if isinstance(i, (MediaItem)):
-                program.em.add_item(i, service)
-            elif isinstance(i, list) and all(isinstance(item, MediaItem) for item in i):
+            if isinstance(i, MediaItem):
+                i = [i]
+            if isinstance(i, list):
                 for item in i:
                     program.em.add_item(item, service)
         return
@@ -554,6 +457,56 @@ def hard_reset_database():
 
     logger.log("DATABASE", "Hard Reset Complete")
 
+def resolve_duplicates(batch_size: int = 100):
+    """Resolve duplicates in the database without loading all items into memory."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        try:
+            # Find all duplicate imdb_ids
+            duplicates = session.query(
+                MediaItem.imdb_id,
+                func.count(MediaItem._id).label("dupe_count")
+            ).group_by(MediaItem.imdb_id).having(func.count(MediaItem._id) > 1)
+
+            # Loop through the duplicates and resolve them in batches
+            for imdb_id, _ in duplicates.yield_per(batch_size):
+                offset = 0
+                while True:
+                    # Fetch a batch of duplicate items
+                    duplicate_items = session.query(MediaItem._id)\
+                        .filter(MediaItem.imdb_id == imdb_id)\
+                        .order_by(desc(MediaItem.indexed_at))\
+                        .offset(offset)\
+                        .limit(batch_size)\
+                        .all()
+
+                    if not duplicate_items:
+                        break
+
+                    # Keep the first item (most recent) and delete the others
+                    for item_id in [item._id for item in duplicate_items[1:]]:
+                        try:
+                            delete_media_item_by_id(item_id)
+                            logger.debug(f"Deleted duplicate item with imdb_id {imdb_id} and ID {item_id}")
+                        except Exception as e:
+                            logger.error(f"Error deleting duplicate item with imdb_id {imdb_id} and ID {item_id}: {str(e)}")
+
+                    session.commit()
+                    offset += batch_size
+
+            # Recreate the unique index
+            session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_imdb_id ON MediaItem (imdb_id)"))
+            session.commit()
+
+            logger.success("Duplicate entries resolved in batches successfully and unique index recreated.")
+
+        except SQLAlchemyError as e:
+            logger.error(f"Error resolving duplicates: {str(e)}")
+            session.rollback()
+
+        finally:
+            session.close()
+
 
 # Hard Reset Database
 reset = os.getenv("HARD_RESET", None)
@@ -565,3 +518,9 @@ if reset is not None and reset.lower() in ["true","1"]:
 if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     exit(0)
+
+# Resolve Duplicates
+if os.getenv("RESOLVE_DUPLICATES", None) is not None and os.getenv("RESOLVE_DUPLICATES").lower() in ["true","1"]:
+    resolve_duplicates()
+    exit(0)
+

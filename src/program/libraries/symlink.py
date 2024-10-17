@@ -251,7 +251,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
         if not local_broken_symlinks:
             return
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(thread_name_prefix="FixSymlinks", max_workers=max_workers) as executor:
             futures = [executor.submit(check_and_fix_symlink, symlink_path, file_map) for symlink_path in local_broken_symlinks]
             for future in as_completed(futures):
                 future.result()

@@ -3,7 +3,6 @@ from typing import Generator
 
 from requests.exceptions import HTTPError
 
-from program.db.db_functions import _filter_existing_items
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -22,7 +21,6 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.recurring_items: set[str] = set()
         logger.success("Listrr initialized!")
 
     def validate(self) -> bool:
@@ -67,14 +65,8 @@ class Listrr:
             return
 
         listrr_items = movie_items + show_items
-        non_existing_items = _filter_existing_items(listrr_items)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items]
-        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
-
-        if new_non_recurring_items:
-            logger.info(f"Fetched {len(new_non_recurring_items)} new items from Listrr")
-
-        yield new_non_recurring_items
+        logger.info(f"Fetched {len(listrr_items)} items from Listrr")
+        yield listrr_items
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
