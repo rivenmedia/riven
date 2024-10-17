@@ -3,8 +3,9 @@ import shutil
 from typing import TYPE_CHECKING
 
 import alembic
-from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy import delete, func, insert, select, text, desc
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.exc import SQLAlchemyError
 
 from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -496,6 +497,53 @@ def hard_reset_database():
         logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
 
     logger.log("DATABASE", "Hard Reset Complete")
+
+def resolve_duplicates(batch_size: int = 100):
+    """Resolve duplicates in the database without loading all items into memory."""
+    from program.media.item import MediaItem
+    with db.Session() as session:
+        try:
+            # Find all duplicate imdb_ids
+            duplicates = session.query(
+                MediaItem.imdb_id,
+                func.count(MediaItem._id).label("dupe_count")
+            ).group_by(MediaItem.imdb_id).having(func.count(MediaItem._id) > 1)
+
+            # Loop through the duplicates and resolve them in batches
+            for imdb_id, _ in duplicates.yield_per(batch_size):
+                offset = 0
+                while True:
+                    # Fetch a batch of duplicate items
+                    duplicate_items = session.query(MediaItem._id)\
+                        .filter(MediaItem.imdb_id == imdb_id)\
+                        .order_by(desc(MediaItem.indexed_at))\
+                        .offset(offset)\
+                        .limit(batch_size)\
+                        .all()
+
+                    if not duplicate_items:
+                        break
+
+                    # Keep the first item (most recent) and delete the others
+                    for item_id in [item._id for item in duplicate_items[1:]]:
+                        logger.debug(f"Deleting duplicate item with imdb_id {imdb_id} and ID {item_id}")
+                        session.execute(delete(MediaItem).where(MediaItem._id == item_id))
+
+                    session.commit()
+                    offset += batch_size
+
+            # Recreate the unique index
+            session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_imdb_id ON MediaItem (imdb_id)"))
+            session.commit()
+
+            logger.success("Duplicate entries resolved in batches successfully and unique index recreated.")
+
+        except SQLAlchemyError as e:
+            logger.error(f"Error resolving duplicates: {str(e)}")
+            session.rollback()
+
+        finally:
+            session.close()
 
 
 # Hard Reset Database

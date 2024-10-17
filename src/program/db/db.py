@@ -87,6 +87,12 @@ def run_migrations(try_again=True) -> None:
             alembic.upgrade()
     except Exception as e:
         logger.warning(f"Error running migrations: {e}")
+        if "could not create unique index" in str(e):
+            from program.db.db_functions import resolve_duplicates
+            resolve_duplicates()
+            if try_again:
+                run_migrations(False)
+                return
         db.s.execute(text("delete from alembic_version"))
         db.s.commit()
         alembic.stamp('head')
