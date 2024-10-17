@@ -362,7 +362,7 @@ class Program(threading.Thread):
         start_time = datetime.now()
         with db.Session() as session:
             res = session.execute(select(func.count(MediaItem._id))).scalar_one()
-            added = []
+            added = set()
             errors = []
             if res == 0:
                 if settings_manager.settings.map_metadata:
@@ -383,11 +383,18 @@ class Program(threading.Thread):
                                         if enhanced_item.imdb_id in added:
                                             errors.append(f"Duplicate Symlink found: {enhanced_item.log_string}")
                                             continue
-                                        else:
-                                            added.append(enhanced_item.imdb_id)
-                                            enhanced_item.store_state()
-                                            session.add(enhanced_item)
-                                            log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
+                                        # Check if the item already exists in the database
+                                        existing_item = session.execute(
+                                            select(MediaItem).where(MediaItem.imdb_id == enhanced_item.imdb_id)
+                                        ).scalar_one_or_none()
+                                        if existing_item:
+                                            errors.append(f"Duplicate in database: {enhanced_item.log_string}")
+                                            continue
+
+                                        added.add(enhanced_item.imdb_id)
+                                        enhanced_item.store_state()
+                                        session.add(enhanced_item)
+                                        log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
                                 except Exception as e:
                                     logger.exception(f"Error processing {item.log_string}: {e}")
                                 finally:
