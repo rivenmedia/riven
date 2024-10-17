@@ -82,8 +82,12 @@ def delete_media_item(item: "MediaItem"):
 
 def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
-    from program.media.item import MediaItem, Show, Movie
+    from program.media.item import MediaItem, Show, Movie, Season, Episode
     from sqlalchemy.exc import IntegrityError
+
+    if not media_item_id:
+        logger.error("Item ID can not be empty")
+        return False
 
     with db.Session() as session:
         try:
@@ -97,16 +101,23 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
                 logger.error(f"No item found with ID {media_item_id}")
                 return False
 
-            if media_item_type not in ["movie", "show"]:
-                logger.error(f"Item with ID {media_item_id} is not a movie or show")
-                return False
-
             if media_item_type == "show":
-                delete_seasons_and_episodes(session, media_item_id, batch_size)
+                season_ids = session.execute(
+                    select(Season._id).where(Season.parent_id == media_item_id)
+                ).scalars().all()
+
+                delete_seasons_and_episodes(session, season_ids, batch_size)
                 session.execute(delete(Show).where(Show._id == media_item_id))
 
             if media_item_type == "movie":
                 session.execute(delete(Movie).where(Movie._id == media_item_id))
+
+            if media_item_type == "season":
+                delete_seasons_and_episodes(session, [media_item_id], batch_size)
+                session.execute(delete(Season).where(Season._id == media_item_id))
+
+            if media_item_type == "episode":
+                session.execute(delete(Episode).where(Episode._id == media_item_id))
 
             session.execute(delete(MediaItem).where(MediaItem._id == media_item_id))
             session.commit()
@@ -121,15 +132,11 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
             session.rollback()
             return False
 
-def delete_seasons_and_episodes(session, show_id: int, batch_size: int = 30):
+def delete_seasons_and_episodes(session, season_ids: list[int], batch_size: int = 30):
     """Delete seasons and episodes of a show in batches, committing after each batch."""
     from program.media.item import Episode, Season
     from program.media.stream import StreamRelation, StreamBlacklistRelation
     from program.media.subtitle import Subtitle
-
-    season_ids = session.execute(
-        select(Season._id).where(Season.parent_id == show_id)
-    ).scalars().all()
 
     for season_id in season_ids:
         # Load the season object
@@ -526,11 +533,7 @@ def resolve_duplicates(batch_size: int = 100):
                     # Keep the first item (most recent) and delete the others
                     for item_id in [item._id for item in duplicate_items[1:]]:
                         try:
-                            item_type = _get_item_type_from_db(item_id)
-                            if item_type in ["show", "movie"]:
-                                delete_media_item_by_id(item_id)
-                            else:
-                                session.execute(delete(MediaItem).where(MediaItem._id == item_id))
+                            delete_media_item_by_id(item_id)
                             logger.debug(f"Deleted duplicate item with imdb_id {imdb_id} and ID {item_id}")
                         except Exception as e:
                             logger.error(f"Error deleting duplicate item with imdb_id {imdb_id} and ID {item_id}: {str(e)}")
