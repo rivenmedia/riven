@@ -13,10 +13,9 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.db.db_functions import (
-    _check_for_and_run_insertion_required,
-    _ensure_item_exists_in_db,
-    _get_item_ids,
-    _run_thread_with_db_item,
+    ensure_item_exists_in_db,
+    get_item_ids,
+    run_thread_with_db_item,
     store_or_update_item
 )
 from program.types import Event
@@ -167,7 +166,7 @@ class EventManager:
         logger.debug(log_message)
 
         executor = self._find_or_create_executor(service)
-        future = executor.submit(_run_thread_with_db_item, program.all_services[service].run, service, program, item_id)
+        future = executor.submit(run_thread_with_db_item, program.all_services[service].run, service, program, item_id)
         if event:
             future.event = event
         self._futures.append(future)
@@ -183,7 +182,7 @@ class EventManager:
             suppress_logs (bool): If True, suppresses debug logging for this operation.
         """
         with db.Session() as session:
-            item_id, related_ids = _get_item_ids(session, item_id)
+            item_id, related_ids = get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
             futures_to_remove = []
@@ -193,7 +192,7 @@ class EventManager:
 
                 if hasattr(future, 'event') and hasattr(future.event, 'item'):
                     future_item = future.event.item_id
-                    future_item_id, future_related_ids = _get_item_ids(session, future_item)
+                    future_item_id, future_related_ids = get_item_ids(session, future_item)
 
                 if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
                     self.remove_id_from_queues(future_item)
@@ -265,7 +264,7 @@ class EventManager:
         """
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
-            item_id, related_ids = _get_item_ids(session, event.item_id)
+            item_id, related_ids = get_item_ids(session, event.item_id)
         if item_id:
             if self._id_in_queue(item_id):
                 logger.debug(f"Item ID {item_id} is already in the queue, skipping.")
@@ -298,7 +297,7 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        if not _ensure_item_exists_in_db(item):
+        if not ensure_item_exists_in_db(item):
             store_or_update_item(item)
 
         # Get the item's ID before closing or detaching the session
