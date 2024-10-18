@@ -20,16 +20,12 @@ from program.db.db_functions import (
     get_parent_ids,
     reset_media_item,
 )
-from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import (
-    add_torrent_magnet,
-    torrent_info,
-)
 from program.media.item import MediaItem
 from program.media.state import States
+from program.symlink import Symlinker
+from program.downloaders import Downloader, get_needed_media
 from program.media.stream import Stream
 from program.scrapers.shared import rtn
-from program.symlink import Symlinker
 from program.types import Event
 from pydantic import BaseModel
 from RTN import Torrent
@@ -386,8 +382,9 @@ class SetTorrentRDResponse(BaseModel):
 )
 def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
     torrent_id = ""
+    downloader: Downloader = request.app.program.services.get(Downloader)
     try:
-        torrent_id = add_torrent_magnet(magnet)
+        torrent_id = downloader.add_torrent_magnet(magnet)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
 
@@ -439,7 +436,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        fetched_torrent_info = torrent_info(torrent_id)
+        fetched_torrent_info = downloader.get_torrent_info(torrent_id)
 
         stream = (
             session.execute(

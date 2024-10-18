@@ -32,7 +32,7 @@ class Prowlarr:
     """Scraper for `Prowlarr`"""
 
     def __init__(self):
-        self.key = "Prowlarr"
+        self.key = "prowlarr"
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.prowlarr
