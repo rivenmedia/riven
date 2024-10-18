@@ -19,6 +19,25 @@ imdbid_pattern = re.compile(r"tt\d+")
 season_pattern = re.compile(r"s(\d+)")
 episode_pattern = re.compile(r"e(\d+)")
 
+ALLOWED_VIDEO_EXTENSIONS = [
+    "mp4",
+    "mkv",
+    "avi",
+    "mov",
+    "wmv",
+    "flv",
+    "m4v",
+    "webm",
+    "mpg",
+    "mpeg",
+    "m2ts",
+    "ts",
+]
+
+MEDIA_DIRS = ["shows", "movies", "anime_shows", "anime_movies"]
+POSSIBLE_DIRS = [settings_manager.settings.symlink.library_path / d for d in MEDIA_DIRS]
+
+
 class SymlinkLibrary:
     def __init__(self):
         self.key = "symlinklibrary"
@@ -73,10 +92,12 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
         (Path(root), file)
         for root, _, files in os.walk(directory)
         for file in files
-        if not file.endswith('.srt')
+        if os.path.splitext(file)[1][1:] in ALLOWED_VIDEO_EXTENSIONS # Jellyfin/Emby creates extra files
+        and Path(root).parent in POSSIBLE_DIRS # MacOS creates extra dirs
     ]
     for path, filename in items:
-        if filename.endswith(".srt"):
+        if path.parent not in POSSIBLE_DIRS:
+            logger.debug(f"Skipping {path.parent} as it's not a valid media directory.")
             continue
         imdb_id = re.search(r"(tt\d+)", filename)
         title = re.search(r"(.+)?( \()", filename)
@@ -127,12 +148,17 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
             show_item.is_anime = True
         seasons = {}
         for season in os.listdir(directory / show):
+            if directory not in POSSIBLE_DIRS:
+                logger.debug(f"Skipping {directory} as it's not a valid media directory.")
+                continue
             if not (season_number := re.search(r"(\d+)", season)):
                 logger.log("NOT_FOUND", f"Can't extract season number at path {directory / show / season}")
                 continue
             season_item = Season({"number": int(season_number.group())})
             episodes = {}
             for episode in os.listdir(directory / show / season):
+                if os.path.splitext(episode)[1][1:] not in ALLOWED_VIDEO_EXTENSIONS:
+                    continue
                 if not (episode_number := re.search(r"s\d+e(\d+)", episode, re.IGNORECASE)):
                     logger.log("NOT_FOUND", f"Can't extract episode number at path {directory / show / season / episode}")
                     # Delete the episode since it can't be indexed

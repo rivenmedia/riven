@@ -371,7 +371,7 @@ class Program(threading.Thread):
                                     session.add(enhanced_item)
                                     log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
                                 else:
-                                    errors.append(f"Duplicate Symlink found: {item.log_string}")
+                                    errors.append(f"Duplicate symlink directory found for {item.log_string}")
                                     continue
                             except Exception as e:
                                 logger.exception(f"Error processing {item.log_string}: {e}")
