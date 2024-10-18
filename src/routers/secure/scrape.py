@@ -94,7 +94,7 @@ async def scrape(
                 for stream in results.values()
             ]
 
-    except StopIteration as e:
+    except StopIteration:
         raise HTTPException(status_code=204, detail="Media item not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
