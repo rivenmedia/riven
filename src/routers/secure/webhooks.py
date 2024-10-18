@@ -9,7 +9,7 @@ from program.media.item import MediaItem
 from requests import RequestException
 from utils.logger import logger
 
-from .models.overseerr import OverseerrWebhook
+from ..models.overseerr import OverseerrWebhook
 
 router = APIRouter(
     prefix="/webhook",
