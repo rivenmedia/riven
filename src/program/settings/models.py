@@ -132,14 +132,14 @@ class ListrrModel(Updatable):
     movie_lists: List[str] = []
     show_lists: List[str] = []
     api_key: str = ""
-    update_interval: int = 300
+    update_interval: int = 86400
 
 
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
     lists: List[int | str] = []
-    update_interval: int = 300
+    update_interval: int = 86400
 
 
 class OverseerrModel(Updatable):
@@ -174,7 +174,7 @@ class TraktModel(Updatable):
     trending_count: int = 10
     fetch_popular: bool = False
     popular_count: int = 10
-    update_interval: int = 300
+    update_interval: int = 86400
     # oauth: TraktOauthModel = TraktOauthModel()
 
 
