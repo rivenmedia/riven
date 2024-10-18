@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.16.0](https://github.com/rivenmedia/riven/compare/v0.15.3...v0.16.0) (2024-10-18)
+
+
+### Features
+
+* Add debugpy as optional to entrypoint script if DEBUG env variable is set to anything. ([24904fc](https://github.com/rivenmedia/riven/commit/24904fcc27ccba96dfa13245f8eb3add096b36dd))
+* Types for the FastAPI API and API refactor ([#748](https://github.com/rivenmedia/riven/issues/748)) ([9eec02d](https://github.com/rivenmedia/riven/commit/9eec02dd65ace8598edc8822f1c1d69c5a5b1537))
+
+
+### Bug Fixes
+
+* address memory usage ([#787](https://github.com/rivenmedia/riven/issues/787)) ([612964e](https://github.com/rivenmedia/riven/commit/612964ee77395e99610db46febb14bd273aecc30))
+* changed default update interval from 5m to 24h on content list services ([7074fb0](https://github.com/rivenmedia/riven/commit/7074fb0e11ec16a34980bf9242bdb4cacd050760))
+* delete the movie relation before deleting the mediaitem ([#788](https://github.com/rivenmedia/riven/issues/788)) ([5bfe63a](https://github.com/rivenmedia/riven/commit/5bfe63aa31e78d418bb5df9a962b0ff4fe467bfe))
+* fix state filter in items endpoint ([#791](https://github.com/rivenmedia/riven/issues/791)) ([1f24e4f](https://github.com/rivenmedia/riven/commit/1f24e4fe787e174a366c4e1e20f94fef263db76e))
+* fixed wrongful checking of bad dirs and images when rebuilding symlink library ([8501c36](https://github.com/rivenmedia/riven/commit/8501c3634ff03b75b7fcc4419db1e4908580b360))
+* improved removing items from database ([e4b6e2b](https://github.com/rivenmedia/riven/commit/e4b6e2b61893517c01a35a272806a319c845dd77))
+* lower max events added to queue ([197713a](https://github.com/rivenmedia/riven/commit/197713ae9da78eb1d674e313489f0a378c29d03a))
+* minor fixes post merge ([01a506f](https://github.com/rivenmedia/riven/commit/01a506faabc675226d6a1412cb2cd3065e3437ca))
+* plex watchlist not returning any items ([bf34db5](https://github.com/rivenmedia/riven/commit/bf34db52bc1fc184597e1c6721968d7a33a5b15c))
+* remove add to recurring on plex watchlist ([943433c](https://github.com/rivenmedia/riven/commit/943433cba70dd9a3e51d7c51b4eb1e23d098345e))
+* reset the scraped time when replacing magnets ([82fe92d](https://github.com/rivenmedia/riven/commit/82fe92d952642408b98ea6a3f1fad51c86adffcb))
+* respect orm when removing items ([d6722fa](https://github.com/rivenmedia/riven/commit/d6722fa41e33bcfcb9ceaac32f4be4985af40b15))
+* serialize subtitles for api response ([0dd561a](https://github.com/rivenmedia/riven/commit/0dd561a11880ab4cfce4b6631b385b414b953f93))
+* service endpoint response for downloaders ([#782](https://github.com/rivenmedia/riven/issues/782)) ([f2020ed](https://github.com/rivenmedia/riven/commit/f2020ed8c0007e125871329e5cd3e821a9522494))
+* state filter in items endpoint ([1f24e4f](https://github.com/rivenmedia/riven/commit/1f24e4fe787e174a366c4e1e20f94fef263db76e))
+* stream results on stats endpoint ([ff14f85](https://github.com/rivenmedia/riven/commit/ff14f85532221997215e1a1f246a5b8041183e05))
+* switch to batched streaming stats endpoint for inc items ([a8a6aa9](https://github.com/rivenmedia/riven/commit/a8a6aa9f0670098441839042ab2ed3d4990860cd))
+* switch to generator for reset/retry endpoints ([bf4fc0e](https://github.com/rivenmedia/riven/commit/bf4fc0e79a31f2c4d8701e09ae662ebf3c5e2b3f))
+* update full compose with latest zilean changes ([d3ca7a4](https://github.com/rivenmedia/riven/commit/d3ca7a4abd2e0bc7cbef34ab5bbde201986acf55))
+
+
+### Documentation
+
+* remove duplicate service from readme ([8a9942a](https://github.com/rivenmedia/riven/commit/8a9942a20039281b00b2ddb261f75a543af13ac9))
+
 ## [0.15.3](https://github.com/rivenmedia/riven/compare/v0.15.2...v0.15.3) (2024-10-03)
 
 
