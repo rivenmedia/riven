@@ -5,7 +5,6 @@ from plexapi.myplex import MyPlexAccount
 from requests import HTTPError, Session
 from urllib3 import HTTPConnectionPool
 
-from program.db.db_functions import _filter_existing_items
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 from utils.logger import logger
@@ -25,7 +24,6 @@ class PlexWatchlist:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.recurring_items: set[str] = set() # set of imdb ids
         logger.success("Plex Watchlist initialized!")
 
     def validate(self):
@@ -70,14 +68,10 @@ class PlexWatchlist:
 
         plex_items: set[str] = set(watchlist_items) | set(rss_items)
         items_to_yield: list[MediaItem] = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in plex_items if imdb_id and imdb_id.startswith("tt")]
-        non_existing_items = _filter_existing_items(items_to_yield)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
-        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
 
-        if new_non_recurring_items:
-            logger.info(f"Found {len(new_non_recurring_items)} new items to fetch")
+        logger.info(f"Fetched {len(items_to_yield)} items from plex watchlist")
+        yield items_to_yield
 
-        yield new_non_recurring_items
 
     def _get_items_from_rss(self) -> list[str]:
         """Fetch media from Plex RSS Feeds."""

@@ -10,7 +10,7 @@ from program.settings.manager import settings_manager
 from utils import data_dir_path
 from utils.logger import logger
 
-engine_options={
+engine_options = {
     "pool_size": 25, # Prom: Set to 1 when debugging sql queries
     "max_overflow": 25, # Prom: Set to 0 when debugging sql queries
     "pool_pre_ping": True, # Prom: Set to False when debugging sql queries

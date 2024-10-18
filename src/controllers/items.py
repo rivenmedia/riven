@@ -269,7 +269,7 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -284,7 +284,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
         media_items_generator = get_media_items_by_ids(ids)
         for media_item in media_items_generator:
             try:
-                request.app.program.em.cancel_job(media_item)
+                request.app.program.em.cancel_job(media_item._id)
                 clear_streams(media_item)
                 reset_media_item(media_item)
             except ValueError as e:
@@ -300,7 +300,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -310,13 +310,15 @@ class RetryResponse(BaseModel):
     operation_id="retry_items",
 )
 async def retry_items(request: Request, ids: str) -> RetryResponse:
+    """Re-add items to the queue"""
     ids = handle_ids(ids)
     try:
         media_items_generator = get_media_items_by_ids(ids)
         for media_item in media_items_generator:
-            request.app.program.em.cancel_job(media_item)
+            request.app.program.em.cancel_job(media_item._id)
             await asyncio.sleep(0.1)  # Ensure cancellation is processed
-            request.app.program.em.add_item(media_item)
+            # request.app.program.em.add_item(media_item)
+            request.app.program.em.add_event(Event("RetryItem", media_item._id))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -340,26 +342,26 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         media_items: list[int] = get_parent_ids(ids)
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
-
-        for media_item in media_items:
-            logger.debug(f"Removing item with ID {media_item}")
-            request.app.program.em.cancel_job_by_id(media_item)
+        
+        for item_id in media_items:
+            logger.debug(f"Removing item with ID {item_id}")
+            request.app.program.em.cancel_job(item_id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            clear_streams_by_id(media_item)
+            clear_streams_by_id(item_id)
 
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(media_item)
+                symlink_service.delete_item_symlinks_by_id(item_id)
 
             with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == media_item)).scalar_one()
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == item_id)).scalar_one()
                 if requested_id:
                     logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
                     Overseerr.delete_request(requested_id)
 
-            logger.debug(f"Deleting item from database with ID {media_item}")
-            delete_media_item_by_id(media_item)
-            logger.info(f"Successfully removed item with ID {media_item}")
+            logger.debug(f"Deleting item from database with ID {item_id}")
+            delete_media_item_by_id(item_id)
+            logger.info(f"Successfully removed item with ID {item_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -489,7 +491,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         session.commit()
 
-        request.app.program.em.add_event(Event("Symlinker", item))
+        request.app.program.em.add_event(Event("Symlinker", item._id))
 
         return {
             "success": True,
