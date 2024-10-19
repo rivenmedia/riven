@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.1](https://github.com/rivenmedia/riven/compare/v0.16.0...v0.16.1) (2024-10-19)
+
+
+### Bug Fixes
+
+* check item instance before add from content services ([7aa48ed](https://github.com/rivenmedia/riven/commit/7aa48ede46dc553beb424d2c9d765a293e6cc7d2))
+* listrr outputting imdbids instead of items. solves [#802](https://github.com/rivenmedia/riven/issues/802) ([502e52b](https://github.com/rivenmedia/riven/commit/502e52b5ecff8ac869de28654963fdfad3a2aa13))
+
 ## [0.16.0](https://github.com/rivenmedia/riven/compare/v0.15.3...v0.16.0) (2024-10-18)
 
 
