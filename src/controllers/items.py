@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
-from program.indexers.trakt import create_item_from_imdb_id
+from program.indexers.trakt import TraktIndexer, create_item_from_imdb_id
 from utils.logger import logger
 from utils.torrent import get_type_and_infohash
 
@@ -246,11 +246,15 @@ async def add_item_manually(request: Request, imdb_id: str = None, input: str = 
     if not infohash:
         raise HTTPException(status_code=400, detail="No valid input provided")
 
+    trakt: TraktIndexer = request.app.program.services.get(TraktIndexer)
     downloader: Downloader = request.app.program.services.get(Downloader)
     with db.Session() as session: 
-        item = create_item_from_imdb_id(imdb_id)
-        item.requested_by = "user"
-        item.requested_at = datetime.now()
+        item = MediaItem(
+                {"imdb_id": imdb_id, "requested_by": "user", "requested_at": datetime.now()}
+            )
+        item = next(trakt.run(item), None)
+        if item is None:
+            raise HTTPException(status_code=500, detail="Failed to index item")
 
         needed_media = get_needed_media(item)
         cached_streams = downloader.get_cached_streams([infohash], needed_media)        
