@@ -16,6 +16,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from utils.cli import handle_args
 from loguru import logger
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
