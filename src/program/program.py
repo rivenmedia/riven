@@ -25,7 +25,7 @@ from program.settings.models import get_version
 from program.updaters import Updater
 from utils import data_dir_path
 from utils.event_manager import EventManager
-from utils.logger import create_progress_bar, log_cleaner, logger
+from utils.logging import create_progress_bar, log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker

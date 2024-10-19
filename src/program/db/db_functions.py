@@ -11,7 +11,7 @@ from program.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.settings.manager import settings_manager
 from utils import alembic_dir
-from utils.logger import logger
+from loguru import logger
 
 from .db import alembic, db
 

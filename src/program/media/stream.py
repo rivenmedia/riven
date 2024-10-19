@@ -6,7 +6,7 @@ from sqlalchemy import Index, and_
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.db.db import db
-from utils.logger import logger
+from loguru import logger
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem

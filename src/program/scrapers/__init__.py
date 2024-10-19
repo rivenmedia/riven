@@ -17,7 +17,7 @@ from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 
 class Scraping:

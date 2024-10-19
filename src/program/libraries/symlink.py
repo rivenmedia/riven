@@ -10,7 +10,7 @@ from sqla_wrapper import Session
 from program.db.db import db
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 if TYPE_CHECKING:
     from program.media.item import Episode, MediaItem, Movie, Show

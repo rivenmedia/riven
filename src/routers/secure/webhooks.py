@@ -7,7 +7,7 @@ from program.db.db_functions import ensure_item_exists_in_db
 from program.indexers.trakt import get_imdbid_from_tmdb, get_imdbid_from_tvdb
 from program.media.item import MediaItem
 from requests import RequestException
-from utils.logger import logger
+from loguru import logger
 
 from ..models.overseerr import OverseerrWebhook
 

@@ -3,7 +3,7 @@ import argparse
 from program.db.db_functions import hard_reset_database, resolve_duplicates
 from program.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-from utils.logger import log_cleaner, logger
+from utils.logging import log_cleaner, logger
 
 
 def handle_args():
