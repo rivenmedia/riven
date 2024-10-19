@@ -403,7 +403,8 @@ def run_thread_with_db_item(fn, service, program, input_id: int = None):
                 i = [i]
             if isinstance(i, list):
                 for item in i:
-                    program.em.add_item(item, service)
+                    if isinstance(item, MediaItem):
+                        program.em.add_item(item, service)
         return
 
 def hard_reset_database():
