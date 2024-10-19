@@ -10,7 +10,7 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
 
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 
 class PlexUpdater:

@@ -14,7 +14,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get, post
 
 API_URL = "https://api.torbox.app/v1/api"

@@ -3,7 +3,7 @@ from program.media.item import MediaItem
 from program.updaters.plex import PlexUpdater
 from program.updaters.jellyfin import JellyfinUpdater
 from program.updaters.emby import EmbyUpdater
-from utils.logger import logger
+from loguru import logger
 
 
 class Updater:

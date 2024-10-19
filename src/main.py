@@ -15,7 +15,7 @@ from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from utils.cli import handle_args
-from utils.logger import logger
+from loguru import logger
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):

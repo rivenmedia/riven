@@ -6,7 +6,7 @@ from requests.exceptions import HTTPError
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get, ping
 
 

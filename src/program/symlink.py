@@ -15,7 +15,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 
 class Symlinker:

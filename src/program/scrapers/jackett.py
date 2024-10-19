@@ -12,7 +12,7 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 

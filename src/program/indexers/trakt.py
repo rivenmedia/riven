@@ -7,7 +7,7 @@ from typing import Generator, List, Optional, Union
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"

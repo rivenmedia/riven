@@ -7,7 +7,7 @@ from urllib3 import HTTPConnectionPool
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get, ping
 
 

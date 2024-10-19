@@ -13,7 +13,7 @@ import utils.websockets.manager as ws_manager
 from program.db.db import db
 from program.media.state import States
 from program.media.subtitle import Subtitle
-from utils.logger import logger
+from loguru import logger
 
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream

@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
-from utils.logger import logger
+from loguru import logger
 
 from ..models.shared import MessageResponse
 

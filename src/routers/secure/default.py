@@ -11,6 +11,7 @@ from program.settings.manager import settings_manager
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from utils.event_manager import EventUpdate
+from utils import generate_api_key
 
 from ..models.shared import MessageResponse
 
@@ -59,6 +60,13 @@ async def get_rd_user() -> RDUser:
         return {"success": False, "message": response.json()}
 
     return response.json()
+
+@router.post("/generateapikey", operation_id="generateapikey")
+async def generate_apikey() -> MessageResponse:
+    new_key = generate_api_key()
+    settings_manager.settings.api_key = new_key
+    settings_manager.save()
+    return { "message": new_key}
 
 
 @router.get("/torbox", operation_id="torbox")
