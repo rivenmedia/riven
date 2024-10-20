@@ -135,6 +135,9 @@ class Downloader:
             "DEBRID",
             f"Downloaded {item.log_string} from '{item.active_stream['name']}' [{item.active_stream['infohash']}]",
         )
+    
+    def add_torrent(self, infohash: str):
+        return self.service.add_torrent(infohash)
 
     def add_torrent_magnet(self, magnet_link: str):
         return self.service.add_torrent_magnet(magnet_link)
