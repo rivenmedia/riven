@@ -165,10 +165,10 @@ class RealDebridDownloader(DownloaderBase):
         if id:
             delete_torrent(id)
 
-    def add_torrent_magnet(magnet: str) -> str:
+    def add_torrent_magnet(self, magnet: str) -> str:
         return add_torrent_magnet(magnet)
 
-    def get_torrent_info(id: str) -> dict:
+    def get_torrent_info(self, id: str) -> dict:
         return torrent_info(id)
 
 

@@ -382,7 +382,7 @@ class SetTorrentRDResponse(BaseModel):
 )
 def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
     torrent_id = ""
-    downloader: Downloader = request.app.program.services.get(Downloader)
+    downloader: Downloader = request.app.program.services.get(Downloader).service
     try:
         torrent_id = downloader.add_torrent_magnet(magnet)
     except Exception:
@@ -463,7 +463,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         # reset episodes if it's a season
         if item.type == "season":
-            logger.debug(f"Resetting episodes for {item.title}")
+            logger.debug(f"Resetting episodes for {item.log_string}")
             for episode in item.episodes:
                 reset_item_to_scraped(episode)
 
@@ -495,7 +495,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         return {
             "success": True,
-            "message": f"Set torrent for {item.title} to {torrent_id}",
+            "message": f"Set torrent for {item.log_string} to {torrent_id}",
             "item_id": item._id,
             "torrent_id": torrent_id,
         }

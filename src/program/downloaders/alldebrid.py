@@ -152,7 +152,7 @@ class AllDebridDownloader(DownloaderBase):
         return get_status(torrent_id)
 
 
-def walk_alldebrid_files(files: list[dict]) -> (str, int):
+def walk_alldebrid_files(files: list[dict]) -> (str, int): # type: ignore
     """Walks alldebrid's `files` nested dicts and returns (filename, filesize) for each file, discarding path information"""
     dirs = []
     for f in files:
