@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/rivenmedia/riven/compare/v0.16.1...v0.16.2) (2024-10-20)
+
+
+### Bug Fixes
+
+* fixed replace torrents ([8db6541](https://github.com/rivenmedia/riven/commit/8db6541f5820f52ebb8550b81010e28bf9be589a))
+
 ## [0.16.1](https://github.com/rivenmedia/riven/compare/v0.16.0...v0.16.1) (2024-10-19)
 
 
