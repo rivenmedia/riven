@@ -6,10 +6,10 @@ from typing import List, Optional, Self
 
 import sqlalchemy
 from RTN import parse
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
-import utils.websockets.manager as ws_manager
+from utils.sse_manager import sse_manager
 from program.db.db import db
 from program.media.state import States
 from program.media.subtitle import Subtitle
@@ -133,9 +133,10 @@ class MediaItem(db.Model):
         self.subtitles = item.get("subtitles", [])
 
     def store_state(self) -> None:
-        if self.last_state and self.last_state != self._determine_state():
-            ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state()
+        new_state = self._determine_state()
+        if self.last_state and self.last_state != new_state:
+            sse_manager.publish_event("item_update", {"last_state": self.last_state, "new_state": new_state, "item_id": self._id})
+        self.last_state = new_state
 
     def is_stream_blacklisted(self, stream: Stream):
         """Check if a stream is blacklisted for this item."""
@@ -458,9 +459,7 @@ class Show(MediaItem):
     def store_state(self) -> None:
         for season in self.seasons:
             season.store_state()
-        if self.last_state and self.last_state != self._determine_state():
-            ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state()
+        super().store_state()
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
@@ -531,9 +530,7 @@ class Season(MediaItem):
     def store_state(self) -> None:
         for episode in self.episodes:
             episode.store_state()
-        if self.last_state and self.last_state != self._determine_state():
-            ws_manager.send_item_update(json.dumps(self.to_dict()))
-        self.last_state = self._determine_state()
+        super().store_state()
 
     def __init__(self, item):
         self.type = "season"

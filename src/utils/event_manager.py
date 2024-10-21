@@ -1,16 +1,17 @@
 import os
 import traceback
- 
+
 from datetime import datetime
 from queue import Empty
 from threading import Lock
+from typing import Dict, List
 
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.orm.exc import StaleDataError
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 
-import utils.websockets.manager as ws_manager
+from utils.sse_manager import sse_manager
 from program.db.db import db
 from program.db.db_functions import (
     ensure_item_exists_in_db,
@@ -73,7 +74,7 @@ class EventManager:
             result = next(future.result(), None)
             if future in self._futures:
                 self._futures.remove(future)
-            ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
+            sse_manager.publish_event("event_update", self.get_event_updates())
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
@@ -170,7 +171,7 @@ class EventManager:
         if event:
             future.event = event
         self._futures.append(future)
-        ws_manager.send_event_update([future.event for future in self._futures if hasattr(future, "event")])
+        sse_manager.publish_event("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
 
     def cancel_job(self, item_id: int, suppress_logs=False):
@@ -310,24 +311,14 @@ class EventManager:
             logger.debug(f"Added item with ID {item_id} to the queue.")
 
 
-    def get_event_updates(self) -> dict[str, list[EventUpdate]]:
-        """
-        Returns a formatted list of event updates.
-
-        Returns:
-            list: The list of formatted event updates.
-        """
+    def get_event_updates(self) -> Dict[str, List[int]]:
         events = [future.event for future in self._futures if hasattr(future, "event")]
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
-        return {
-            event_type.lower(): [
-                EventUpdate.model_validate(
-                {
-                    "item_id": event.item_id,
-                    "emitted_by": event.emitted_by if isinstance(event.emitted_by, str) else event.emitted_by.__name__,
-                    "run_at": event.run_at.isoformat()
-                })
-                for event in events if event.emitted_by == event_type
-            ]
-            for event_type in event_types
-        }
+
+        updates = {event_type: [] for event_type in event_types}
+        for event in events:
+            table = updates.get(event.emitted_by.__name__, None)
+            if table is not None:
+                table.append(event.item_id)
+
+        return updates
