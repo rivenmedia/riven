@@ -5,12 +5,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
-from typing import Iterator, List
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
-import utils.websockets.manager as ws_manager
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
@@ -170,7 +168,6 @@ class Program(threading.Thread):
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
-        ws_manager.send_health_update("running")
         self.initialized = True
 
     def _retry_library(self) -> None:

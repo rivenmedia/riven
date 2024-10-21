@@ -1,6 +1,5 @@
 """Logging utils"""
 
-import asyncio
 import os
 import sys
 from datetime import datetime
@@ -17,7 +16,6 @@ from rich.progress import (
 
 from program.settings.manager import settings_manager
 from utils import data_dir_path
-from utils.websockets.logging_handler import Handler as WebSocketHandler
 
 LOG_ENABLED: bool = settings_manager.settings.log
 
@@ -67,7 +65,7 @@ def setup_logger(level):
     warning_color, warning_icon = get_log_settings("WARNING", "ffcc00", "⚠️ ")
     critical_color, critical_icon = get_log_settings("CRITICAL", "ff0000", "")
     success_color, success_icon = get_log_settings("SUCCESS", "00ff00", "✔️ ")
-    
+
     logger.level("DEBUG", color=debug_color, icon=debug_icon)
     logger.level("INFO", color=info_color, icon=info_icon)
     logger.level("WARNING", color=warning_color, icon=warning_icon)
@@ -91,29 +89,17 @@ def setup_logger(level):
             "enqueue": True,
         },
         {
-            "sink": log_filename, 
-            "level": level.upper(), 
-            "format": log_format, 
-            "rotation": "25 MB", 
-            "retention": "24 hours", 
-            "compression": None, 
-            "backtrace": False, 
+            "sink": log_filename,
+            "level": level.upper(),
+            "format": log_format,
+            "rotation": "25 MB",
+            "retention": "24 hours",
+            "compression": None,
+            "backtrace": False,
             "diagnose": True,
             "enqueue": True,
-        },
-        # maybe later
-        # {
-        # "sink": manager.send_log_message,
-        # "level": level.upper() or "INFO",
-        # "format": log_format,
-        # "backtrace": False,
-        # "diagnose": False,
-        # "enqueue": True,
-        # }
+        }
     ])
-
-    logger.add(WebSocketHandler(), format=log_format)
-
 
 def log_cleaner():
     """Remove old log files based on retention settings."""
@@ -129,7 +115,6 @@ def log_cleaner():
             logger.log("COMPLETED", "Cleaned up old logs that were older than 8 hours.")
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
-
 
 def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
     console = Console()
