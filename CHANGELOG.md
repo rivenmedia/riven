@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0](https://github.com/rivenmedia/riven/compare/v0.16.2...v0.17.0) (2024-10-21)
+
+
+### Features
+
+* we now server sse via /stream ([efbc471](https://github.com/rivenmedia/riven/commit/efbc471e4f4429c098df2a601b3f3c42b98afbb7))
+
+
+### Bug Fixes
+
+* add default value for API_KEY ([bc6ff28](https://github.com/rivenmedia/riven/commit/bc6ff28ff5b1d1632f2dd2ca64743c4012ccc396))
+* add python-dotenv to load .env variables ([65a4aec](https://github.com/rivenmedia/riven/commit/65a4aec275a1f7768a77ef0227d6fb402f9a8612))
+* files sometimes not found in mount ([02b7a81](https://github.com/rivenmedia/riven/commit/02b7a81f4b6f93d06e59f06791e99e1860e3ebe9))
+
 ## [0.16.2](https://github.com/rivenmedia/riven/compare/v0.16.1...v0.16.2) (2024-10-20)
 
 
