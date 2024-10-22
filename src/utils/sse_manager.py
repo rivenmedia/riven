@@ -19,7 +19,7 @@ class ServerSentEventManager:
         while True:
             try:
                 data = await asyncio.wait_for(self.event_queues[event_type].get(), timeout=1.0)
-                yield f"data: {data}\n\n"
+                yield f"{data}\n"
             except asyncio.TimeoutError:
                 pass
 
