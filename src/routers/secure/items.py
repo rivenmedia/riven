@@ -531,7 +531,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 #     downloader = request.app.program.services.get(Downloader).service
 #     with db.Session() as session:
 #         item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-#         item.reset(True)
+#         item.reset()
 #         downloader.download_cached(item, hash)
 #         request.app.program.add_to_queue(item)
 #         return {"success": True, "message": f"Downloading {item.title} with hash {hash}"}

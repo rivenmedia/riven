@@ -1,4 +1,5 @@
 import os
+import threading
 import traceback
 
 from datetime import datetime
@@ -8,8 +9,7 @@ from typing import Dict, List
 
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy.orm.exc import StaleDataError
-from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from utils.sse_manager import sse_manager
 from program.db.db import db
@@ -37,6 +37,7 @@ class EventManager:
         self._futures: list[Future] = []
         self._queued_events: list[Event] = []
         self._running_events: list[Event] = []
+        self._canceled_futures: list[Future] = []
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls) -> ThreadPoolExecutor:
@@ -71,7 +72,7 @@ class EventManager:
             service (type): The service class associated with the future.
         """
         try:
-            result = next(future.result(), None)
+            result = future.result()
             if future in self._futures:
                 self._futures.remove(future)
             sse_manager.publish_event("event_update", self.get_event_updates())
@@ -81,10 +82,10 @@ class EventManager:
                 item_id, timestamp = result, datetime.now()
             if item_id:
                 self.remove_event_from_running(item_id)
+                if future.cancellation_event.is_set():
+                    logger.debug(f"Future with Item ID: {item_id} was cancelled discarding results...")
+                    return
                 self.add_event(Event(emitted_by=service, item_id=item_id, run_at=timestamp))
-        except (StaleDataError, CancelledError):
-            # Expected behavior when cancelling tasks or when the item was removed
-            return
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
@@ -166,8 +167,10 @@ class EventManager:
             log_message += f" with Item ID: {item_id}"
         logger.debug(log_message)
 
+        cancellation_event = threading.Event()
         executor = self._find_or_create_executor(service)
-        future = executor.submit(run_thread_with_db_item, program.all_services[service].run, service, program, item_id)
+        future = executor.submit(run_thread_with_db_item, program.all_services[service].run, service, program, item_id, cancellation_event)
+        future.cancellation_event = cancellation_event
         if event:
             future.event = event
         self._futures.append(future)
@@ -186,27 +189,25 @@ class EventManager:
             item_id, related_ids = get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
-            futures_to_remove = []
             for future in self._futures:
                 future_item_id = None
                 future_related_ids = []
 
-                if hasattr(future, 'event') and hasattr(future.event, 'item'):
+                if hasattr(future, 'event') and hasattr(future.event, 'item_id'):
                     future_item = future.event.item_id
                     future_item_id, future_related_ids = get_item_ids(session, future_item)
 
                 if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
                     self.remove_id_from_queues(future_item)
-                    futures_to_remove.append(future)
                     if not future.done() and not future.cancelled():
                         try:
+                            future.cancellation_event.set()
                             future.cancel()
+                            self._canceled_futures.append(future)
                         except Exception as e:
                             if not suppress_logs:
                                 logger.error(f"Error cancelling future for {future_item.log_string}: {str(e)}")
 
-            for future in futures_to_remove:
-                self._futures.remove(future)
 
         logger.debug(f"Canceled jobs for Item ID {item_id} and its children.")
 
