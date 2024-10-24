@@ -57,6 +57,7 @@ def get_media_items_by_ids(media_item_ids: list[int]):
                 continue
             item = get_item(session, media_item_id, item_type)
             if item:
+                session.expunge(item)
                 yield item
 
 def get_parent_ids(media_item_ids: list[int]):
