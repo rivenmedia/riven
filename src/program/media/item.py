@@ -132,8 +132,8 @@ class MediaItem(db.Model):
         #Post processing
         self.subtitles = item.get("subtitles", [])
 
-    def store_state(self) -> None:
-        new_state = self._determine_state()
+    def store_state(self, given_state=None) -> None:
+        new_state = given_state if given_state else self._determine_state()
         if self.last_state and self.last_state != new_state:
             sse_manager.publish_event("item_update", {"last_state": self.last_state, "new_state": new_state, "item_id": self._id})
         self.last_state = new_state
@@ -144,6 +144,10 @@ class MediaItem(db.Model):
         if session:
             session.refresh(self, attribute_names=['blacklisted_streams'])
         return stream in self.blacklisted_streams
+
+    def blacklist_active_stream(self):
+        stream = next(stream for stream in self.streams if stream.infohash == self.active_stream["infohash"])
+        self.blacklist_stream(stream)
 
     def blacklist_stream(self, stream: Stream):
         value = blacklist_stream(self, stream)
@@ -321,20 +325,20 @@ class MediaItem(db.Model):
     def __hash__(self):
         return hash(self._id)
 
-    def reset(self, soft_reset: bool = False):
+    def reset(self):
         """Reset item attributes."""
         if self.type == "show":
             for season in self.seasons:
                 for episode in season.episodes:
-                    episode._reset(soft_reset)
-                season._reset(soft_reset)
+                    episode._reset()
+                season._reset()
         elif self.type == "season":
             for episode in self.episodes:
-                episode._reset(soft_reset)
-        self._reset(soft_reset)
-        self.store_state()
+                episode._reset()
+        self._reset()
+        self.store_state(States.Indexed)
 
-    def _reset(self, soft_reset):
+    def _reset(self):
         """Reset item attributes for rescraping."""
         if self.symlink_path:
             if Path(self.symlink_path).exists():
@@ -351,16 +355,8 @@ class MediaItem(db.Model):
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        if not self.active_stream:
-            self.active_stream = {}
-        if not soft_reset:
-            if self.active_stream.get("infohash", False):
-                reset_streams(self, self.active_stream["infohash"])
-        else:
-            if self.active_stream.get("infohash", False):
-                stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["infohash"]), None)
-                if stream:
-                    self.blacklist_stream(stream)
+        reset_streams(self)
+        self.active_stream = {}
 
         self.set("active_stream", {})
         self.set("symlinked", False)
@@ -371,7 +367,7 @@ class MediaItem(db.Model):
         self.set("symlinked_times", 0)
         self.set("scraped_times", 0)
 
-        logger.debug(f"Item {self.log_string} reset for rescraping")
+        logger.debug(f"Item {self.log_string} has been reset")
 
     @property
     def log_string(self):
@@ -456,10 +452,10 @@ class Show(MediaItem):
             return States.Requested
         return States.Unknown
 
-    def store_state(self) -> None:
+    def store_state(self, given_state: States =None) -> None:
         for season in self.seasons:
-            season.store_state()
-        super().store_state()
+            season.store_state(given_state)
+        super().store_state(given_state)
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
@@ -527,10 +523,10 @@ class Season(MediaItem):
         "polymorphic_load": "inline",
     }
 
-    def store_state(self) -> None:
+    def store_state(self, given_state: States = None) -> None:
         for episode in self.episodes:
-            episode.store_state()
-        super().store_state()
+            episode.store_state(given_state)
+        super().store_state(given_state)
 
     def __init__(self, item):
         self.type = "season"
