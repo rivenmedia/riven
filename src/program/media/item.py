@@ -336,7 +336,10 @@ class MediaItem(db.Model):
             for episode in self.episodes:
                 episode._reset()
         self._reset()
-        self.store_state(States.Indexed)
+        if self.title:
+            self.store_state(States.Indexed)
+        else:
+            self.store_state(States.Requested)
 
     def _reset(self):
         """Reset item attributes for rescraping."""
