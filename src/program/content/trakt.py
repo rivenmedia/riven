@@ -1,6 +1,5 @@
 """Trakt content module"""
 import re
-import time
 from typing import Union
 from urllib.parse import urlencode
 from datetime import datetime, timedelta
@@ -29,11 +28,7 @@ class TraktContent:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.next_run_time = 0
-        self.recurring_items = set()
-        self.items_already_seen = set()
         self.last_update = None
-        self.missing()
         logger.success("Trakt initialized!")
 
     def validate(self) -> bool:
@@ -61,15 +56,6 @@ class TraktContent:
         except Exception as e:
             logger.error(f"Exception during Trakt validation: {str(e)}")
             return False
-
-    def missing(self):
-        """Log missing items from Trakt"""
-        if not self.settings.watchlist:
-            logger.log("TRAKT", "No watchlist configured.")
-        if not self.settings.collection:
-            logger.log("TRAKT", "No collection configured.")
-        if not self.settings.user_lists:
-            logger.log("TRAKT", "No user lists configured.")
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
