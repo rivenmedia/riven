@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional, Union
 
 from loguru import logger
-from program.settings.manager import settings_manager as settings
+from program.settings.manager import settings_manager
 from pydantic import BaseModel, TypeAdapter
 from requests import ConnectTimeout
 from utils import request
@@ -52,7 +52,7 @@ rd_torrent_list = TypeAdapter(list[RDTorrent])
 class RealDebridDownloader(DownloaderBase):
     def __init__(self):
         self.key = "realdebrid"
-        self.settings = settings.settings.downloaders.real_debrid
+        self.settings = settings_manager.settings.downloaders.real_debrid
         self.initialized = self.validate()
         if self.initialized:
             self.existing_hashes = [torrent.hash for torrent in get_torrents(1000)]
@@ -176,14 +176,14 @@ def get(url):
     return request.get(
         url=f"{BASE_URL}/{url}",
         additional_headers={
-            "Authorization": f"Bearer {settings.settings.downloaders.real_debrid.api_key}"
+            "Authorization": f"Bearer {settings_manager.settings.downloaders.real_debrid.api_key}"
         },
         response_type=dict,
         specific_rate_limiter=torrent_limiter,
         overall_rate_limiter=overall_limiter,
         proxies=(
-            settings.settings.downloaders.real_debrid.proxy_url
-            if settings.settings.downloaders.real_debrid.proxy_enabled
+            settings_manager.settings.downloaders.real_debrid.proxy_url
+            if settings_manager.settings.downloaders.real_debrid.proxy_enabled
             else None
         ),
     ).data
@@ -195,13 +195,13 @@ def post(url, data):
         data=data,
         response_type=dict,
         additional_headers={
-            "Authorization": f"Bearer {settings.settings.downloaders.real_debrid.api_key}"
+            "Authorization": f"Bearer {settings_manager.settings.downloaders.real_debrid.api_key}"
         },
         specific_rate_limiter=torrent_limiter,
         overall_rate_limiter=overall_limiter,
         proxies=(
-            settings.settings.downloaders.real_debrid.proxy_url
-            if settings.settings.downloaders.real_debrid.proxy_enabled
+            settings_manager.settings.downloaders.real_debrid.proxy_url
+            if settings_manager.settings.downloaders.real_debrid.proxy_enabled
             else None
         ),
     ).data
@@ -211,14 +211,14 @@ def delete(url):
     return request.delete(
         url=f"{BASE_URL}/{url}",
         additional_headers={
-            "Authorization": f"Bearer {settings.settings.downloaders.real_debrid.api_key}"
+            "Authorization": f"Bearer {settings_manager.settings.downloaders.real_debrid.api_key}"
         },
         response_type=dict,
         specific_rate_limiter=torrent_limiter,
         overall_rate_limiter=overall_limiter,
         proxies=(
-            settings.settings.downloaders.real_debrid.proxy_url
-            if settings.settings.downloaders.real_debrid.proxy_enabled
+            settings_manager.settings.downloaders.real_debrid.proxy_url
+            if settings_manager.settings.downloaders.real_debrid.proxy_enabled
             else None
         ),
     ).data
