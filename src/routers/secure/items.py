@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
@@ -39,7 +39,7 @@ router = APIRouter(
 def handle_ids(ids: str) -> list[int]:
     ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
-        raise HTTPException(status_code=400, detail="No item ID provided")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
 
 
@@ -308,15 +308,18 @@ class RetryResponse(BaseModel):
 async def retry_items(request: Request, ids: str) -> RetryResponse:
     """Re-add items to the queue"""
     ids = handle_ids(ids)
-    try:
-        media_items_generator = get_media_items_by_ids(ids)
-        for media_item in media_items_generator:
-            request.app.program.em.cancel_job(media_item._id)
-            await asyncio.sleep(0.1)  # Ensure cancellation is processed
-            # request.app.program.em.add_item(media_item)
-            request.app.program.em.add_event(Event("RetryItem", media_item._id))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    for id in ids:
+        try:
+            item = next(get_media_items_by_ids([id]), None)
+            if item:
+                with db.Session() as session:
+                    item.scraped_at = None
+                    item.scraped_times = 1
+                    session.merge(item)
+                    session.commit()
+                request.app.program.em.add_event(Event("RetryItem", id))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     return {"message": f"Retried items with ids {ids}", "ids": ids}
 
@@ -338,7 +341,6 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         media_items: list[int] = get_parent_ids(ids)
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
-        
         for item_id in media_items:
             logger.debug(f"Removing item with ID {item_id}")
             request.app.program.em.cancel_job(item_id)
