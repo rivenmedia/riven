@@ -303,7 +303,7 @@ async def add_item_manually(request: Request, imdb_id: str = None, input: str = 
 
         return {
             "success": True,
-            "message": f"Added {imdb_id} manually to the database (format was {type})",
+            "message": f"Processing item {item.log_string} with infohash {infohash}",
             "item_id": item._id,
             "torrent_id": input,
         }
