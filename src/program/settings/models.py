@@ -63,10 +63,10 @@ class TorboxModel(Observable):
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
     prefer_speed_over_quality: bool = True
-    # movie_filesize_min: int = 200  # MB
-    # movie_filesize_max: int = -1  # MB (-1 is no limit)
-    # episode_filesize_min: int = 40  # MB
-    # episode_filesize_max: int = -1  # MB (-1 is no limit)
+    movie_filesize_mb_min: int = -1  # MB
+    movie_filesize_mb_max: int = -1  # MB (-1 is no limit)
+    episode_filesize_mb_min: int = -1  # MB
+    episode_filesize_mb_max: int = -1  # MB (-1 is no limit)
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
     torbox: TorboxModel = TorboxModel()

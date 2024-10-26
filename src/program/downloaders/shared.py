@@ -1,6 +1,7 @@
 from RTN import parse
 
 from abc import ABC, abstractmethod
+from loguru import logger
 from program.media.item import MediaItem
 from program.media.state import States
 from program.settings.manager import settings_manager
@@ -129,9 +130,31 @@ class FileFinder:
         filename_attr (str): The name of the file attribute.
     """
 
+    min_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
+    max_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
+    min_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
+    max_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
+    are_filesizes_valid = False
+
     def __init__(self, name, size):
         self.filename_attr = name
         self.filesize_attr = size
+        self.are_filesizes_valid = self._validate_filesizes()
+
+    def _validate_filesizes(self) -> bool:
+        if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_min, int) or settings_manager.settings.downloaders.movie_filesize_mb_min < -1:
+            logger.error("Movie filesize min is not set or invalid.")
+            return False
+        if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_max, int) or settings_manager.settings.downloaders.movie_filesize_mb_max < -1:
+            logger.error("Movie filesize max is not set or invalid.")
+            return False
+        if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_min, int) or settings_manager.settings.downloaders.episode_filesize_mb_min < -1:
+            logger.error("Episode filesize min is not set or invalid.")
+            return False
+        if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_max, int) or settings_manager.settings.downloaders.episode_filesize_mb_max < -1:
+            logger.error("Episode filesize max is not set or invalid.")
+            return False
+        return True
 
     def get_cached_container(
         self,
@@ -160,6 +183,28 @@ class FileFinder:
             return parsed_data.type == "movie"
         except Exception:
             return None
+        
+    def filesize_is_acceptable_movie(self, filesize):
+        if not self.are_filesizes_valid:
+            logger.error("Filesize settings are invalid, movie file sizes will not be checked.")
+            return True
+        min_size = settings_manager.settings.downloaders.movie_filesize_mb_min * 1_000_000
+        max_size = settings_manager.settings.downloaders.movie_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.movie_filesize_mb_max != -1 else float("inf")
+        is_acceptable = min_size <= filesize <= max_size
+        if not is_acceptable:
+            logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
+        return is_acceptable
+    
+    def filesize_is_acceptable_show(self, filesize):
+        if not self.are_filesizes_valid:
+            logger.error("Filesize settings are invalid, episode file sizes will not be checked.")
+            return True
+        min_size = settings_manager.settings.downloaders.episode_filesize_mb_min * 1_000_000
+        max_size = settings_manager.settings.downloaders.episode_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.episode_filesize_mb_max != -1 else float("inf")
+        is_acceptable = min_size <= filesize <= max_size
+        if not is_acceptable:
+            logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
+        return is_acceptable
 
     def cache_matches(
         self,
@@ -184,7 +229,7 @@ class FileFinder:
                 )
                 if matched_season and matched_episodes:
                     for episode in matched_episodes:
-                        if (matched_season, episode) in needed_episodes:
+                        if (matched_season, episode) in needed_episodes and self.filesize_is_acceptable_show(file[self.filesize_attr]):
                             if matched_season not in matches_dict:
                                 matches_dict[matched_season] = {}
                             matches_dict[matched_season][episode] = file
@@ -198,7 +243,7 @@ class FileFinder:
             )
             if biggest_file and self.filename_matches_movie(
                 biggest_file[self.filename_attr]
-            ):
+            ) and self.filesize_is_acceptable_movie(biggest_file[self.filesize_attr]):
                 return {1: {1: biggest_file}}
 
 
