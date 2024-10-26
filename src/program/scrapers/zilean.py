@@ -8,7 +8,7 @@ from requests.exceptions import RequestException
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
 

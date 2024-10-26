@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
-from utils.logger import logger
+from loguru import logger
 
 logger.disable("program")  # Suppress
 

@@ -14,7 +14,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get, post
 
 API_URL = "https://api.torbox.app/v1/api"
@@ -76,32 +76,39 @@ class TorBoxDownloader:
         stream_count = get_stream_count(item._id)
         processed_stream_hashes = set()  # Track processed stream hashes
         stream_hashes = {}
-    
+
         number_of_rows_per_page = 5
         total_pages = (stream_count // number_of_rows_per_page) + 1
-    
+
         for page_number in range(total_pages):
             with db.Session() as session:
-                for stream_id, infohash, stream in load_streams_in_pages(session, item._id, page_number, page_size=number_of_rows_per_page):
+                for stream_id, infohash, stream in load_streams_in_pages(
+                    session, item._id, page_number, page_size=number_of_rows_per_page
+                ):
                     stream_hash_lower = infohash.lower()
-    
+
                     if stream_hash_lower in processed_stream_hashes:
                         continue
-    
+
                     processed_stream_hashes.add(stream_hash_lower)
                     stream_hashes[stream_hash_lower] = stream
-    
+
                 cached_hashes = self.get_torrent_cached(list(stream_hashes.keys()))
                 if cached_hashes:
                     for cache in cached_hashes.values():
                         item.active_stream = cache
                         if self.find_required_files(item, cache["files"]):
                             logger.log(
-                                "DEBRID", f"Item is cached, proceeding with: {item.log_string}"
+                                "DEBRID",
+                                f"Item is cached, proceeding with: {item.log_string}",
                             )
                             item.set(
                                 "active_stream",
-                                {"hash": cache["hash"], "files": cache["files"], "id": None},
+                                {
+                                    "hash": cache["hash"],
+                                    "files": cache["files"],
+                                    "id": None,
+                                },
                             )
                             self.download(item)
                             return_value = True
@@ -114,21 +121,32 @@ class TorBoxDownloader:
                     logger.log("DEBRID", f"Item is not cached: {item.log_string}")
                     for stream in stream_hashes.values():
                         logger.log(
-                            "DEBUG", f"Blacklisting uncached hash ({stream.infohash}) for item: {item.log_string}"
+                            "DEBUG",
+                            f"Blacklisting uncached hash ({stream.infohash}) for item: {item.log_string}",
                         )
                         stream.blacklisted = True
-    
+
         return return_value
-    
+
     def get_cached_hashes(self, item: MediaItem, streams: list[str]) -> list[str]:
         """Check if the item is cached in torbox.app"""
         cached_hashes = self.get_torrent_cached(streams)
-        return {stream: cached_hashes[stream]["files"] for stream in streams if stream in cached_hashes}
+        return {
+            stream: cached_hashes[stream]["files"]
+            for stream in streams
+            if stream in cached_hashes
+        }
 
-    def get_cached_hashes(self, item: MediaItem, streams: list[str: Stream]) -> list[str]:
+    def get_cached_hashes(
+        self, item: MediaItem, streams: list[str:Stream]
+    ) -> list[str]:
         """Check if the item is cached in torbox.app"""
         cached_hashes = self.get_torrent_cached(streams)
-        return {stream: cached_hashes[stream]["files"] for stream in streams if stream in cached_hashes}
+        return {
+            stream: cached_hashes[stream]["files"]
+            for stream in streams
+            if stream in cached_hashes
+        }
 
     def download_cached(self, item: MediaItem, stream: str) -> None:
         """Download the cached item from torbox.app"""
@@ -167,8 +185,7 @@ class TorBoxDownloader:
                     needed_episode_numbers = {
                         episode.number
                         for episode in season.episodes
-                        if episode.state in acceptable_states
-                        and episode.is_released
+                        if episode.state in acceptable_states and episode.is_released
                     }
                     if needed_episode_numbers:
                         needed_episodes[season.number] = needed_episode_numbers
@@ -212,7 +229,9 @@ class TorBoxDownloader:
             for file in files:
                 if not file or not file.get("name"):
                     continue
-                if not parsed_file.seasons or parsed_file.seasons == [0]: # skip specials
+                if not parsed_file.seasons or parsed_file.seasons == [
+                    0
+                ]:  # skip specials
                     continue
                 # Check if the file's season matches the item's season or if there's only one season
                 if season_num in parsed_file.seasons or one_season:

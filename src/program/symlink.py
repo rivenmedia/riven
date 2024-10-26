@@ -15,7 +15,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 
 class Symlinker:
@@ -94,7 +94,8 @@ class Symlinker:
         if not self._should_submit(items):
             if item.symlinked_times == 5:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
-                item.reset(True)
+                item.blacklist_active_stream()
+                item.reset()
                 yield item
             next_attempt = self._calculate_next_attempt(item)
             logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")
@@ -303,8 +304,12 @@ def _get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
 
     rclone_path = Path(settings_manager.settings.symlink.rclone_path)
     possible_folders = [item.folder, item.file, item.alternative_folder]
+    possible_folders_without_duplicates = list(set(possible_folders))
+    if len(possible_folders_without_duplicates) == 1:
+        new_possible_folder = Path(possible_folders_without_duplicates[0]).with_suffix("")
+        possible_folders_without_duplicates.append(new_possible_folder)
 
-    for folder in possible_folders:
+    for folder in possible_folders_without_duplicates:
         if folder:
             file_path = rclone_path / folder / item.file
             if file_path.exists():

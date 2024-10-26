@@ -13,7 +13,7 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 
 
@@ -32,7 +32,7 @@ class Prowlarr:
     """Scraper for `Prowlarr`"""
 
     def __init__(self):
-        self.key = "Prowlarr"
+        self.key = "prowlarr"
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.prowlarr

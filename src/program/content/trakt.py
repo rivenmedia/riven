@@ -7,10 +7,9 @@ from datetime import datetime, timedelta
 
 from requests import RequestException
 
-from program.db.db_functions import _filter_existing_items
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter
 from utils.request import get, post
 
@@ -102,19 +101,8 @@ class TraktContent:
         if not items_to_yield:
             return
 
-        non_existing_items = _filter_existing_items(items_to_yield)
-        new_non_recurring_items = [
-            item
-            for item in non_existing_items
-            if item.imdb_id not in self.recurring_items
-            and isinstance(item, MediaItem)
-        ]
-        self.recurring_items.update(item.imdb_id for item in new_non_recurring_items)
-
-        if new_non_recurring_items:
-            logger.log("TRAKT", f"Found {len(new_non_recurring_items)} new items to fetch")
-
-        yield new_non_recurring_items
+        logger.info(f"Fetched {len(items_to_yield)} items from trakt")
+        yield items_to_yield
 
     def _get_watchlist(self, watchlist_users: list) -> list:
         """Get IMDb IDs from Trakt watchlist"""

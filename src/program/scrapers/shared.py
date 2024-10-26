@@ -9,7 +9,7 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from utils.logger import logger
+from loguru import logger
 
 enable_aliases = settings_manager.settings.scraping.enable_aliases
 settings_model = settings_manager.settings.ranking

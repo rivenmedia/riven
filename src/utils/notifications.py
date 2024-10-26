@@ -8,7 +8,7 @@ from program.media.state import States
 from program.settings.manager import settings_manager
 from program.settings.models import NotificationsModel
 from utils import root_dir
-from utils.logger import logger
+from loguru import logger
 
 ntfy = Apprise()
 settings: NotificationsModel = settings_manager.settings.notifications
@@ -23,20 +23,19 @@ except Exception as e:
     logger.debug(f"Failed to add service URL {service_url}: {e}")
 
 
-def notification(item: MediaItem, title: str, body: str) -> None:
+def notification(title: str, body: str) -> None:
     """Send notifications to all services in settings."""
-    if settings.enabled and item.type in settings.on_item_type:
-        for url in settings.service_urls:
-            if "discord" in url:
-                url = f"{url}?format=markdown"
-            try:
-                ntfy.notify(
-                    title=title,
-                    body=body,
-                )
-            except Exception as e:
-                logger.debug(f"Failed to send notification to {url}: {e}")
-                continue
+    for url in settings.service_urls:
+        if "discord" in url:
+            url = f"{url}?format=markdown"
+        try:
+            ntfy.notify(
+                title=title,
+                body=body,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to send notification to {url}: {e}")
+            continue
 
 def _build_discord_notification(item: MediaItem) -> str:
     """Build a discord notification for the given item using markdown that lists the files completed."""
@@ -67,7 +66,9 @@ def _build_discord_notification(item: MediaItem) -> str:
 
 def notify_on_complete(item: MediaItem) -> None:
     """Send notifications to all services in settings."""
+    if item.type not in on_item_type:
+        return
+    
     title = "Riven completed something!" if not settings.title else settings.title
     body = _build_discord_notification(item)
-    if item.type in on_item_type:
-        notification(item, title=title, body=body)
+    notification(title, body)

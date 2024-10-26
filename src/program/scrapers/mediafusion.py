@@ -10,7 +10,7 @@ from program.media.item import MediaItem
 from program.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
 

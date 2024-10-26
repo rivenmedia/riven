@@ -3,11 +3,10 @@ from typing import Generator
 
 from requests.exceptions import HTTPError
 
-from program.db.db_functions import _filter_existing_items
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import get, ping
 
 
@@ -22,7 +21,6 @@ class Listrr:
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.recurring_items: set[str] = set()
         logger.success("Listrr initialized!")
 
     def validate(self) -> bool:
@@ -66,15 +64,10 @@ class Listrr:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
-        listrr_items = movie_items + show_items
-        non_existing_items = _filter_existing_items(listrr_items)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items]
-        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
-
-        if new_non_recurring_items:
-            logger.info(f"Fetched {len(new_non_recurring_items)} new items from Listrr")
-
-        yield new_non_recurring_items
+        imdb_ids = movie_items + show_items
+        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
+        logger.info(f"Fetched {len(listrr_items)} items from Listrr")
+        yield listrr_items
 
     def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""

@@ -5,11 +5,10 @@ from typing import Union
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-from program.db.db_functions import _filter_existing_items
 from program.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.request import delete, get, ping, post
 
 
@@ -24,7 +23,6 @@ class Overseerr:
         self.run_once = False
         if not self.initialized:
             return
-        self.recurring_items: set[str] = set()
         logger.success("Overseerr initialized!")
 
     def validate(self) -> bool:
@@ -58,18 +56,14 @@ class Overseerr:
             return
 
         overseerr_items: list[MediaItem] = self.get_media_requests()
-        non_existing_items = _filter_existing_items(overseerr_items)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
-        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
 
         if self.settings.use_webhook:
             logger.debug("Webhook is enabled. Running Overseerr once before switching to webhook only mode")
             self.run_once = True
 
-        if new_non_recurring_items:
-            logger.info(f"Fetched {len(new_non_recurring_items)} new items from Overseerr")
+        logger.info(f"Fetched {len(overseerr_items)} items from overseerr")
 
-        yield new_non_recurring_items
+        yield overseerr_items
 
     def get_media_requests(self) -> list[MediaItem]:
         """Get media requests from `Overseerr`"""

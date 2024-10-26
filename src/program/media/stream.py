@@ -6,7 +6,7 @@ from sqlalchemy import Index, and_
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.db.db import db
-from utils.logger import logger
+from loguru import logger
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -24,7 +24,7 @@ class StreamRelation(db.Model):
         Index('ix_streamrelation_parent_id', 'parent_id'),
         Index('ix_streamrelation_child_id', 'child_id'),
     )
-    
+
 class StreamBlacklistRelation(db.Model):
     __tablename__ = "StreamBlacklistRelation"
 
@@ -66,6 +66,6 @@ class Stream(db.Model):
 
     def __hash__(self):
         return self.infohash
-    
+
     def __eq__(self, other):
         return isinstance(other, Stream) and self.infohash == other.infohash

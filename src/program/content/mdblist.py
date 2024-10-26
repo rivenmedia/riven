@@ -2,10 +2,9 @@
 
 from typing import Generator
 
-from program.db.db_functions import _filter_existing_items
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 from utils.ratelimiter import RateLimiter, RateLimitExceeded
 from utils.request import get, ping
 
@@ -21,7 +20,6 @@ class Mdblist:
             return
         self.requests_per_2_minutes = self._calculate_request_time()
         self.rate_limiter = RateLimiter(self.requests_per_2_minutes, 120, True)
-        self.recurring_items = set()
         logger.success("mdblist initialized")
 
     def validate(self):
@@ -63,13 +61,8 @@ class Mdblist:
         except RateLimitExceeded:
             pass
 
-        non_existing_items = _filter_existing_items(items_to_yield)
-        new_non_recurring_items = [item for item in non_existing_items if item.imdb_id not in self.recurring_items and isinstance(item, MediaItem)]
-        self.recurring_items.update([item.imdb_id for item in new_non_recurring_items])
-
-        if new_non_recurring_items:
-            logger.info(f"Found {len(new_non_recurring_items)} new items to fetch")
-        yield new_non_recurring_items
+        logger.info(f"Fetched {len(items_to_yield)} items from mdblist.com")
+        yield items_to_yield
 
     def _calculate_request_time(self):
         limits = my_limits(self.settings.api_key).limits

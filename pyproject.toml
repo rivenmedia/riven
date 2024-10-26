@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "riven"
-version = "0.15.3"
+version = "0.16.2"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
 authors = ["Riven Developers"]
 license = "GPL-3.0"
@@ -36,6 +36,8 @@ subliminal = "^2.2.1"
 rank-torrent-name = "^1.0.2"
 jsonschema = "^4.23.0"
 scalar-fastapi = "^1.0.3"
+psutil = "^6.0.0"
+python-dotenv = "^1.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

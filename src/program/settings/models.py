@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
 
 from program.settings.migratable import MigratableBaseModel
-from utils import root_dir
+from utils import generate_api_key, get_version
 
 deprecation_warning = "This has been deprecated and will be removed in a future version."
 
@@ -132,14 +132,14 @@ class ListrrModel(Updatable):
     movie_lists: List[str] = []
     show_lists: List[str] = []
     api_key: str = ""
-    update_interval: int = 300
+    update_interval: int = 86400
 
 
 class MdblistModel(Updatable):
     enabled: bool = False
     api_key: str = ""
     lists: List[int | str] = []
-    update_interval: int = 300
+    update_interval: int = 86400
 
 
 class OverseerrModel(Updatable):
@@ -177,7 +177,7 @@ class TraktModel(Updatable):
     fetch_most_watched: bool = False
     most_watched_period: str = "weekly"
     most_watched_count: int = 10
-    update_interval: int = 300
+    update_interval: int = 86400
     # oauth: TraktOauthModel = TraktOauthModel()
 
 
@@ -314,18 +314,6 @@ class RTNSettingsModel(SettingsModel, Observable):
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
 
-
-def get_version() -> str:
-    with open(root_dir / "pyproject.toml") as file:
-        pyproject_toml = file.read()
-
-    match = re.search(r'version = "(.+)"', pyproject_toml)
-    if match:
-        version = match.group(1)
-    else:
-        raise ValueError("Could not find version in pyproject.toml")
-    return version
-
 class LoggingModel(Observable):
     ...
 
@@ -359,6 +347,7 @@ class PostProcessing(Observable):
 
 class AppModel(Observable):
     version: str = get_version()
+    api_key: str = ""
     debug: bool = True
     log: bool = True
     force_refresh: bool = False
@@ -381,3 +370,6 @@ class AppModel(Observable):
         super().__init__(**data)
         if existing_version < current_version:
             self.version = current_version
+
+        if self.api_key == "":
+            self.api_key = generate_api_key()

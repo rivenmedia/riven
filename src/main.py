@@ -8,21 +8,17 @@ import traceback
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-
-from controllers.default import router as default_router
-from controllers.items import router as items_router
-from controllers.scrape import router as scrape_router
-from controllers.settings import router as settings_router
-from controllers.tmdb import router as tmdb_router
-from controllers.webhooks import router as webhooks_router
-from controllers.ws import router as ws_router
-from scalar_fastapi import get_scalar_api_reference
 from program import Program
 from program.settings.models import get_version
+from routers import app_router
+from scalar_fastapi import get_scalar_api_reference
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from utils.cli import handle_args
-from utils.logger import logger
+from loguru import logger
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -62,7 +58,6 @@ async def scalar_html():
     )
 
 app.program = Program()
-
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -72,14 +67,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(default_router)
-app.include_router(settings_router)
-app.include_router(items_router)
-app.include_router(scrape_router)
-app.include_router(webhooks_router)
-app.include_router(tmdb_router)
-app.include_router(ws_router)
-
+app.include_router(app_router)
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):

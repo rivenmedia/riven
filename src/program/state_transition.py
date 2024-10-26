@@ -1,10 +1,9 @@
 from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist
 from program.content.trakt import TraktContent
-from program.db.db_functions import _imdb_exists_in_db
 from program.downloaders import Downloader
 from program.indexers.trakt import TraktIndexer
 from program.libraries import SymlinkLibrary
-from program.media import Episode, MediaItem, Movie, Season, Show, States
+from program.media import MediaItem, Season, Show, States
 from program.post_processing import PostProcessing, notify
 from program.post_processing.subliminal import Subliminal
 from program.scrapers import Scraping
@@ -12,7 +11,7 @@ from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
 from program.updaters import Updater
-from utils.logger import logger
+from loguru import logger
 
 
 def process_event(existing_item: MediaItem | None, emitted_by: Service, item: MediaItem) -> ProcessedEvent:
@@ -23,9 +22,9 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
     items_to_submit = []
 
     source_services = (Overseerr, PlexWatchlist, Listrr, Mdblist, SymlinkLibrary, TraktContent)
-    if emitted_by in source_services or item.state in [States.Requested]:
+    if emitted_by in source_services or item.last_state in [States.Requested]:
         next_service = TraktIndexer
-        if _imdb_exists_in_db(item.imdb_id) and item.last_state == States.Completed:
+        if item._id and item.last_state == States.Completed:
             logger.debug(f"Item {item.log_string} already exists in the database.")
             return no_further_processing
         if isinstance(item, Season):
@@ -79,7 +78,7 @@ def process_event(existing_item: MediaItem | None, emitted_by: Service, item: Me
 
     elif item.last_state == States.Completed:
         # If a user manually retries an item, lets not notify them again
-        if emitted_by not in ["Manual", PostProcessing]:
+        if emitted_by not in ["RetryItem", PostProcessing]:
             notify(item)
         # Avoid multiple post-processing runs
         if not emitted_by == PostProcessing:

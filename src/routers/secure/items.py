@@ -3,13 +3,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
-from RTN import Torrent
-from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select
-from sqlalchemy.exc import NoResultFound
-
-from controllers.models.shared import MessageResponse
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from program.content import Overseerr
 from program.db.db import db
 from program.db.db_functions import (
@@ -21,10 +15,6 @@ from program.db.db_functions import (
     reset_media_item,
 )
 from program.downloaders import Downloader, get_needed_media
-from program.downloaders.realdebrid import (
-    add_torrent_magnet,
-    torrent_info,
-)
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
@@ -35,7 +25,9 @@ from pydantic import BaseModel
 from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
-from utils.logger import logger
+from loguru import logger
+
+from ..models.shared import MessageResponse
 
 router = APIRouter(
     prefix="/items",
@@ -47,7 +39,7 @@ router = APIRouter(
 def handle_ids(ids: str) -> list[int]:
     ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
-        raise HTTPException(status_code=400, detail="No item ID provided")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
 
 
@@ -120,7 +112,7 @@ async def get_items(
                     filter_states.append(state_enum)
                     break
         if len(filter_states) == len(states):
-            query = query.where(MediaItem.last_state in filter_states)
+            query = query.where(MediaItem.last_state.in_(filter_states))
         else:
             valid_states = [state_enum.name for state_enum in States]
             raise HTTPException(
@@ -273,7 +265,7 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -288,7 +280,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
         media_items_generator = get_media_items_by_ids(ids)
         for media_item in media_items_generator:
             try:
-                request.app.program.em.cancel_job(media_item)
+                request.app.program.em.cancel_job(media_item._id)
                 clear_streams(media_item)
                 reset_media_item(media_item)
             except ValueError as e:
@@ -304,7 +296,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -314,15 +306,20 @@ class RetryResponse(BaseModel):
     operation_id="retry_items",
 )
 async def retry_items(request: Request, ids: str) -> RetryResponse:
+    """Re-add items to the queue"""
     ids = handle_ids(ids)
-    try:
-        media_items_generator = get_media_items_by_ids(ids)
-        for media_item in media_items_generator:
-            request.app.program.em.cancel_job(media_item)
-            await asyncio.sleep(0.1)  # Ensure cancellation is processed
-            request.app.program.em.add_item(media_item)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    for id in ids:
+        try:
+            item = next(get_media_items_by_ids([id]), None)
+            if item:
+                with db.Session() as session:
+                    item.scraped_at = None
+                    item.scraped_times = 1
+                    session.merge(item)
+                    session.commit()
+                request.app.program.em.add_event(Event("RetryItem", id))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     return {"message": f"Retried items with ids {ids}", "ids": ids}
 
@@ -344,26 +341,25 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         media_items: list[int] = get_parent_ids(ids)
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
-        
-        for media_item in media_items:
-            logger.debug(f"Removing item with ID {media_item}")
-            request.app.program.em.cancel_job_by_id(media_item)
+        for item_id in media_items:
+            logger.debug(f"Removing item with ID {item_id}")
+            request.app.program.em.cancel_job(item_id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            clear_streams_by_id(media_item)
+            clear_streams_by_id(item_id)
 
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(media_item)
+                symlink_service.delete_item_symlinks_by_id(item_id)
 
             with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == media_item)).scalar_one()
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == item_id)).scalar_one()
                 if requested_id:
                     logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
                     Overseerr.delete_request(requested_id)
 
-            logger.debug(f"Deleting item from database with ID {media_item}")
-            delete_media_item_by_id(media_item)
-            logger.info(f"Successfully removed item with ID {media_item}")
+            logger.debug(f"Deleting item from database with ID {item_id}")
+            delete_media_item_by_id(item_id)
+            logger.info(f"Successfully removed item with ID {item_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -384,8 +380,9 @@ class SetTorrentRDResponse(BaseModel):
 )
 def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
     torrent_id = ""
+    downloader: Downloader = request.app.program.services.get(Downloader).service
     try:
-        torrent_id = add_torrent_magnet(magnet)
+        torrent_id = downloader.add_torrent_magnet(magnet)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
 
@@ -437,7 +434,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        fetched_torrent_info = torrent_info(torrent_id)
+        fetched_torrent_info = downloader.get_torrent_info(torrent_id)
 
         stream = (
             session.execute(
@@ -464,7 +461,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         # reset episodes if it's a season
         if item.type == "season":
-            logger.debug(f"Resetting episodes for {item.title}")
+            logger.debug(f"Resetting episodes for {item.log_string}")
             for episode in item.episodes:
                 reset_item_to_scraped(episode)
 
@@ -492,11 +489,11 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 
         session.commit()
 
-        request.app.program.em.add_event(Event("Symlinker", item))
+        request.app.program.em.add_event(Event("Symlinker", item._id))
 
         return {
             "success": True,
-            "message": f"Set torrent for {item.title} to {torrent_id}",
+            "message": f"Set torrent for {item.log_string} to {torrent_id}",
             "item_id": item._id,
             "torrent_id": torrent_id,
         }
@@ -536,7 +533,7 @@ def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDRe
 #     downloader = request.app.program.services.get(Downloader).service
 #     with db.Session() as session:
 #         item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-#         item.reset(True)
+#         item.reset()
 #         downloader.download_cached(item, hash)
 #         request.app.program.add_to_queue(item)
 #         return {"success": True, "message": f"Downloading {item.title} with hash {hash}"}

@@ -17,7 +17,7 @@ from program.scrapers.torbox import TorBoxScraper
 from program.scrapers.torrentio import Torrentio
 from program.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
-from utils.logger import logger
+from loguru import logger
 
 
 class Scraping:
@@ -69,11 +69,11 @@ class Scraping:
         def run_service(service, item,):
             nonlocal total_results
             service_results = service.run(item)
-            
+
             if not isinstance(service_results, dict):
                 logger.error(f"Service {service.__class__.__name__} returned invalid results: {service_results}")
                 return
-            
+
             with results_lock:
                 results.update(service_results)
                 total_results += len(service_results)
