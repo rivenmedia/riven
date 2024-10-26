@@ -88,15 +88,26 @@ class Overseerr:
             if item.status == 2 and item.media.status == 3
         ]
 
-        return [
-            MediaItem({
-                "imdb_id": self.get_imdb_id(item.media),
-                "requested_by": self.key,
-                "overseerr_id": item.media.id,
-                "requested_id": item.id
-            })
-            for item in pending_items
-        ]
+        media_items = []
+        for item in pending_items:
+            imdb_id = self.get_imdb_id(item.media)
+            if imdb_id:
+                media_items.append(
+                    MediaItem({
+                        "imdb_id": imdb_id,
+                        "requested_by": self.key,
+                        "overseerr_id": item.media.id,
+                        "requested_id": item.id
+                    })
+                )
+            else:
+                if item.media.tmdbId:
+                    logger.debug(f"Skipping {item.type} with TMDb ID {item.media.tmdbId} due to missing IMDb ID")
+                elif item.media.tvdbId:
+                    logger.debug(f"Skipping {item.type} with TVDb ID {item.media.tvdbId} due to missing IMDb ID")
+                else:
+                    logger.debug(f"Skipping {item.type} with Overseerr ID {item.media.id} due to missing IMDb ID")
+        return media_items
 
 
     def get_imdb_id(self, data) -> str:
