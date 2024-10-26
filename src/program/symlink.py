@@ -94,7 +94,8 @@ class Symlinker:
         if not self._should_submit(items):
             if item.symlinked_times == 5:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
-                item.reset(True)
+                item.blacklist_active_stream()
+                item.reset()
                 yield item
             next_attempt = self._calculate_next_attempt(item)
             logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")

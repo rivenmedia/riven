@@ -1,5 +1,6 @@
 import os
 import shutil
+from threading import Event
 from typing import TYPE_CHECKING
 
 import alembic
@@ -171,15 +172,9 @@ def reset_media_item(item: "MediaItem"):
         item.reset()
         session.commit()
 
-def reset_streams(item: "MediaItem", active_stream_hash: str = None):
+def reset_streams(item: "MediaItem"):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
-        item.store_state()
-        item = session.merge(item)
-        if active_stream_hash:
-            stream = session.query(Stream).filter(Stream.infohash == active_stream_hash).first()
-            if stream:
-                blacklist_stream(item, stream, session)
 
         session.execute(
             delete(StreamRelation).where(StreamRelation.parent_id == item._id)
@@ -188,20 +183,11 @@ def reset_streams(item: "MediaItem", active_stream_hash: str = None):
         session.execute(
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
         )
-        item.active_stream = {}
         session.commit()
 
 def clear_streams(item: "MediaItem"):
     """Clear all streams for a media item."""
-    with db.Session() as session:
-        item = session.merge(item)
-        session.execute(
-            delete(StreamRelation).where(StreamRelation.parent_id == item._id)
-        )
-        session.execute(
-            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item._id)
-        )
-        session.commit()
+    reset_streams(item)
 
 def clear_streams_by_id(media_item_id: int):
     """Clear all streams for a media item by the MediaItem _id."""
@@ -358,7 +344,7 @@ def store_item(item: "MediaItem"):
         finally:
             session.close()
 
-def run_thread_with_db_item(fn, service, program, input_id: int = None):
+def run_thread_with_db_item(fn, service, program, input_id, cancellation_event: Event):
     from program.media.item import MediaItem
     if input_id:
         with db.Session() as session:
@@ -378,11 +364,12 @@ def run_thread_with_db_item(fn, service, program, input_id: int = None):
                         logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
                         program.em.remove_id_from_queues(input_item._id)
 
-                    input_item.store_state()
-                    session.commit()
+                    if not cancellation_event.is_set():
+                        input_item.store_state()
+                        session.commit()
 
                     session.expunge_all()
-                    yield res
+                    return res
             else:
                 # Indexing returns a copy of the item, was too lazy to create a copy attr func so this will do for now
                 indexed_item = next(fn(input_item), None)
@@ -393,9 +380,10 @@ def run_thread_with_db_item(fn, service, program, input_id: int = None):
                     indexed_item.store_state()
                     session.delete(input_item)
                     indexed_item = session.merge(indexed_item)
-                    session.commit()
-                    logger.debug(f"{input_item._id} is now {indexed_item._id} after indexing...")
-                    yield indexed_item._id
+                    if not cancellation_event.is_set():
+                        session.commit()
+                        logger.debug(f"{input_item._id} is now {indexed_item._id} after indexing...")
+                    return indexed_item._id
         return
     else:
         # Content services
