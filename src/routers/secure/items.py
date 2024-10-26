@@ -38,6 +38,8 @@ from program.indexers.trakt import TraktIndexer
 from ..models.shared import MessageResponse
 from utils.torrent import get_type_and_infohash
 
+from ..models.shared import MessageResponse
+
 router = APIRouter(
     prefix="/items",
     tags=["items"],
