@@ -1,5 +1,6 @@
 """Scrape controller."""
 
+from RTN import ParsedData
 from fastapi import APIRouter, HTTPException, Request
 from program.db.db import db
 from program.downloaders.realdebrid import RDTorrent, get_torrents
@@ -16,6 +17,7 @@ class ScrapedTorrent(BaseModel):
     rank: int
     raw_title: str
     infohash: str
+    parsed_data: ParsedData
 
 
 @router.get(
@@ -90,6 +92,7 @@ async def scrape(
                     "raw_title": stream.raw_title,
                     "infohash": stream.infohash,
                     "rank": stream.rank,
+                    "parsed_data": stream.parsed_data,
                 }
                 for stream in results.values()
             ]
