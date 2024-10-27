@@ -10,6 +10,8 @@ from program.scrapers import Scraping
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from program.downloaders import Downloader
+
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
@@ -117,3 +119,20 @@ async def get_rd_torrents(limit: int = 1000) -> list[RDTorrent]:
     - **limit**: Limit the number of torrents to get.
     """
     return get_torrents(limit)
+
+@router.get(
+    "/cached",
+    summary="Get Cached Status for torrents",
+    description="Get cached status for torrents.",
+    operation_id="get_cached_status",
+)
+async def get_cached_status(request: Request, infohashes: str) -> dict:
+    """
+    Get cached status for torrents.
+
+    - **infohashes**: List of infohashes to check.
+    """
+    infohashes_list = infohashes.split(",")
+    downloader: Downloader = request.app.program.services.get(Downloader)
+    response = downloader.get_instant_availability_formatted(infohashes_list)
+    return response

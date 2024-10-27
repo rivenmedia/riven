@@ -144,6 +144,9 @@ class Downloader:
 
     def get_torrent_info(self, torrent_id: str):
         return self.service.get_torrent_info(torrent_id)
+    
+    def get_instant_availability_formatted(self, infohashes: list[str]) -> dict:
+        return self.service.get_instant_availability_formatted(infohashes)
 
 
 def update_item_attributes(item: MediaItem, names: tuple[str, str]):

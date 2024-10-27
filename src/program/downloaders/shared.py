@@ -121,6 +121,16 @@ class DownloaderBase(ABC):
         The returned dict has at least "hash" and "filename".
         """
 
+    @abstractmethod
+    def get_instant_availability_formatted(self, infohashes: list[str]) -> dict:
+        """
+        Checks the debrid service for the availability of torrents by their infohashes.
+
+        - infohashes: A list of infohashes to check.
+
+        Returns a dict of infohashes and their availability.
+        """
+
 
 class FileFinder:
     """

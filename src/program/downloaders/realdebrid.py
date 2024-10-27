@@ -170,7 +170,30 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_torrent_info(self, id: str) -> dict:
         return torrent_info(id)
-
+    
+    def get_instant_availability_formatted(self, infohashes: list[str]) -> dict:
+        # return {k: v.get("rd", []) for k, v in get_instant_availability(infohashes)}
+        return self.transform_dict(get_instant_availability(infohashes))
+    
+    def transform_dict(self, input_dict):
+        """
+        Transform a dictionary by removing the 'rd' level and flattening the structure.
+        
+        Args:
+            input_dict (dict): Input dictionary with the structure:
+                {"key": {rd: {number: "name"}}, ...}
+        
+        Returns:
+            dict: Transformed dictionary with the structure:
+                {"key": {number: "name"}, ...}
+        """
+        result = {}
+        for key, value in input_dict.items():
+            if value and 'rd' in value:  # Check if the value exists and has 'rd' key
+                result[key] = value['rd']
+            else:
+                result[key] = value  # Keep empty dictionaries as is
+        return result
 
 def get(url):
     return request.get(

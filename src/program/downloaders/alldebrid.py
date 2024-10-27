@@ -150,6 +150,9 @@ class AllDebridDownloader(DownloaderBase):
 
     def get_torrent_info(self, torrent_id: DebridTorrentId) -> dict:
         return get_status(torrent_id)
+    
+    def get_instant_availability_formatted(self, infohashes: list[str]) -> dict:
+        return {m["hash"]: m.get("files", []) for m in get_instant_availability(infohashes)}
 
 
 def walk_alldebrid_files(files: list[dict]) -> (str, int): # type: ignore
