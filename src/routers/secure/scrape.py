@@ -43,61 +43,46 @@ async def scrape(
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
     try:
-        with db.Session() as session:
-            media_item = (
-                session.execute(
-                    select(MediaItem).where(
-                        MediaItem.imdb_id == imdb_id,
-                        MediaItem.type.in_(["movie", "show"]),
-                    )
+        indexed_item = MediaItem({"imdb_id": imdb_id})
+        media_item = next(indexer.run(indexed_item))
+        if not media_item:
+            raise HTTPException(status_code=204, detail="Media item not found")
+
+        if media_item.type == "show":
+            if season and episode:
+                media_item = next(
+                    (
+                        ep
+                        for ep in media_item.seasons[season - 1].episodes
+                        if ep.number == episode
+                    ),
+                    None,
                 )
-                .unique()
-                .scalar_one_or_none()
-            )
-            if not media_item:
-                indexed_item = MediaItem({"imdb_id": imdb_id})
-                media_item = next(indexer.run(indexed_item))
                 if not media_item:
-                    raise HTTPException(status_code=204, detail="Media item not found")
-                session.add(media_item)
-                session.commit()
-            session.refresh(media_item)
+                    raise HTTPException(status_code=204, detail="Episode not found")
+            elif season:
+                media_item = media_item.seasons[season - 1]
+                if not media_item:
+                    raise HTTPException(status_code=204, detail="Season not found")
+        elif media_item.type == "movie" and (season or episode):
+            raise HTTPException(
+                status_code=204,
+                detail="Item type returned movie, cannot scrape season or episode",
+            )
 
-            if media_item.type == "show":
-                if season and episode:
-                    media_item = next(
-                        (
-                            ep
-                            for ep in media_item.seasons[season - 1].episodes
-                            if ep.number == episode
-                        ),
-                        None,
-                    )
-                    if not media_item:
-                        raise HTTPException(status_code=204, detail="Episode not found")
-                elif season:
-                    media_item = media_item.seasons[season - 1]
-                    if not media_item:
-                        raise HTTPException(status_code=204, detail="Season not found")
-            elif media_item.type == "movie" and (season or episode):
-                raise HTTPException(
-                    status_code=204,
-                    detail="Item type returned movie, cannot scrape season or episode",
-                )
+        results = scraping.scrape(media_item, log=False)
+        if not results:
+            return []
 
-            results = scraping.scrape(media_item, log=False)
-            if not results:
-                return []
-
-            data = [
-                {
-                    "raw_title": stream.raw_title,
-                    "infohash": stream.infohash,
-                    "rank": stream.rank,
-                    "parsed_data": stream.parsed_data,
-                }
-                for stream in results.values()
-            ]
+        data = [
+            {
+                "raw_title": stream.raw_title,
+                "infohash": stream.infohash,
+                "rank": stream.rank,
+                "parsed_data": stream.parsed_data,
+            }
+            for stream in results.values()
+        ]
 
     except StopIteration:
         raise HTTPException(status_code=204, detail="Media item not found")
