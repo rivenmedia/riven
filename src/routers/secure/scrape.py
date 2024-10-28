@@ -87,7 +87,7 @@ async def scrape(
 
             results = scraping.scrape(media_item, log=False)
             if not results:
-                return {"success": True, "data": []}
+                return []
 
             data = [
                 {
@@ -132,6 +132,8 @@ async def get_cached_status(request: Request, infohashes: str) -> dict:
 
     - **infohashes**: List of infohashes to check.
     """
+    if not infohashes:
+        return {}
     infohashes_list = infohashes.split(",")
     downloader: Downloader = request.app.program.services.get(Downloader)
     response = downloader.get_instant_availability_formatted(infohashes_list)
