@@ -16,6 +16,7 @@ from program.db.db_functions import (
     clear_streams,
     clear_streams_by_id,
     delete_media_item_by_id,
+    ensure_item_exists_in_db,
     get_media_items_by_ids,
     get_parent_ids,
     reset_media_item,
@@ -257,7 +258,14 @@ async def add_item_manually(request: Request, imdb_id: str = None, input: str = 
         item = MediaItem(
                 {"imdb_id": imdb_id, "requested_by": "user", "requested_at": datetime.now()}
             )
-        item = next(trakt.run(item), None)
+        
+        if ensure_item_exists_in_db(item):
+            item = session.execute(
+                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+            ).unique().scalar_one_or_none()
+        else:
+            item = next(trakt.run(item), None)
+
         if item is None:
             raise HTTPException(status_code=500, detail="Failed to index item")
 
