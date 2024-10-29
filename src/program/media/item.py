@@ -146,8 +146,11 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_active_stream(self):
-        stream = next(stream for stream in self.streams if stream.infohash == self.active_stream["infohash"])
-        self.blacklist_stream(stream)
+        stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["infohash"]), None)
+        if stream:
+            self.blacklist_stream(stream)
+        else:
+            logger.debug(f"No active stream for {self.log_string}, will not blacklist")
 
     def blacklist_stream(self, stream: Stream):
         value = blacklist_stream(self, stream)
@@ -440,9 +443,9 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if all(season.state == States.Symlinked for season in self.seasons):
+        if any(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if all(season.state == States.Downloaded for season in self.seasons):
+        if any(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
@@ -549,9 +552,9 @@ class Season(MediaItem):
                     return States.Ongoing
             if any(episode.state == States.Completed for episode in self.episodes):
                 return States.PartiallyCompleted
-            if all(episode.state == States.Symlinked for episode in self.episodes):
+            if any(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
-            if all(episode.file and episode.folder for episode in self.episodes):
+            if any(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped

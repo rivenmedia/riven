@@ -61,6 +61,7 @@ class Stream(db.Model):
         self.raw_title = torrent.raw_title
         self.infohash = torrent.infohash
         self.parsed_title = torrent.data.parsed_title
+        self.parsed_data = torrent.data
         self.rank = torrent.rank
         self.lev_ratio = torrent.lev_ratio
 

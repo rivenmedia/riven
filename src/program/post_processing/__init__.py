@@ -36,8 +36,10 @@ def notify(item: MediaItem):
         show = item.parent.parent
     elif item.type == "season":
         show = item.parent
-    if show and show == States.Completed:
-        _notify(show)
+    if show:
+        show.store_state()
+        if show == States.Completed:
+            _notify(show)
 
 def _notify(_item: Show | Movie):
     duration = round((datetime.now() - _item.requested_at).total_seconds())
