@@ -235,6 +235,40 @@ def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None)
         if close_session:
             session.close()
 
+def unblacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
+    close_session = False
+    if session is None:
+        session = db.Session()
+        item = session.execute(select(type(item)).where(type(item)._id == item._id)).unique().scalar_one()
+        close_session = True
+
+    try:
+        item = session.merge(item)
+        association_exists = session.query(
+            session.query(StreamBlacklistRelation)
+            .filter(StreamBlacklistRelation.media_item_id == item._id)
+            .filter(StreamBlacklistRelation.stream_id == stream._id)
+            .exists()
+        ).scalar()
+
+        if association_exists:
+            session.execute(
+                delete(StreamBlacklistRelation)
+                .where(StreamBlacklistRelation.media_item_id == item._id)
+                .where(StreamBlacklistRelation.stream_id == stream._id)
+            )
+            session.execute(
+                insert(StreamRelation)
+                .values(parent_id=item._id, child_id=stream._id)
+            )
+            item.store_state()
+            session.commit()
+            return True
+        return False
+    finally:
+        if close_session:
+            session.close()
+
 def get_stream_count(media_item_id: int) -> int:
     from program.media.item import MediaItem
     """Get the count of streams for a given MediaItem."""
@@ -365,7 +399,13 @@ def run_thread_with_db_item(fn, service, program, input_id, cancellation_event: 
                         program.em.remove_id_from_queues(input_item._id)
 
                     if not cancellation_event.is_set():
-                        input_item.store_state()
+                        # Update parent item
+                        if input_item.type == "episode":
+                            input_item.parent.parent.store_state()
+                        elif input_item.type == "season":
+                            input_item.parent.store_state()
+                        else:
+                            input_item.store_state()
                         session.commit()
 
                     session.expunge_all()

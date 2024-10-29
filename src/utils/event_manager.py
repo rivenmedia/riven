@@ -115,8 +115,9 @@ class EventManager:
         """
         with self.mutex:
             for event in self._queued_events:
-                self._queued_events.remove(event)
-                logger.debug(f"Removed Item ID {item_id} from the queue.")
+                if event.item_id == item_id:
+                    self._queued_events.remove(event)
+                    logger.debug(f"Removed Item ID {item_id} from the queue.")
 
     def add_event_to_running(self, event: Event):
         """
@@ -138,8 +139,9 @@ class EventManager:
         """
         with self.mutex:
             for event in self._running_events:
-                self._running_events.remove(event)
-                logger.debug(f"Removed Item ID {item_id} from running events.")
+                if event.item_id == item_id:
+                    self._running_events.remove(event)
+                    logger.debug(f"Removed Item ID {item_id} from running events.")
 
     def remove_id_from_queues(self, item_id: int):
         """

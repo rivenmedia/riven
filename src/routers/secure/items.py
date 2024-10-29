@@ -3,40 +3,24 @@ from datetime import datetime
 from typing import Literal, Optional
 
 import Levenshtein
-from fastapi import APIRouter, HTTPException, Request, status
-from RTN import ParsedData, Torrent
-from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import NoResultFound
 
-from fastapi import APIRouter, HTTPException, Request
 from program.content import Overseerr
-from program.db.db import db
-from program.db.db_functions import (
-    clear_streams,
-    clear_streams_by_id,
-    delete_media_item_by_id,
-    get_media_items_by_ids,
-    get_parent_ids,
-    reset_media_item,
-)
-from program.downloaders import Downloader, get_needed_media
+from program.db.db import db, get_db
+import program.db.db_functions as db_functions
+from sqlalchemy.orm import Session
 from program.media.item import MediaItem
 from program.media.state import States
-from program.media.stream import Stream
-from program.scrapers.shared import rtn
+from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.symlink import Symlinker
 from program.types import Event
 from pydantic import BaseModel
-from RTN import Torrent
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
 from loguru import logger
 
-from program.indexers.trakt import TraktIndexer
-
-from ..models.shared import MessageResponse
-from utils.torrent import get_type_and_infohash
 
 from ..models.shared import MessageResponse
 
@@ -232,83 +216,6 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
 
     return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
 
-
-@router.post(
-    "/add-manually",
-    summary="Add Media Items Manually",
-    description="Add media item manually with a magnet link or infohash",
-    operation_id="add_item_manually",
-)
-async def add_item_manually(request: Request, imdb_id: str = None, input: str = None) -> MessageResponse:
-    if not imdb_id:
-        raise HTTPException(status_code=400, detail="No IMDb ID provided")
-
-    if not imdb_id.startswith("tt"):
-        raise HTTPException(status_code=400, detail="No valid IMDb ID provided")
-    
-    type, infohash = get_type_and_infohash(input)
-
-    if not infohash:
-        raise HTTPException(status_code=400, detail="No valid input provided")
-
-    trakt: TraktIndexer = request.app.program.services.get(TraktIndexer)
-    downloader: Downloader = request.app.program.services.get(Downloader)
-    with db.Session() as session: 
-        item = MediaItem(
-                {"imdb_id": imdb_id, "requested_by": "user", "requested_at": datetime.now()}
-            )
-        item = next(trakt.run(item), None)
-        if item is None:
-            raise HTTPException(status_code=500, detail="Failed to index item")
-
-        needed_media = get_needed_media(item)
-        cached_streams = downloader.get_cached_streams([infohash], needed_media)        
-
-        if len(cached_streams) == 0:
-            session.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=f"The selected torrent is not cached for {item.log_string}",
-            )
-
-
-        raw_title = f"Manual Torrent for {imdb_id}"
-        torrent = Torrent(
-            raw_title=raw_title,
-            infohash=infohash,
-            data=ParsedData(raw_title=raw_title),
-        )
-        stream = Stream(torrent)
-        session.add(stream)
-        item.streams = [stream]
-        item.active_stream = cached_streams[0]
-        session.add(item)
-        session.commit()
-        
-        try:
-            downloader.download(item, item.active_stream)
-        except Exception as e:
-            logger.error(f"Failed to download {item.log_string}: {e}")
-            if item.active_stream.get("infohash", None):
-                downloader._delete_and_reset_active_stream(item)
-            session.rollback()
-            raise HTTPException(
-                status_code=500, detail=f"Failed to download {item.log_string}: {e}"
-            ) from e
-
-        item.last_state = States.Downloaded
-        session.commit()
-
-        request.app.program.em.add_event(Event("Symlinker", item._id))
-
-        return {
-            "success": True,
-            "message": f"Processing item {item.log_string} with infohash {infohash}",
-            "item_id": item._id,
-            "torrent_id": input,
-        }
-
-
 @router.get(
     "/{id}",
     summary="Retrieve Media Item",
@@ -364,12 +271,12 @@ class ResetResponse(BaseModel):
 async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids = handle_ids(ids)
     try:
-        media_items_generator = get_media_items_by_ids(ids)
+        media_items_generator = db_functions.get_media_items_by_ids(ids)
         for media_item in media_items_generator:
             try:
                 request.app.program.em.cancel_job(media_item._id)
-                clear_streams(media_item)
-                reset_media_item(media_item)
+                db_functions.clear_streams(media_item)
+                db_functions.reset_media_item(media_item)
             except ValueError as e:
                 logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
                 continue
@@ -397,7 +304,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     ids = handle_ids(ids)
     for id in ids:
         try:
-            item = next(get_media_items_by_ids([id]), None)
+            item = next(db_functions.get_media_items_by_ids([id]), None)
             if item:
                 with db.Session() as session:
                     item.scraped_at = None
@@ -425,14 +332,14 @@ class RemoveResponse(BaseModel):
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids: list[int] = handle_ids(ids)
     try:
-        media_items: list[int] = get_parent_ids(ids)
+        media_items: list[int] = db_functions.get_parent_ids(ids)
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
         for item_id in media_items:
             logger.debug(f"Removing item with ID {item_id}")
             request.app.program.em.cancel_job(item_id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            clear_streams_by_id(item_id)
+            db_functions.clear_streams_by_id(item_id)
 
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
@@ -445,183 +352,78 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
                     Overseerr.delete_request(requested_id)
 
             logger.debug(f"Deleting item from database with ID {item_id}")
-            delete_media_item_by_id(item_id)
+            db_functions.delete_media_item_by_id(item_id)
             logger.info(f"Successfully removed item with ID {item_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"message": f"Removed items with ids {ids}", "ids": ids}
 
+@router.get(
+    "/{item_id}/streams"
+)
+async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
+    item: MediaItem = (
+        db.execute(
+            select(MediaItem)
+            .where(MediaItem._id == item_id)
+        )
+        .unique()
+        .scalar_one_or_none()
+    )
 
-class SetTorrentRDResponse(BaseModel):
-    message: str
-    item_id: int
-    torrent_id: str
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    return {
+        "message": f"Retrieved streams for item {item_id}",
+        "streams": item.streams,
+        "blacklisted_streams": item.blacklisted_streams
+    }
 
 @router.post(
-    "/{id}/set_torrent_rd_magnet",
-    name="Set torrent RD magnet",
-    description="Set a torrent for a media item using a magnet link.",
-    operation_id="set_torrent_rd_magnet",
+    "/{item_id}/streams/{stream_id}/blacklist"
 )
-def add_torrent(request: Request, id: int, magnet: str) -> SetTorrentRDResponse:
-    torrent_id = ""
-    downloader: Downloader = request.app.program.services.get(Downloader).service
-    try:
-        _, infohash = get_type_and_infohash(magnet)
-        torrent_id = downloader.add_torrent(infohash)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to add torrent.") from None
-
-    return set_torrent_rd(request, id, torrent_id)
-
-
-def reset_item_to_scraped(item: MediaItem):
-    item.last_state = States.Scraped
-    item.symlinked = False
-    item.symlink_path = None
-    item.symlinked_at = None
-    item.scraped_at = datetime.now()
-    item.scraped_times = 1
-    item.symlinked_times = 0
-    item.update_folder = None
-    item.file = None
-    item.folder = None
-
-
-def create_stream(hash, torrent_info):
-    try:
-        torrent: Torrent = rtn.rank(
-            raw_title=torrent_info["filename"], infohash=hash, remove_trash=False
+async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+    item: MediaItem = (
+        db.execute(
+            select(MediaItem)
+            .where(MediaItem._id == item_id)
         )
-        return Stream(torrent)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to rank torrent: {e}"
-        ) from e
+        .unique()
+        .scalar_one_or_none()
+    )
+    stream = next((stream for stream in item.streams if stream._id == stream_id), None)
 
+    if not item or not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
+
+    db_functions.blacklist_stream(item, stream, db)
+
+    return {
+        "message": f"Blacklisted stream {stream_id} for item {item_id}",
+    }
 
 @router.post(
-    "/{id}/set_torrent_rd",
-    description="Set a torrent for a media item using RD torrent ID.",
+    "{item_id}/streams/{stream_id}/unblacklist"
 )
-def set_torrent_rd(request: Request, id: int, torrent_id: str) -> SetTorrentRDResponse:
-    downloader: Downloader = request.app.program.services.get(Downloader)
-    with db.Session() as session:
-        item: MediaItem = (
-            session.execute(
-                select(MediaItem)
-                .where(MediaItem._id == id)
-                .outerjoin(MediaItem.streams)
-            )
-            .unique()
-            .scalar_one_or_none()
+async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+    item: MediaItem = (
+        db.execute(
+            select(MediaItem)
+            .where(MediaItem._id == item_id)
         )
+        .unique()
+        .scalar_one_or_none()
+    )
 
-        if item is None:
-            raise HTTPException(status_code=404, detail="Item not found")
+    stream = next((stream for stream in item.blacklisted_streams if stream._id == stream_id), None)
 
-        fetched_torrent_info = downloader.get_torrent_info(torrent_id)
+    if not item or not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-        stream = (
-            session.execute(
-                select(Stream).where(Stream.infohash == fetched_torrent_info["hash"])
-            )
-            .scalars()
-            .first()
-        )
-        hash = fetched_torrent_info["hash"]
+    db_functions.unblacklist_stream(item, stream, db)
 
-        # Create stream if it doesn't exist
-        if stream is None:
-            stream = create_stream(hash, fetched_torrent_info)
-            item.streams.append(stream)
-
-        # check if the stream exists in the item
-        stream_exists_in_item = next(
-            (stream for stream in item.streams if stream.infohash == hash), None
-        )
-        if stream_exists_in_item is None:
-            item.streams.append(stream)
-
-        reset_item_to_scraped(item)
-
-        # reset episodes if it's a season
-        if item.type == "season":
-            logger.debug(f"Resetting episodes for {item.log_string}")
-            for episode in item.episodes:
-                reset_item_to_scraped(episode)
-
-        needed_media = get_needed_media(item)
-        cached_streams = downloader.get_cached_streams([hash], needed_media)
-
-        if len(cached_streams) == 0:
-            session.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail=f"No cached torrents found for {item.log_string}",
-            )
-
-        item.active_stream = cached_streams[0]
-        try:
-            downloader.download(item, item.active_stream)
-        except Exception as e:
-            logger.error(f"Failed to download {item.log_string}: {e}")
-            if item.active_stream.get("infohash", None):
-                downloader._delete_and_reset_active_stream(item)
-            session.rollback()
-            raise HTTPException(
-                status_code=500, detail=f"Failed to download {item.log_string}: {e}"
-            ) from e
-
-        session.commit()
-
-        request.app.program.em.add_event(Event("Symlinker", item._id))
-
-        return {
-            "success": True,
-            "message": f"Set torrent for {item.log_string} to {torrent_id}",
-            "item_id": item._id,
-            "torrent_id": torrent_id,
-        }
-
-
-# These require downloaders to be refactored
-
-# @router.get("/cached")
-# async def manual_scrape(request: Request, ids: str):
-#     scraper = request.app.program.services.get(Scraping)
-#     downloader = request.app.program.services.get(Downloader).service
-#     if downloader.__class__.__name__ not in ["RealDebridDownloader", "TorBoxDownloader"]:
-#         raise HTTPException(status_code=400, detail="Only Real-Debrid is supported for manual scraping currently")
-#     ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-#     if not ids:
-#         raise HTTPException(status_code=400, detail="No item ID provided")
-#     with db.Session() as session:
-#         items = []
-#         return_dict = {}
-#         for id in ids:
-#             items.append(session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one())
-#     if any(item for item in items if item.type in ["Season", "Episode"]):
-#         raise HTTPException(status_code=400, detail="Only shows and movies can be manually scraped currently")
-#     for item in items:
-#         new_item = item.__class__({})
-#         # new_item.parent = item.parent
-#         new_item.copy(item)
-#         new_item.copy_other_media_attr(item)
-#         scraped_results = scraper.scrape(new_item, log=False)
-#         cached_hashes = downloader.get_cached_hashes(new_item, scraped_results)
-#         for hash, stream in scraped_results.items():
-#             return_dict[hash] = {"cached": hash in cached_hashes, "name": stream.raw_title}
-#         return {"success": True, "data": return_dict}
-
-# @router.post("/download")
-# async def download(request: Request, id: str, hash: str):
-#     downloader = request.app.program.services.get(Downloader).service
-#     with db.Session() as session:
-#         item = session.execute(select(MediaItem).where(MediaItem._id == id)).unique().scalar_one()
-#         item.reset()
-#         downloader.download_cached(item, hash)
-#         request.app.program.add_to_queue(item)
-#         return {"success": True, "message": f"Downloading {item.title} with hash {hash}"}
+    return {
+        "message": f"Unblacklisted stream {stream_id} for item {item_id}",
+    }

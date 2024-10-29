@@ -1,240 +1,243 @@
 from datetime import datetime
-
+from typing import Optional, List, Dict, Iterator, Tuple
+from pydantic import BaseModel
 from loguru import logger
-from program.settings.manager import settings_manager as settings
-from requests import ConnectTimeout
-from typing import Optional
-from utils import request
-from utils.ratelimiter import RateLimiter
+import requests
+from requests.exceptions import RequestException, ConnectTimeout
 
 from .shared import (
     VIDEO_EXTENSIONS,
     FileFinder,
     DownloaderBase,
-    premium_days_left,
-    hash_from_uri,
+    premium_days_left
 )
-from .shared import DebridTorrentId, InfoHash  # Types
+from program.settings.manager import settings_manager
 
-AD_BASE_URL = "https://api.alldebrid.com/v4"
-AD_AGENT = "Riven"
+class AllDebridError(Exception):
+    """Base exception for AllDebrid related errors"""
+    pass
 
-inner_rate_limit = RateLimiter(12, 1)  # 12 requests per second
-overall_rate_limiter = RateLimiter(600, 60)  # 600 requests per minute
+class AllDebridAPI:
+    """Handles AllDebrid API communication"""
+    BASE_URL = "https://api.alldebrid.com/v4"
+    AGENT = "Riven"
 
+    def __init__(self, api_key: str, proxy_url: Optional[str] = None):
+        self.api_key = api_key
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {api_key}"
+        })
+        if proxy_url:
+            self.session.proxies = {"http": proxy_url, "https": proxy_url}
+
+    def _request(self, method: str, endpoint: str, **params) -> dict:
+        """Generic request handler with error handling"""
+        try:
+            params["agent"] = self.AGENT
+            url = f"{self.BASE_URL}/{endpoint}"
+            response = self.session.request(method, url, params=params)
+            response.raise_for_status()
+            data = response.json() if response.content else {}
+
+            if not data or "data" not in data:
+                raise AllDebridError("Invalid response from AllDebrid")
+
+            return data["data"]
+        except requests.exceptions.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON response: {e}")
+            raise AllDebridError("Invalid JSON response") from e
+        except RequestException as e:
+            logger.error(f"Request failed: {e}")
+            raise
 
 class AllDebridDownloader(DownloaderBase):
-    """All-Debrid API Wrapper"""
+    """Main AllDebrid downloader class implementing DownloaderBase"""
 
     def __init__(self):
         self.key = "alldebrid"
-        self.settings = settings.settings.downloaders.all_debrid
+        self.settings = settings_manager.settings.downloaders.all_debrid
+        self.api = None
+        self.file_finder = None
         self.initialized = self.validate()
-        if self.initialized:
-            self.existing_hashes = [torrent["hash"] for torrent in get_torrents()]
-            self.file_finder = FileFinder("filename", "filesize")
-            logger.success("AllDebrid initialized!")
 
     def validate(self) -> bool:
-        """Validate All-Debrid settings and API key"""
+        """
+        Validate AllDebrid settings and premium status
+        Required by DownloaderBase
+        """
+        if not self._validate_settings():
+            return False
+
+        self.api = AllDebridAPI(
+            api_key=self.settings.api_key,
+            proxy_url=self.settings.proxy_url if self.settings.proxy_enabled else None
+        )
+
+        if not self._validate_premium():
+            return False
+
+        self.file_finder = FileFinder("filename", "filesize")
+        logger.success("AllDebrid initialized!")
+        return True
+
+    def _validate_settings(self) -> bool:
+        """Validate configuration settings"""
         if not self.settings.enabled:
             return False
         if not self.settings.api_key:
-            logger.warning("All-Debrid API key is not set")
+            logger.warning("AllDebrid API key is not set")
             return False
         if self.settings.proxy_enabled and not self.settings.proxy_url:
-            logger.error("Proxy is enabled but no proxy URL is provided.")
+            logger.error("Proxy is enabled but no proxy URL is provided")
             return False
+        return True
+
+    def _validate_premium(self) -> bool:
+        """Validate premium status"""
         try:
-            user_info = get_user()
-            if user_info:
-                user = user_info.get("data", {}).get("user", {})
-                expiration = user.get("premiumUntil", 0)
-                expiration_datetime = datetime.utcfromtimestamp(expiration)
-                expiration_message = premium_days_left(expiration_datetime)
+            user_info = self.api._request("GET", "user")
+            user = user_info.get("user", {})
 
-                premium = bool(user.get("isPremium", False))
-                if not premium:
-                    logger.error("You are not a premium member.")
-                    return False
-                else:
-                    logger.log("DEBRID", expiration_message)
+            if not user.get("isPremium", False):
+                logger.error("Premium membership required")
+                return False
 
-                return premium
+            expiration = datetime.utcfromtimestamp(user.get("premiumUntil", 0))
+            logger.log("DEBRID", premium_days_left(expiration))
+            return True
+
         except ConnectTimeout:
-            logger.error("Connection to All-Debrid timed out.")
+            logger.error("Connection to AllDebrid timed out")
         except Exception as e:
-            logger.exception(f"Failed to validate All-Debrid settings: {e}")
+            logger.error(f"Failed to validate premium status: {e}")
         return False
 
-    def process_hashes(
-        self, chunk: list[InfoHash], needed_media: dict, break_pointer: list[bool]
-    ) -> dict:
-        return self.get_cached_containers(chunk, needed_media, break_pointer)
-
-    def download_cached(self, active_stream: dict) -> DebridTorrentId:
-        torrent_id = add_torrent(active_stream.get("infohash"))
-        if torrent_id:
-            self.existing_hashes.append(active_stream.get("infohash"))
-            return str(torrent_id)
-        raise Exception("Failed to download torrent.")
-
-    def add_torrent_magnet(self, magnet_uri: str) -> DebridTorrentId:
-        hash = hash_from_uri(magnet_uri)
-        if not hash:
-            raise Exception(f"Bad magnet: {magnet_uri}")
-        torrent_id = add_torrent(hash)
-        if torrent_id:
-            self.existing_hashes.append(hash)
-            return str(torrent_id)
-        raise Exception("Failed to download torrent.")
-
-    def get_cached_containers(
-        self, infohashes: list[InfoHash], needed_media: dict, break_pointer: list[bool]
-    ) -> dict:
+    def get_instant_availability(self, infohashes: List[str]) -> Dict[str, list]:
         """
-        Get containers that are available in the debrid cache containing `needed_media`
-
-        Parameters:
-        - infohashes: a list of hashes that might contain the data we need
-        - needed_media: a dict of seasons, with lists of episodes, indicating what content is needed
-        - break_pointer: first bool indicates if the needed content was found yet, 2nd pointer indicates if we should break once it's found.
+        Get instant availability for multiple infohashes
+        Required by DownloaderBase
         """
-        cached_containers = {}
-        response = get_instant_availability(infohashes)
-        magnets = {m.get("hash"): m for m in response}
+        if not self.initialized:
+            logger.error("Downloader not properly initialized")
+            return {}
 
-        for infohash in infohashes:
-            if all(break_pointer):
-                break
-            cached_containers[infohash] = {}
-            magnet = magnets.get(infohash, {})
-            files = magnet.get("files", [])
-            if not files:
-                continue
-
-            # We avoid compressed downloads this way
-            def all_files_valid(files: list) -> bool:
-                filenames = [f.lower() for f, _ in walk_alldebrid_files(files)]
-                return len(filenames) >= 1 and all(
-                    "sample" not in file and file.rsplit(".", 1)[-1] in VIDEO_EXTENSIONS
-                    for file in filenames
-                )
-
-            if all_files_valid(files):
-                # The file_finder needs files to be in a dict, but it doesn't care about the keys
-                container = {
-                    i: dict(filename=name, filesize=size)
-                    for i, (name, size) in enumerate(walk_alldebrid_files(files))
-                }
-                cached_containers[infohash] = self.file_finder.get_cached_container(
-                    needed_media, break_pointer, container
-                )
-                if cached_containers[infohash]:
-                    break_pointer[0] = True
-                    if break_pointer[1]:
-                        break
-
-        return cached_containers
-
-    def get_torrent_names(self, id: DebridTorrentId) -> tuple[str, Optional[str]]:
-        info = get_status(id)
-        return info["filename"], None
-
-    def delete_torrent_with_infohash(self, infohash: InfoHash):
-        id = next(
-            torrent["id"] for torrent in get_torrents() if torrent["hash"] == infohash
-        )
-        if id:
-            delete_torrent(id)
-
-    def get_torrent_info(self, torrent_id: DebridTorrentId) -> dict:
-        return get_status(torrent_id)
-
-
-def walk_alldebrid_files(files: list[dict]) -> (str, int): # type: ignore
-    """Walks alldebrid's `files` nested dicts and returns (filename, filesize) for each file, discarding path information"""
-    dirs = []
-    for f in files:
         try:
-            size = int(f.get("s", ""))
-            yield f.get("n", "UNKNOWN"), size
-        except ValueError:
-            dirs.append(f)
+            params = {f"magnets[{i}]": infohash for i, infohash in enumerate(infohashes)}
+            response = self.api._request("GET", "magnet/instant", **params)
+            magnets = response.get("magnets", [])
 
-    for d in dirs:
-        walk_alldebrid_files(d.get("e", []))
+            availability = {}
+            for magnet in magnets:
+                if not isinstance(magnet, dict) or "files" not in magnet:
+                    continue
 
+                files = magnet.get("files", [])
+                valid_files = self._process_files(files)
 
-def get(url, **params) -> dict:
-    params["agent"] = AD_AGENT  # Add agent parameter per AllDebrid API requirement
-    return request.get(
-        url=f"{AD_BASE_URL}/{url}",
-        params=params,
-        additional_headers={
-            "Authorization": f"Bearer {settings.settings.downloaders.all_debrid.api_key}"
-        },
-        response_type=dict,
-        specific_rate_limiter=inner_rate_limit,
-        overall_rate_limiter=overall_rate_limiter,
-        proxies=(
-            settings.settings.downloaders.all_debrid.proxy_url
-            if settings.settings.downloaders.all_debrid.proxy_enabled
-            else None
-        ),
-    ).data
+                if valid_files:
+                    availability[magnet["hash"]] = [valid_files]
 
+            return availability
 
-def get_user() -> dict:
-    return get("user")
+        except Exception as e:
+            logger.error(f"Failed to get instant availability: {e}")
+            return {}
 
+    def _walk_files(self, files: List[dict]) -> Iterator[Tuple[str, int]]:
+        """Walks nested files structure and yields filename, size pairs"""
+        dirs = []
+        for file in files:
+            try:
+                size = int(file.get("s", ""))
+                yield file.get("n", "UNKNOWN"), size
+            except ValueError:
+                dirs.append(file)
 
-def get_instant_availability(infohashes: list[InfoHash]) -> list[dict]:
-    try:
-        params = dict(
-            (f"magnets[{i}]", infohash) for i, infohash in enumerate(infohashes)
-        )
-        data = get("magnet/instant", **params)
-        magnets = data.get("data", {}).get("magnets", [])
-    except Exception as e:
-        logger.warning("Failed to get instant availability.")
-        magnets = [e]
-    return magnets
+        for directory in dirs:
+            yield from self._walk_files(directory.get("e", []))
 
+    def _process_files(self, files: List[dict]) -> Dict[str, dict]:
+        """Process and filter valid video files"""
+        result = {}
+        for i, (name, size) in enumerate(self._walk_files(files)):
+            if (
+                any(name.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+                and "sample" not in name.lower()
+            ):
+                result[str(i)] = {"filename": name, "filesize": size}
+        return result
 
-def add_torrent(infohash: str) -> DebridTorrentId:
-    try:
-        params = {"magnets[]": infohash}
-        id = get("magnet/upload", **params)["data"]["magnets"][0]["id"]
-    except Exception:
-        logger.warning(f"Failed to add torrent with infohash {infohash}")
-        id = None
-    return id
+    def add_torrent(self, infohash: str) -> str:
+        """
+        Add a torrent by infohash
+        Required by DownloaderBase
+        """
+        if not self.initialized:
+            raise AllDebridError("Downloader not properly initialized")
 
+        try:
+            response = self.api._request(
+                "GET",
+                "magnet/upload",
+                **{"magnets[]": infohash}
+            )
+            magnet_info = response.get("magnets", [])[0]
+            torrent_id = magnet_info.get("id")
 
-def get_status(id: str) -> dict:
-    try:
-        info = get("magnet/status", id=id)["data"]["magnets"]
-        # Error if filename not present
-        info.get("filename")
-    except Exception:
-        logger.warning(f"Failed to get info for torrent with id {id}")
-        info = {}
-    return info
+            if not torrent_id:
+                raise AllDebridError("No torrent ID in response")
 
+            return str(torrent_id)
 
-def get_torrents() -> list[dict]:
-    try:
-        torrents = get("magnet/status")
-        torrents = torrents.get("data", {}).get("magnets", [])
-    except Exception:
-        logger.warning("Failed to get torrents.")
-        torrents = []
-    return torrents
+        except Exception as e:
+            logger.error(f"Failed to add torrent {infohash}: {e}")
+            raise
 
+    def select_files(self, torrent_id: str, files: List[str]):
+        """
+        Select files from a torrent
+        Required by DownloaderBase
+        """
+        if not self.initialized:
+            raise AllDebridError("Downloader not properly initialized")
 
-def delete_torrent(id: str):
-    try:
-        get("magnet/delete", id=id)
-    except Exception:
-        logger.warning(f"Failed to delete torrent with id {id}")
+        try:
+            # AllDebrid doesn't have a separate file selection endpoint
+            # All files are automatically selected when adding the torrent
+            pass
+        except Exception as e:
+            logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
+            raise
+
+    def get_torrent_info(self, torrent_id: str) -> dict:
+        """
+        Get information about a torrent
+        Required by DownloaderBase
+        """
+        if not self.initialized:
+            raise AllDebridError("Downloader not properly initialized")
+
+        try:
+            response = self.api._request("GET", "magnet/status", id=torrent_id)
+            info = response.get("magnets", {})
+            if "filename" not in info:
+                raise AllDebridError("Invalid torrent info response")
+            return info
+        except Exception as e:
+            logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
+            raise
+
+    def delete_torrent(self, torrent_id: str):
+        """
+        Delete a torrent
+        Required by DownloaderBase
+        """
+        if not self.initialized:
+            raise AllDebridError("Downloader not properly initialized")
+
+        try:
+            self.api._request("GET", "magnet/delete", id=torrent_id)
+        except Exception as e:
+            logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+            raise

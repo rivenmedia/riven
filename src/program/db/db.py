@@ -28,6 +28,13 @@ engine_options = {
 db_host = settings_manager.settings.database.host
 db = SQLAlchemy(db_host, engine_options=engine_options)
 
+def get_db():
+    _db = db.Session()
+    try:
+        yield _db
+    finally:
+        _db.close()
+
 script_location = data_dir_path / "alembic/"
 
 if not os.path.exists(script_location):
