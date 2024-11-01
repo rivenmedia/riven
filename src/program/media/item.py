@@ -146,7 +146,7 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_active_stream(self):
-        stream = next((stream for stream in self.streams if stream.infohash == self.active_stream["infohash"]), None)
+        stream = next((stream for stream in self.streams if stream.infohash == self.active_stream.get("infohash", None)), None)
         if stream:
             self.blacklist_stream(stream)
         else:
