@@ -43,7 +43,7 @@ def test_add_new_mediaitem_with_multiple_streams_and_reset_streams(test_scoped_d
     stream1 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.9
@@ -51,7 +51,7 @@ def test_add_new_mediaitem_with_multiple_streams_and_reset_streams(test_scoped_d
     stream2 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.8
@@ -78,7 +78,7 @@ def test_blacklists_active_stream(test_scoped_db_session):
     stream = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.9
@@ -101,7 +101,7 @@ def test_successfully_resets_streams(test_scoped_db_session):
     stream1 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.9
@@ -110,7 +110,7 @@ def test_successfully_resets_streams(test_scoped_db_session):
     stream2 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.8
@@ -140,7 +140,7 @@ def test_delete_media_item_success(test_scoped_db_session):
     stream1 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.9
@@ -184,7 +184,7 @@ def test_delete_show_with_seasons_and_episodes_success(test_scoped_db_session):
     stream1 = Stream(Torrent(
         raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
         infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title='Example Show'),
+        data=ParsedData(parsed_title="Example Show"),
         fetch=True,
         rank=200,
         lev_ratio=0.95
@@ -232,7 +232,7 @@ def test_delete_show_by_id_with_seasons_and_episodes_success(test_scoped_db_sess
     stream1 = Stream(Torrent(
         raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
         infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title='Example Show'),
+        data=ParsedData(parsed_title="Example Show"),
         fetch=True,
         rank=200,
         lev_ratio=0.95
@@ -280,7 +280,7 @@ def test_delete_show_by_item_id_with_seasons_and_episodes_success(test_scoped_db
     stream1 = Stream(Torrent(
         raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
         infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title='Example Show'),
+        data=ParsedData(parsed_title="Example Show"),
         fetch=True,
         rank=200,
         lev_ratio=0.95
@@ -318,7 +318,7 @@ def test_delete_media_items_by_ids_success(test_scoped_db_session):
     stream1 = Stream(Torrent(
         raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
         infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title='Example Movie'),
+        data=ParsedData(parsed_title="Example Movie"),
         fetch=True,
         rank=150,
         lev_ratio=0.9
@@ -328,7 +328,7 @@ def test_delete_media_items_by_ids_success(test_scoped_db_session):
     stream2 = Stream(Torrent(
         raw_title="Another.Movie.2021.720p.WEBRip.x264-Another",
         infohash="997592a005d9c162391803c615975676738d6a12",
-        data=ParsedData(parsed_title='Another Movie'),
+        data=ParsedData(parsed_title="Another Movie"),
         fetch=True,
         rank=200,
         lev_ratio=0.85

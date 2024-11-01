@@ -5,12 +5,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Generator
 
+from loguru import logger
 from sqla_wrapper import Session
 
 from program.db.db import db
 from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
-from loguru import logger
 
 if TYPE_CHECKING:
     from program.media.item import Episode, MediaItem, Movie, Show
@@ -265,10 +265,10 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
                 logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path")
 
             session.commit()
-            logger.log("FILES", f"Saved items to the database.")
+            logger.log("FILES", "Saved items to the database.")
 
             if failed:
-                logger.warning(f"Failed to retarget some broken symlinks, recommended action: reset database.")
+                logger.warning("Failed to retarget some broken symlinks, recommended action: reset database.")
 
     def process_directory(directory, file_map):
         """Process a single directory for broken symlinks."""

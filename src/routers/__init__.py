@@ -1,14 +1,15 @@
-from auth import resolve_api_key
 from fastapi import Depends, Request
 from fastapi.routing import APIRouter
+
+from auth import resolve_api_key
 from program.settings.manager import settings_manager
 from routers.models.shared import RootResponse
 from routers.secure.default import router as default_router
 from routers.secure.items import router as items_router
 from routers.secure.scrape import router as scrape_router
 from routers.secure.settings import router as settings_router
-from routers.secure.webhooks import router as webhooks_router
 from routers.secure.stream import router as stream_router
+from routers.secure.webhooks import router as webhooks_router
 
 API_VERSION = "v1"
 

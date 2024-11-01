@@ -19,8 +19,8 @@ class StreamRelation(db.Model):
     child_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
 
     __table_args__ = (
-        Index('ix_streamrelation_parent_id', 'parent_id'),
-        Index('ix_streamrelation_child_id', 'child_id'),
+        Index("ix_streamrelation_parent_id", "parent_id"),
+        Index("ix_streamrelation_child_id", "child_id"),
     )
 
 class StreamBlacklistRelation(db.Model):
@@ -31,8 +31,8 @@ class StreamBlacklistRelation(db.Model):
     stream_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
 
     __table_args__ = (
-        Index('ix_streamblacklistrelation_media_item_id', 'media_item_id'),
-        Index('ix_streamblacklistrelation_stream_id', 'stream_id'),
+        Index("ix_streamblacklistrelation_media_item_id", "media_item_id"),
+        Index("ix_streamblacklistrelation_stream_id", "stream_id"),
     )
 
 class Stream(db.Model):
@@ -49,10 +49,10 @@ class Stream(db.Model):
     blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams", lazy="selectin")
 
     __table_args__ = (
-        Index('ix_stream_infohash', 'infohash'),
-        Index('ix_stream_raw_title', 'raw_title'),
-        Index('ix_stream_parsed_title', 'parsed_title'),
-        Index('ix_stream_rank', 'rank'),
+        Index("ix_stream_infohash", "infohash"),
+        Index("ix_stream_raw_title", "raw_title"),
+        Index("ix_stream_parsed_title", "parsed_title"),
+        Index("ix_stream_rank", "rank"),
     )
 
     def __init__(self, torrent: Torrent):

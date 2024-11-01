@@ -1,11 +1,11 @@
 from typing import Dict
 
-from requests import RequestException
-from requests.exceptions import ConnectTimeout, ReadTimeout, RetryError
-
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
 from loguru import logger
+from requests import RequestException
+from requests.exceptions import ConnectTimeout
+
+from program.media.item import MediaItem
+from program.settings.manager import settings_manager
 from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
 from program.utils.request import get, ping
 
@@ -58,7 +58,7 @@ class TorBoxScraper:
         """Build the query params for the TorBox API"""
         params = [f"imdb:{item.imdb_id}"]
         if item.type == "show":
-            params.append(f"season=1")
+            params.append("season=1")
         elif item.type == "season":
             params.append(f"season={item.number}")
         elif item.type == "episode":

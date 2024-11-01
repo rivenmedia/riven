@@ -1,14 +1,14 @@
 import pytest
 
-from program.services.downloaders.realdebrid import RealDebridDownloader
-from program.services.indexers.trakt import TraktIndexer
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.program import Program
+from program.services.downloaders.realdebrid import RealDebridDownloader
+from program.services.indexers.trakt import TraktIndexer
 from program.services.scrapers import Scraping
+from program.services.updaters.plex import PlexUpdater
 from program.state_transition import process_event
 from program.symlink import Symlinker
-from program.services.updaters.plex import PlexUpdater
 
 
 @pytest.fixture

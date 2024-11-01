@@ -1,14 +1,17 @@
+import time
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Union
-from pydantic import BaseModel
-from loguru import logger
-import requests
-from requests.exceptions import RequestException
-import time
+from typing import Dict, List, Optional, Union
 
-from .shared import VIDEO_EXTENSIONS, FileFinder, DownloaderBase, premium_days_left
+import requests
+from loguru import logger
+from pydantic import BaseModel
+from requests.exceptions import RequestException
+
 from program.settings.manager import settings_manager
+
+from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+
 
 class RDTorrentStatus(str, Enum):
     """Real-Debrid torrent status enumeration"""
@@ -38,7 +41,6 @@ class RDTorrent(BaseModel):
 
 class RealDebridError(Exception):
     """Base exception for Real-Debrid related errors"""
-    pass
 
 class RealDebridAPI:
     """Handles Real-Debrid API communication"""

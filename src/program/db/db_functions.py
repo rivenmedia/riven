@@ -4,15 +4,15 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 import alembic
-from sqlalchemy import delete, func, insert, select, text, desc
-from sqlalchemy.orm import Session, selectinload
+from loguru import logger
+from sqlalchemy import delete, desc, func, insert, select, text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, selectinload
 
-from program.services.libraries.symlink import fix_broken_symlinks
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
+from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils import alembic_dir
-from loguru import logger
 
 from .db import alembic, db
 
@@ -81,8 +81,9 @@ def delete_media_item(item: "MediaItem"):
 
 def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
-    from program.media.item import MediaItem, Show, Movie, Season, Episode
     from sqlalchemy.exc import IntegrityError
+
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
 
     if not media_item_id:
         logger.error("Item ID can not be empty")
@@ -134,7 +135,7 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
 def delete_seasons_and_episodes(session, season_ids: list[int], batch_size: int = 30):
     """Delete seasons and episodes of a show in batches, committing after each batch."""
     from program.media.item import Episode, Season
-    from program.media.stream import StreamRelation, StreamBlacklistRelation
+    from program.media.stream import StreamBlacklistRelation, StreamRelation
     from program.media.subtitle import Subtitle
 
     for season_id in season_ids:
@@ -268,7 +269,7 @@ def unblacklist_stream(item: "MediaItem", stream: Stream, session: Session = Non
 
 def get_item_ids(session, item_id: int) -> tuple[int, list[int]]:
     """Get the item ID and all related item IDs for a given MediaItem."""
-    from program.media.item import MediaItem, Episode, Season
+    from program.media.item import Episode, MediaItem, Season
 
     item_type = session.query(MediaItem.type).filter(MediaItem.id == item_id).scalar()
     related_ids = []
@@ -328,7 +329,7 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                 indexed_item = next(fn(event.content_item), None)
                 if indexed_item is None:
                     logger.debug(f"Unable to index {event.content_item.log_string}")
-                    return
+                    return None
                 indexed_item.store_state()
                 session.add(indexed_item)
                 item_id = indexed_item.id
@@ -344,7 +345,7 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                 for item in i:
                     if isinstance(item, MediaItem):
                         program.em.add_item(item, service)
-    return
+    return None
 
 def hard_reset_database():
     """Resets the database to a fresh state."""
@@ -352,9 +353,9 @@ def hard_reset_database():
 
     # Disable foreign key checks temporarily
     with db.engine.connect() as connection:
-        if db.engine.name == 'sqlite':
+        if db.engine.name == "sqlite":
             connection.execute(text("PRAGMA foreign_keys = OFF"))
-        elif db.engine.name == 'postgresql':
+        elif db.engine.name == "postgresql":
             connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
 
         try:
@@ -375,9 +376,9 @@ def hard_reset_database():
             logger.log("DATABASE", "All tables recreated")
 
             # Re-enable foreign key checks
-            if db.engine.name == 'sqlite':
+            if db.engine.name == "sqlite":
                 connection.execute(text("PRAGMA foreign_keys = ON"))
-            elif db.engine.name == 'postgresql':
+            elif db.engine.name == "postgresql":
                 connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
 
             connection.commit()

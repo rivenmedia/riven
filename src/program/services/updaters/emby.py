@@ -2,10 +2,11 @@
 from types import SimpleNamespace
 from typing import Generator
 
-from program.settings.manager import settings_manager
-from program.media.item import MediaItem
-from program.utils.request import get, post
 from loguru import logger
+
+from program.media.item import MediaItem
+from program.settings.manager import settings_manager
+from program.utils.request import get, post
 
 
 class EmbyUpdater:

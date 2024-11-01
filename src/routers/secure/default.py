@@ -3,14 +3,15 @@ from typing import Literal
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from program.services.content.trakt import TraktContent
-from program.db.db import db
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
-from program.settings.manager import settings_manager
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+
+from program.db.db import db
 from program.managers.event_manager import EventUpdate
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
+from program.services.content.trakt import TraktContent
+from program.settings.manager import settings_manager
 from program.utils import generate_api_key
 
 from ..models.shared import MessageResponse

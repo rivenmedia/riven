@@ -3,12 +3,12 @@ from datetime import datetime
 
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
+from loguru import logger
 from sqla_wrapper import Alembic, SQLAlchemy
 from sqlalchemy import text
 
 from program.settings.manager import settings_manager
 from program.utils import data_dir_path
-from loguru import logger
 
 engine_options = {
     "pool_size": 25, # Prom: Set to 1 when debugging sql queries
@@ -46,8 +46,8 @@ alembic.init(script_location)
 
 def create_database_if_not_exists():
     """Create the database if it doesn't exist."""
-    db_name = db_host.split('/')[-1]
-    db_base_host = '/'.join(db_host.split('/')[:-1])
+    db_name = db_host.split("/")[-1]
+    db_base_host = "/".join(db_host.split("/")[:-1])
     try:
         temp_db = SQLAlchemy(db_base_host, engine_options=engine_options)
         with temp_db.engine.connect() as connection:
@@ -71,7 +71,7 @@ def ensure_alembic_version_table():
         result = connection.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name = 'alembic_version'"))
         if not result.fetchone():
             logger.log("DATABASE","alembic_version table not found. Creating it...")
-            alembic.stamp('head')
+            alembic.stamp("head")
             logger.log("DATABASE","alembic_version table created and stamped to head.")
 
 def vacuum_and_analyze_index_maintenance() -> None:
@@ -96,7 +96,7 @@ def run_migrations(try_again=True) -> None:
         logger.warning(f"Error running migrations: {e}")
         db.s.execute(text("delete from alembic_version"))
         db.s.commit()
-        alembic.stamp('head')
+        alembic.stamp("head")
         if try_again:
             run_migrations(False)
         else:

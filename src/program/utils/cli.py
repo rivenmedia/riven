@@ -37,7 +37,7 @@ def handle_args():
         "-p", "--port",
         type=int,
         default=8080,
-        help='Port to run the server on (default: 8000)'
+        help="Port to run the server on (default: 8000)"
     )
     parser.add_argument(
         "--resolve_duplicates",

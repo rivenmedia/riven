@@ -1,6 +1,7 @@
 """Shared functions for scrapers."""
 from typing import Dict, Set, Union
 
+from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
 from RTN.exceptions import GarbageTorrent
 
@@ -9,7 +10,6 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from loguru import logger
 
 enable_aliases = settings_manager.settings.scraping.enable_aliases
 settings_model = settings_manager.settings.ranking
@@ -92,17 +92,11 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 if (
                     item.number in torrent.data.episodes
                     and item.parent.number in torrent.data.seasons
-                ):
-                    torrents.add(torrent)
-                # Anime edge cases where no season number is present for single season shows
-                elif (
+                ) or (
                     len(item.parent.parent.seasons) == 1
                     and not torrent.data.seasons
                     and item.number in torrent.data.episodes
-                ):
-                    torrents.add(torrent)
-                # If no episodes are present but the needed seasons are, we'll add it
-                elif any(
+                ) or any(
                     season in torrent.data.seasons
                     for season in needed_seasons
                 ) and not torrent.data.episodes:
@@ -117,7 +111,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Skipping torrent: '{raw_title}' - {e}")
             continue
-        except GarbageTorrent as e:
+        except GarbageTorrent:
             if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Trashing torrent for {item.log_string}: '{raw_title}'")
             continue

@@ -1,10 +1,11 @@
 import json
 import os
 
-from program.settings.models import AppModel, Observable
-from pydantic import ValidationError
-from program.utils import data_dir_path
 from loguru import logger
+from pydantic import ValidationError
+
+from program.settings.models import AppModel, Observable
+from program.utils import data_dir_path
 
 
 class SettingsManager:

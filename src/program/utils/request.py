@@ -12,7 +12,6 @@ from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
 
 from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
-from program.utils.useragents import user_agent_factory
 
 logger = logging.getLogger(__name__)
 

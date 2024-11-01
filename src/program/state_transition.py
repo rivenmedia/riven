@@ -1,17 +1,13 @@
-from program.services.content import Listrr, Mdblist, Overseerr, PlexWatchlist
-from program.services.content.trakt import TraktContent
+from program.media import MediaItem, States
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
-from program.services.libraries import SymlinkLibrary
-from program.media import MediaItem, Season, Show, States
 from program.services.post_processing import PostProcessing, notify
 from program.services.post_processing.subliminal import Subliminal
 from program.services.scrapers import Scraping
+from program.services.updaters import Updater
 from program.settings.manager import settings_manager
 from program.symlink import Symlinker
 from program.types import ProcessedEvent, Service
-from program.services.updaters import Updater
-from loguru import logger
 
 
 def process_event(emitted_by: Service, existing_item: MediaItem | None = None, content_item: MediaItem | None = None) -> ProcessedEvent:
@@ -39,7 +35,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
 
     elif existing_item.last_state == States.Indexed:
         next_service = Scraping
-        if not emitted_by == Scraping and Scraping.can_we_scrape(existing_item):
+        if emitted_by != Scraping and Scraping.can_we_scrape(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":
             items_to_submit = [s for s in existing_item.seasons if s.last_state != States.Completed and Scraping.can_we_scrape(s)]
@@ -63,7 +59,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         if emitted_by not in ["RetryItem", PostProcessing]:
             notify(existing_item)
         # Avoid multiple post-processing runs
-        if not emitted_by == PostProcessing:
+        if emitted_by != PostProcessing:
             if settings_manager.settings.post_processing.subliminal.enabled:
                 next_service = PostProcessing
                 if existing_item.type in ["movie", "episode"] and Subliminal.should_submit(existing_item):

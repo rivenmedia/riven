@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from program.services.downloaders.realdebrid import RealDebridDownloader
 from program.media.item import Episode, Movie, Season, Show
+from program.services.downloaders.realdebrid import RealDebridDownloader
 
 realdebrid_downloader = RealDebridDownloader()
 

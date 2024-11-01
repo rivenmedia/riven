@@ -19,8 +19,8 @@ class Subliminal:
             self.initialized = False
             return
         if not region.is_configured:
-            region.configure('dogpile.cache.dbm', arguments={'filename': f'{root_dir}/data/subliminal.dbm'})
-        providers = ['gestdown','opensubtitles','opensubtitlescom','podnapisi','tvsubtitles']
+            region.configure("dogpile.cache.dbm", arguments={"filename": f"{root_dir}/data/subliminal.dbm"})
+        providers = ["gestdown","opensubtitles","opensubtitlescom","podnapisi","tvsubtitles"]
         provider_config = {}
         for provider, value in self.settings.providers.items():
             if value["enabled"]:
@@ -34,7 +34,7 @@ class Subliminal:
                         self.pool[provider].login()
                         if not self.pool[provider].check_token():
                             raise AuthenticationError
-            except Exception as e:
+            except Exception:
                 logger.warning(f"Could not initialize provider: {provider}.")
                 if provider == "opensubtitlescom":
                     self.pool.initialized_providers.pop(provider)
@@ -118,7 +118,7 @@ def _scan_videos(directory):
     videos = []
     for root, _, files in os.walk(directory):
         for file in files:
-            if file.endswith(('.mp4', '.mkv', '.avi', '.mov', '.wmv')):
+            if file.endswith((".mp4", ".mkv", ".avi", ".mov", ".wmv")):
                 video_path = os.path.join(root, file)
                 video_name = pathlib.Path(video_path).resolve().name
                 video = Video.fromname(video_name)
@@ -142,8 +142,8 @@ def create_language_from_string(lang: str) -> Language:
 def get_existing_subtitles(filename: str, path: pathlib.Path) -> set[Language]:
     subtitle_languages = set()
     for file in path.iterdir():
-        if file.stem.startswith(filename) and file.suffix == '.srt':
-                parts = file.name.split('.')
+        if file.stem.startswith(filename) and file.suffix == ".srt":
+                parts = file.name.split(".")
                 if len(parts) > 2:
                     lang_code = parts[-2]
                     language = create_language_from_string(lang_code)

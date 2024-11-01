@@ -1,13 +1,12 @@
 """Plex Watchlist Module"""
-from typing import Generator, Union
+from typing import Generator
 
+from loguru import logger
 from plexapi.myplex import MyPlexAccount
 from requests import HTTPError, Session
-from urllib3 import HTTPConnectionPool
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.request import get, ping
 
 

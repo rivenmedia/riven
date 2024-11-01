@@ -4,13 +4,13 @@ import json
 from typing import Dict
 
 import regex
+from loguru import logger
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem, Show
-from program.settings.manager import settings_manager
 from program.services.scrapers.shared import _get_stremio_identifier
-from loguru import logger
+from program.settings.manager import settings_manager
 from program.utils.request import RateLimiter, RateLimitExceeded, get, ping
 
 

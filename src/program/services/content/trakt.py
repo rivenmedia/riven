@@ -1,14 +1,14 @@
 """Trakt content module"""
 import re
+from datetime import datetime, timedelta
 from typing import Union
 from urllib.parse import urlencode
-from datetime import datetime, timedelta
 
+from loguru import logger
 from requests import RequestException
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.ratelimiter import RateLimiter
 from program.utils.request import get, post
 

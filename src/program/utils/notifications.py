@@ -2,13 +2,12 @@ from pathlib import Path
 from typing import List
 
 from apprise import Apprise
+from loguru import logger
 
 from program.media.item import MediaItem
-from program.media.state import States
 from program.settings.manager import settings_manager
 from program.settings.models import NotificationsModel
 from program.utils import root_dir
-from loguru import logger
 
 ntfy = Apprise()
 settings: NotificationsModel = settings_manager.settings.notifications

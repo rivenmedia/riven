@@ -1,22 +1,16 @@
-from pathlib import Path
+import shutil
 from datetime import datetime
-from typing import Optional, Union
+from pathlib import Path
 
 import pytest
-import shutil
-import copy
-from pyfakefs.fake_filesystem_unittest import Patcher
-
-from program.symlink import Symlinker
-from program.media.item import Movie, Show, Season, Episode
-from program.media.state import States
-from program.settings.manager import settings_manager
-
+from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-from loguru import logger
+from program.media.item import Episode, Movie, Season, Show
+from program.settings.manager import settings_manager
+from program.symlink import Symlinker
 
 logger.disable("program")  # Suppress
 

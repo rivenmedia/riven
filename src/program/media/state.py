@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class States(Enum):
     Unknown = "Unknown"
     Unreleased = "Unreleased"

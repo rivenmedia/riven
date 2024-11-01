@@ -1,15 +1,19 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Optional, TypeGuard, Union
+from typing import Generator, Optional, Union
 
-from program.services.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
-from program.services.downloaders import (
-    AllDebridDownloader,
-    RealDebridDownloader,
-    # TorBoxDownloader,
-)
-from program.services.libraries import SymlinkLibrary
 from program.media.item import MediaItem
+from program.services.content import (
+    Listrr,
+    Mdblist,
+    Overseerr,
+    PlexWatchlist,
+    TraktContent,
+)
+from program.services.downloaders import AllDebridDownloader, RealDebridDownloader
+
+# TorBoxDownloader,
+from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
     Annatar,
     Jackett,
@@ -21,8 +25,8 @@ from program.services.scrapers import (
     Zilean,
 )
 from program.services.scrapers.torbox import TorBoxScraper
-from program.symlink import Symlinker
 from program.services.updaters import Updater
+from program.symlink import Symlinker
 
 # Typehint classes
 Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Annatar, TorBoxScraper, Zilean]
