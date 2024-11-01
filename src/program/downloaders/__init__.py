@@ -20,7 +20,7 @@ class Downloader:
         )
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            # AllDebridDownloader: AllDebridDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
             # TorBoxDownloader: TorBoxDownloader()
         }
         self.service = next(
