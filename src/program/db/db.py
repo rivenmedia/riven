@@ -7,7 +7,7 @@ from sqla_wrapper import Alembic, SQLAlchemy
 from sqlalchemy import text
 
 from program.settings.manager import settings_manager
-from utils import data_dir_path
+from program.utils import data_dir_path
 from loguru import logger
 
 engine_options = {

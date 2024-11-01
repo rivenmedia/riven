@@ -3,7 +3,7 @@ import os
 
 from program.settings.models import AppModel, Observable
 from pydantic import ValidationError
-from utils import data_dir_path
+from program.utils import data_dir_path
 from loguru import logger
 
 

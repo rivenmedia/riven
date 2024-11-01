@@ -14,7 +14,7 @@ from routers import app_router
 from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from utils.cli import handle_args
+from program.utils.cli import handle_args
 from loguru import logger
 from dotenv import load_dotenv
 

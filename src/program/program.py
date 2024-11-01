@@ -9,21 +9,21 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
-from program.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
-from program.downloaders import Downloader
-from program.indexers.trakt import TraktIndexer
-from program.libraries import SymlinkLibrary
-from program.libraries.symlink import fix_broken_symlinks
+from program.services.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
+from program.services.downloaders import Downloader
+from program.services.indexers.trakt import TraktIndexer
+from program.services.libraries import SymlinkLibrary
+from program.services.libraries.symlink import fix_broken_symlinks
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.post_processing import PostProcessing
-from program.scrapers import Scraping
+from program.services.post_processing import PostProcessing
+from program.services.scrapers import Scraping
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
-from program.updaters import Updater
-from utils import data_dir_path
-from utils.event_manager import EventManager
-from utils.logging import create_progress_bar, log_cleaner, logger
+from program.services.updaters import Updater
+from program.utils import data_dir_path
+from program.managers.event_manager import EventManager
+from program.utils.logging import create_progress_bar, log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -34,7 +34,7 @@ if settings_manager.settings.tracemalloc:
 
 from sqlalchemy import func, select, text
 
-import program.db.db_functions as DB
+import program.db.db_functions as db_functions
 from program.db.db import create_database_if_not_exists, db, run_migrations, vacuum_and_analyze_index_maintenance
 
 
@@ -145,14 +145,14 @@ class Program(threading.Thread):
         self._init_db_from_symlinks()
 
         with db.Session() as session:
-            movies_symlinks = session.execute(select(func.count(Movie._id)).where(Movie.symlinked == True)).scalar_one() # noqa
-            episodes_symlinks = session.execute(select(func.count(Episode._id)).where(Episode.symlinked == True)).scalar_one() # noqa
+            movies_symlinks = session.execute(select(func.count(Movie.id)).where(Movie.symlinked == True)).scalar_one() # noqa
+            episodes_symlinks = session.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one() # noqa
             total_symlinks = movies_symlinks + episodes_symlinks
-            total_movies = session.execute(select(func.count(Movie._id))).scalar_one()
-            total_shows = session.execute(select(func.count(Show._id))).scalar_one()
-            total_seasons = session.execute(select(func.count(Season._id))).scalar_one()
-            total_episodes = session.execute(select(func.count(Episode._id))).scalar_one()
-            total_items = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            total_movies = session.execute(select(func.count(Movie.id))).scalar_one()
+            total_shows = session.execute(select(func.count(Show.id))).scalar_one()
+            total_seasons = session.execute(select(func.count(Season.id))).scalar_one()
+            total_episodes = session.execute(select(func.count(Episode.id))).scalar_one()
+            total_items = session.execute(select(func.count(MediaItem.id))).scalar_one()
 
             logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
             logger.log("ITEM", f"Shows: {total_shows}")
@@ -174,7 +174,7 @@ class Program(threading.Thread):
         """Retry items that failed to download."""
         with db.Session() as session:
             count = session.execute(
-                select(func.count(MediaItem._id))
+                select(func.count(MediaItem.id))
                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
@@ -185,7 +185,7 @@ class Program(threading.Thread):
             logger.log("PROGRAM", f"Starting retry process for {count} items.")
 
             items_query = (
-                select(MediaItem._id)
+                select(MediaItem.id)
                 .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
                 .where(MediaItem.type.in_(["movie", "show"]))
                 .order_by(MediaItem.requested_at.desc())
@@ -295,25 +295,27 @@ class Program(threading.Thread):
                 time.sleep(0.1)
                 continue
 
-            with db.Session() as session:
-                existing_item: MediaItem = DB.get_item_from_db(session, event.item_id)
-                processed_item, next_service, items_to_submit = process_event(
-                    existing_item, event.emitted_by, existing_item
-                )
+            existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
 
-                self.em.remove_event_from_running(event.item_id)
+            next_service, items_to_submit = process_event(
+                event.emitted_by, existing_item, event.content_item
+            )
 
-                if items_to_submit:
-                    for item_to_submit in items_to_submit:
-                        if not next_service:
-                            self.em.add_event_to_queue(Event("StateTransition", item_to_submit._id))
-                        else:
-                            event = Event(next_service, item_to_submit._id)
-                            self.em.add_event_to_running(event)
-                            self.em.submit_job(next_service, self, event)
-                if isinstance(processed_item, MediaItem):
-                    processed_item.store_state()
-                session.commit()
+            self.em.remove_event_from_running(event)
+
+            for item_to_submit in items_to_submit:
+                if not next_service:
+                    self.em.add_event_to_queue(Event("StateTransition", item_id=item_to_submit.id))
+                else:
+                    # We are in the database, pass on id.
+                    if item_to_submit.id:
+                        event = Event(next_service, item_id=item_to_submit.id)
+                    # We are not, lets pass the MediaItem
+                    else:
+                        event = Event(next_service, content_item=item_to_submit)
+
+                    self.em.add_event_to_running(event)
+                    self.em.submit_job(next_service, self, event)
 
     def stop(self):
         if not self.initialized:
@@ -338,7 +340,7 @@ class Program(threading.Thread):
         """Initialize the database from symlinks."""
         start_time = datetime.now()
         with db.Session() as session:
-            res = session.execute(select(func.count(MediaItem._id))).scalar_one()
+            res = session.execute(select(func.count(MediaItem.id))).scalar_one()
             errors = []
             added_items = set()
 
@@ -355,18 +357,18 @@ class Program(threading.Thread):
                         for future in as_completed(future_to_item):
                             try:
                                 item = future_to_item[future]
-                                if item and item.imdb_id not in added_items:
+                                if item and item.id not in added_items:
                                     # Check for existing item in the database
-                                    existing_item = session.query(MediaItem).filter_by(imdb_id=item.imdb_id).first()
+                                    existing_item = session.query(MediaItem).filter_by(id=item.id).first()
                                     if existing_item:
-                                        errors.append(f"Duplicate item found in database for imdb_id: {item.imdb_id}")
+                                        errors.append(f"Duplicate item found in database for id: {item.id}")
                                         continue
 
-                                    added_items.add(item.imdb_id)
+                                    added_items.add(item.id)
                                     enhanced_item = future.result()
                                     enhanced_item.store_state()
                                     session.add(enhanced_item)
-                                    log_message = f"Indexed IMDb Id: {enhanced_item.imdb_id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
+                                    log_message = f"Indexed IMDb Id: {enhanced_item.id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
                                 else:
                                     errors.append(f"Duplicate symlink directory found for {item.log_string}")
                                     continue
