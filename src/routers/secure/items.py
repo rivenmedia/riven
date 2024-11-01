@@ -4,23 +4,19 @@ from typing import Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, func, select
-from sqlalchemy.exc import NoResultFound
-
-from program.services.content import Overseerr
-from program.db.db import db, get_db
-import program.db.db_functions as db_functions
-from sqlalchemy.orm import Session
-from program.media.item import MediaItem
-from program.media.state import States
-from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
-from program.symlink import Symlinker
-from program.types import Event
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
-from loguru import logger
+from sqlalchemy.orm import Session
 
+from program.db import db_functions
+from program.db.db import db, get_db
+from program.media.item import MediaItem
+from program.media.state import States
+from program.services.content import Overseerr
+from program.symlink import Symlinker
+from program.types import Event
 
 from ..models.shared import MessageResponse
 

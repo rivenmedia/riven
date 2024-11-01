@@ -1,7 +1,10 @@
 from typing import Optional
+
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+
 from program.settings.manager import settings_manager
+
 
 def header_auth(header = Security(APIKeyHeader(name="x-api-key", auto_error=False))):
     return header == settings_manager.settings.api_key

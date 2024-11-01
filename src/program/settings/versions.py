@@ -1,6 +1,5 @@
-from RTN.models import BaseRankingModel, BestRanking, DefaultRanking
-
 from loguru import logger
+from RTN.models import BaseRankingModel, BestRanking, DefaultRanking
 
 
 class RankModels:

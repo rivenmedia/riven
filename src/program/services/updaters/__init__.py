@@ -1,9 +1,10 @@
 """Updater module"""
-from program.media.item import MediaItem
-from program.services.updaters.plex import PlexUpdater
-from program.services.updaters.jellyfin import JellyfinUpdater
-from program.services.updaters.emby import EmbyUpdater
 from loguru import logger
+
+from program.media.item import MediaItem
+from program.services.updaters.emby import EmbyUpdater
+from program.services.updaters.jellyfin import JellyfinUpdater
+from program.services.updaters.plex import PlexUpdater
 
 
 class Updater:

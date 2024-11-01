@@ -2,13 +2,13 @@
 
 from typing import Union
 
+from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-from program.services.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
+from program.services.indexers.trakt import get_imdbid_from_tmdb
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.request import delete, get, ping, post
 
 
@@ -100,13 +100,12 @@ class Overseerr:
                         "requested_id": item.id
                     })
                 )
+            elif item.media.tmdbId:
+                logger.debug(f"Skipping {item.type} with TMDb ID {item.media.tmdbId} due to missing IMDb ID")
+            elif item.media.tvdbId:
+                logger.debug(f"Skipping {item.type} with TVDb ID {item.media.tvdbId} due to missing IMDb ID")
             else:
-                if item.media.tmdbId:
-                    logger.debug(f"Skipping {item.type} with TMDb ID {item.media.tmdbId} due to missing IMDb ID")
-                elif item.media.tvdbId:
-                    logger.debug(f"Skipping {item.type} with TVDb ID {item.media.tvdbId} due to missing IMDb ID")
-                else:
-                    logger.debug(f"Skipping {item.type} with Overseerr ID {item.media.id} due to missing IMDb ID")
+                logger.debug(f"Skipping {item.type} with Overseerr ID {item.media.id} due to missing IMDb ID")
         return media_items
 
 

@@ -9,20 +9,26 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
-from program.services.content import Listrr, Mdblist, Overseerr, PlexWatchlist, TraktContent
+from program.managers.event_manager import EventManager
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
+from program.services.content import (
+    Listrr,
+    Mdblist,
+    Overseerr,
+    PlexWatchlist,
+    TraktContent,
+)
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
 from program.services.libraries import SymlinkLibrary
 from program.services.libraries.symlink import fix_broken_symlinks
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
+from program.services.updaters import Updater
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
-from program.services.updaters import Updater
 from program.utils import data_dir_path
-from program.managers.event_manager import EventManager
 from program.utils.logging import create_progress_bar, log_cleaner, logger
 
 from .state_transition import process_event
@@ -34,8 +40,13 @@ if settings_manager.settings.tracemalloc:
 
 from sqlalchemy import func, select, text
 
-import program.db.db_functions as db_functions
-from program.db.db import create_database_if_not_exists, db, run_migrations, vacuum_and_analyze_index_maintenance
+from program.db import db_functions
+from program.db.db import (
+    create_database_if_not_exists,
+    db,
+    run_migrations,
+    vacuum_and_analyze_index_maintenance,
+)
 
 
 class Program(threading.Thread):
@@ -104,7 +115,7 @@ class Program(threading.Thread):
                 session.execute(text("SELECT 1"))
                 return True
         except Exception:
-            logger.error(f"Database connection failed. Is the database running?")
+            logger.error("Database connection failed. Is the database running?")
             return False
 
     def start(self):
@@ -375,7 +386,7 @@ class Program(threading.Thread):
                             except Exception as e:
                                 logger.exception(f"Error processing {item.log_string}: {e}")
                             finally:
-                                progress.update(task, advance=1, log=log_message if 'log_message' in locals() else "")
+                                progress.update(task, advance=1, log=log_message if "log_message" in locals() else "")
                         progress.update(task, log="Finished Indexing Symlinks!")
 
                     session.commit()

@@ -1,12 +1,12 @@
 """Listrr content module"""
 from typing import Generator
 
+from loguru import logger
 from requests.exceptions import HTTPError
 
-from program.services.indexers.trakt import get_imdbid_from_tmdb
 from program.media.item import MediaItem
+from program.services.indexers.trakt import get_imdbid_from_tmdb
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.request import get, ping
 
 

@@ -6,17 +6,18 @@ import time
 import traceback
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from program import Program
-from program.settings.models import get_version
-from routers import app_router
+from loguru import logger
 from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+
+from program import Program
+from program.settings.models import get_version
 from program.utils.cli import handle_args
-from loguru import logger
-from dotenv import load_dotenv
+from routers import app_router
 
 load_dotenv()
 

@@ -21,9 +21,9 @@ class Subtitle(db.Model):
     parent: Mapped["MediaItem"] = relationship("MediaItem", back_populates="subtitles")
 
     __table_args__ = (
-        Index('ix_subtitle_language', 'language'),
-        Index('ix_subtitle_file', 'file'),
-        Index('ix_subtitle_parent_id', 'parent_id'),
+        Index("ix_subtitle_language", "language"),
+        Index("ix_subtitle_file", "file"),
+        Index("ix_subtitle_parent_id", "parent_id"),
     )
 
     def __init__(self, optional={}):

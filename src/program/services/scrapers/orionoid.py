@@ -1,9 +1,10 @@
 """ Orionoid scraper module """
 from typing import Dict
 
+from loguru import logger
+
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
 from program.utils.request import get
 

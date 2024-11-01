@@ -2,6 +2,7 @@
 import os
 from typing import Dict, Generator, List, Union
 
+from loguru import logger
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.library import LibrarySection
 from plexapi.server import PlexServer
@@ -10,7 +11,6 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
 
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
-from loguru import logger
 
 
 class PlexUpdater:

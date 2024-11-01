@@ -1,21 +1,24 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
-from RTN import ParsedData
-from loguru import logger
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from loguru import logger
 from pydantic import BaseModel, RootModel
+from RTN import ParsedData
 from sqlalchemy import select
+
+from program.db import db_functions
+from program.db.db import db
+from program.media.item import Episode, MediaItem
+from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.shared import hash_from_uri
-from program.media.item import Episode, MediaItem
-from program.services.scrapers import Scraping
-from program.types import Event
-from program.db.db import db
-import program.db.db_functions as db_functions
-from program.media.stream import Stream as ItemStream
-from program.services.scrapers.shared import rtn
 from program.services.indexers.trakt import TraktIndexer
+from program.services.scrapers import Scraping
+from program.services.scrapers.shared import rtn
+from program.types import Event
+
 
 class Stream(BaseModel):
     infohash: str

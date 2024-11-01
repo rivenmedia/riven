@@ -1,5 +1,4 @@
 """Riven settings models"""
-import re
 from pathlib import Path
 from typing import Any, Callable, List
 

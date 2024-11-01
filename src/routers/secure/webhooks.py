@@ -2,11 +2,12 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
+from loguru import logger
+from requests import RequestException
+
+from program.media.item import MediaItem
 from program.services.content.overseerr import Overseerr
 from program.services.indexers.trakt import get_imdbid_from_tmdb, get_imdbid_from_tvdb
-from program.media.item import MediaItem
-from requests import RequestException
-from loguru import logger
 
 from ..models.overseerr import OverseerrWebhook
 

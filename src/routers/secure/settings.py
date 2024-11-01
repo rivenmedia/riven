@@ -2,9 +2,10 @@ from copy import copy
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ValidationError
+
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from pydantic import BaseModel, ValidationError
 
 from ..models.shared import MessageResponse
 

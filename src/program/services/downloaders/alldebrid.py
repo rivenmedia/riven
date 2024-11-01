@@ -1,21 +1,17 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Iterator, Tuple
-from pydantic import BaseModel
-from loguru import logger
-import requests
-from requests.exceptions import RequestException, ConnectTimeout
+from typing import Dict, Iterator, List, Optional, Tuple
 
-from .shared import (
-    VIDEO_EXTENSIONS,
-    FileFinder,
-    DownloaderBase,
-    premium_days_left
-)
+import requests
+from loguru import logger
+from requests.exceptions import ConnectTimeout, RequestException
+
 from program.settings.manager import settings_manager
+
+from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+
 
 class AllDebridError(Exception):
     """Base exception for AllDebrid related errors"""
-    pass
 
 class AllDebridAPI:
     """Handles AllDebrid API communication"""

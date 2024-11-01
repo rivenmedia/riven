@@ -1,13 +1,13 @@
 """ Knightcrawler scraper module """
 from typing import Dict
 
+from loguru import logger
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
-from program.media.item import Episode, MediaItem
+from program.media.item import MediaItem
 from program.services.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
 from program.utils.request import get, ping
 

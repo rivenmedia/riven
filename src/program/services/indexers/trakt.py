@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Generator, List, Optional, Union
 
-from program.db.db import db
+from loguru import logger
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from loguru import logger
 from program.utils.request import get
 
 CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
@@ -133,7 +133,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
     genres = getattr(data, "genres", None) or show_genres
 
     item = {
-        "trakt_id": getattr(data.ids, "trakt"),
+        "trakt_id": data.ids.trakt,
         "title": getattr(data, "title", None),
         "year": getattr(data, "year", None),
         "status": getattr(data, "status", None),
@@ -263,16 +263,16 @@ def get_imdb_id_from_list(namespaces: List[SimpleNamespace], id_type: str = None
         return None
 
     for ns in namespaces:
-        if type == "movie" and hasattr(ns, 'movie') and hasattr(ns.movie, 'ids') and hasattr(ns.movie.ids, 'imdb'):
+        if type == "movie" and hasattr(ns, "movie") and hasattr(ns.movie, "ids") and hasattr(ns.movie.ids, "imdb"):
             if str(getattr(ns.movie.ids, id_type)) == str(_id):
                 return ns.movie.ids.imdb
-        elif type == "show" and hasattr(ns, 'show') and hasattr(ns.show, 'ids') and hasattr(ns.show.ids, 'imdb'):
+        elif type == "show" and hasattr(ns, "show") and hasattr(ns.show, "ids") and hasattr(ns.show.ids, "imdb"):
             if str(getattr(ns.show.ids, id_type)) == str(_id):
                 return ns.show.ids.imdb
-        elif type == "season" and hasattr(ns, 'season') and hasattr(ns.season, 'ids') and hasattr(ns.season.ids, 'imdb'):
+        elif type == "season" and hasattr(ns, "season") and hasattr(ns.season, "ids") and hasattr(ns.season.ids, "imdb"):
             if str(getattr(ns.season.ids, id_type)) == str(_id):
                 return ns.season.ids.imdb
-        elif type == "episode" and hasattr(ns, 'episode') and hasattr(ns.episode, 'ids') and hasattr(ns.episode.ids, 'imdb'):
+        elif type == "episode" and hasattr(ns, "episode") and hasattr(ns.episode, "ids") and hasattr(ns.episode.ids, "imdb"):
             if str(getattr(ns.episode.ids, id_type)) == str(_id):
                 return ns.episode.ids.imdb
     return None

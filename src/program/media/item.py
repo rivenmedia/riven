@@ -4,15 +4,15 @@ from pathlib import Path
 from typing import List, Optional, Self
 
 import sqlalchemy
+from loguru import logger
 from RTN import parse
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
-from program.managers.sse_manager import sse_manager
 from program.db.db import db
+from program.managers.sse_manager import sse_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
-from loguru import logger
 
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream
@@ -67,19 +67,19 @@ class MediaItem(db.Model):
     }
 
     __table_args__ = (
-        Index('ix_mediaitem_type', 'type'),
-        Index('ix_mediaitem_requested_by', 'requested_by'),
-        Index('ix_mediaitem_title', 'title'),
-        Index('ix_mediaitem_imdb_id', 'imdb_id'),
-        Index('ix_mediaitem_tvdb_id', 'tvdb_id'),
-        Index('ix_mediaitem_tmdb_id', 'tmdb_id'),
-        Index('ix_mediaitem_network', 'network'),
-        Index('ix_mediaitem_country', 'country'),
-        Index('ix_mediaitem_language', 'language'),
-        Index('ix_mediaitem_aired_at', 'aired_at'),
-        Index('ix_mediaitem_year', 'year'),
-        Index('ix_mediaitem_overseerr_id', 'overseerr_id'),
-        Index('ix_mediaitem_type_aired_at', 'type', 'aired_at'),  # Composite index
+        Index("ix_mediaitem_type", "type"),
+        Index("ix_mediaitem_requested_by", "requested_by"),
+        Index("ix_mediaitem_title", "title"),
+        Index("ix_mediaitem_imdb_id", "imdb_id"),
+        Index("ix_mediaitem_tvdb_id", "tvdb_id"),
+        Index("ix_mediaitem_tmdb_id", "tmdb_id"),
+        Index("ix_mediaitem_network", "network"),
+        Index("ix_mediaitem_country", "country"),
+        Index("ix_mediaitem_language", "language"),
+        Index("ix_mediaitem_aired_at", "aired_at"),
+        Index("ix_mediaitem_year", "year"),
+        Index("ix_mediaitem_overseerr_id", "overseerr_id"),
+        Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
     )
 
     def __init__(self, item: dict | None) -> None:
@@ -142,7 +142,7 @@ class MediaItem(db.Model):
         """Check if a stream is blacklisted for this item."""
         session = object_session(self)
         if session:
-            session.refresh(self, attribute_names=['blacklisted_streams'])
+            session.refresh(self, attribute_names=["blacklisted_streams"])
         return stream in self.blacklisted_streams
 
     def blacklist_active_stream(self):
@@ -203,8 +203,8 @@ class MediaItem(db.Model):
         session = object_session(self)
         if session and session.is_active:
             try:
-                session.refresh(self, attribute_names=['blacklisted_streams'])
-                return (len(self.streams) > 0 and any(not stream in self.blacklisted_streams for stream in self.streams))
+                session.refresh(self, attribute_names=["blacklisted_streams"])
+                return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
             except (sqlalchemy.exc.InvalidRequestError, sqlalchemy.orm.exc.DetachedInstanceError):
                 return False
         return False

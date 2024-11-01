@@ -2,6 +2,8 @@ import threading
 from datetime import datetime
 from typing import Dict, Generator, List, Union
 
+from loguru import logger
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
@@ -17,7 +19,6 @@ from program.services.scrapers.torbox import TorBoxScraper
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
-from loguru import logger
 
 
 class Scraping:

@@ -1,7 +1,7 @@
 import os
 import threading
 import traceback
-
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
@@ -9,12 +9,10 @@ from typing import Dict, List
 
 from loguru import logger
 from pydantic import BaseModel
-from concurrent.futures import Future, ThreadPoolExecutor
 
-from program.managers.sse_manager import sse_manager
+from program.db import db_functions
 from program.db.db import db
-import program.db.db_functions as db_functions
-from program.services.indexers.trakt import TraktIndexer
+from program.managers.sse_manager import sse_manager
 from program.types import Event
 
 
@@ -54,11 +52,10 @@ class EventManager:
             if executor["_name_prefix"] == service_name:
                 logger.debug(f"Executor for {service_name} found.")
                 return executor["_executor"]
-        else:
-            _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=max_workers)
-            self._executors.append({ "_name_prefix": service_name, "_executor": _executor })
-            logger.debug(f"Created executor for {service_name} with {max_workers} max workers.")
-            return _executor
+        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=max_workers)
+        self._executors.append({ "_name_prefix": service_name, "_executor": _executor })
+        logger.debug(f"Created executor for {service_name} with {max_workers} max workers.")
+        return _executor
 
     def _process_future(self, future, service):
         """
@@ -199,7 +196,7 @@ class EventManager:
                 future_item_id = None
                 future_related_ids = []
 
-                if hasattr(future, 'event') and hasattr(future.event, 'item_id'):
+                if hasattr(future, "event") and hasattr(future.event, "item_id"):
                     future_item = future.event.item_id
                     future_item_id, future_related_ids = db_functions.get_item_ids(session, future_item)
 

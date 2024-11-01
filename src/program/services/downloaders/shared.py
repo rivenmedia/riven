@@ -1,13 +1,10 @@
+from abc import ABC, abstractmethod
+from datetime import datetime
+
+from loguru import logger
 from RTN import parse
 
-from abc import ABC, abstractmethod
-from loguru import logger
-from program.media.item import MediaItem
-from program.media.state import States
 from program.settings.manager import settings_manager
-from typing import Optional
-
-from datetime import datetime
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [

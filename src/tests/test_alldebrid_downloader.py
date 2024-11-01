@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from program.services.downloaders import alldebrid
 from program.services.downloaders.alldebrid import (
     AllDebridDownloader,
@@ -116,7 +117,7 @@ def test_delete(delete):
 
 # Example requests - taken from real API calls
 UBUNTU = "3648baf850d5930510c1f172b534200ebb5496e6"
-MAGNET_ID = '251993753'
+MAGNET_ID = "251993753"
 @pytest.fixture
 def instant():
     """GET /magnet/instant?magnets[0]=infohash (torrent available)"""
