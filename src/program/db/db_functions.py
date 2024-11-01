@@ -61,6 +61,17 @@ def get_media_items_by_ids(media_item_ids: list[int]):
                 session.expunge(item)
                 yield item
 
+
+def get_media_item_by_imdb_id(imdb_id: str):
+    """Retrieve a MediaItem by its IMDb ID."""
+    from program.media.item import MediaItem
+
+    with db.Session() as session:
+        return session.execute(
+            select(MediaItem)
+            .where(MediaItem.imdb_id == imdb_id)
+        ).unique().scalar_one_or_none()
+
 def get_parent_ids(media_item_ids: list[int]):
     """Retrieve the _ids of MediaItems of type 'movie' or 'show' by a list of MediaItem _ids."""
     from program.media.item import MediaItem
