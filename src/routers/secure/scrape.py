@@ -8,7 +8,7 @@ from pydantic import BaseModel, RootModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from program.db.db_functions import get_media_items_by_ids
+import program.db.db_functions as db_functions 
 from program.downloaders import Downloader
 from program.downloaders.shared import hash_from_uri
 from program.media.item import Episode, MediaItem, Season, Show
@@ -252,9 +252,12 @@ async def start_manual_session(
 
     if imdb_id:
         prepared_item = MediaItem({"imdb_id": imdb_id})
-        item = next(TraktIndexer().run(prepared_item))
+        if db_functions.ensure_item_exists_in_db(prepared_item):
+            item = db_functions.get_media_item_by_imdb_id(imdb_id)
+        else:
+            item = next(TraktIndexer().run(prepared_item))
     else:
-        item = next(get_media_items_by_ids([item_id]), None)
+        item = next(db_functions.get_media_items_by_ids([item_id]), None)
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -325,22 +328,14 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
 
         if str(session.item_id).startswith("tt"):
             prepared_item = MediaItem({"imdb_id": session.item_id})
-            item = next(TraktIndexer().run(prepared_item))
-            db_session.add(item)
-            db_session.commit()
+            if db_functions.ensure_item_exists_in_db(prepared_item):
+                item = db_functions.get_media_item_by_imdb_id(session.item_id)
+            else:
+                item = next(TraktIndexer().run(prepared_item))
+                db_functions.store_item(item)
+                item = db_functions.get_media_item_by_imdb_id(session.item_id)
         else:
-            item: MediaItem = (
-                db_session.execute(
-                    select(MediaItem)
-                    .where(MediaItem._id == session.item_id)
-                    .options(
-                        selectinload(Show.seasons)
-                        .selectinload(Season.episodes)
-                    )
-                )
-                .unique()
-                .scalar_one_or_none()
-            )
+            item = db_functions.get_item_from_db(session.item_id)
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
