@@ -127,9 +127,6 @@ class RealDebridDownloader(DownloaderBase):
         Get instant availability for multiple infohashes with retry logic
         Required by DownloaderBase
         """
-        if not self.initialized:
-            logger.error("Downloader not properly initialized")
-            return {}
 
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -144,7 +141,7 @@ class RealDebridDownloader(DownloaderBase):
 
                 # Check for empty response
                 if all(isinstance(data, list) for data in response.values()):
-                    logger.warning(f"Empty response received (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                    logger.debug(f"Empty response received (attempt {attempt + 1}/{self.MAX_RETRIES})")
                     time.sleep(self.RETRY_DELAY)
                     continue
 
@@ -155,12 +152,12 @@ class RealDebridDownloader(DownloaderBase):
                 }
 
             except Exception as e:
-                logger.error(f"Failed to get instant availability (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
+                logger.debug(f"Failed to get instant availability (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
                 continue
 
-        logger.error("All retry attempts failed for instant availability")
+        logger.debug("All retry attempts failed for instant availability")
         return {}
 
     def _filter_valid_containers(self, containers: List[dict]) -> List[dict]:
