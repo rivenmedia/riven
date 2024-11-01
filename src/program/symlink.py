@@ -274,7 +274,7 @@ class Symlinker:
     def delete_item_symlinks_by_id(self, item_id: int) -> bool:
         """Delete symlinks and directories based on the item ID."""
         with db.Session() as session:
-            item = session.execute(select(MediaItem).where(MediaItem._id == item_id)).unique().scalar_one()
+            item = session.execute(select(MediaItem).where(MediaItem.id == item_id)).unique().scalar_one()
             if not item:
                 logger.error(f"No item found with ID {item_id}")
                 return False

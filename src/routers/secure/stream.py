@@ -7,7 +7,7 @@ from loguru import logger
 import logging
 
 from pydantic import BaseModel
-from utils.sse_manager import sse_manager
+from program.managers.sse_manager import sse_manager
 
 
 router = APIRouter(

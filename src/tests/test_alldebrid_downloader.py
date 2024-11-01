@@ -1,8 +1,8 @@
 import json
 
 import pytest
-from program.downloaders import alldebrid
-from program.downloaders.alldebrid import (
+from program.services.downloaders import alldebrid
+from program.services.downloaders.alldebrid import (
     AllDebridDownloader,
     add_torrent,
     get_instant_availability,

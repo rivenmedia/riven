@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
 
 from program.settings.migratable import MigratableBaseModel
-from utils import generate_api_key, get_version
+from program.utils import generate_api_key, get_version
 
 deprecation_warning = "This has been deprecated and will be removed in a future version."
 

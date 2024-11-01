@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pyfakefs.fake_filesystem_unittest import Patcher
 
-from program.libraries.symlink import SymlinkLibrary
+from program.services.libraries.symlink import SymlinkLibrary
 from program.media.item import Episode, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager

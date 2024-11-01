@@ -7,9 +7,6 @@ from program.db.db_functions import (
     blacklist_stream,
     delete_media_item,
     delete_media_item_by_id,
-    delete_media_item_by_item_id,
-    delete_media_items_by_ids,
-    get_media_items_by_ids,
     reset_streams,
 )
 from program.media.item import Episode, MediaItem, Movie, Season, Show

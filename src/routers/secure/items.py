@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import NoResultFound
 
-from program.content import Overseerr
+from program.services.content import Overseerr
 from program.db.db import db, get_db
 import program.db.db_functions as db_functions
 from sqlalchemy.orm import Session
@@ -229,7 +229,7 @@ async def get_item(_: Request, id: int, use_tmdb_id: Optional[bool] = False) -> 
             if use_tmdb_id:
                 query = query.where(MediaItem.tmdb_id == str(id))
             else:
-                query = query.where(MediaItem._id == id)
+                query = query.where(MediaItem.imdb_id == id)
             item = session.execute(query).unique().scalar_one()
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -271,17 +271,16 @@ class ResetResponse(BaseModel):
 async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids = handle_ids(ids)
     try:
-        media_items_generator = db_functions.get_media_items_by_ids(ids)
-        for media_item in media_items_generator:
+        for media_item in db_functions.get_items_by_ids(ids):
             try:
-                request.app.program.em.cancel_job(media_item._id)
+                request.app.program.em.cancel_job(media_item.id)
                 db_functions.clear_streams(media_item)
                 db_functions.reset_media_item(media_item)
             except ValueError as e:
-                logger.error(f"Failed to reset item with id {media_item._id}: {str(e)}")
+                logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
                 continue
             except Exception as e:
-                logger.error(f"Unexpected error while resetting item with id {media_item._id}: {str(e)}")
+                logger.error(f"Unexpected error while resetting item with id {media_item.id}: {str(e)}")
                 continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -304,7 +303,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     ids = handle_ids(ids)
     for id in ids:
         try:
-            item = next(db_functions.get_media_items_by_ids([id]), None)
+            item = db_functions.get_item_by_id(id)
             if item:
                 with db.Session() as session:
                     item.scraped_at = None
@@ -332,7 +331,7 @@ class RemoveResponse(BaseModel):
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids: list[int] = handle_ids(ids)
     try:
-        media_items: list[int] = db_functions.get_parent_ids(ids)
+        media_items: list[int] = db_functions.get_items_by_ids(ids, ["movie", "show"])
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
         for item_id in media_items:
@@ -346,7 +345,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
                 symlink_service.delete_item_symlinks_by_id(item_id)
 
             with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem._id == item_id)).scalar_one()
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem.id == item_id)).scalar_one()
                 if requested_id:
                     logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
                     Overseerr.delete_request(requested_id)
@@ -366,7 +365,7 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_d
     item: MediaItem = (
         db.execute(
             select(MediaItem)
-            .where(MediaItem._id == item_id)
+            .where(MediaItem.id == item_id)
         )
         .unique()
         .scalar_one_or_none()
@@ -388,12 +387,12 @@ async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session
     item: MediaItem = (
         db.execute(
             select(MediaItem)
-            .where(MediaItem._id == item_id)
+            .where(MediaItem.id == item_id)
         )
         .unique()
         .scalar_one_or_none()
     )
-    stream = next((stream for stream in item.streams if stream._id == stream_id), None)
+    stream = next((stream for stream in item.streams if stream.id == stream_id), None)
 
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
@@ -411,13 +410,13 @@ async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Sessi
     item: MediaItem = (
         db.execute(
             select(MediaItem)
-            .where(MediaItem._id == item_id)
+            .where(MediaItem.id == item_id)
         )
         .unique()
         .scalar_one_or_none()
     )
 
-    stream = next((stream for stream in item.blacklisted_streams if stream._id == stream_id), None)
+    stream = next((stream for stream in item.blacklisted_streams if stream.id == stream_id), None)
 
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")

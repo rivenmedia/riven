@@ -6,18 +6,16 @@ from loguru import logger
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, RootModel
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
-import program.db.db_functions as db_functions 
-from program.downloaders import Downloader
-from program.downloaders.shared import hash_from_uri
-from program.media.item import Episode, MediaItem, Season, Show
-from program.scrapers import Scraping
+from program.services.downloaders import Downloader
+from program.services.downloaders.shared import hash_from_uri
+from program.media.item import Episode, MediaItem
+from program.services.scrapers import Scraping
 from program.types import Event
 from program.db.db import db
+import program.db.db_functions as db_functions
 from program.media.stream import Stream as ItemStream
-from program.scrapers.shared import rtn
-from program.indexers.trakt import TraktIndexer
+from program.services.scrapers.shared import rtn
+from program.services.indexers.trakt import TraktIndexer
 
 class Stream(BaseModel):
     infohash: str
@@ -211,7 +209,7 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
             item: MediaItem = (
                 db_session.execute(
                     select(MediaItem)
-                    .where(MediaItem._id == item_id)
+                    .where(MediaItem.id == item_id)
                 )
                 .unique()
                 .scalar_one_or_none()
@@ -253,11 +251,11 @@ async def start_manual_session(
     if imdb_id:
         prepared_item = MediaItem({"imdb_id": imdb_id})
         if db_functions.ensure_item_exists_in_db(prepared_item):
-            item = db_functions.get_media_item_by_imdb_id(imdb_id)
+            item = db_functions.get_item_by_external_id(imdb_id = imdb_id)
         else:
             item = next(TraktIndexer().run(prepared_item))
     else:
-        item = next(db_functions.get_media_items_by_ids([item_id]), None)
+        item = db_functions.get_item_by_id(item_id)
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -325,17 +323,16 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
         raise HTTPException(status_code=500, detail="")
 
     with db.Session() as db_session:
-
-        if str(session.item_id).startswith("tt"):
+        if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id):
             prepared_item = MediaItem({"imdb_id": session.item_id})
             if db_functions.ensure_item_exists_in_db(prepared_item):
-                item = db_functions.get_media_item_by_imdb_id(session.item_id)
+                item = db_functions.get_item_by_external_id(imdb_id = session.item_id)
             else:
                 item = next(TraktIndexer().run(prepared_item))
                 db_functions.store_item(item)
-                item = db_functions.get_media_item_by_imdb_id(session.item_id)
+                item = db_functions.get_item_by_external_id(imdb_id = session.item_id)
         else:
-            item = db_functions.get_item_from_db(session.item_id)
+            item : MediaItem = db_functions.get_item_by_id(session.item_id)
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -343,7 +340,7 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
         item_ids_to_submit = []
 
         if item.type == "movie":
-            request.app.program.em.cancel_job(item._id)
+            request.app.program.em.cancel_job(item.id)
             item.reset()
             item.file = data.filename
             item.folder = data.filename
@@ -351,13 +348,13 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
             torrent = rtn.rank(session.magnet, session.magnet)
             item.streams.append(ItemStream(torrent))
-            item_ids_to_submit.append(item._id)
+            item_ids_to_submit.append(item.id)
         else:
             for season, episodes in data.root.items():
                 for episode, episode_data in episodes.items():
                     item_episode: Episode = next((_episode for _season in item.seasons if _season.number == season for _episode in _season.episodes if _episode.number == episode), None)
                     if item_episode:
-                        request.app.program.em.cancel_job(item._id)
+                        request.app.program.em.cancel_job(item.id)
                         item_episode.reset()
                         item_episode.file = episode_data.filename
                         item_episode.folder = episode_data.filename
@@ -365,7 +362,7 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
                         item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
                         torrent = rtn.rank(session.magnet, session.magnet)
                         item_episode.streams.append(ItemStream(torrent))
-                        item_ids_to_submit.append(item_episode._id)
+                        item_ids_to_submit.append(item_episode.id)
         item.store_state()
         log_string = item.log_string
         db_session.commit()
