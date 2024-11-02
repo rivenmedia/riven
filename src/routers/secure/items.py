@@ -27,8 +27,8 @@ router = APIRouter(
 )
 
 
-def handle_ids(ids: str) -> list[int]:
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+def handle_ids(ids: str) -> list[str]:
+    ids = [str(id) for id in ids.split(",")] if "," in ids else [str(ids)]
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
@@ -218,12 +218,12 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
     description="Fetch a single media item by ID",
     operation_id="get_item",
 )
-async def get_item(_: Request, id: int, use_tmdb_id: Optional[bool] = False) -> dict:
+async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
     with db.Session() as session:
         try:
             query = select(MediaItem)
             if use_tmdb_id:
-                query = query.where(MediaItem.tmdb_id == str(id))
+                query = query.where(MediaItem.tmdb_id == id)
             else:
                 query = query.where(MediaItem.imdb_id == id)
             item = session.execute(query).unique().scalar_one()
@@ -255,7 +255,7 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[int]
+    ids: list[str]
 
 
 @router.post(
@@ -285,7 +285,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[int]
+    ids: list[str]
 
 
 @router.post(
@@ -315,7 +315,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
 
 class RemoveResponse(BaseModel):
     message: str
-    ids: list[int]
+    ids: list[str]
 
 
 @router.delete(
@@ -325,30 +325,30 @@ class RemoveResponse(BaseModel):
     operation_id="remove_item",
 )
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
-    ids: list[int] = handle_ids(ids)
+    ids: list[str] = handle_ids(ids)
     try:
-        media_items: list[int] = db_functions.get_items_by_ids(ids, ["movie", "show"])
+        media_items: list[str] = db_functions.get_items_by_ids(ids, ["movie", "show"])
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
-        for item_id in media_items:
-            logger.debug(f"Removing item with ID {item_id}")
-            request.app.program.em.cancel_job(item_id)
+        for item in media_items:
+            logger.debug(f"Removing item with ID {item.id}")
+            request.app.program.em.cancel_job(item.id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            db_functions.clear_streams_by_id(item_id)
+            db_functions.clear_streams_by_id(item.id)
 
             symlink_service = request.app.program.services.get(Symlinker)
             if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(item_id)
+                symlink_service.delete_item_symlinks_by_id(item.id)
 
             with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem.id == item_id)).scalar_one()
+                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem.id == item.id)).scalar_one()
                 if requested_id:
                     logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
                     Overseerr.delete_request(requested_id)
 
-            logger.debug(f"Deleting item from database with ID {item_id}")
-            db_functions.delete_media_item_by_id(item_id)
-            logger.info(f"Successfully removed item with ID {item_id}")
+            logger.debug(f"Deleting item from database with ID {item.id}")
+            db_functions.delete_media_item_by_id(item.id)
+            logger.info(f"Successfully removed item with ID {item.id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -357,7 +357,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
 @router.get(
     "/{item_id}/streams"
 )
-async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
+async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -379,7 +379,7 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_d
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist"
 )
-async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -402,7 +402,7 @@ async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session
 @router.post(
     "{item_id}/streams/{stream_id}/unblacklist"
 )
-async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)

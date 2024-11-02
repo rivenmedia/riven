@@ -123,6 +123,12 @@ class TraktIndexer:
                 show.add_season(season_item)
 
 
+def _assign_item_type(item_type):
+    if item_type == "movie":
+        return "movie"
+    return "show"
+
+
 def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
     """Map trakt.tv API data to MediaItemContainer."""
     if item_type not in ["movie", "show", "season", "episode"]:
@@ -146,6 +152,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
+        "type": _assign_item_type(item_type),
     }
 
     item["is_anime"] = (

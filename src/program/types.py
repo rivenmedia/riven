@@ -44,7 +44,7 @@ class ProcessedEvent:
 @dataclass
 class Event:
     emitted_by: Service
-    item_id: Optional[int] = None
+    item_id: Optional[str] = None
     content_item: Optional[MediaItem] = None
     run_at: datetime = datetime.now()
 

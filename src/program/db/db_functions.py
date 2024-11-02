@@ -19,8 +19,8 @@ from .db import alembic, db
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
-def get_item_by_id(id: str, item_types = None, session = None):
-    if not id:
+def get_item_by_id(item_id: str, item_types = None, session = None):
+    if not item_id:
         return None
 
     from program.media.item import MediaItem, Season, Show
@@ -28,7 +28,7 @@ def get_item_by_id(id: str, item_types = None, session = None):
 
     with _session:
         query = (select(MediaItem)
-            .where(MediaItem.id == id)
+            .where(MediaItem.id == item_id)
             .options(
                 selectinload(Show.seasons)
                 .selectinload(Season.episodes)
@@ -79,7 +79,7 @@ def delete_media_item(item: "MediaItem"):
         session.delete(item)
         session.commit()
 
-def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
+def delete_media_item_by_id(media_item_id: str, batch_size: int = 30):
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
     from sqlalchemy.exc import IntegrityError
 
@@ -132,7 +132,7 @@ def delete_media_item_by_id(media_item_id: int, batch_size: int = 30):
             session.rollback()
             return False
 
-def delete_seasons_and_episodes(session, season_ids: list[int], batch_size: int = 30):
+def delete_seasons_and_episodes(session, season_ids: list[str], batch_size: int = 30):
     """Delete seasons and episodes of a show in batches, committing after each batch."""
     from program.media.item import Episode, Season
     from program.media.stream import StreamBlacklistRelation, StreamRelation
@@ -187,7 +187,7 @@ def clear_streams(item: "MediaItem"):
     """Clear all streams for a media item."""
     reset_streams(item)
 
-def clear_streams_by_id(media_item_id: int):
+def clear_streams_by_id(media_item_id: str):
     """Clear all streams for a media item by the MediaItem id."""
     with db.Session() as session:
         session.execute(
@@ -267,7 +267,7 @@ def unblacklist_stream(item: "MediaItem", stream: Stream, session: Session = Non
         if close_session:
             session.close()
 
-def get_item_ids(session, item_id: int) -> tuple[int, list[int]]:
+def get_item_ids(session, item_id: str) -> tuple[str, list[str]]:
     """Get the item ID and all related item IDs for a given MediaItem."""
     from program.media.item import Episode, MediaItem, Season
 
