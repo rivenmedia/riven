@@ -327,13 +327,23 @@ class RemoveResponse(BaseModel):
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids: list[str] = handle_ids(ids)
     try:
-        media_items: list[str] = db_functions.get_items_by_ids(ids, ["movie", "show"])
+        media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
         for item in media_items:
             logger.debug(f"Removing item with ID {item.id}")
             request.app.program.em.cancel_job(item.id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
+            if item.type == "show":
+                for season in item.seasons:
+                    for episode in season.episodes:
+                        request.app.program.em.cancel_job(episode.id)
+                        await asyncio.sleep(0.2)
+                        db_functions.delete_media_item_by_id(episode.id)
+                    request.app.program.em.cancel_job(season.id)
+                    await asyncio.sleep(0.2)
+                    db_functions.delete_media_item_by_id(season.id)
+
             db_functions.clear_streams_by_id(item.id)
 
             symlink_service = request.app.program.services.get(Symlinker)
