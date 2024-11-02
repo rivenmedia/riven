@@ -176,10 +176,10 @@ session_manager = ScrapingSessionManager()
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
-def initialize_downloader(request: Request):
+def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
     if not session_manager.downloader:
-        session_manager.set_downloader(request.app.program.services.get(Downloader))
+        session_manager.set_downloader(downloader)
 
 @router.get(
     "/scrape/{id}",
@@ -193,7 +193,7 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
         item_id = None
     else:
         imdb_id = None
-        item_id = int(id)
+        item_id = id
 
     if services := request.app.program.services:
         indexer = services[TraktIndexer]
@@ -238,35 +238,38 @@ async def start_manual_session(
     item_id: str,
     magnet: str
 ) -> StartSessionResponse:
-    downloader: Downloader = request.app.program.services.get(Downloader)
-    session_manager.cleanup_expired(background_tasks)  # Cleanup on new session start
-    initialize_downloader(request)
+    session_manager.cleanup_expired(background_tasks)
+    info_hash = hash_from_uri(magnet).lower()
 
-    hash = hash_from_uri(magnet).lower()
-
+    # Identify item based on IMDb or database ID
     if item_id.startswith("tt"):
         imdb_id = item_id
         item_id = None
     else:
         imdb_id = None
-        item_id = int(item_id)
+        item_id = item_id
+
+    if services := request.app.program.services:
+        indexer = services[TraktIndexer]
+        downloader = services[Downloader]
+    else:
+        raise HTTPException(status_code=412, detail="Required services not initialized")
+
+    initialize_downloader(downloader)
 
     if imdb_id:
         prepared_item = MediaItem({"imdb_id": imdb_id})
-        if db_functions.ensure_item_exists_in_db(prepared_item):
-            item = db_functions.get_item_by_external_id(imdb_id = imdb_id)
-        else:
-            item = next(TraktIndexer().run(prepared_item))
+        item = next(indexer.run(prepared_item))
     else:
         item = db_functions.get_item_by_id(item_id)
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    session = session_manager.create_session(item_id or imdb_id, hash)
+    session = session_manager.create_session(item_id or imdb_id, info_hash)
 
     try:
-        torrent_id = downloader.add_torrent(hash)
+        torrent_id = downloader.add_torrent(info_hash)
         torrent_info = downloader.get_torrent_info(torrent_id)
         containers = downloader.get_instant_availability([session.magnet]).get(session.magnet, None)
         session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=containers)
@@ -303,6 +306,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
 
     try:
         downloader.select_files(session.torrent_id, files.model_dump())
+        session.selected_files = files.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -328,12 +332,9 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
     with db.Session() as db_session:
         if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id):
             prepared_item = MediaItem({"imdb_id": session.item_id})
-            if db_functions.ensure_item_exists_in_db(prepared_item):
-                item = db_functions.get_item_by_external_id(imdb_id = session.item_id)
-            else:
-                item = next(TraktIndexer().run(prepared_item))
-                db_functions.store_item(item)
-                item = db_functions.get_item_by_external_id(imdb_id = session.item_id)
+            item = next(TraktIndexer().run(prepared_item))
+            db_session.merge(item)
+            db_session.commit()
         else:
             item : MediaItem = db_functions.get_item_by_id(session.item_id)
 
@@ -368,6 +369,7 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
                         item_ids_to_submit.append(item_episode.id)
         item.store_state()
         log_string = item.log_string
+        db_session.merge(item)
         db_session.commit()
 
     for item_id in item_ids_to_submit:
