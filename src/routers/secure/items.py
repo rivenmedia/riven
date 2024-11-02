@@ -327,7 +327,7 @@ class RemoveResponse(BaseModel):
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids: list[int] = handle_ids(ids)
     try:
-        media_items: list[int] = db_functions.get_items_by_ids(ids, ["movie", "show"])
+        media_items: list[str] = db_functions.get_items_by_ids(ids, ["movie", "show"])
         if not media_items:
             return HTTPException(status_code=404, detail="Item(s) not found")
         for item_id in media_items:
@@ -357,7 +357,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
 @router.get(
     "/{item_id}/streams"
 )
-async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
+async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -379,7 +379,7 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_d
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist"
 )
-async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -402,7 +402,7 @@ async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session
 @router.post(
     "{item_id}/streams/{stream_id}/unblacklist"
 )
-async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)

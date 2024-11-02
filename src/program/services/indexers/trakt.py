@@ -146,6 +146,7 @@ def _map_item_from_data(data, item_type: str, show_genres: List[str] = None) -> 
         "country": getattr(data, "country", None),
         "language": getattr(data, "language", None),
         "requested_at": datetime.now(),
+        "type": item_type,
     }
 
     item["is_anime"] = (

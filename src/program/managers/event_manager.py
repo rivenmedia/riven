@@ -111,7 +111,7 @@ class EventManager:
             self._running_events.remove(event)
             logger.debug(f"Removed {event.log_message} from running events.")
 
-    def remove_id_from_queue(self, item_id: int):
+    def remove_id_from_queue(self, item_id: str):
         """
         Removes an item from the queue.
 
@@ -133,7 +133,7 @@ class EventManager:
             self._running_events.append(event)
             logger.debug(f"Added {event.log_message} to running events.")
 
-    def remove_id_from_running(self, item_id: int):
+    def remove_id_from_running(self, item_id: str):
         """
         Removes an item from the running events.
 
@@ -144,12 +144,12 @@ class EventManager:
             if event.item_id == item_id:
                 self.remove_event_from_running(event)
 
-    def remove_id_from_queues(self, item_id: int):
+    def remove_id_from_queues(self, item_id: str):
         """
         Removes an item from both the queue and the running events.
 
         Args:
-            item (MediaItem): The event item to remove from both the queue and the running events.
+            item_id: The event item to remove from both the queue and the running events.
         """
         self.remove_id_from_queue(item_id)
         self.remove_id_from_running(item_id)
@@ -180,7 +180,7 @@ class EventManager:
         sse_manager.publish_event("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
 
-    def cancel_job(self, item_id: int, suppress_logs=False):
+    def cancel_job(self, item_id: str, suppress_logs=False):
         """
         Cancels a job associated with the given item.
 
@@ -308,7 +308,7 @@ class EventManager:
                 logger.debug(f"Added item with IMDB ID {item.imdb_id} to the queue.")
 
 
-    def get_event_updates(self) -> Dict[str, List[int]]:
+    def get_event_updates(self) -> Dict[str, List[str]]:
         events = [future.event for future in self._futures if hasattr(future, "event")]
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
 
