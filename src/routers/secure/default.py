@@ -126,7 +126,7 @@ class StatsResponse(BaseModel):
     total_episodes: int
     total_symlinks: int
     incomplete_items: int
-    incomplete_retries: dict[int, int] = Field(
+    incomplete_retries: dict[str, int] = Field(
         description="Media item log string: number of retries"
     )
     states: dict[States, int]
