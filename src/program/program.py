@@ -351,46 +351,56 @@ class Program(threading.Thread):
         """Initialize the database from symlinks."""
         start_time = datetime.now()
         with db.Session() as session:
-            res = session.execute(select(func.count(MediaItem.id))).scalar_one()
-            errors = []
-            added_items = set()
+            # Check if database is empty
+            if not session.execute(select(func.count(MediaItem.id))).scalar_one():
+                if not settings_manager.settings.map_metadata:
+                    return
 
-            if res == 0 and settings_manager.settings.map_metadata:
                 logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
                 items = self.services[SymlinkLibrary].run()
+                errors = []
+                added_items = set()
+
                 progress, console = create_progress_bar(len(items))
-
                 task = progress.add_task("Enriching items with metadata", total=len(items), log="")
-                with Live(progress, console=console, refresh_per_second=10):
-                    workers = os.getenv("SYMLINK_MAX_WORKERS", 4)
-                    with ThreadPoolExecutor(thread_name_prefix="EnhanceSymlinks", max_workers=int(workers)) as executor:
-                        future_to_item = {executor.submit(self._enhance_item, item): item for item in items if isinstance(item, (Movie, Show))}
-                        for future in as_completed(future_to_item):
-                            try:
-                                item = future_to_item[future]
-                                if item and item.id not in added_items:
-                                    # Check for existing item in the database
-                                    existing_item = session.query(MediaItem).filter_by(id=item.id).first()
-                                    if existing_item:
-                                        errors.append(f"Duplicate item found in database for id: {item.id}")
-                                        continue
 
-                                    added_items.add(item.id)
-                                    enhanced_item = future.result()
-                                    enhanced_item.store_state()
-                                    session.add(enhanced_item)
-                                    log_message = f"Indexed IMDb Id: {enhanced_item.id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
-                                else:
+                with Live(progress, console=console, refresh_per_second=10):
+                    workers = int(os.getenv("SYMLINK_MAX_WORKERS", 4))
+                    with ThreadPoolExecutor(thread_name_prefix="EnhanceSymlinks", max_workers=workers) as executor:
+                        future_to_item = {
+                            executor.submit(self._enhance_item, item): item
+                            for item in items
+                            if isinstance(item, (Movie, Show))
+                        }
+
+                        for future in as_completed(future_to_item):
+                            item = future_to_item[future]
+                            log_message = ""
+
+                            try:
+                                if not item or item.imdb_id in added_items:
                                     errors.append(f"Duplicate symlink directory found for {item.log_string}")
                                     continue
+
+                                # Check for existing item using your db_functions
+                                if db_functions.get_item_by_id(item.id, session=session):
+                                    errors.append(f"Duplicate item found in database for id: {item.id}")
+                                    continue
+
+                                enhanced_item = future.result()
+                                enhanced_item.store_state()
+                                session.add(enhanced_item)
+                                added_items.add(item.imdb_id)
+
+                                log_message = f"Indexed IMDb Id: {enhanced_item.id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
+
                             except Exception as e:
                                 logger.exception(f"Error processing {item.log_string}: {e}")
                             finally:
-                                progress.update(task, advance=1, log=log_message if "log_message" in locals() else "")
-                        progress.update(task, log="Finished Indexing Symlinks!")
+                                progress.update(task, advance=1, log=log_message)
 
-                    session.commit()
-                    session.expunge_all()
+                        progress.update(task, log="Finished Indexing Symlinks!")
+                        session.commit()
 
                 if errors:
                     logger.error("Errors encountered during initialization")
