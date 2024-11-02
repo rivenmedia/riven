@@ -108,8 +108,9 @@ class EventManager:
 
     def remove_event_from_running(self, event: Event):
         with self.mutex:
-            self._running_events.remove(event)
-            logger.debug(f"Removed {event.log_message} from running events.")
+            if event in self._running_events:
+                self._running_events.remove(event)
+                logger.debug(f"Removed {event.log_message} from running events.")
 
     def remove_id_from_queue(self, item_id: str):
         """
