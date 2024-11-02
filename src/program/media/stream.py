@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class StreamRelation(db.Model):
     __tablename__ = "StreamRelation"
 
-    _id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"))
     child_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
 
@@ -26,7 +26,7 @@ class StreamRelation(db.Model):
 class StreamBlacklistRelation(db.Model):
     __tablename__ = "StreamBlacklistRelation"
 
-    _id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     media_item_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"))
     stream_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
 
