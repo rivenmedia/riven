@@ -136,8 +136,18 @@ class Mediafusion:
         torrents: Dict[str, str] = {}
 
         for stream in response.data.streams:
-            raw_title = stream.description.split("\n💾")[0].replace("📂 ", "")
-            info_hash = stream.url.split("?info_hash=")[1]
+            description_split = stream.description.split("\n💾")
+            if len(description_split) < 2:
+                logger.warning(f"Invalid stream description: {stream.description}")
+                continue
+            raw_title = description_split[0].replace("📂 ", "")
+            
+            url_split = stream.url.split("?info_hash=")
+            if len(url_split) < 2:
+                logger.warning(f"Invalid stream URL: {stream.url}")
+                continue
+            info_hash = url_split[1]
+
             if not info_hash or not raw_title:
                 continue
 
