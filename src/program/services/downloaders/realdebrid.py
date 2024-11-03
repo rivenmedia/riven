@@ -130,6 +130,9 @@ class RealDebridDownloader(DownloaderBase):
         Required by DownloaderBase
         """
 
+        if len(infohashes) == 0:
+            return {}
+
         for attempt in range(self.MAX_RETRIES):
             try:
                 response = self.api._request(
