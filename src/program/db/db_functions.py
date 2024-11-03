@@ -7,7 +7,7 @@ import alembic
 from loguru import logger
 from sqlalchemy import delete, desc, func, insert, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
@@ -51,11 +51,14 @@ def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: i
     from program.media.item import MediaItem, Season, Show
 
     _session = session if session else db.Session()
-    query = (select(MediaItem)
-            .options(
-                selectinload(Show.seasons)
-                .selectinload(Season.episodes)
-            ))
+    query = (
+        select(MediaItem)
+        .options(
+            joinedload(Show.seasons)
+            .joinedload(Season.episodes),
+            joinedload(Season.episodes)
+        )
+    )
 
     if imdb_id:
         query = query.where(MediaItem.imdb_id == imdb_id)

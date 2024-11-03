@@ -17,11 +17,11 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
     items_to_submit = []
 
 #TODO - Reindex non-released badly indexed items here
-    if content_item or existing_item.last_state == States.Requested:
+    if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
         next_service = TraktIndexer
         return next_service, [content_item or existing_item]
 
-    elif existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:
+    elif existing_item is not None and existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:
         if existing_item.type == "show":
             for season in existing_item.seasons:
                 if season.last_state not in [States.Completed, States.Unreleased]:
@@ -33,7 +33,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
                     _, sub_items = process_event(emitted_by, episode, None)
                     items_to_submit += sub_items
 
-    elif existing_item.last_state == States.Indexed:
+    elif existing_item is not None and existing_item.last_state == States.Indexed:
         next_service = Scraping
         if emitted_by != Scraping and Scraping.can_we_scrape(existing_item):
             items_to_submit = [existing_item]
@@ -42,19 +42,19 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         elif existing_item.type == "season":
             items_to_submit = [e for e in existing_item.episodes if e.last_state != States.Completed and Scraping.can_we_scrape(e)]
 
-    elif existing_item.last_state == States.Scraped:
+    elif existing_item is not None and existing_item.last_state == States.Scraped:
         next_service = Downloader
         items_to_submit = [existing_item]
 
-    elif existing_item.last_state == States.Downloaded:
+    elif existing_item is not None and existing_item.last_state == States.Downloaded:
         next_service = Symlinker
         items_to_submit = [existing_item]
 
-    elif existing_item.last_state == States.Symlinked:
+    elif existing_item is not None and existing_item.last_state == States.Symlinked:
         next_service = Updater
         items_to_submit = [existing_item]
 
-    elif existing_item.last_state == States.Completed:
+    elif existing_item is not None and existing_item.last_state == States.Completed:
         # If a user manually retries an item, lets not notify them again
         if emitted_by not in ["RetryItem", PostProcessing]:
             notify(existing_item)

@@ -1,6 +1,7 @@
 import os
 import threading
 import traceback
+from asyncio import CancelledError
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
@@ -65,6 +66,11 @@ class EventManager:
             future (concurrent.futures.Future): The future to process.
             service (type): The service class associated with the future.
         """
+
+        if future.cancelled():
+            logger.debug(f"Future for {future} was cancelled.")
+            return  # Skip processing if the future was cancelled
+
         try:
             result = future.result()
             if future in self._futures:
