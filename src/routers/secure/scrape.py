@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
@@ -320,7 +321,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
     summary="Match container files to item",
     operation_id="manual_update_attributes"
 )
-def manual_update_attributes(request: Request, session_id, data: Union[ContainerFile, ShowFileData]) -> UpdateAttributesResponse:
+async def manual_update_attributes(request: Request, session_id, data: Union[ContainerFile, ShowFileData]) -> UpdateAttributesResponse:
     session = session_manager.get_session(session_id)
     log_string = None
     if not session:
@@ -330,13 +331,13 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
         raise HTTPException(status_code=500, detail="")
 
     with db.Session() as db_session:
-        if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id):
+        if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id) and not db_functions.get_item_by_id(session.item_id):
             prepared_item = MediaItem({"imdb_id": session.item_id})
             item = next(TraktIndexer().run(prepared_item))
             db_session.merge(item)
             db_session.commit()
         else:
-            item : MediaItem = db_functions.get_item_by_id(session.item_id)
+          item = db_functions.get_item_by_id(session.item_id)
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -354,11 +355,17 @@ def manual_update_attributes(request: Request, session_id, data: Union[Container
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.append(item.id)
         else:
+            request.app.program.em.cancel_job(item.id)
+            await asyncio.sleep(0.2)
+            for season in item.seasons:
+                request.app.program.em.cancel_job(season.id)
+                await asyncio.sleep(0.2)
             for season, episodes in data.root.items():
                 for episode, episode_data in episodes.items():
                     item_episode: Episode = next((_episode for _season in item.seasons if _season.number == season for _episode in _season.episodes if _episode.number == episode), None)
                     if item_episode:
-                        request.app.program.em.cancel_job(item.id)
+                        request.app.program.em.cancel_job(item_episode.id)
+                        await asyncio.sleep(0.2)
                         item_episode.reset()
                         item_episode.file = episode_data.filename
                         item_episode.folder = episode_data.filename
