@@ -269,14 +269,6 @@ class ProwlarrConfig(Observable):
     limiter_seconds: int = 60
 
 
-class AnnatarConfig(Observable):
-    enabled: bool = False
-    url: str = "http://annatar.elfhosted.com"
-    limit: int = 2000
-    timeout: int = 30
-    ratelimit: bool = True
-
-
 class TorBoxScraperConfig(Observable):
     enabled: bool = False
     timeout: int = 30
@@ -293,7 +285,6 @@ class ScraperModel(Observable):
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
-    annatar: AnnatarConfig = AnnatarConfig()
     torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()

@@ -7,7 +7,6 @@ from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.annatar import Annatar
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.knightcrawler import Knightcrawler
@@ -27,7 +26,6 @@ class Scraping:
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.services = {
-            Annatar: Annatar(),
             Torrentio: Torrentio(),
             Knightcrawler: Knightcrawler(),
             Orionoid: Orionoid(),
