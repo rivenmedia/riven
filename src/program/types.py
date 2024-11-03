@@ -15,21 +15,21 @@ from program.services.downloaders import AllDebridDownloader, RealDebridDownload
 # TorBoxDownloader,
 from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
-    Annatar,
+    Comet,
     Jackett,
     Knightcrawler,
     Mediafusion,
     Orionoid,
     Scraping,
+    TorBoxScraper,
     Torrentio,
     Zilean,
 )
-from program.services.scrapers.torbox import TorBoxScraper
 from program.services.updaters import Updater
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Annatar, TorBoxScraper, Zilean]
+Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, TorBoxScraper, Zilean, Comet]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[RealDebridDownloader,
                 #    TorBoxDownloader,
