@@ -35,12 +35,12 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
 
     elif existing_item is not None and existing_item.last_state == States.Indexed:
         next_service = Scraping
-        if emitted_by != Scraping and Scraping.can_we_scrape(existing_item):
+        if emitted_by != Scraping and Scraping.should_submit(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":
-            items_to_submit = [s for s in existing_item.seasons if s.last_state != States.Completed and Scraping.can_we_scrape(s)]
+            items_to_submit = [s for s in existing_item.seasons if s.last_state != States.Completed and Scraping.should_submit(s)]
         elif existing_item.type == "season":
-            items_to_submit = [e for e in existing_item.episodes if e.last_state != States.Completed and Scraping.can_we_scrape(e)]
+            items_to_submit = [e for e in existing_item.episodes if e.last_state != States.Completed and Scraping.should_submit(e)]
 
     elif existing_item is not None and existing_item.last_state == States.Scraped:
         next_service = Downloader
