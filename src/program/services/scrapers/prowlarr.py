@@ -215,9 +215,8 @@ class Prowlarr:
         """Get the indexers from Prowlarr"""
         url = f"{self.settings.url}/api/v1/indexer?apikey={self.api_key}"
         try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return self._get_indexer_from_json(response.text)
+            response = get(self.session, url=url, timeout=self.timeout)
+            return self._get_indexer_from_json(response.response.text)
         except Exception as e:
             logger.error(f"Exception while getting indexers from Prowlarr: {e}")
             return []
@@ -227,14 +226,14 @@ class Prowlarr:
         indexer_list = []
         for indexer in json.loads(json_content):
             indexer_list.append(ProwlarrIndexer(title=indexer["name"], id=str(indexer["id"]), link=indexer["infoLink"], type=indexer["protocol"], language=indexer["language"], movie_search_capabilities=(s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None, tv_search_capabilities=(s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None))
-            
+
         return indexer_list
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
             response = get(self.session, url, params=params, timeout=self.timeout)
-            return self._parse_xml(response.data, indexer_title)
+            return self._parse_xml(response.response.text, indexer_title)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type.title()} with indexer {indexer_title}")
         except Exception as e:

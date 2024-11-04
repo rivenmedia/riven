@@ -26,7 +26,7 @@ class PlexWatchlist:
             logger.error("Plex token is not set!")
             return False
         try:
-            self.api.validate()
+            self.api.validate_account()
         except Exception as e:
             logger.error(f"Unable to authenticate Plex account: {e}")
             return False

@@ -207,9 +207,8 @@ class Jackett:
         """Get the indexers from Jackett"""
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
         try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return self._get_indexer_from_xml(response.text)
+            response = get(session=self.session, url=url, timeout=self.settings.timeout)
+            return self._get_indexer_from_xml(response.response.text)
         except Exception as e:
             logger.error(f"Exception while getting indexers from Jackett: {e}")
             return []
@@ -243,7 +242,7 @@ class Jackett:
         """Fetch results from the given indexer"""
         try:
             response = get(session=self.session, url=url, params=params, timeout=self.settings.timeout)
-            return self._parse_xml(response.data)
+            return self._parse_xml(response.response.text)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:
