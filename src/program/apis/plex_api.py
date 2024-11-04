@@ -63,7 +63,7 @@ class PlexAPI:
         rss_items: list[str] = []
         for rss_url in self.rss_urls:
             try:
-                response = self.request_handler.execute(HttpMethod.GET, rss_url + "?format=json", timeout=60, response_type=ResponseType.DICT)
+                response = self.request_handler.execute(HttpMethod.GET, rss_url + "?format=json", overriden_response_type=ResponseType.DICT, timeout=60)
                 for _item in response.data.get("items", []):
                     imdb_id = self.extract_imdb_ids(_item.get("guids", []))
                     if imdb_id and imdb_id.startswith("tt"):
