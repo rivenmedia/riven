@@ -44,7 +44,7 @@ class Orionoid:
             return False
         try:
             url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-            response = self.request_handler.execute(HttpMethod.GET, url, retry_if_failed=True, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             if response.is_ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
                     logger.error(
@@ -66,7 +66,7 @@ class Orionoid:
     def check_premium(self) -> bool:
         """Check if the user is active, has a premium account, and has RealDebrid service enabled."""
         url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-        response = self.request_handler.execute(HttpMethod.GET, url, retry_if_failed=False)
+        response = self.request_handler.execute(HttpMethod.GET, url)
         if response.is_ok and hasattr(response.data, "data"):
             active = response.data.data.status == "active"
             premium = response.data.data.subscription.package.premium
