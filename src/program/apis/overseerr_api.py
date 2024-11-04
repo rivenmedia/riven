@@ -7,7 +7,17 @@ from urllib3.exceptions import MaxRetryError
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import delete, get, ping, post, get_rate_limit_params, create_service_session
+from program.utils.request import BaseRequestHandler, Session, ResponseType, HttpMethod, ResponseObject, get_rate_limit_params, create_service_session
+
+class OverseerrAPIError(Exception):
+    """Base exception for OverseerrAPI related errors"""
+
+class OverseerrRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
+        super().__init__(session, base_url=base_url, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=OverseerrAPIError, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
+        return super()._request(method, endpoint, **kwargs)
 
 
 class OverseerrAPI:
@@ -15,24 +25,20 @@ class OverseerrAPI:
 
     def __init__(self, api_key: str, base_url: str):
         self.api_key = api_key
-        self.BASE_URL = base_url
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
-        self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
+        session = create_service_session(rate_limit_params=rate_limit_params)
         self.trakt_api = TraktAPI(rate_limit=False)
         self.headers = {"X-Api-Key": self.api_key}
-        self.session.headers.update(self.headers)
+        session.headers.update(self.headers)
+        self.request_handler = OverseerrRequestHandler(session, base_url=base_url)
 
     def validate(self):
-        return ping(
-            session=self.session,
-            url=self.BASE_URL + "/api/v1/auth/me",
-            timeout=30,
-            )
+        return self.request_handler.execute(HttpMethod.GET, "api/v1/auth/me", timeout=30)
 
     def get_media_requests(self, service_key: str) -> list[MediaItem]:
         """Get media requests from `Overseerr`"""
         try:
-            response = get(session=self.session, url=self.BASE_URL + f"/api/v1/request?take={10000}&filter=approved&sort=added")
+            response = self.request_handler.execute(HttpMethod.GET, f"api/v1/request?take={10000}&filter=approved&sort=added")
             if not response.is_ok:
                 logger.error(f"Failed to fetch requests from overseerr: {response.data}")
                 return []
@@ -82,10 +88,7 @@ class OverseerrAPI:
             external_id = data.tmdbId
 
         try:
-            response = get(
-                session=self.session,
-                url=self.BASE_URL + f"/api/v1/{data.mediaType}/{external_id}?language=en",
-            )
+            response = self.request_handler.execute(HttpMethod.GET, f"api/v1/{data.mediaType}/{external_id}?language=en")
         except (ConnectionError, RetryError, MaxRetryError) as e:
             logger.error(f"Failed to fetch media details from overseerr: {str(e)}")
             return None
@@ -122,11 +125,7 @@ class OverseerrAPI:
         settings = settings_manager.settings.content.overseerr
         headers = {"X-Api-Key": settings.api_key}
         try:
-            response = delete(
-                session=self.session,
-                url=self.BASE_URL + f"/api/v1/request/{mediaId}",
-                additional_headers=headers,
-            )
+            response = self.request_handler.execute(HttpMethod.DELETE, f"api/v1/request/{mediaId}", additional_headers=headers)
             logger.debug(f"Deleted request {mediaId} from overseerr")
             return response.is_ok == True
         except Exception as e:
@@ -136,11 +135,7 @@ class OverseerrAPI:
     def mark_processing(self, mediaId: int) -> bool:
         """Mark item as processing in overseerr"""
         try:
-            response = post(
-                session=self.session,
-                url=self.BASE_URL + f"/api/v1/media/{mediaId}/pending",
-                data={"is4k": False},
-            )
+            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/pending", data={"is4k": False})
             logger.info(f"Marked media {mediaId} as processing in overseerr")
             return response.is_ok
         except Exception as e:
@@ -150,11 +145,7 @@ class OverseerrAPI:
     def mark_partially_available(self, mediaId: int) -> bool:
         """Mark item as partially available in overseerr"""
         try:
-            response = post(
-                session=self.session,
-                url=self.BASE_URL + f"/api/v1/media/{mediaId}/partial",
-                data={"is4k": False},
-            )
+            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/partial", data={"is4k": False})
             logger.info(f"Marked media {mediaId} as partially available in overseerr")
             return response.is_ok
         except Exception as e:
@@ -164,11 +155,7 @@ class OverseerrAPI:
     def mark_completed(self, mediaId: int) -> bool:
         """Mark item as completed in overseerr"""
         try:
-            response = post(
-                session=self.session,
-                url=self.BASE_URL + f"/api/v1/media/{mediaId}/available",
-                data={"is4k": False},
-            )
+            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/available", data={"is4k": False})
             logger.info(f"Marked media {mediaId} as completed in overseerr")
             return response.is_ok
         except Exception as e:

@@ -9,9 +9,10 @@ from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem, Show
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import get, ping, create_service_session, get_rate_limit_params, RateLimitExceeded
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, \
+    HttpMethod
 
 
 class Comet:
@@ -31,11 +32,8 @@ class Comet:
             "debridStreamProxyPassword": ""
         }).encode("utf-8")).decode("utf-8")
         rate_limit_params = get_rate_limit_params(per_hour=300) if self.settings.ratelimit else None
-
-        self.session = create_service_session(
-            rate_limit_params=rate_limit_params,
-            use_cache=False
-        )
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -56,7 +54,7 @@ class Comet:
             return False
         try:
             url = f"{self.settings.url}/manifest.json"
-            response = ping(session=self.session, url=url, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             if response.is_ok:
                 return True
         except Exception as e:
@@ -92,7 +90,7 @@ class Comet:
 
         url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
-        response = get(self.session, url=url, timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
 
         if not response.is_ok or not getattr(response.data, "streams", None):
             return {}

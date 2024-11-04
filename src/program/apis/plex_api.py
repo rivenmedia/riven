@@ -1,46 +1,57 @@
 ﻿from typing import List, Optional, Dict, Union
 from loguru import logger
+from requests import Session
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 from plexapi.library import LibrarySection
-
 from program.media import Movie, Episode
 from program.settings.manager import settings_manager
-from program.utils.request import get, ping, create_service_session
+from program.utils.request import create_service_session, BaseRequestHandler, HttpMethod, ResponseType, ResponseObject
 
+
+class PlexAPIError(Exception):
+    """Base exception for PlexApi related errors"""
+
+class PlexRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, request_logging: bool = False):
+        super().__init__(session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=PlexAPIError, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
+        return super()._request(method, endpoint, overriden_response_type=overriden_response_type, **kwargs)
 
 class PlexAPI:
     """Handles Plex API communication"""
 
     def __init__(self, token: str, base_url: str, rss_urls: Optional[List[str]]):
-        self.BASE_URL = base_url
         self.rss_urls = rss_urls
         self.token = token
-        self.session = create_service_session()
+        self.BASE_URL = base_url
+        session = create_service_session()
+        self.request_handler = PlexRequestHandler(session)
         self.account = None
         self.plex_server = None
         self.rss_enabled = False
 
     def validate_account(self):
         try:
-            self.account = MyPlexAccount(session=self.session, token=self.token)
+            self.account = MyPlexAccount(session=self.request_handler.session, token=self.token)
         except Exception as e:
             logger.error(f"Failed to authenticate Plex account: {e}")
             return False
         return True
 
     def validate_server(self):
-        self.plex_server = PlexServer(self.BASE_URL, token=self.token, session=self.session, timeout=60)
+        self.plex_server = PlexServer(self.BASE_URL, token=self.token, session=self.request_handler.session, timeout=60)
 
     def validate_rss(self, url: str):
-        return ping(session=self.session, url=url)
+        return self.request_handler.execute(HttpMethod.GET, url)
 
     def ratingkey_to_imdbid(self, ratingKey: str) -> str | None:
         """Convert Plex rating key to IMDb ID"""
         token = settings_manager.settings.updaters.plex.token
         filter_params = "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
-        response = get(session=self.session, url=url)
+        response = self.request_handler.execute(HttpMethod.GET, url)
         if response.is_ok and hasattr(response.data, "MediaContainer"):
             metadata = response.data.MediaContainer.Metadata[0]
             return next((guid.id.split("//")[-1] for guid in metadata.Guid if "imdb://" in guid.id), None)
@@ -52,8 +63,8 @@ class PlexAPI:
         rss_items: list[str] = []
         for rss_url in self.rss_urls:
             try:
-                response = self.session.get(rss_url + "?format=json", timeout=60)
-                for _item in response.json().get("items", []):
+                response = self.request_handler.execute(HttpMethod.GET, rss_url + "?format=json", overriden_response_type=ResponseType.DICT, timeout=60)
+                for _item in response.data.get("items", []):
                     imdb_id = self.extract_imdb_ids(_item.get("guids", []))
                     if imdb_id and imdb_id.startswith("tt"):
                         rss_items.append(imdb_id)

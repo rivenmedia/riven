@@ -3,8 +3,9 @@
 from typing import Dict
 from loguru import logger
 from program.media.item import Episode, MediaItem, Season, Show
+from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import get, create_service_session, get_rate_limit_params, RateLimitExceeded, ping
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
 
 
 class Zilean:
@@ -15,7 +16,8 @@ class Zilean:
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
         rate_limit_params = get_rate_limit_params(max_calls=1, period=2) if self.settings.ratelimit else None
-        self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -33,7 +35,7 @@ class Zilean:
             return False
         try:
             url = f"{self.settings.url}/healthchecks/ping"
-            response = ping(self.session, url=url, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.error(f"Zilean failed to initialize: {e}")
@@ -66,7 +68,7 @@ class Zilean:
         url = f"{self.settings.url}/dmm/filtered"
         params = self._build_query_params(item)
 
-        response = get(self.session, url, params=params, timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
         if not response.is_ok or not response.data:
             return {}
 

@@ -1,82 +1,52 @@
 import json
+from enum import Enum
 from types import SimpleNamespace
-from typing import Optional, Dict, Union, Type, Any, Tuple
+from typing import Dict, Type, Optional, Any
 from requests import Session
 from lxml import etree
-from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, RequestException, JSONDecodeError
+from requests.exceptions import ConnectTimeout, RequestException
 from requests.models import Response
 from requests_cache import CacheMixin, CachedSession
 from requests_ratelimiter import LimiterMixin, LimiterSession
-from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
 from loguru import logger
 from program.utils import data_dir_path
+from pyrate_limiter import RequestRate, Duration, Limiter, MemoryQueueBucket, MemoryListBucket
+from requests_ratelimiter import SQLiteBucket
+
+
+class HttpMethod(Enum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    PATCH = "PATCH"
+
+
+class ResponseType(Enum):
+    SIMPLE_NAMESPACE = "simple_namespace"
+    DICT = "dict"
+
 
 class BaseRequestParameters:
     """Holds base parameters that may be included in every request."""
 
-    def to_dict(self) -> Dict[str, Optional[str]]:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert all non-None attributes to a dictionary for inclusion in requests."""
         return {key: value for key, value in self.__dict__.items() if value is not None}
 
 
-class BaseRequestHandler:
-    def __init__(self, session: Session, base_url: str, base_params: Optional[BaseRequestParameters] = None,
-                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        self.session = session
-        self.BASE_URL = base_url
-        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
-        self.custom_exception = custom_exception or Exception
-        self.request_logging = request_logging
-
-    def _request(self, method: str, endpoint: str, **kwargs) -> tuple[None, Any] | Any:
-        """Generic request handler with error handling, using kwargs for flexibility."""
-        try:
-            url = f"{self.BASE_URL}/{endpoint}"
-
-            request_params = self.BASE_REQUEST_PARAMS.to_dict()
-            if request_params:
-                kwargs.setdefault('params', {}).update(request_params)
-            elif 'params' in kwargs and not kwargs['params']:
-                del kwargs['params']
-
-            if self.request_logging:
-                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
-
-            response = self.session.request(method, url, **kwargs)
-            response.raise_for_status()
-
-            if response.content:
-                try:
-                    data = response.json()
-                    if self.request_logging:
-                        logger.debug(f"Response JSON from {endpoint}: {data}")
-                    return data, response.status_code
-                except JSONDecodeError:
-                    logger.error("Received non-JSON response")
-                    raise self.custom_exception("Non-JSON response received from API")
-            else:
-                return None, response.status_code
-        except RequestException as e:
-            logger.error(f"Request failed: {e}")
-            raise self.custom_exception(f"Request failed: {e}") from e
-
-class RateLimitExceeded(Exception):
-    """Rate limit exceeded exception"""
-    def __init__(self, message, response=None):
-        super().__init__(message)
-        self.response = response
-
 class ResponseObject:
     """Response object to handle different response formats."""
-    def __init__(self, response: Response):
+    def __init__(self, response: Response, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE):
         self.response = response
         self.is_ok = response.ok
         self.status_code = response.status_code
-        self.data = self.handle_response(response)
+        self.response_type = response_type
+        self.data = self.handle_response(response, response_type)
 
-    def handle_response(self, response: Response) -> dict:
+
+    def handle_response(self, response: Response, response_type: ResponseType) -> dict | SimpleNamespace:
         """Parse the response content based on content type."""
         timeout_statuses = [408, 460, 504, 520, 524, 522, 598, 599]
         rate_limit_statuses = [429]
@@ -100,6 +70,8 @@ class ResponseObject:
 
         try:
             if "application/json" in content_type:
+                if response_type == ResponseType.DICT:
+                    return response.json()
                 return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
             elif "application/xml" in content_type or "text/xml" in content_type:
                 return xml_to_simplenamespace(response.content)
@@ -110,6 +82,52 @@ class ResponseObject:
         except Exception as e:
             logger.error(f"Failed to parse response content: {e}", exc_info=True)
             return {}
+
+class BaseRequestHandler:
+    def __init__(self, session: Session, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_url: Optional[str] = None, base_params: Optional[BaseRequestParameters] = None,
+                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
+        self.session = session
+        self.response_type = response_type
+        self.BASE_URL = base_url
+        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
+        self.custom_exception = custom_exception or Exception
+        self.request_logging = request_logging
+
+    def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
+        """Generic request handler with error handling, using kwargs for flexibility."""
+        try:
+            url = f"{self.BASE_URL}/{endpoint}" if not ignore_base_url and self.BASE_URL else endpoint
+
+            # Add base parameters to kwargs if they exist
+            request_params = self.BASE_REQUEST_PARAMS.to_dict()
+            if request_params:
+                kwargs.setdefault('params', {}).update(request_params)
+            elif 'params' in kwargs and not kwargs['params']:
+                del kwargs['params']
+
+            if self.request_logging:
+                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
+
+            response = self.session.request(method.value, url, **kwargs)
+            response.raise_for_status()
+
+            request_response_type = overriden_response_type or self.response_type
+
+            response_obj = ResponseObject(response=response, response_type=request_response_type)
+            if self.request_logging:
+                logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
+            return response_obj
+
+        except RequestException as e:
+            logger.error(f"Request failed: {e}")
+            raise self.custom_exception(f"Request failed: {e}") from e
+
+
+class RateLimitExceeded(Exception):
+    """Rate limit exceeded exception"""
+    def __init__(self, message, response=None):
+        super().__init__(message)
+        self.response = response
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     """Session class with caching and rate-limiting behavior."""
@@ -141,53 +159,6 @@ def create_service_session(
         return LimiterSession(**rate_limit_params)
 
     return Session()
-
-def _handle_request_exception() -> ResponseObject:
-    """Handle exceptions during requests and return a default ResponseObject."""
-    logger.error("Request failed", exc_info=True)
-    mock_response = SimpleNamespace(ok=False, status_code=500, content={}, headers={})
-    return ResponseObject(mock_response)
-
-def _make_request(
-        session: Session,
-        method: str,
-        url: str,
-        data: dict = None,
-        params: dict = None,
-        timeout=5,
-        additional_headers=None,
-        retry_if_failed=True,
-        proxies=None,
-        json=None,
-) -> ResponseObject:
-    if retry_if_failed:
-        retry_strategy = Retry(total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504])
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-
-    try:
-        response = session.request(
-            method, url, headers=additional_headers, data=data, params=params, timeout=timeout, proxies=proxies,
-            json=json
-        )
-    except RequestException as e:
-        logger.error(f"Request failed: {e}", exc_info=True)
-        response = _handle_request_exception()
-    finally:
-        session.close()
-
-    return ResponseObject(response)
-
-def ping(session: Session, url: str, timeout: int = 10, additional_headers=None, proxies=None, params=None) -> ResponseObject:
-    """Ping method to check connectivity to a URL by making a simple GET request."""
-    return get(session=session, url=url, timeout=timeout, additional_headers=additional_headers, proxies=proxies, params=params)
-
-
-from pyrate_limiter import RequestRate, Duration, Limiter, MemoryQueueBucket, MemoryListBucket
-from requests_ratelimiter import SQLiteBucket
-from typing import Optional
-
 
 def get_rate_limit_params(
         per_second: Optional[int] = None,
@@ -257,16 +228,3 @@ def xml_to_simplenamespace(xml_string: str) -> SimpleNamespace:
         attributes.update(children_as_ns)
         return SimpleNamespace(**attributes, text=element.text)
     return element_to_simplenamespace(root)
-
-# HTTP method wrappers
-def get(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "GET", url, **kwargs)
-
-def post(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "POST", url, **kwargs)
-
-def put(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "PUT", url, **kwargs)
-
-def delete(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "DELETE", url, **kwargs)

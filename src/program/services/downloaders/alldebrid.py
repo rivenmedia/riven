@@ -5,7 +5,7 @@ from requests import Session
 from loguru import logger
 from requests.exceptions import ConnectTimeout
 from program.utils.request import get_rate_limit_params, create_service_session, BaseRequestHandler, \
-    BaseRequestParameters
+    BaseRequestParameters, HttpMethod, ResponseType
 
 from program.settings.manager import settings_manager
 
@@ -21,13 +21,13 @@ class AllDebridBaseRequestParameters(BaseRequestParameters):
 
 class AllDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, base_params: AllDebridBaseRequestParameters, request_logging: bool = False):
-        super().__init__(session, base_url, base_params, custom_exception=AllDebridError, request_logging=request_logging)
+        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, base_params=base_params, custom_exception=AllDebridError, request_logging=request_logging)
 
-    def execute(self, method: str, endpoint: str, **kwargs) -> dict:
-        data, status_code = super()._request(method, endpoint, **kwargs)
-        if not data or "data" not in data:
+    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> dict:
+        response = super()._request(method, endpoint, **kwargs)
+        if not response.is_ok or not response.data or "data" not in response.data:
             raise AllDebridError("Invalid response from AllDebrid")
-        return data["data"]
+        return response.data["data"]
 
 class AllDebridAPI:
     """Handles AllDebrid API communication"""
@@ -93,7 +93,7 @@ class AllDebridDownloader(DownloaderBase):
     def _validate_premium(self) -> bool:
         """Validate premium status"""
         try:
-            user_info = self.api.request_handler.execute("GET", "user")
+            user_info = self.api.request_handler.execute(HttpMethod.GET, "user")
             user = user_info.get("user", {})
 
             if not user.get("isPremium", False):
@@ -121,7 +121,7 @@ class AllDebridDownloader(DownloaderBase):
 
         try:
             params = {f"magnets[{i}]": infohash for i, infohash in enumerate(infohashes)}
-            response = self.api.request_handler.execute("GET", "magnet/instant", **params)
+            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/instant", **params)
             magnets = response.get("magnets", [])
 
             availability = {}
@@ -175,7 +175,7 @@ class AllDebridDownloader(DownloaderBase):
 
         try:
             response = self.api.request_handler.execute(
-                "GET",
+                HttpMethod.GET,
                 "magnet/upload",
                 **{"magnets[]": infohash}
             )
@@ -216,7 +216,7 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api.request_handler.execute("GET", "magnet/status", id=torrent_id)
+            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/status", id=torrent_id)
             info = response.get("magnets", {})
             if "filename" not in info:
                 raise AllDebridError("Invalid torrent info response")
@@ -234,7 +234,7 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            self.api.request_handler.execute("GET", "magnet/delete", id=torrent_id)
+            self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", id=torrent_id)
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
             raise
