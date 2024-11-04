@@ -243,7 +243,7 @@ class Jackett:
         """Fetch results from the given indexer"""
         try:
             response = get(session=self.session, url=url, params=params, timeout=self.settings.timeout)
-            return self._parse_xml(response.data)
+            return self._parse_xml(response.response.text)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:

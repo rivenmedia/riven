@@ -70,11 +70,10 @@ class RateLimitExceeded(Exception):
 
 class ResponseObject:
     """Response object to handle different response formats."""
-    def __init__(self, response: Response, response_type=SimpleNamespace):
+    def __init__(self, response: Response):
         self.response = response
         self.is_ok = response.ok
         self.status_code = response.status_code
-        self.response_type = response_type
         self.data = self.handle_response(response)
 
     def handle_response(self, response: Response) -> dict:
@@ -158,7 +157,6 @@ def _make_request(
         timeout=5,
         additional_headers=None,
         retry_if_failed=True,
-        response_type=SimpleNamespace,
         proxies=None,
         json=None,
 ) -> ResponseObject:
@@ -179,7 +177,7 @@ def _make_request(
     finally:
         session.close()
 
-    return ResponseObject(response, response_type)
+    return ResponseObject(response)
 
 def ping(session: Session, url: str, timeout: int = 10, additional_headers=None, proxies=None, params=None) -> ResponseObject:
     """Ping method to check connectivity to a URL by making a simple GET request."""
