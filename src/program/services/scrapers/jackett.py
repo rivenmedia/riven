@@ -12,8 +12,9 @@ from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import get, create_service_session, get_rate_limit_params, RateLimitExceeded
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
 
 
 class JackettIndexer(BaseModel):
@@ -35,7 +36,7 @@ class Jackett:
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
-        self.session = None
+        self.request_handler = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -61,7 +62,8 @@ class Jackett:
                 self.indexers = indexers
                 rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers),
                                                           period=2) if self.settings.ratelimit else None
-                self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
+                session = create_service_session(rate_limit_params=rate_limit_params)
+                self.request_handler = ScraperRequestHandler(session)
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -242,8 +244,8 @@ class Jackett:
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
-            response = get(session=self.session, url=url, params=params, timeout=self.settings.timeout)
-            return self._parse_xml(response.response.text)
+            response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.settings.timeout)
+            return self._parse_xml(response.data)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:

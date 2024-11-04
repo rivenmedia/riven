@@ -1,18 +1,18 @@
 import json
 from enum import Enum
 from types import SimpleNamespace
-from typing import Optional, Dict, Type
+from typing import Dict, Type, Optional
 from requests import Session
 from lxml import etree
-from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectTimeout, RequestException
 from requests.models import Response
 from requests_cache import CacheMixin, CachedSession
 from requests_ratelimiter import LimiterMixin, LimiterSession
-from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
 from loguru import logger
 from program.utils import data_dir_path
+from pyrate_limiter import RequestRate, Duration, Limiter, MemoryQueueBucket, MemoryListBucket
+from requests_ratelimiter import SQLiteBucket
 
 
 class HttpMethod(Enum):
@@ -84,7 +84,7 @@ class ResponseObject:
             return {}
 
 class BaseRequestHandler:
-    def __init__(self, session: Session, base_url: str, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_params: Optional[BaseRequestParameters] = None,
+    def __init__(self, session: Session, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_url: Optional[str] = None, base_params: Optional[BaseRequestParameters] = None,
                  custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
         self.session = session
         self.response_type = response_type
@@ -93,10 +93,10 @@ class BaseRequestHandler:
         self.custom_exception = custom_exception or Exception
         self.request_logging = request_logging
 
-    def _request(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
+    def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, **kwargs) -> ResponseObject:
         """Generic request handler with error handling, using kwargs for flexibility."""
         try:
-            url = f"{self.BASE_URL}/{endpoint}"
+            url = f"{self.BASE_URL}/{endpoint}" if not ignore_base_url and self.BASE_URL else endpoint
 
             # Add base parameters to kwargs if they exist
             request_params = self.BASE_REQUEST_PARAMS.to_dict()
@@ -157,53 +157,6 @@ def create_service_session(
         return LimiterSession(**rate_limit_params)
 
     return Session()
-
-def _handle_request_exception() -> ResponseObject:
-    """Handle exceptions during requests and return a default ResponseObject."""
-    logger.error("Request failed", exc_info=True)
-    mock_response = SimpleNamespace(ok=False, status_code=500, content={}, headers={})
-    return ResponseObject(mock_response)
-
-def _make_request(
-        session: Session,
-        method: str,
-        url: str,
-        data: dict = None,
-        params: dict = None,
-        timeout=5,
-        additional_headers=None,
-        retry_if_failed=True,
-        proxies=None,
-        json=None,
-) -> ResponseObject:
-    if retry_if_failed:
-        retry_strategy = Retry(total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504])
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-
-    try:
-        response = session.request(
-            method, url, headers=additional_headers, data=data, params=params, timeout=timeout, proxies=proxies,
-            json=json
-        )
-    except RequestException as e:
-        logger.error(f"Request failed: {e}", exc_info=True)
-        response = _handle_request_exception()
-    finally:
-        session.close()
-
-    return ResponseObject(response)
-
-def ping(session: Session, url: str, timeout: int = 10, additional_headers=None, proxies=None, params=None) -> ResponseObject:
-    """Ping method to check connectivity to a URL by making a simple GET request."""
-    return get(session=session, url=url, timeout=timeout, additional_headers=additional_headers, proxies=proxies, params=params)
-
-
-from pyrate_limiter import RequestRate, Duration, Limiter, MemoryQueueBucket, MemoryListBucket
-from requests_ratelimiter import SQLiteBucket
-from typing import Optional
-
 
 def get_rate_limit_params(
         per_second: Optional[int] = None,
@@ -273,16 +226,3 @@ def xml_to_simplenamespace(xml_string: str) -> SimpleNamespace:
         attributes.update(children_as_ns)
         return SimpleNamespace(**attributes, text=element.text)
     return element_to_simplenamespace(root)
-
-# HTTP method wrappers
-def get(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "GET", url, **kwargs)
-
-def post(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "POST", url, **kwargs)
-
-def put(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "PUT", url, **kwargs)
-
-def delete(session: Session, url: str, **kwargs) -> ResponseObject:
-    return _make_request(session, "DELETE", url, **kwargs)

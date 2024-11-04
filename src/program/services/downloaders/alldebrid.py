@@ -21,7 +21,7 @@ class AllDebridBaseRequestParameters(BaseRequestParameters):
 
 class AllDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, base_params: AllDebridBaseRequestParameters, request_logging: bool = False):
-        super().__init__(session, base_url, response_type=ResponseType.DICT, base_params=base_params, custom_exception=AllDebridError, request_logging=request_logging)
+        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, base_params=base_params, custom_exception=AllDebridError, request_logging=request_logging)
 
     def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> dict:
         response = super()._request(method, endpoint, **kwargs)

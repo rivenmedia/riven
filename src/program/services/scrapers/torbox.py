@@ -5,8 +5,9 @@ from requests import RequestException
 from requests.exceptions import ConnectTimeout
 
 from program.media.item import MediaItem
+from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import get, create_service_session, RateLimitExceeded, ping
+from program.utils.request import create_service_session, RateLimitExceeded, HttpMethod
 
 
 class TorBoxScraper:
@@ -16,7 +17,8 @@ class TorBoxScraper:
         self.base_url = "http://search-api.torbox.app"
         self.user_plan = None
         self.timeout = self.settings.timeout
-        self.session = create_service_session()
+        session = create_service_session()
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -30,7 +32,7 @@ class TorBoxScraper:
             logger.error("TorBox timeout is not set or invalid.")
             return False
         try:
-            response = ping(self.session, f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
@@ -69,7 +71,7 @@ class TorBoxScraper:
         query_params = self._build_query_params(item)
         url = f"{self.base_url}/torrents/{query_params}?metadata=false"
 
-        response = get(self.session, url, timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
         if not response.is_ok or not response.data.data.torrents:
             return {}
 

@@ -2,12 +2,22 @@
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Union, List, Optional
-from requests import RequestException
-
+from requests import RequestException, Session
 from program import MediaItem
 from program.media import Movie, Show, Season, Episode
-from program.utils.request import get_rate_limit_params, create_service_session, get, logger
+from program.utils.request import get_rate_limit_params, create_service_session, logger, BaseRequestHandler, \
+    ResponseType, HttpMethod, ResponseObject
 
+
+class TraktAPIError(Exception):
+    """Base exception for TraktApi related errors"""
+
+class TraktRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, request_logging: bool = False):
+        super().__init__(session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=TraktAPIError, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
+        return super()._request(method, endpoint, **kwargs)
 
 class TraktAPI:
     """Handles Trakt API communication"""
@@ -22,7 +32,7 @@ class TraktAPI:
     def __init__(self, api_key: Optional[str] = None, rate_limit: bool = True):
         self.api_key = api_key
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300) if rate_limit else None
-        self.session = create_service_session(
+        session = create_service_session(
             rate_limit_params=rate_limit_params,
             use_cache=False
         )
@@ -31,10 +41,11 @@ class TraktAPI:
             "trakt-api-key": self.api_key or self.CLIENT_ID,
             "trakt-api-version": "2"
         }
-        self.session.headers.update(self.headers)
+        session.headers.update(self.headers)
+        self.request_handler = TraktRequestHandler(session)
 
     def validate(self):
-        return get(session=self.session, url=f"{self.BASE_URL}/lists/2")
+        return self.request_handler.execute(HttpMethod.GET, f"{self.BASE_URL}/lists/2")
 
     def _fetch_data(self, url, params):
         """Fetch paginated data from Trakt API with rate limiting."""
@@ -43,7 +54,7 @@ class TraktAPI:
 
         while True:
             try:
-                response = get(session=self.session, url=url, params={**params, "page": page})
+                response = self.request_handler.execute(HttpMethod.GET, url, params={**params, "page": page})
                 if response.is_ok:
                     data = response.data
                     if not data:
@@ -138,7 +149,7 @@ class TraktAPI:
         if not imdb_id:
             return {}
         url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
-        response = get(self.session, url, timeout=30)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         return response.data if response.is_ok and response.data else {}
 
     def get_show_aliases(self, imdb_id: str, item_type: str) -> List[dict]:
@@ -147,7 +158,7 @@ class TraktAPI:
             return []
         url = f"https://api.trakt.tv/{item_type}/{imdb_id}/aliases"
         try:
-            response = get(self.session, url, timeout=30)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
             if response.is_ok and response.data:
                 aliases = {}
                 for ns in response.data:
@@ -168,7 +179,7 @@ class TraktAPI:
     def create_item_from_imdb_id(self, imdb_id: str, type: str = None) -> Optional[MediaItem]:
         """Wrapper for trakt.tv API search method."""
         url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
-        response = get(self.session, url, timeout=30)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             logger.error(
                 f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
@@ -184,7 +195,7 @@ class TraktAPI:
     def get_imdbid_from_tmdb(self, tmdb_id: str, type: str = "movie") -> Optional[str]:
         """Wrapper for trakt.tv API search method."""
         url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}"  # ?extended=full
-        response = get(self.session, url, timeout=30)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
         imdb_id = self._get_imdb_id_from_list(response.data, id_type="tmdb", _id=tmdb_id, type=type)
@@ -196,7 +207,7 @@ class TraktAPI:
     def get_imdbid_from_tvdb(self, tvdb_id: str, type: str = "show") -> Optional[str]:
         """Wrapper for trakt.tv API search method."""
         url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}"
-        response = get(self.session, url, timeout=30)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
         imdb_id = self._get_imdb_id_from_list(response.data, id_type="tvdb", _id=tvdb_id, type=type)
@@ -208,7 +219,7 @@ class TraktAPI:
     def resolve_short_url(self, short_url) -> Union[str, None]:
         """Resolve short URL to full URL"""
         try:
-            response = get(session=self.session, url=short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
+            response = self.request_handler.execute(HttpMethod.GET, url=short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
             if response.is_ok:
                 return response.response.url
             else:

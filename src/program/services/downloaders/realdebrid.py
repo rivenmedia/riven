@@ -45,7 +45,7 @@ class RealDebridError(Exception):
 
 class RealDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, request_logging: bool = False):
-        super().__init__(session, base_url, response_type=ResponseType.DICT, custom_exception=RealDebridError, request_logging=request_logging)
+        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
 
     def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> Union[dict, list]:
         response = super()._request(method, endpoint, **kwargs)
