@@ -1,10 +1,11 @@
 import json
+from enum import Enum
 from types import SimpleNamespace
-from typing import Optional, Dict, Union, Type, Any, Tuple
+from typing import Optional, Dict, Type
 from requests import Session
 from lxml import etree
 from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, RequestException, JSONDecodeError
+from requests.exceptions import ConnectTimeout, RequestException
 from requests.models import Response
 from requests_cache import CacheMixin, CachedSession
 from requests_ratelimiter import LimiterMixin, LimiterSession
@@ -12,6 +13,20 @@ from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
 from loguru import logger
 from program.utils import data_dir_path
+
+
+class HttpMethod(Enum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    PATCH = "PATCH"
+
+
+class ResponseType(Enum):
+    SIMPLE_NAMESPACE = "simple_namespace"
+    DICT = "dict"
+
 
 class BaseRequestParameters:
     """Holds base parameters that may be included in every request."""
@@ -21,62 +36,17 @@ class BaseRequestParameters:
         return {key: value for key, value in self.__dict__.items() if value is not None}
 
 
-class BaseRequestHandler:
-    def __init__(self, session: Session, base_url: str, base_params: Optional[BaseRequestParameters] = None,
-                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        self.session = session
-        self.BASE_URL = base_url
-        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
-        self.custom_exception = custom_exception or Exception
-        self.request_logging = request_logging
-
-    def _request(self, method: str, endpoint: str, **kwargs) -> tuple[None, Any] | Any:
-        """Generic request handler with error handling, using kwargs for flexibility."""
-        try:
-            url = f"{self.BASE_URL}/{endpoint}"
-
-            request_params = self.BASE_REQUEST_PARAMS.to_dict()
-            if request_params:
-                kwargs.setdefault('params', {}).update(request_params)
-            elif 'params' in kwargs and not kwargs['params']:
-                del kwargs['params']
-
-            if self.request_logging:
-                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
-
-            response = self.session.request(method, url, **kwargs)
-            response.raise_for_status()
-
-            if response.content:
-                try:
-                    data = response.json()
-                    if self.request_logging:
-                        logger.debug(f"Response JSON from {endpoint}: {data}")
-                    return data, response.status_code
-                except JSONDecodeError:
-                    logger.error("Received non-JSON response")
-                    raise self.custom_exception("Non-JSON response received from API")
-            else:
-                return None, response.status_code
-        except RequestException as e:
-            logger.error(f"Request failed: {e}")
-            raise self.custom_exception(f"Request failed: {e}") from e
-
-class RateLimitExceeded(Exception):
-    """Rate limit exceeded exception"""
-    def __init__(self, message, response=None):
-        super().__init__(message)
-        self.response = response
-
 class ResponseObject:
     """Response object to handle different response formats."""
-    def __init__(self, response: Response):
+    def __init__(self, response: Response, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE):
         self.response = response
         self.is_ok = response.ok
         self.status_code = response.status_code
-        self.data = self.handle_response(response)
+        self.response_type = response_type
+        self.data = self.handle_response(response, response_type)
 
-    def handle_response(self, response: Response) -> dict:
+
+    def handle_response(self, response: Response, response_type: ResponseType) -> dict | SimpleNamespace:
         """Parse the response content based on content type."""
         timeout_statuses = [408, 460, 504, 520, 524, 522, 598, 599]
         rate_limit_statuses = [429]
@@ -100,6 +70,8 @@ class ResponseObject:
 
         try:
             if "application/json" in content_type:
+                if response_type == ResponseType.DICT:
+                    return response.json()
                 return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
             elif "application/xml" in content_type or "text/xml" in content_type:
                 return xml_to_simplenamespace(response.content)
@@ -110,6 +82,50 @@ class ResponseObject:
         except Exception as e:
             logger.error(f"Failed to parse response content: {e}", exc_info=True)
             return {}
+
+class BaseRequestHandler:
+    def __init__(self, session: Session, base_url: str, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_params: Optional[BaseRequestParameters] = None,
+                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
+        self.session = session
+        self.response_type = response_type
+        self.BASE_URL = base_url
+        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
+        self.custom_exception = custom_exception or Exception
+        self.request_logging = request_logging
+
+    def _request(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
+        """Generic request handler with error handling, using kwargs for flexibility."""
+        try:
+            url = f"{self.BASE_URL}/{endpoint}"
+
+            # Add base parameters to kwargs if they exist
+            request_params = self.BASE_REQUEST_PARAMS.to_dict()
+            if request_params:
+                kwargs.setdefault('params', {}).update(request_params)
+            elif 'params' in kwargs and not kwargs['params']:
+                del kwargs['params']
+
+            if self.request_logging:
+                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
+
+            response = self.session.request(method.value, url, **kwargs)
+            response.raise_for_status()
+
+            response_obj = ResponseObject(response=response, response_type=self.response_type)
+            if self.request_logging:
+                logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
+            return response_obj
+
+        except RequestException as e:
+            logger.error(f"Request failed: {e}")
+            raise self.custom_exception(f"Request failed: {e}") from e
+
+
+class RateLimitExceeded(Exception):
+    """Rate limit exceeded exception"""
+    def __init__(self, message, response=None):
+        super().__init__(message)
+        self.response = response
 
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     """Session class with caching and rate-limiting behavior."""
