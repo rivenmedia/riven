@@ -13,7 +13,7 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
+from program.utils.request import get, create_service_session, get_rate_limit_params, RateLimitExceeded
 
 
 class JackettIndexer(BaseModel):
@@ -35,9 +35,7 @@ class Jackett:
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
-        self.timeout = self.settings.timeout
-        self.second_limiter = None
-        self.rate_limit = self.settings.ratelimit
+        self.session = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -50,7 +48,7 @@ class Jackett:
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
-                if not isinstance(self.timeout, int) or self.timeout <= 0:
+                if not isinstance(self.settings.timeout, int) or self.settings.timeout <= 0:
                     logger.error("Jackett timeout is not set or invalid.")
                     return False
                 if not isinstance(self.settings.ratelimit, bool):
@@ -61,8 +59,9 @@ class Jackett:
                     logger.error("No Jackett indexers configured.")
                     return False
                 self.indexers = indexers
-                if self.rate_limit:
-                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=2)
+                rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers),
+                                                          period=2) if self.settings.ratelimit else None
+                self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -80,8 +79,7 @@ class Jackett:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
+            logger.warning(f"Jackett ratelimit exceeded for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:
@@ -244,13 +242,8 @@ class Jackett:
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
-            if self.second_limiter:
-                with self.second_limiter:
-                    response = requests.get(url, params=params, timeout=self.timeout)
-            else:
-                response = requests.get(url, params=params, timeout=self.timeout)
-            response.raise_for_status()
-            return self._parse_xml(response.text)
+            response = get(session=self.session, url=url, params=params, timeout=self.settings.timeout)
+            return self._parse_xml(response.data)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
         except Exception as e:
