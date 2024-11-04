@@ -6,7 +6,7 @@ from program.media.item import MediaItem
 from program.utils.request import create_service_session, BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
 
 class ListrrAPIError(Exception):
-    """Base exception for MdblistAPI related errors"""
+    """Base exception for ListrrAPI related errors"""
 
 class ListrrRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, request_logging: bool = False):

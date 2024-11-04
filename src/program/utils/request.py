@@ -1,7 +1,7 @@
 import json
 from enum import Enum
 from types import SimpleNamespace
-from typing import Dict, Type, Optional
+from typing import Dict, Type, Optional, Any
 from requests import Session
 from lxml import etree
 from requests.exceptions import ConnectTimeout, RequestException
@@ -31,7 +31,7 @@ class ResponseType(Enum):
 class BaseRequestParameters:
     """Holds base parameters that may be included in every request."""
 
-    def to_dict(self) -> Dict[str, Optional[str]]:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert all non-None attributes to a dictionary for inclusion in requests."""
         return {key: value for key, value in self.__dict__.items() if value is not None}
 

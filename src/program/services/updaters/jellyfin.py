@@ -41,7 +41,7 @@ class JellyfinUpdater:
             return False
 
         try:
-            response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/Users?api_key={self.settings.api_key}")
+            response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/Users", params={"api_key": self.settings.api_key})
             if response.is_ok:
                 self.initialized = True
                 return True

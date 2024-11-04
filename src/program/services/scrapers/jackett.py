@@ -248,6 +248,9 @@ class Jackett:
             return self._parse_xml(response.data)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
+        except RateLimitExceeded:
+            logger.warning(f"Rate limit exceeded while fetching results for {search_type}: {indexer_title}")
+            return []
         except Exception as e:
             if "Jackett.Common.IndexerException" in str(e):
                 logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
