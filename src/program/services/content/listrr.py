@@ -1,13 +1,9 @@
 """Listrr content module"""
 from typing import Generator
-
-from loguru import logger
-from requests.exceptions import HTTPError
-
+from program.utils.request import logger
 from program.media.item import MediaItem
-from program.services.indexers.trakt import get_imdbid_from_tmdb
 from program.settings.manager import settings_manager
-from program.utils.request import get, ping
+from program.apis.listrr_api import ListrrAPI
 
 
 class Listrr:
@@ -15,9 +11,8 @@ class Listrr:
 
     def __init__(self):
         self.key = "listrr"
-        self.url = "https://listrr.pro/api"
         self.settings = settings_manager.settings.content.listrr
-        self.headers = {"X-Api-Key": self.settings.api_key}
+        self.api = ListrrAPI(self.settings.api_key)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -45,7 +40,7 @@ class Listrr:
             logger.error("Both Movie and Show lists are empty or not set.")
             return False
         try:
-            response = ping("https://listrr.pro/", additional_headers=self.headers)
+            response = self.api.validate()
             if not response.is_ok:
                 logger.error(
                     f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}",
@@ -58,47 +53,13 @@ class Listrr:
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Listrr`"""
         try:
-            movie_items = self._get_items_from_Listrr("Movies", self.settings.movie_lists)
-            show_items = self._get_items_from_Listrr("Shows", self.settings.show_lists)
+            movie_items = self.api.get_items_from_Listrr("Movies", self.settings.movie_lists)
+            show_items = self.api.get_items_from_Listrr("Shows", self.settings.show_lists)
         except Exception as e:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
         imdb_ids = movie_items + show_items
-        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
+        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.api.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
         logger.info(f"Fetched {len(listrr_items)} items from Listrr")
         yield listrr_items
-
-    def _get_items_from_Listrr(self, content_type, content_lists) -> list[MediaItem]:  # noqa: C901, PLR0912
-        """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
-        unique_ids: set[str] = set()
-        if not content_lists:
-            return list(unique_ids)
-
-        for list_id in content_lists:
-            if not list_id or len(list_id) != 24:
-                continue
-
-            page, total_pages = 1, 1
-            while page <= total_pages:
-                try:
-                    url = f"{self.url}/List/{content_type}/{list_id}/ReleaseDate/Descending/{page}"
-                    response = get(url, additional_headers=self.headers).response
-                    data = response.json()
-                    total_pages = data.get("pages", 1)
-                    for item in data.get("items", []):
-                        imdb_id = item.get("imDbId")
-                        if imdb_id:
-                            unique_ids.add(imdb_id)
-                        elif content_type == "Movies" and item.get("tmDbId"):
-                            imdb_id = get_imdbid_from_tmdb(item["tmDbId"])
-                            if imdb_id:
-                                unique_ids.add(imdb_id)
-                except HTTPError as e:
-                    if e.response.status_code in [400, 404, 429, 500]:
-                        break
-                except Exception as e:
-                    logger.error(f"An error occurred: {e}")
-                    break
-                page += 1
-        return list(unique_ids)

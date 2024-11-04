@@ -6,8 +6,7 @@ from requests.exceptions import ConnectTimeout
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
-from program.utils.request import get, ping
+from program.utils.request import get, create_service_session, RateLimitExceeded, ping
 
 
 class TorBoxScraper:
@@ -17,10 +16,10 @@ class TorBoxScraper:
         self.base_url = "http://search-api.torbox.app"
         self.user_plan = None
         self.timeout = self.settings.timeout
+        self.session = create_service_session()
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter = RateLimiter(max_calls=1, period=5)
         logger.success("TorBox Scraper is initialized")
 
     def validate(self) -> bool:
@@ -31,7 +30,7 @@ class TorBoxScraper:
             logger.error("TorBox timeout is not set or invalid.")
             return False
         try:
-            response = ping(f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
+            response = ping(self.session, f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
@@ -42,7 +41,7 @@ class TorBoxScraper:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            self.rate_limiter.limit_hit()
+            logger.warning(f"TorBox rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except RequestException as e:
@@ -70,7 +69,7 @@ class TorBoxScraper:
         query_params = self._build_query_params(item)
         url = f"{self.base_url}/torrents/{query_params}?metadata=false"
 
-        response = get(url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
+        response = get(self.session, url, timeout=self.timeout)
         if not response.is_ok or not response.data.data.torrents:
             return {}
 

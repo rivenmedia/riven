@@ -14,7 +14,7 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
+from program.utils.request import get, create_service_session, get_rate_limit_params, RateLimitExceeded
 
 
 class ProwlarrIndexer(BaseModel):
@@ -37,8 +37,7 @@ class Prowlarr:
         self.indexers = None
         self.settings = settings_manager.settings.scraping.prowlarr
         self.timeout = self.settings.timeout
-        self.second_limiter = None
-        self.rate_limit = self.settings.ratelimit
+        self.session = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -62,8 +61,8 @@ class Prowlarr:
                     logger.error("No Prowlarr indexers configured.")
                     return False
                 self.indexers = indexers
-                if self.rate_limit:
-                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_seconds)
+                rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers), period=self.settings.limiter_seconds) if self.settings.ratelimit else None
+                self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -234,13 +233,8 @@ class Prowlarr:
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
-            if self.second_limiter:
-                with self.second_limiter:
-                    response = requests.get(url, params=params, timeout=self.timeout)
-            else:
-                response = requests.get(url, params=params, timeout=self.timeout)
-            response.raise_for_status()
-            return self._parse_xml(response.text, indexer_title)
+            response = get(self.session, url, params=params, timeout=self.timeout)
+            return self._parse_xml(response.data, indexer_title)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type.title()} with indexer {indexer_title}")
         except Exception as e:

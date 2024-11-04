@@ -11,6 +11,7 @@ from requests.exceptions import RequestException
 from program.settings.manager import settings_manager
 
 from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+from program.utils.request import get_rate_limit_params, get_cache_params, create_service_session
 
 
 class RDTorrentStatus(str, Enum):
@@ -48,7 +49,16 @@ class RealDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        self.session = requests.Session()
+
+        rate_limit_params = get_rate_limit_params(per_minute=60, db_name="realdebrid_rate_limit")
+        cache_params = get_cache_params(cache_name="realdebrid_cache", expire_after=60)
+
+        self.session = create_service_session(
+            rate_limit_params=rate_limit_params,
+            use_cache=True,
+            cache_params=cache_params
+        )
+
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
