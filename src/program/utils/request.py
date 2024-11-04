@@ -1,21 +1,66 @@
 import json
-import logging
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, Dict, Union, Type, Any, Tuple
 from requests import Session
 from lxml import etree
 from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, RequestException
+from requests.exceptions import ConnectTimeout, RequestException, JSONDecodeError
 from requests.models import Response
 from requests_cache import CacheMixin, CachedSession
-from requests_ratelimiter import LimiterMixin, SQLiteBucket, LimiterSession, MemoryQueueBucket, MemoryListBucket
-from pyrate_limiter import RequestRate, Duration, Limiter
+from requests_ratelimiter import LimiterMixin, LimiterSession
 from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
-
+from loguru import logger
 from program.utils import data_dir_path
 
-logger = logging.getLogger(__name__)
+class BaseRequestParameters:
+    """Holds base parameters that may be included in every request."""
+
+    def to_dict(self) -> Dict[str, Optional[str]]:
+        """Convert all non-None attributes to a dictionary for inclusion in requests."""
+        return {key: value for key, value in self.__dict__.items() if value is not None}
+
+
+class BaseRequestHandler:
+    def __init__(self, session: Session, base_url: str, base_params: Optional[BaseRequestParameters] = None,
+                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
+        self.session = session
+        self.BASE_URL = base_url
+        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
+        self.custom_exception = custom_exception or Exception
+        self.request_logging = request_logging
+
+    def _request(self, method: str, endpoint: str, **kwargs) -> tuple[None, Any] | Any:
+        """Generic request handler with error handling, using kwargs for flexibility."""
+        try:
+            url = f"{self.BASE_URL}/{endpoint}"
+
+            request_params = self.BASE_REQUEST_PARAMS.to_dict()
+            if request_params:
+                kwargs.setdefault('params', {}).update(request_params)
+            elif 'params' in kwargs and not kwargs['params']:
+                del kwargs['params']
+
+            if self.request_logging:
+                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
+
+            response = self.session.request(method, url, **kwargs)
+            response.raise_for_status()
+
+            if response.content:
+                try:
+                    data = response.json()
+                    if self.request_logging:
+                        logger.debug(f"Response JSON from {endpoint}: {data}")
+                    return data, response.status_code
+                except JSONDecodeError:
+                    logger.error("Received non-JSON response")
+                    raise self.custom_exception("Non-JSON response received from API")
+            else:
+                return None, response.status_code
+        except RequestException as e:
+            logger.error(f"Request failed: {e}")
+            raise self.custom_exception(f"Request failed: {e}") from e
 
 class RateLimitExceeded(Exception):
     """Rate limit exceeded exception"""
@@ -147,15 +192,15 @@ from typing import Optional
 
 
 def get_rate_limit_params(
-        per_second=None,
-        per_minute=None,
-        per_hour=None,
-        calculated_rate=None,
+        per_second: Optional[int] = None,
+        per_minute: Optional[int] = None,
+        per_hour: Optional[int] = None,
+        calculated_rate: Optional[int] = None,
         max_calls: Optional[int] = None,
         period: Optional[int] = None,
         db_name: Optional[str] = None,
         use_memory_list: bool = False
-) -> dict:
+) -> Dict[str, any]:
     """
     Generate rate limit parameters for a service. If `db_name` is not provided,
     use an in-memory bucket for rate limiting.
@@ -170,25 +215,35 @@ def get_rate_limit_params(
     :param use_memory_list: If true, use MemoryListBucket instead of MemoryQueueBucket for in-memory limiting.
     :return: Dictionary with rate limit configuration.
     """
-    # Choose bucket type based on whether db_name is provided
-    if db_name:
-        bucket_class = SQLiteBucket
-        bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"}
-    else:
-        bucket_class = MemoryListBucket if use_memory_list else MemoryQueueBucket
-        bucket_kwargs = {}
+    # Choose the appropriate bucket type based on the presence of db_name
+    bucket_class = SQLiteBucket if db_name else (MemoryListBucket if use_memory_list else MemoryQueueBucket)
+    bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"} if db_name else {}
 
-    # Set up the limiter based on available rate parameters
+    # Create a list of request rates based on provided limits
+    rate_limits = []
+    if per_second:
+        rate_limits.append(RequestRate(per_second, Duration.SECOND))
+    if per_minute:
+        rate_limits.append(RequestRate(per_minute, Duration.MINUTE))
+    if per_hour:
+        rate_limits.append(RequestRate(per_hour, Duration.HOUR))
+    if calculated_rate:
+        rate_limits.append(RequestRate(calculated_rate, Duration.MINUTE))
     if max_calls and period:
-        limiter = Limiter(RequestRate(max_calls, Duration.SECOND * period))
-        return {'limiter': limiter, 'bucket_class': bucket_class, 'bucket_kwargs': bucket_kwargs}
-    elif calculated_rate:
-        return {'per_minute': calculated_rate, 'bucket_class': bucket_class, 'bucket_kwargs': bucket_kwargs}
-    else:
-        limit_key = ('per_second' if per_second else 'per_minute' if per_minute else 'per_hour' if per_hour else None)
-        if not limit_key:
-            raise ValueError("One of max_calls and period, per_second, per_minute, or per_hour must be provided.")
-        return {limit_key: locals()[limit_key], 'bucket_class': bucket_class, 'bucket_kwargs': bucket_kwargs}
+        rate_limits.append(RequestRate(max_calls, Duration.SECOND * period))
+
+    # Raise an error if no limits are provided
+    if not rate_limits:
+        raise ValueError("At least one rate limit (per_second, per_minute, per_hour, calculated_rate, or max_calls and period) must be specified.")
+
+    # Initialize the limiter with all applicable rate limits
+    limiter = Limiter(*rate_limits)
+
+    return {
+        'limiter': limiter,
+        'bucket_class': bucket_class,
+        'bucket_kwargs': bucket_kwargs
+    }
 
 
 def get_cache_params(cache_name: str = 'cache', expire_after: Optional[int] = 60) -> dict:
