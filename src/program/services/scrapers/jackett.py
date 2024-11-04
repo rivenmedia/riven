@@ -207,8 +207,9 @@ class Jackett:
         """Get the indexers from Jackett"""
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
         try:
-            response = get(session=self.session, url=url, timeout=self.settings.timeout)
-            return self._get_indexer_from_xml(response.response.text)
+            response = requests.get(url)
+            response.raise_for_status()
+            return self._get_indexer_from_xml(response.text)
         except Exception as e:
             logger.error(f"Exception while getting indexers from Jackett: {e}")
             return []

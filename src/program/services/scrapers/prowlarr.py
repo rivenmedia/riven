@@ -215,8 +215,9 @@ class Prowlarr:
         """Get the indexers from Prowlarr"""
         url = f"{self.settings.url}/api/v1/indexer?apikey={self.api_key}"
         try:
-            response = get(self.session, url=url, timeout=self.timeout)
-            return self._get_indexer_from_json(response.response.text)
+            response = requests.get(url)
+            response.raise_for_status()
+            return self._get_indexer_from_json(response.text)
         except Exception as e:
             logger.error(f"Exception while getting indexers from Prowlarr: {e}")
             return []
