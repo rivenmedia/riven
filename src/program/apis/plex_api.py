@@ -16,8 +16,8 @@ class PlexRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, request_logging: bool = False):
         super().__init__(session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=PlexAPIError, request_logging=request_logging)
 
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
+    def execute(self, method: HttpMethod, endpoint: str, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
+        return super()._request(method, endpoint, overriden_response_type=overriden_response_type, **kwargs)
 
 class PlexAPI:
     """Handles Plex API communication"""
@@ -63,7 +63,7 @@ class PlexAPI:
         rss_items: list[str] = []
         for rss_url in self.rss_urls:
             try:
-                response = self.request_handler.execute(HttpMethod.GET, rss_url + "?format=json", timeout=60)
+                response = self.request_handler.execute(HttpMethod.GET, rss_url + "?format=json", timeout=60, response_type=ResponseType.DICT)
                 for _item in response.data.get("items", []):
                     imdb_id = self.extract_imdb_ids(_item.get("guids", []))
                     if imdb_id and imdb_id.startswith("tt"):

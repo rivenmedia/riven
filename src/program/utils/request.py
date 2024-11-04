@@ -93,7 +93,7 @@ class BaseRequestHandler:
         self.custom_exception = custom_exception or Exception
         self.request_logging = request_logging
 
-    def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, **kwargs) -> ResponseObject:
+    def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
         """Generic request handler with error handling, using kwargs for flexibility."""
         try:
             url = f"{self.BASE_URL}/{endpoint}" if not ignore_base_url and self.BASE_URL else endpoint
@@ -111,7 +111,9 @@ class BaseRequestHandler:
             response = self.session.request(method.value, url, **kwargs)
             response.raise_for_status()
 
-            response_obj = ResponseObject(response=response, response_type=self.response_type)
+            request_response_type = overriden_response_type or self.response_type
+
+            response_obj = ResponseObject(response=response, response_type=request_response_type)
             if self.request_logging:
                 logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
             return response_obj
