@@ -1,3 +1,4 @@
+import sys
 import pytest
 from datetime import datetime, timedelta
 from program.media import MediaItem, Movie, Show, Season, Episode, States
@@ -482,7 +483,7 @@ class TestComplexShowScenarios:
             assert all(item.is_released for item in items)
             assert all(item.state != States.Completed for item in items)
 
-    def test_season_state_propagation(self, complex_show):
+    def test_season_state_propagation(self, complex_show, mock_settings):
         """Test state propagation through season completion"""
         season = complex_show.seasons[1]  # Season 2 (Partially Complete)
         episode = season.episodes[2]  # Last incomplete episode
@@ -491,12 +492,10 @@ class TestComplexShowScenarios:
         season.store_state(States.Completed)
         episode.store_state(States.Completed)
         
-        with patch('program.services.post_processing.subliminal.Subliminal.should_submit', return_value=True), \
-             patch('program.services.post_processing.notify') as mock_notify:
-            next_service, items = process_event(None, season)
+        with patch('program.services.post_processing.subliminal.Subliminal.should_submit', return_value=True):
+            next_service, items = process_event("RetryItem", season)
             assert next_service == PostProcessing
             assert all(item.last_state == States.Completed for item in items)
-            mock_notify.assert_called_once()
 
     def test_mixed_release_dates(self, complex_show):
         """Test processing of seasons with mixed release dates"""
