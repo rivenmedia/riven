@@ -437,56 +437,6 @@ def hard_reset_database():
         logger.error(f"Error verifying database state: {str(e)}")
         raise
 
-def resolve_duplicates(batch_size: int = 100):
-    """Resolve duplicates in the database without loading all items into memory."""
-    from program.media.item import MediaItem
-    with db.Session() as session:
-        try:
-            # Find all duplicate ids
-            duplicates = session.query(
-                MediaItem.id,
-                func.count(MediaItem.id).label("dupe_count")
-            ).group_by(MediaItem.id).having(func.count(MediaItem.id) > 1)
-
-            # Loop through the duplicates and resolve them in batches
-            for id, _ in duplicates.yield_per(batch_size):
-                offset = 0
-                while True:
-                    # Fetch a batch of duplicate items
-                    duplicate_items = session.query(MediaItem.id)\
-                        .filter(MediaItem.id == id)\
-                        .order_by(desc(MediaItem.indexed_at))\
-                        .offset(offset)\
-                        .limit(batch_size)\
-                        .all()
-
-                    if not duplicate_items:
-                        break
-
-                    # Keep the first item (most recent) and delete the others
-                    for item_id in [item.id for item in duplicate_items[1:]]:
-                        try:
-                            delete_media_item_by_id(item_id)
-                            logger.debug(f"Deleted duplicate item with id {id} and ID {item_id}")
-                        except Exception as e:
-                            logger.error(f"Error deleting duplicate item with id {id} and ID {item_id}: {str(e)}")
-
-                    session.commit()
-                    offset += batch_size
-
-            # Recreate the unique index
-            session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_id ON MediaItem (id)"))
-            session.commit()
-
-            logger.success("Duplicate entries resolved in batches successfully and unique index recreated.")
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error resolving duplicates: {str(e)}")
-            session.rollback()
-
-        finally:
-            session.close()
-
 def hard_reset_database_pre_migration():
     """Resets the database to a fresh state."""
     logger.log("DATABASE", "Starting Hard Reset of Database")
@@ -555,9 +505,3 @@ if reset is not None and reset.lower() in ["true","1"]:
 if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     exit(0)
-
-# Resolve Duplicates
-if os.getenv("RESOLVE_DUPLICATES", None) is not None and os.getenv("RESOLVE_DUPLICATES").lower() in ["true","1"]:
-    resolve_duplicates()
-    exit(0)
-

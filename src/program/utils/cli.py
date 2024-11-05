@@ -34,20 +34,10 @@ def handle_args():
         help="Fix broken symlinks.",
     )
     parser.add_argument(
-        "--plex_listener",
-        action="store_true",
-        help="Start a Plex listener.",
-    )
-    parser.add_argument(
         "-p", "--port",
         type=int,
         default=8080,
         help="Port to run the server on (default: 8000)"
-    )
-    parser.add_argument(
-        "--resolve_duplicates",
-        action="store_true",
-        help="Resolve duplicate items.",
     )
 
     args = parser.parse_args()
@@ -71,36 +61,4 @@ def handle_args():
         fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
         exit(0)
 
-    if args.resolve_duplicates:
-        resolve_duplicates()
-        exit(0)
-
-    if args.plex_listener:
-        plex_listener()
-        exit(0)
-
     return args
-
-
-def plex_listener():
-    """Start a Plex listener."""
-    # NOTE: This isn't staying, just merely testing
-    import time
-
-    from plexapi.server import PlexServer
-
-    def plex_event(event):
-        logger.debug(f"Event: {event}")
-
-    try:
-        settings = settings_manager.settings.updaters.plex
-        plex = PlexServer(settings.url, settings.token)
-        plex.startAlertListener(plex_event)
-
-        logger.debug("Started Plex listener")
-        logger.debug("Press Ctrl+C to stop")
-
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        exit(0)
