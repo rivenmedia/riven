@@ -7,7 +7,6 @@ from loguru import logger
 from sqlalchemy import delete, desc, func, insert, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
-from program.utils import root_dir
 
 import alembic
 from program.utils import root_dir
