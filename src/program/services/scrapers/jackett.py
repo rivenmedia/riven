@@ -14,7 +14,8 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod, \
+    ResponseType
 
 
 class JackettIndexer(BaseModel):
@@ -245,7 +246,7 @@ class Jackett:
         """Fetch results from the given indexer"""
         try:
             response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.settings.timeout)
-            return self._parse_xml(response.data)
+            return self._parse_xml(response.response.text)
         except RateLimitExceeded:
             logger.warning(f"Rate limit exceeded while fetching results for {search_type}: {indexer_title}")
             return []
