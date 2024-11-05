@@ -1,7 +1,10 @@
 ﻿import time
+from unittest.mock import patch
+
+import pytest
 import responses
 from requests.exceptions import HTTPError
-from program.utils.request import create_service_session, get_rate_limit_params, HttpMethod, BaseRequestHandler, ResponseType, RateLimitExceeded
+from program.utils.request import create_service_session, get_rate_limit_params, HttpMethod, BaseRequestHandler, ResponseType, RateLimitExceeded, get_http_adapter, get_retry_policy
 
 @responses.activate
 def test_rate_limiter_with_base_request_handler():
@@ -214,3 +217,70 @@ def test_limiter_session_with_basic_rate_limit():
         f"Test failed: Expected at least {expected_min_time:.2f} seconds "
         f"for {request_count} requests, got {total_elapsed_time:.2f} seconds"
     )
+
+@pytest.fixture
+def retry_policy():
+    return get_retry_policy(retries=5, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+
+@pytest.fixture
+def connection_pool_params():
+    return {
+        'pool_connections': 20,
+        'pool_maxsize': 50,
+        'pool_block': True
+    }
+
+
+def test_session_adapter_configuration(retry_policy, connection_pool_params):
+    with patch("program.utils.request.HTTPAdapter") as MockAdapter:
+        session = create_service_session(
+            retry_policy=retry_policy,
+            session_adapter=get_http_adapter(
+                retry_policy=retry_policy,
+                pool_connections=connection_pool_params["pool_connections"],
+                pool_maxsize=connection_pool_params["pool_maxsize"],
+                pool_block=connection_pool_params["pool_block"]
+            )
+        )
+
+        MockAdapter.assert_called_with(
+            max_retries=retry_policy,
+            **connection_pool_params
+        )
+
+        assert session.adapters["http://"] == MockAdapter.return_value
+        assert session.adapters["https://"] == MockAdapter.return_value
+
+
+def test_session_adapter_pool_configuration_and_request(retry_policy, connection_pool_params):
+    # Mock an HTTP endpoint to test request functionality
+    url = "https://api.example.com/test"
+    with responses.RequestsMock() as rsps:
+        rsps.add(rsps.GET, url, json={"message": "success"}, status=200)
+
+        session = create_service_session(
+            retry_policy=retry_policy,
+            session_adapter=get_http_adapter(
+                retry_policy=retry_policy,
+                pool_connections=connection_pool_params["pool_connections"],
+                pool_maxsize=connection_pool_params["pool_maxsize"],
+                pool_block=connection_pool_params["pool_block"]
+            )
+        )
+
+        adapter_http = session.adapters["http://"]
+        adapter_https = session.adapters["https://"]
+
+        assert adapter_http == adapter_https, "HTTP and HTTPS adapters should be the same instance"
+        assert adapter_http._pool_connections == connection_pool_params["pool_connections"], \
+            f"Expected pool_connections to be {connection_pool_params['pool_connections']}, got {adapter_http._pool_connections}"
+        assert adapter_http._pool_maxsize == connection_pool_params["pool_maxsize"], \
+            f"Expected pool_maxsize to be {connection_pool_params['pool_maxsize']}, got {adapter_http._pool_maxsize}"
+        assert adapter_http._pool_block == connection_pool_params["pool_block"], \
+            f"Expected pool_block to be {connection_pool_params['pool_block']}, got {adapter_http._pool_block}"
+        assert adapter_http.max_retries == retry_policy, \
+            f"Expected max_retries to be {retry_policy}, got {adapter_http.max_retries}"
+
+        response = session.get(url)
+        assert response.status_code == 200
+        assert response.json() == {"message": "success"}
