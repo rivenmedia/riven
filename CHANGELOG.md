@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.17.0](https://github.com/rivenmedia/riven/compare/v0.16.2...v0.17.0) (2024-11-05)
+
+
+### Features
+
+* add manual torrent adding ([#785](https://github.com/rivenmedia/riven/issues/785)) ([acb22ce](https://github.com/rivenmedia/riven/commit/acb22ce9bb54a09a542e1a587181eb731700243e))
+* Add Most Wanted items from Trakt ([#777](https://github.com/rivenmedia/riven/issues/777)) ([325df42](https://github.com/rivenmedia/riven/commit/325df42989e8d6d841ab625284c54d78b9dc02d1))
+* add rate limiting tests and update dependencies ([#857](https://github.com/rivenmedia/riven/issues/857)) ([27c8534](https://github.com/rivenmedia/riven/commit/27c8534f3084404f80e6bf8fc01b1be0b9d98ad8))
+* auth bearer authentication ([0de32fd](https://github.com/rivenmedia/riven/commit/0de32fd9e7255c8c91aae4cecb428cabe180aea9))
+* database migrations, so long db resets ([#858](https://github.com/rivenmedia/riven/issues/858)) ([14e818f](https://github.com/rivenmedia/riven/commit/14e818f1b84870ce7cd0af62319685a62cc32c1a))
+* enhance session management and event processing ([#842](https://github.com/rivenmedia/riven/issues/842)) ([13aa94e](https://github.com/rivenmedia/riven/commit/13aa94e5587661770d385d634fa1a3cef9b0d882))
+* filesize filter ([d2f8374](https://github.com/rivenmedia/riven/commit/d2f8374ae95fc763842750a67d1d9b9f3c545a8d))
+* integrate dependency injection with kink library ([#859](https://github.com/rivenmedia/riven/issues/859)) ([ed5fb2c](https://github.com/rivenmedia/riven/commit/ed5fb2cb1a33ad00fa332c11bbbcd67017fe9695))
+* requests second pass ([#848](https://github.com/rivenmedia/riven/issues/848)) ([d41c2ff](https://github.com/rivenmedia/riven/commit/d41c2ff33cc1e88325da6c8f9e10c24199eeb291))
+* stream management endpoints ([d75149e](https://github.com/rivenmedia/riven/commit/d75149eb5b246bf7312ddb3d3fac85417e2cb215))
+* we now server sse via /stream ([efbc471](https://github.com/rivenmedia/riven/commit/efbc471e4f4429c098df2a601b3f3c42b98afbb7))
+
+
+### Bug Fixes
+
+* add default value for API_KEY ([bc6ff28](https://github.com/rivenmedia/riven/commit/bc6ff28ff5b1d1632f2dd2ca64743c4012ccc396))
+* add python-dotenv to load .env variables ([65a4aec](https://github.com/rivenmedia/riven/commit/65a4aec275a1f7768a77ef0227d6fb402f9a8612))
+* correct type hint for incomplete_retries in StatsResponse ([#839](https://github.com/rivenmedia/riven/issues/839)) ([f91ffec](https://github.com/rivenmedia/riven/commit/f91ffece2a70af71967903847068642e58a4f51c))
+* duplicate item after scraping for media that isn't in the database already ([#834](https://github.com/rivenmedia/riven/issues/834)) ([4d7ac8d](https://github.com/rivenmedia/riven/commit/4d7ac8d62a22bf2453ed6e433f43f8ebdb969e5f))
+* ensure selected files are stored in session during manual selection ([#841](https://github.com/rivenmedia/riven/issues/841)) ([86e6fd0](https://github.com/rivenmedia/riven/commit/86e6fd0f1ddd5f89800d96569288a85238ba8c80))
+* files sometimes not found in mount ([02b7a81](https://github.com/rivenmedia/riven/commit/02b7a81f4b6f93d06e59f06791e99e1860e3ebe9))
+* future cancellation resulted in reset, retry endpoints fialing ([#817](https://github.com/rivenmedia/riven/issues/817)) ([19cedc8](https://github.com/rivenmedia/riven/commit/19cedc843382acb837c9cd23ddec522d342ed9f5))
+* handle removal of nested media items in remove_item function ([#840](https://github.com/rivenmedia/riven/issues/840)) ([2096a4e](https://github.com/rivenmedia/riven/commit/2096a4e85bd613136d9dfe353cdbd7ed0d765e3f))
+* hotfix blacklist active stream ([8631008](https://github.com/rivenmedia/riven/commit/86310082d77de6550d5277ffc21c7f0a28167502))
+* invalid rd instant availibility call if no infohashes should be checked ([#843](https://github.com/rivenmedia/riven/issues/843)) ([19cf38f](https://github.com/rivenmedia/riven/commit/19cf38fe0d8fefe1de341654401d0e8801b27bb1))
+* jackett again - my bad ([#860](https://github.com/rivenmedia/riven/issues/860)) ([703ad33](https://github.com/rivenmedia/riven/commit/703ad334c06671ecf3336beaf328e8a738bf0d87))
+* MediaFusion scraper. ([#850](https://github.com/rivenmedia/riven/issues/850)) ([0bbde7d](https://github.com/rivenmedia/riven/commit/0bbde7d3c0e817321b7603f4e5acc1ae80ca9f58))
+* mediafusion sometimes throwing error when parsing response ([#844](https://github.com/rivenmedia/riven/issues/844)) ([9c093ac](https://github.com/rivenmedia/riven/commit/9c093ac817ba541aecc552c3e1a6170cf767d58d))
+* misleading message when manually adding a torrent ([#822](https://github.com/rivenmedia/riven/issues/822)) ([18cfa3b](https://github.com/rivenmedia/riven/commit/18cfa3b441dba2dc1040157b39b228db35693118))
+* overseerr outputting items without imdbid's ([45528a9](https://github.com/rivenmedia/riven/commit/45528a9ee6701190dcc7c5358b2ea22365afcd60))
+* remove accidental cache enablement ([877ffec](https://github.com/rivenmedia/riven/commit/877ffec4c9cbcd54906f9bb86a45467c2c3974c7))
+* retry api now resets scraped_at ([#816](https://github.com/rivenmedia/riven/issues/816)) ([2676fe8](https://github.com/rivenmedia/riven/commit/2676fe801fe2522b8558daaa0fbbd899c0df5dbe))
+
 ## [0.16.2](https://github.com/rivenmedia/riven/compare/v0.16.1...v0.16.2) (2024-10-20)
 
 
