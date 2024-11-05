@@ -42,7 +42,7 @@
 #         if not self.settings.api_key:
 #             logger.error("Torbox API key is not set")
 #         try:
-#             response = get(f"{self.base_url}/user/me", additional_headers=self.headers)
+#             response = get(f"{self.base_url}/user/me", headers=self.headers)
 #             if response.is_ok:
 #                 user_info = response.data.data
 #                 expiration = user_info.premium_expires_at
@@ -311,7 +311,7 @@
 #         hash_string = ",".join(hash_list)
 #         response = get(
 #             f"{self.base_url}/torrents/checkcached?hash={hash_string}&list_files=True",
-#             additional_headers=self.headers,
+#             headers=self.headers,
 #             response_type=dict,
 #         )
 #         return response.data["data"]
@@ -321,14 +321,14 @@
 #         response = post(
 #             f"{self.base_url}/torrents/createtorrent",
 #             data={"magnet": magnet_url, "seed": 1, "allow_zip": False},
-#             additional_headers=self.headers,
+#             headers=self.headers,
 #         )
 #         return response.data.data.torrent_id
 
 #     def get_torrent_list(self) -> list:
 #         response = get(
 #             f"{self.base_url}/torrents/mylist?bypass_cache=true",
-#             additional_headers=self.headers,
+#             headers=self.headers,
 #             response_type=dict,
 #         )
 #         return response.data["data"]

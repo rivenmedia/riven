@@ -223,7 +223,7 @@ class TraktAPI:
     def resolve_short_url(self, short_url) -> Union[str, None]:
         """Resolve short URL to full URL"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET, endpoint=short_url, additional_headers={"Content-Type": "application/json", "Accept": "text/html"})
+            response = self.request_handler.execute(HttpMethod.GET, endpoint=short_url, headers={"Content-Type": "application/json", "Accept": "text/html"})
             if response.is_ok:
                 return response.response.url
             else:

@@ -79,7 +79,7 @@ class Mediafusion:
         headers = {"Content-Type": "application/json"}
 
         try:
-            response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, additional_headers=headers)
+            response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, headers=headers)
             self.encrypted_string = json.loads(response.data)["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")

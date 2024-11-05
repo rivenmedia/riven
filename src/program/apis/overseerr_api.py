@@ -125,7 +125,7 @@ class OverseerrAPI:
         settings = settings_manager.settings.content.overseerr
         headers = {"X-Api-Key": settings.api_key}
         try:
-            response = self.request_handler.execute(HttpMethod.DELETE, f"api/v1/request/{mediaId}", additional_headers=headers)
+            response = self.request_handler.execute(HttpMethod.DELETE, f"api/v1/request/{mediaId}", headers=headers)
             logger.debug(f"Deleted request {mediaId} from overseerr")
             return response.is_ok == True
         except Exception as e:
