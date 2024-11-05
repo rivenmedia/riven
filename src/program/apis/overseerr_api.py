@@ -3,7 +3,7 @@
 from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError
-
+from kink import di
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -27,7 +27,7 @@ class OverseerrAPI:
         self.api_key = api_key
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         session = create_service_session(rate_limit_params=rate_limit_params)
-        self.trakt_api = TraktAPI(rate_limit=False)
+        self.trakt_api = di[TraktAPI]
         self.headers = {"X-Api-Key": self.api_key}
         session.headers.update(self.headers)
         self.request_handler = OverseerrRequestHandler(session, base_url=base_url)

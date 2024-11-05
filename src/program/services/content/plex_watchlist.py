@@ -3,6 +3,7 @@ from typing import Generator
 from loguru import logger
 from requests import HTTPError
 from program.apis.plex_api import PlexAPI
+from kink import di
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 
@@ -13,7 +14,7 @@ class PlexWatchlist:
     def __init__(self):
         self.key = "plex_watchlist"
         self.settings = settings_manager.settings.content.plex_watchlist
-        self.api = PlexAPI(settings_manager.settings.updaters.plex.token, settings_manager.settings.updaters.plex.url, self.settings.rss)
+        self.api = None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -26,11 +27,13 @@ class PlexWatchlist:
             logger.error("Plex token is not set!")
             return False
         try:
+            self.api = di[PlexAPI]
             self.api.validate_account()
         except Exception as e:
             logger.error(f"Unable to authenticate Plex account: {e}")
             return False
         if self.settings.rss:
+            self.api.set_rss_urls(self.settings.rss)
             for rss_url in self.settings.rss:
                 try:
                     response = self.api.validate_rss(rss_url)

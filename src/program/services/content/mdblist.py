@@ -2,7 +2,7 @@
 
 from typing import Generator
 from loguru import logger
-
+from kink import di
 from program.apis.mdblist_api import MdblistAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -14,7 +14,7 @@ class Mdblist:
     def __init__(self):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
-        self.api = MdblistAPI(self.settings.api_key)
+        self.api = None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -30,6 +30,7 @@ class Mdblist:
         if not self.settings.lists:
             logger.error("Mdblist is enabled, but list is empty.")
             return False
+        self.api = di[MdblistAPI]
         response = self.api.validate()
         if "Invalid API key!" in response.response.text:
             logger.error("Mdblist api key is invalid.")

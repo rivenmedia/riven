@@ -7,7 +7,7 @@ from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.library import LibrarySection
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
-
+from kink import di
 from program.apis.plex_api import PlexAPI
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -21,7 +21,7 @@ class PlexUpdater:
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.settings = settings_manager.settings.updaters.plex
-        self.api = PlexAPI(self.settings.token, self.settings.url, self.settings)
+        self.api = None
         self.sections: Dict[LibrarySection, List[str]] = {}
         self.initialized = self.validate()
         if not self.initialized:
@@ -43,6 +43,7 @@ class PlexUpdater:
             return False
 
         try:
+            self.api = di[PlexAPI]
             self.api.validate_server()
             self.sections = self.api.map_sections_with_paths()
             self.initialized = True

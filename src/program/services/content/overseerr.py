@@ -3,7 +3,7 @@
 from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
-
+from kink import di
 from program.apis.overseerr_api import OverseerrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -15,7 +15,7 @@ class Overseerr:
     def __init__(self):
         self.key = "overseerr"
         self.settings = settings_manager.settings.content.overseerr
-        self.api = OverseerrAPI(self.settings.api_key, self.settings.url)
+        self.api = None
         self.initialized = self.validate()
         self.run_once = False
         if not self.initialized:
@@ -29,6 +29,7 @@ class Overseerr:
             logger.error("Overseerr api key is not set.")
             return False
         try:
+            self.api = di[OverseerrAPI]
             response = self.api.validate()
             if response.status_code >= 201:
                 logger.error(

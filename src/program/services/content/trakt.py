@@ -1,24 +1,12 @@
 """Trakt content module"""
 
 from datetime import datetime, timedelta
-from typing import Type, Optional
-from urllib.parse import urlencode
-
 from loguru import logger
 from requests import RequestException
-
+from kink import di
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
-
-
-class TraktOAuthRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
 
 class TraktContent:
     """Content class for Trakt"""
@@ -26,9 +14,7 @@ class TraktContent:
     def __init__(self):
         self.key = "trakt"
         self.settings = settings_manager.settings.content.trakt
-        self.api = TraktAPI(self.settings.api_key)
-        session = create_service_session()
-        self.oauth_request_handler = TraktOAuthRequestHandler(session)
+        self.api = di[TraktAPI]
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -186,33 +172,3 @@ class TraktContent:
                 if imdb_id:
                     imdb_ids.append((imdb_id, None))
         return imdb_ids
-
-    def perform_oauth_flow(self) -> str:
-        """Initiate the OAuth flow and return the authorization URL."""
-        params = {
-            "response_type": "code",
-            "client_id": self.settings.oauth_client_id,
-            "redirect_uri": self.settings.oauth_redirect_uri,
-        }
-        return f"{self.api.BASE_URL}/oauth/authorize?{urlencode(params)}"
-
-    def handle_oauth_callback(self, code: str) -> bool:
-        """Handle the OAuth callback and exchange the code for an access token."""
-        token_url = f"{self.api.BASE_URL}/oauth/token"
-        payload = {
-            "code": code,
-            "client_id": self.settings.oauth_client_id,
-            "client_secret": self.settings.oauth_client_secret,
-            "redirect_uri": self.settings.oauth_redirect_uri,
-            "grant_type": "authorization_code",
-        }
-        response = self.oauth_request_handler.execute(HttpMethod.POST, token_url, data=payload, additional_headers=self.api.headers)
-        if response.is_ok:
-            token_data = response.data
-            self.settings.access_token = token_data.get("access_token")
-            self.settings.refresh_token = token_data.get("refresh_token")
-            settings_manager.save()  # Save the tokens to settings
-            return True
-        else:
-            logger.error(f"Failed to obtain OAuth token: {response.status_code}")
-            return False

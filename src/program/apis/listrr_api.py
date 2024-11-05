@@ -1,6 +1,6 @@
 ﻿from loguru import logger
 from requests.exceptions import HTTPError
-
+from kink import di
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.utils.request import create_service_session, BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
@@ -25,7 +25,7 @@ class ListrrAPI:
         session = create_service_session()
         session.headers.update(self.headers)
         self.request_handler = ListrrRequestHandler(session, base_url=self.BASE_URL)
-        self.trakt_api = TraktAPI(rate_limit=False)
+        self.trakt_api = di[TraktAPI]
 
     def validate(self):
         return self.request_handler.execute(HttpMethod.GET, self.BASE_URL)

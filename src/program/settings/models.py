@@ -177,7 +177,7 @@ class TraktModel(Updatable):
     most_watched_period: str = "weekly"
     most_watched_count: int = 10
     update_interval: int = 86400
-    # oauth: TraktOauthModel = TraktOauthModel()
+    oauth: TraktOauthModel = TraktOauthModel()
 
 
 class ContentModel(Observable):
