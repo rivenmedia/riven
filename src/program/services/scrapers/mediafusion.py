@@ -10,7 +10,7 @@ from program.media.item import MediaItem
 from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod, ResponseType
 
 
 class Mediafusion:
@@ -79,7 +79,7 @@ class Mediafusion:
         headers = {"Content-Type": "application/json"}
 
         try:
-            response = self.request_handler.execute(HttpMethod.POST, url, json=payload, additional_headers=headers)
+            response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, additional_headers=headers)
             self.encrypted_string = json.loads(response.data)["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
