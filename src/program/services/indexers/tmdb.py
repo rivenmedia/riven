@@ -5,7 +5,7 @@ from typing import Generic, Literal, Optional, TypeVar
 from loguru import logger
 from pydantic import BaseModel
 
-from program.utils.request import get
+from program.utils.request import get, create_service_session
 
 TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"  # noqa: S105
 
@@ -200,18 +200,20 @@ class TmdbSeasonDetails(BaseModel):
 class TMDB:
     def __init__(self):
         self.API_URL = "https://api.themoviedb.org/3"
+        self.session = create_service_session()
         self.HEADERS = {
             "Authorization": f"Bearer {TMDB_READ_ACCESS_TOKEN}",
         }
+        self.session.headers.update(self.HEADERS)
 
     def getMoviesNowPlaying(self, params: str) -> Optional[TmdbPagedResultsWithDates[TmdbItem]]:
         url = f"{self.API_URL}/movie/now_playing?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get movies now playing: {response.text}")
+                logger.error(f"Failed to get movies now playing: {response.data}")
                 return None
         except Exception as e:
             logger.error(
@@ -222,11 +224,11 @@ class TMDB:
     def getMoviesPopular(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/movie/popular?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get popular movies: {response.text}")
+                logger.error(f"Failed to get popular movies: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting popular movies: {str(e)}")
@@ -235,11 +237,11 @@ class TMDB:
     def getMoviesTopRated(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/movie/top_rated?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get top rated movies: {response.text}")
+                logger.error(f"Failed to get top rated movies: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting top rated movies: {str(e)}")
@@ -248,11 +250,11 @@ class TMDB:
     def getMoviesUpcoming(self, params: str) -> Optional[TmdbPagedResultsWithDates[TmdbItem]]:
         url = f"{self.API_URL}/movie/upcoming?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get upcoming movies: {response.text}")
+                logger.error(f"Failed to get upcoming movies: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting upcoming movies: {str(e)}")
@@ -261,11 +263,11 @@ class TMDB:
     def getTrending(self, params: str, type: str, window: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/trending/{type}/{window}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get trending {type}: {response.text}")
+                logger.error(f"Failed to get trending {type}: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting trending {type}: {str(e)}")
@@ -274,11 +276,11 @@ class TMDB:
     def getTVAiringToday(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/airing_today?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get TV airing today: {response.text}")
+                logger.error(f"Failed to get TV airing today: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting TV airing today: {str(e)}")
@@ -287,11 +289,11 @@ class TMDB:
     def getTVOnTheAir(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/on_the_air?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get TV on the air: {response.text}")
+                logger.error(f"Failed to get TV on the air: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting TV on the air: {str(e)}")
@@ -300,11 +302,11 @@ class TMDB:
     def getTVPopular(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/popular?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get popular TV shows: {response.text}")
+                logger.error(f"Failed to get popular TV shows: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting popular TV shows: {str(e)}")
@@ -313,11 +315,11 @@ class TMDB:
     def getTVTopRated(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/tv/top_rated?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get top rated TV shows: {response.text}")
+                logger.error(f"Failed to get top rated TV shows: {response.data}")
                 return None
         except Exception as e:
             logger.error(
@@ -328,11 +330,11 @@ class TMDB:
     def getFromExternalID(self, params: str, external_id: str) -> Optional[TmdbFindResults]:
         url = f"{self.API_URL}/find/{external_id}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get from external ID: {response.text}")
+                logger.error(f"Failed to get from external ID: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting from external ID: {str(e)}")
@@ -341,11 +343,11 @@ class TMDB:
     def getMovieDetails(self, params: str, movie_id: str) -> Optional[TmdbMovieDetails]:
         url = f"{self.API_URL}/movie/{movie_id}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get movie details: {response.text}")
+                logger.error(f"Failed to get movie details: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting movie details: {str(e)}")
@@ -354,11 +356,11 @@ class TMDB:
     def getTVDetails(self, params: str, series_id: str) -> Optional[TmdbTVDetails]:
         url = f"{self.API_URL}/tv/{series_id}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get TV details: {response.text}")
+                logger.error(f"Failed to get TV details: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting TV details: {str(e)}")
@@ -367,11 +369,11 @@ class TMDB:
     def getCollectionSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbCollectionDetails]]:
         url = f"{self.API_URL}/search/collection?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to search collections: {response.text}")
+                logger.error(f"Failed to search collections: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while searching collections: {str(e)}")
@@ -380,11 +382,11 @@ class TMDB:
     def getMovieSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/movie?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to search movies: {response.text}")
+                logger.error(f"Failed to search movies: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while searching movies: {str(e)}")
@@ -393,11 +395,11 @@ class TMDB:
     def getMultiSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/multi?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to search multi: {response.text}")
+                logger.error(f"Failed to search multi: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while searching multi: {str(e)}")
@@ -406,11 +408,11 @@ class TMDB:
     def getTVSearch(self, params: str) -> Optional[TmdbPagedResults[TmdbItem]]:
         url = f"{self.API_URL}/search/tv?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to search TV shows: {response.text}")
+                logger.error(f"Failed to search TV shows: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while searching TV shows: {str(e)}")
@@ -419,11 +421,11 @@ class TMDB:
     def getTVSeasonDetails(self, params: str, series_id: int, season_number: int) -> Optional[TmdbSeasonDetails]:
         url = f"{self.API_URL}/tv/{series_id}/season/{season_number}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
-                logger.error(f"Failed to get TV season details: {response.text}")
+                logger.error(f"Failed to get TV season details: {response.data}")
                 return None
         except Exception as e:
             logger.error(f"An error occurred while getting TV season details: {str(e)}")
@@ -434,12 +436,12 @@ class TMDB:
     ) -> Optional[TmdbEpisodeDetails]:
         url = f"{self.API_URL}/tv/{series_id}/season/{season_number}/episode/{episode_number}?{params}"
         try:
-            response = get(url, additional_headers=self.HEADERS)
+            response = get(self.session, url)
             if response.is_ok and response.data:
                 return response.data
             else:
                 logger.error(
-                    f"Failed to get TV season episode details: {response.text}"
+                    f"Failed to get TV season episode details: {response.data}"
                 )
                 return None
         except Exception as e:

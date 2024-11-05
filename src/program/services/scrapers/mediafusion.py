@@ -2,17 +2,15 @@
 import json
 from typing import Dict
 
-import requests
 from loguru import logger
 from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
-from program.utils.request import get, ping
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod, ResponseType
 
 
 class Mediafusion:
@@ -26,10 +24,12 @@ class Mediafusion:
         self.settings = self.app_settings.scraping.mediafusion
         self.timeout = self.settings.timeout
         self.encrypted_string = None
+        rate_limit_params = get_rate_limit_params(max_calls=1, period=2) if self.settings.ratelimit else None
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=2) if self.settings.ratelimit else None
         logger.success("Mediafusion initialized!")
 
     def validate(self) -> bool:
@@ -79,15 +79,15 @@ class Mediafusion:
         headers = {"Content-Type": "application/json"}
 
         try:
-            response = requests.request("POST", url, json=payload, headers=headers)
-            self.encrypted_string = json.loads(response.content)["encrypted_str"]
+            response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, additional_headers=headers)
+            self.encrypted_string = json.loads(response.data)["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
             return False
 
         try:
             url = f"{self.settings.url}/manifest.json"
-            response = ping(url=url, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.error(f"Mediafusion failed to initialize: {e}")
@@ -102,10 +102,7 @@ class Mediafusion:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
+            logger.warning(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Mediafusion connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -124,11 +121,7 @@ class Mediafusion:
         if identifier:
             url += identifier
 
-        if self.second_limiter:
-            with self.second_limiter:
-                response = get(f"{url}.json", timeout=self.timeout)
-        else:
-            response = get(f"{url}.json", timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
 
         if not response.is_ok or len(response.data.streams) <= 0:
             return {}

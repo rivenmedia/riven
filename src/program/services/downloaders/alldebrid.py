@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Dict, Iterator, List, Optional, Tuple
 
-import requests
+from requests import Session
 from loguru import logger
-from requests.exceptions import ConnectTimeout, RequestException
+from requests.exceptions import ConnectTimeout
+from program.utils.request import get_rate_limit_params, create_service_session, BaseRequestHandler, \
+    BaseRequestParameters, HttpMethod, ResponseType
 
 from program.settings.manager import settings_manager
 
@@ -13,6 +15,20 @@ from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_l
 class AllDebridError(Exception):
     """Base exception for AllDebrid related errors"""
 
+class AllDebridBaseRequestParameters(BaseRequestParameters):
+    """AllDebrid base request parameters"""
+    agent: Optional[str] = None
+
+class AllDebridRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, base_url: str, base_params: AllDebridBaseRequestParameters, request_logging: bool = False):
+        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, base_params=base_params, custom_exception=AllDebridError, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> dict:
+        response = super()._request(method, endpoint, **kwargs)
+        if not response.is_ok or not response.data or "data" not in response.data:
+            raise AllDebridError("Invalid response from AllDebrid")
+        return response.data["data"]
+
 class AllDebridAPI:
     """Handles AllDebrid API communication"""
     BASE_URL = "https://api.alldebrid.com/v4"
@@ -20,32 +36,17 @@ class AllDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        self.session = requests.Session()
+        rate_limit_params = get_rate_limit_params(per_minute=600, per_second=12)
+        self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({
             "Authorization": f"Bearer {api_key}"
         })
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
+        base_params = AllDebridBaseRequestParameters()
+        base_params.agent = self.AGENT
+        self.request_handler = AllDebridRequestHandler(self.session, self.BASE_URL, base_params)
 
-    def _request(self, method: str, endpoint: str, **params) -> dict:
-        """Generic request handler with error handling"""
-        try:
-            params["agent"] = self.AGENT
-            url = f"{self.BASE_URL}/{endpoint}"
-            response = self.session.request(method, url, params=params)
-            response.raise_for_status()
-            data = response.json() if response.content else {}
-
-            if not data or "data" not in data:
-                raise AllDebridError("Invalid response from AllDebrid")
-
-            return data["data"]
-        except requests.exceptions.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON response: {e}")
-            raise AllDebridError("Invalid JSON response") from e
-        except RequestException as e:
-            logger.error(f"Request failed: {e}")
-            raise
 
 class AllDebridDownloader(DownloaderBase):
     """Main AllDebrid downloader class implementing DownloaderBase"""
@@ -92,7 +93,7 @@ class AllDebridDownloader(DownloaderBase):
     def _validate_premium(self) -> bool:
         """Validate premium status"""
         try:
-            user_info = self.api._request("GET", "user")
+            user_info = self.api.request_handler.execute(HttpMethod.GET, "user")
             user = user_info.get("user", {})
 
             if not user.get("isPremium", False):
@@ -120,7 +121,7 @@ class AllDebridDownloader(DownloaderBase):
 
         try:
             params = {f"magnets[{i}]": infohash for i, infohash in enumerate(infohashes)}
-            response = self.api._request("GET", "magnet/instant", **params)
+            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/instant", **params)
             magnets = response.get("magnets", [])
 
             availability = {}
@@ -173,8 +174,8 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api._request(
-                "GET",
+            response = self.api.request_handler.execute(
+                HttpMethod.GET,
                 "magnet/upload",
                 **{"magnets[]": infohash}
             )
@@ -215,7 +216,7 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api._request("GET", "magnet/status", id=torrent_id)
+            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/status", id=torrent_id)
             info = response.get("magnets", {})
             if "filename" not in info:
                 raise AllDebridError("Invalid torrent info response")
@@ -233,7 +234,7 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            self.api._request("GET", "magnet/delete", id=torrent_id)
+            self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", id=torrent_id)
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
             raise

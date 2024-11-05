@@ -3,14 +3,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-import requests
+from requests import Session
 from loguru import logger
 from pydantic import BaseModel
-from requests.exceptions import RequestException
 
 from program.settings.manager import settings_manager
 
 from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+from program.utils.request import get_rate_limit_params, create_service_session, BaseRequestHandler, HttpMethod, \
+    ResponseType
 
 
 class RDTorrentStatus(str, Enum):
@@ -42,30 +43,30 @@ class RDTorrent(BaseModel):
 class RealDebridError(Exception):
     """Base exception for Real-Debrid related errors"""
 
+class RealDebridRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
+        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> Union[dict, list]:
+        response = super()._request(method, endpoint, **kwargs)
+        if response.status_code == 204:
+            return {}
+        if not response.data and not response.is_ok:
+            raise RealDebridError("Invalid JSON response from RealDebrid")
+        return response.data
+
 class RealDebridAPI:
     """Handles Real-Debrid API communication"""
     BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        self.session = requests.Session()
+        rate_limit_params = get_rate_limit_params(per_minute=60)
+        self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
-
-    def _request(self, method: str, endpoint: str, **kwargs) -> Union[dict, list]:
-        """Generic request handler with error handling"""
-        try:
-            url = f"{self.BASE_URL}/{endpoint}"
-            response = self.session.request(method, url, **kwargs)
-            response.raise_for_status()
-            return response.json() if response.content else {}
-        except requests.exceptions.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON response: {e}")
-            raise RealDebridError("Invalid JSON response") from e
-        except RequestException as e:
-            logger.error(f"Request failed: {e}")
-            raise
+        self.request_handler = RealDebridRequestHandler(self.session, self.BASE_URL)
 
 class RealDebridDownloader(DownloaderBase):
     """Main Real-Debrid downloader class implementing DownloaderBase"""
@@ -110,7 +111,7 @@ class RealDebridDownloader(DownloaderBase):
     def _validate_premium(self) -> bool:
         """Validate premium status"""
         try:
-            user_info = self.api._request("GET", "user")
+            user_info = self.api.request_handler.execute(HttpMethod.GET, "user")
             if not user_info.get("premium"):
                 logger.error("Premium membership required")
                 return False
@@ -135,8 +136,8 @@ class RealDebridDownloader(DownloaderBase):
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                response = self.api._request(
-                    "GET",
+                response = self.api.request_handler.execute(
+                    HttpMethod.GET,
                     f"torrents/instantAvailability/{'/'.join(infohashes)}"
                 )
 
@@ -193,8 +194,8 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             magnet = f"magnet:?xt=urn:btih:{infohash}"
-            response = self.api._request(
-                "POST",
+            response = self.api.request_handler.execute(
+                HttpMethod.POST,
                 "torrents/addMagnet",
                 data={"magnet": magnet.lower()}
             )
@@ -212,8 +213,8 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError("Downloader not properly initialized")
 
         try:
-            self.api._request(
-                "POST",
+            self.api.request_handler.execute(
+                HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
                 data={"files": ",".join(files)}
             )
@@ -230,7 +231,7 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError("Downloader not properly initialized")
 
         try:
-            return self.api._request("GET", f"torrents/info/{torrent_id}")
+            return self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
@@ -245,7 +246,7 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError("Downloader not properly initialized")
 
         try:
-            self.api._request("DELETE", f"torrents/delete/{torrent_id}")
+            self.api.request_handler.execute(HttpMethod.DELETE, f"torrents/delete/{torrent_id}")
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
             raise

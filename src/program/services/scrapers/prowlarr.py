@@ -13,8 +13,9 @@ from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
 
 
 class ProwlarrIndexer(BaseModel):
@@ -37,8 +38,7 @@ class Prowlarr:
         self.indexers = None
         self.settings = settings_manager.settings.scraping.prowlarr
         self.timeout = self.settings.timeout
-        self.second_limiter = None
-        self.rate_limit = self.settings.ratelimit
+        self.request_handler = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
@@ -62,8 +62,9 @@ class Prowlarr:
                     logger.error("No Prowlarr indexers configured.")
                     return False
                 self.indexers = indexers
-                if self.rate_limit:
-                    self.second_limiter = RateLimiter(max_calls=len(self.indexers), period=self.settings.limiter_seconds)
+                rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers), period=self.settings.limiter_seconds) if self.settings.ratelimit else None
+                session = create_service_session(rate_limit_params=rate_limit_params)
+                self.request_handler = ScraperRequestHandler(session)
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -84,10 +85,7 @@ class Prowlarr:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
-            else:
-                logger.warning(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
+            logger.warning(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Prowlarr request exception: {e}")
         except Exception as e:
@@ -228,19 +226,14 @@ class Prowlarr:
         indexer_list = []
         for indexer in json.loads(json_content):
             indexer_list.append(ProwlarrIndexer(title=indexer["name"], id=str(indexer["id"]), link=indexer["infoLink"], type=indexer["protocol"], language=indexer["language"], movie_search_capabilities=(s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None, tv_search_capabilities=(s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None))
-            
+
         return indexer_list
 
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
-            if self.second_limiter:
-                with self.second_limiter:
-                    response = requests.get(url, params=params, timeout=self.timeout)
-            else:
-                response = requests.get(url, params=params, timeout=self.timeout)
-            response.raise_for_status()
-            return self._parse_xml(response.text, indexer_title)
+            response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
+            return self._parse_xml(response.response.text, indexer_title)
         except (HTTPError, ConnectionError, Timeout):
             logger.debug(f"Indexer failed to fetch results for {search_type.title()} with indexer {indexer_title}")
         except Exception as e:

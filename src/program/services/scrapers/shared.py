@@ -1,5 +1,5 @@
 """Shared functions for scrapers."""
-from typing import Dict, Set, Union
+from typing import Dict, Set, Union, Type, Optional
 
 from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
@@ -10,11 +10,20 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
+from program.utils.request import BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
 
 enable_aliases = settings_manager.settings.scraping.enable_aliases
 settings_model = settings_manager.settings.ranking
 ranking_model = models.get(settings_model.profile)
 rtn = RTN(settings_model, ranking_model)
+
+
+class ScraperRequestHandler(BaseRequestHandler):
+    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
+        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
+
+    def execute(self, method: HttpMethod, endpoint: str, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
+        return super()._request(method, endpoint, overriden_response_type=overriden_response_type, **kwargs)
 
 
 def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:

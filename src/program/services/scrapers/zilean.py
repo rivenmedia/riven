@@ -1,13 +1,11 @@
 """ Zilean scraper module """
 
 from typing import Dict
-
 from loguru import logger
-
 from program.media.item import Episode, MediaItem, Season, Show
+from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
-from program.utils.request import get, ping
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
 
 
 class Zilean:
@@ -17,11 +15,12 @@ class Zilean:
         self.key = "zilean"
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
-        self.rate_limiter = None
+        rate_limit_params = get_rate_limit_params(max_calls=1, period=2) if self.settings.ratelimit else None
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.rate_limiter = RateLimiter(max_calls=1, period=2)
         logger.success("Zilean initialized!")
 
     def validate(self) -> bool:
@@ -36,7 +35,7 @@ class Zilean:
             return False
         try:
             url = f"{self.settings.url}/healthchecks/ping"
-            response = ping(url=url, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.error(f"Zilean failed to initialize: {e}")
@@ -47,7 +46,7 @@ class Zilean:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            self.rate_limiter.limit_hit()
+            logger.warning(f"Zilean rate limit exceeded for item: {item.log_string}")
         except Exception as e:
             logger.error(f"Zilean exception thrown: {e}")
         return {}
@@ -55,8 +54,6 @@ class Zilean:
     def _build_query_params(self, item: MediaItem) -> Dict[str, str]:
         """Build the query params for the Zilean API"""
         params = {"Query": item.get_top_title()}
-        if isinstance(item, MediaItem) and hasattr(item, "year"):
-            params["Year"] = item.year
         if isinstance(item, Show):
             params["Season"] = 1
         elif isinstance(item, Season):
@@ -71,7 +68,7 @@ class Zilean:
         url = f"{self.settings.url}/dmm/filtered"
         params = self._build_query_params(item)
 
-        response = get(url, params=params, timeout=self.timeout, specific_rate_limiter=self.rate_limiter)
+        response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
         if not response.is_ok or not response.data:
             return {}
 

@@ -5,10 +5,10 @@ from typing import Dict, Generator, List, Union
 from loguru import logger
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.library import LibrarySection
-from plexapi.server import PlexServer
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
 
+from program.apis.plex_api import PlexAPI
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 
@@ -21,7 +21,7 @@ class PlexUpdater:
             os.path.dirname(settings_manager.settings.symlink.library_path)
         )
         self.settings = settings_manager.settings.updaters.plex
-        self.plex: PlexServer = None
+        self.api = PlexAPI(self.settings.token, self.settings.url, self.settings)
         self.sections: Dict[LibrarySection, List[str]] = {}
         self.initialized = self.validate()
         if not self.initialized:
@@ -43,8 +43,8 @@ class PlexUpdater:
             return False
 
         try:
-            self.plex = PlexServer(self.settings.url, self.settings.token, timeout=60)
-            self.sections = self.map_sections_with_paths()
+            self.api.validate_server()
+            self.sections = self.api.map_sections_with_paths()
             self.initialized = True
             return True
         except Unauthorized as e:
@@ -93,13 +93,13 @@ class PlexUpdater:
                     if isinstance(item, (Show, Season)):
                         for episode in items_to_update:
                             if episode.update_folder and str(path) in str(episode.update_folder):
-                                if self._update_section(section, episode):
+                                if self.api.update_section(section, episode):
                                     updated_episodes.append(episode)
                                     section_name = section.title
                                     updated = True
                     elif isinstance(item, (Movie, Episode)):
                         if item.update_folder and str(path) in str(item.update_folder):
-                            if self._update_section(section, item):
+                            if self.api.update_section(section, item):
                                 section_name = section.title
                                 updated = True
 
@@ -114,18 +114,3 @@ class PlexUpdater:
                 logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
 
         yield item
-
-    def _update_section(self, section, item: Union[Movie, Episode]) -> bool:
-        """Update the Plex section for the given item"""
-        if item.symlinked and item.get("update_folder") != "updated":
-            update_folder = item.update_folder
-            section.update(str(update_folder))
-            return True
-        return False
-
-    def map_sections_with_paths(self) -> Dict[LibrarySection, List[str]]:
-        """Map Plex sections with their paths"""
-        # Skip sections without locations and non-movie/show sections
-        sections = [section for section in self.plex.library.sections() if section.type in ["show", "movie"] and section.locations]
-        # Map sections with their locations with the section obj as key and the location strings as values
-        return {section: section.locations for section in sections}

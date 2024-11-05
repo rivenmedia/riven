@@ -9,9 +9,10 @@ from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem, Show
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import RateLimiter, RateLimitExceeded, get, ping
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, \
+    HttpMethod
 
 
 class Comet:
@@ -30,10 +31,12 @@ class Comet:
             "debridApiKey": settings_manager.settings.downloaders.real_debrid.api_key,
             "debridStreamProxyPassword": ""
         }).encode("utf-8")).decode("utf-8")
+        rate_limit_params = get_rate_limit_params(per_hour=300) if self.settings.ratelimit else None
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("Comet initialized!")
 
     def validate(self) -> bool:
@@ -51,7 +54,7 @@ class Comet:
             return False
         try:
             url = f"{self.settings.url}/manifest.json"
-            response = ping(url=url, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             if response.is_ok:
                 return True
         except Exception as e:
@@ -67,10 +70,7 @@ class Comet:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.hour_limiter:
-                self.hour_limiter.limit_hit()
-            else:
-                logger.warning(f"Comet ratelimit exceeded for item: {item.log_string}")
+            logger.warning(f"Comet ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Comet connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -81,6 +81,7 @@ class Comet:
             logger.error(f"Comet exception thrown: {str(e)}")
         return {}
 
+
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
@@ -89,11 +90,7 @@ class Comet:
 
         url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
-        if self.second_limiter:
-            with self.second_limiter:
-                response = get(url, timeout=self.timeout)
-        else:
-            response = get(url, timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
 
         if not response.is_ok or not getattr(response.data, "streams", None):
             return {}

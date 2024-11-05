@@ -6,10 +6,9 @@ from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.ratelimiter import RateLimiter, RateLimitExceeded
-from program.utils.request import get, ping
+from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
 
 
 class Knightcrawler:
@@ -19,10 +18,12 @@ class Knightcrawler:
         self.key = "knightcrawler"
         self.settings = settings_manager.settings.scraping.knightcrawler
         self.timeout = self.settings.timeout
+        rate_limit_params = get_rate_limit_params(max_calls=1, period=5) if self.settings.ratelimit else None
+        session = create_service_session(rate_limit_params=rate_limit_params)
+        self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:
             return
-        self.second_limiter = RateLimiter(max_calls=1, period=5) if self.settings.ratelimit else None
         logger.success("Knightcrawler initialized!")
 
     def validate(self) -> bool:
@@ -40,7 +41,7 @@ class Knightcrawler:
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = ping(url=url, timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             if response.is_ok:
                 return True
         except Exception as e:
@@ -57,18 +58,14 @@ class Knightcrawler:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            if self.second_limiter:
-                self.second_limiter.limit_hit()
+            logger.warning(f"Knightcrawler rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Knightcrawler connection timeout for item: {item.log_string}")
         except ReadTimeout:
             logger.warning(f"Knightcrawler read timeout for item: {item.log_string}")
         except RequestException as e:
             if e.response.status_code == 429:
-                if self.second_limiter:
-                    self.second_limiter.limit_hit()
-                else:
-                    logger.warning(f"Knightcrawler ratelimit exceeded for item: {item.log_string}")
+                logger.warning(f"Knightcrawler ratelimit exceeded for item: {item.log_string}")
             else:
                 logger.error(f"Knightcrawler request exception: {e}")
         except Exception as e:
@@ -83,10 +80,7 @@ class Knightcrawler:
         if identifier:
             url += identifier
 
-        if self.second_limiter:
-            response = get(f"{url}.json", timeout=self.timeout, overall_rate_limiter=self.second_limiter)
-        else:
-            response = get(f"{url}.json", timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
 
         if not response.is_ok or len(response.data.streams) <= 0:
             return {}
