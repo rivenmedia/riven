@@ -33,10 +33,10 @@ class TraktAPI:
     }
 
     def __init__(self, settings: TraktModel):
-        self.settings = settings_manager.settings.content.trakt
-        self.oauth_client_id = settings.oauth.oauth_client_id
-        self.oauth_client_secret = settings.oauth.oauth_client_secret
-        self.oauth_redirect_uri = settings.oauth.oauth_redirect_uri
+        self.settings = settings
+        self.oauth_client_id = self.settings.oauth.oauth_client_id
+        self.oauth_client_secret = self.settings.oauth.oauth_client_secret
+        self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         trakt_cache = get_cache_params("trakt", 86400)
         session = create_service_session(rate_limit_params=rate_limit_params, use_cache=True, cache_params=trakt_cache)
