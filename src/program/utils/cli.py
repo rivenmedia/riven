@@ -19,6 +19,11 @@ def handle_args():
         help="Hard reset the database.",
     )
     parser.add_argument(
+        "--hard_reset_db_pre_migration",
+        action="store_true",
+        help="Hard reset the database.",
+    )
+    parser.add_argument(
         "--clean_logs",
         action="store_true",
         help="Clean old logs.",
