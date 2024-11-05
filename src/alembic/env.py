@@ -1,16 +1,13 @@
-# alembic/env.py
 import logging
-from typing import Optional
 
+from loguru import logger
 from sqlalchemy import engine_from_config, pool, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
-from alembic.runtime.migration import MigrationContext
-from loguru import logger
-
-from program.settings.manager import settings_manager
 from program.db.db import db
+from program.settings.manager import settings_manager
+
 
 # Loguru handler for alembic logs
 class LoguruHandler(logging.Handler):
@@ -19,14 +16,14 @@ class LoguruHandler(logging.Handler):
 
 if settings_manager.settings.debug_database:
     # Configure only alembic and SQLAlchemy loggers
-    logging.getLogger('alembic').handlers = [LoguruHandler()]
-    logging.getLogger('alembic').propagate = False
-    logging.getLogger('sqlalchemy').handlers = [LoguruHandler()]
-    logging.getLogger('sqlalchemy').propagate = False
+    logging.getLogger("alembic").handlers = [LoguruHandler()]
+    logging.getLogger("alembic").propagate = False
+    logging.getLogger("sqlalchemy").handlers = [LoguruHandler()]
+    logging.getLogger("sqlalchemy").propagate = False
 
     # Set log levels
-    logging.getLogger('alembic').setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
-    logging.getLogger('sqlalchemy').setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
+    logging.getLogger("alembic").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
+    logging.getLogger("sqlalchemy").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
 
 # Alembic configuration
 config = context.config

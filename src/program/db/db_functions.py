@@ -1,16 +1,19 @@
 import os
+import shutil
 from threading import Event
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from sqlalchemy import delete, desc, func, insert, select, text, inspect
+from sqlalchemy import delete, desc, func, insert, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, selectinload, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
+from utils import root_dir
 
+import alembic
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-import alembic
+
 from .db import db
 
 if TYPE_CHECKING:
@@ -484,11 +487,68 @@ def resolve_duplicates(batch_size: int = 100):
         finally:
             session.close()
 
+def hard_reset_database_pre_migration():
+    """Resets the database to a fresh state."""
+    logger.log("DATABASE", "Starting Hard Reset of Database")
+
+    # Disable foreign key checks temporarily
+    with db.engine.connect() as connection:
+        if db.engine.name == "sqlite":
+            connection.execute(text("PRAGMA foreign_keys = OFF"))
+        elif db.engine.name == "postgresql":
+            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+
+        try:
+            for table in reversed(db.Model.metadata.sorted_tables):
+                try:
+                    table.drop(connection, checkfirst=True)
+                    logger.log("DATABASE", f"Dropped table: {table.name}")
+                except Exception as e:
+                    logger.log("DATABASE", f"Error dropping table {table.name}: {str(e)}")
+
+            try:
+                connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+                logger.log("DATABASE", "Alembic version table dropped")
+            except Exception as e:
+                logger.log("DATABASE", f"Error dropping alembic_version table: {str(e)}")
+
+            db.Model.metadata.create_all(connection)
+            logger.log("DATABASE", "All tables recreated")
+
+            # Re-enable foreign key checks
+            if db.engine.name == "sqlite":
+                connection.execute(text("PRAGMA foreign_keys = ON"))
+            elif db.engine.name == "postgresql":
+                connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+            connection.commit()
+        except Exception as e:
+            connection.rollback()
+            logger.log("DATABASE", f"Error during database reset: {str(e)}")
+            raise
+
+    try:
+        alembic_dir = root_dir / "data" / "alembic"
+        logger.log("DATABASE", "Removing Alembic Directory")
+        shutil.rmtree(alembic_dir, ignore_errors=True)
+        os.makedirs(alembic_dir, exist_ok=True)
+        alembic.init(alembic_dir)
+        logger.log("DATABASE", "Alembic reinitialized")
+    except Exception as e:
+        logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
+
+    logger.log("DATABASE", "Pre Migration - Hard Reset Complete")
 
 # Hard Reset Database
 reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
+    exit(0)
+
+# Hard Reset Database
+reset = os.getenv("HARD_RESET_PRE_MIGRATION", None)
+if reset is not None and reset.lower() in ["true","1"]:
+    hard_reset_database_pre_migration()
     exit(0)
 
 # Repair Symlinks

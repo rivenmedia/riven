@@ -1,10 +1,9 @@
-from alembic import command
-from alembic.config import Config
-
 from loguru import logger
 from sqla_wrapper import SQLAlchemy
 from sqlalchemy import text
 
+from alembic import command
+from alembic.config import Config
 from program.settings.manager import settings_manager
 from program.utils import root_dir
 
