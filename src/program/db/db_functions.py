@@ -1,20 +1,17 @@
 import os
-import shutil
 from threading import Event
 from typing import TYPE_CHECKING
 
-import alembic
 from loguru import logger
-from sqlalchemy import delete, desc, func, insert, select, text
+from sqlalchemy import delete, desc, func, insert, select, text, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-from program.utils import alembic_dir
-
-from .db import alembic, db
+import alembic
+from .db import db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -351,55 +348,91 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
     return None
 
 def hard_reset_database():
-    """Resets the database to a fresh state."""
+    """Resets the database to a fresh state while maintaining migration capability."""
     logger.log("DATABASE", "Starting Hard Reset of Database")
 
-    # Disable foreign key checks temporarily
+    # Store current alembic version before reset
+    current_version = None
+    try:
+        with db.engine.connect() as connection:
+            result = connection.execute(text("SELECT version_num FROM alembic_version"))
+            current_version = result.scalar()
+    except Exception:
+        pass
+
     with db.engine.connect() as connection:
-        if db.engine.name == "sqlite":
-            connection.execute(text("PRAGMA foreign_keys = OFF"))
-        elif db.engine.name == "postgresql":
-            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+        # Ensure we're in AUTOCOMMIT mode for PostgreSQL schema operations
+        connection = connection.execution_options(isolation_level="AUTOCOMMIT")
 
         try:
-            for table in reversed(db.Model.metadata.sorted_tables):
-                try:
-                    table.drop(connection, checkfirst=True)
-                    logger.log("DATABASE", f"Dropped table: {table.name}")
-                except Exception as e:
-                    logger.log("DATABASE", f"Error dropping table {table.name}: {str(e)}")
+            # Terminate existing connections for PostgreSQL
+            if db.engine.name == "postgresql":
+                connection.execute(text("""
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                    AND pid <> pg_backend_pid()
+                """))
 
-            try:
-                connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
-                logger.log("DATABASE", "Alembic version table dropped")
-            except Exception as e:
-                logger.log("DATABASE", f"Error dropping alembic_version table: {str(e)}")
+                # Drop and recreate schema
+                connection.execute(text("DROP SCHEMA public CASCADE"))
+                connection.execute(text("CREATE SCHEMA public"))
+                connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
+                logger.log("DATABASE", "Schema reset complete")
 
+            # For SQLite, drop all tables
+            elif db.engine.name == "sqlite":
+                connection.execute(text("PRAGMA foreign_keys = OFF"))
+
+                # Get all tables
+                tables = connection.execute(text(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )).scalars().all()
+
+                # Drop each table
+                for table in tables:
+                    connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+                connection.execute(text("PRAGMA foreign_keys = ON"))
+                logger.log("DATABASE", "All tables dropped")
+
+            # Recreate all tables
             db.Model.metadata.create_all(connection)
             logger.log("DATABASE", "All tables recreated")
 
-            # Re-enable foreign key checks
-            if db.engine.name == "sqlite":
-                connection.execute(text("PRAGMA foreign_keys = ON"))
-            elif db.engine.name == "postgresql":
-                connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+            # If we had a previous version, restore it
+            if current_version:
+                connection.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
+                connection.execute(text("INSERT INTO alembic_version (version_num) VALUES (:version)"), 
+                                {"version": current_version})
+                logger.log("DATABASE", f"Restored alembic version to: {current_version}")
+            else:
+                # Stamp with head version if no previous version
+                alembic.stamp("head")
+                logger.log("DATABASE", "Database stamped with head revision")
 
-            connection.commit()
         except Exception as e:
-            connection.rollback()
-            logger.log("DATABASE", f"Error during database reset: {str(e)}")
+            logger.error(f"Error during database reset: {str(e)}")
             raise
 
-    try:
-        logger.log("DATABASE", "Removing Alembic Directory")
-        shutil.rmtree(alembic_dir, ignore_errors=True)
-        os.makedirs(alembic_dir, exist_ok=True)
-        alembic.init(alembic_dir)
-        logger.log("DATABASE", "Alembic reinitialized")
-    except Exception as e:
-        logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
-
     logger.log("DATABASE", "Hard Reset Complete")
+
+    # Verify database state
+    try:
+        with db.engine.connect() as connection:
+            # Check if all tables exist
+            inspector = inspect(db.engine)
+            all_tables = inspector.get_table_names()
+            logger.log("DATABASE", f"Verified tables: {', '.join(all_tables)}")
+
+            # Verify alembic version
+            result = connection.execute(text("SELECT version_num FROM alembic_version"))
+            version = result.scalar()
+            logger.log("DATABASE", f"Verified alembic version: {version}")
+
+    except Exception as e:
+        logger.error(f"Error verifying database state: {str(e)}")
+        raise
 
 def resolve_duplicates(batch_size: int = 100):
     """Resolve duplicates in the database without loading all items into memory."""

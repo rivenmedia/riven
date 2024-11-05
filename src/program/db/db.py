@@ -1,14 +1,12 @@
-import os
-from datetime import datetime
+from alembic import command
+from alembic.config import Config
 
-from alembic.autogenerate import compare_metadata
-from alembic.runtime.migration import MigrationContext
 from loguru import logger
-from sqla_wrapper import Alembic, SQLAlchemy
+from sqla_wrapper import SQLAlchemy
 from sqlalchemy import text
 
 from program.settings.manager import settings_manager
-from program.utils import data_dir_path
+from program.utils import root_dir
 
 engine_options = {
     "pool_size": 25, # Prom: Set to 1 when debugging sql queries
@@ -35,15 +33,6 @@ def get_db():
     finally:
         _db.close()
 
-script_location = data_dir_path / "alembic/"
-
-if not os.path.exists(script_location):
-    os.makedirs(script_location)
-
-alembic = Alembic(db, script_location)
-alembic.init(script_location)
-
-
 def create_database_if_not_exists():
     """Create the database if it doesn't exist."""
     db_name = db_host.split("/")[-1]
@@ -57,23 +46,6 @@ def create_database_if_not_exists():
         logger.error(f"Failed to create database {db_name}: {e}")
         return False
 
-# https://stackoverflow.com/questions/61374525/how-do-i-check-if-alembic-migrations-need-to-be-generated
-def need_upgrade_check() -> bool:
-    """Check if there are any pending migrations."""
-    with db.engine.connect() as connection:
-        mc = MigrationContext.configure(connection)
-        diff = compare_metadata(mc, db.Model.metadata)
-    return bool(diff)
-
-def ensure_alembic_version_table():
-    """Create alembic_version table if it doesn't exist."""
-    with db.engine.connect() as connection:
-        result = connection.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name = 'alembic_version'"))
-        if not result.fetchone():
-            logger.log("DATABASE","alembic_version table not found. Creating it...")
-            alembic.stamp("head")
-            logger.log("DATABASE","alembic_version table created and stamped to head.")
-
 def vacuum_and_analyze_index_maintenance() -> None:
     # PROM: Use the raw connection to execute VACUUM outside a transaction
     try:
@@ -85,19 +57,11 @@ def vacuum_and_analyze_index_maintenance() -> None:
     except Exception as e:
         logger.error(f"Error during VACUUM and ANALYZE: {e}")
 
-def run_migrations(try_again=True) -> None:
+def run_migrations():
+    """Run any pending migrations on startup"""
     try:
-        ensure_alembic_version_table()
-        if need_upgrade_check():
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            alembic.revision(f"auto-upg {timestamp}")
-            alembic.upgrade()
+        alembic_cfg = Config(root_dir / "src" / "alembic.ini")
+        command.upgrade(alembic_cfg, "head")
     except Exception as e:
-        logger.warning(f"Error running migrations: {e}")
-        db.s.execute(text("delete from alembic_version"))
-        db.s.commit()
-        alembic.stamp("head")
-        if try_again:
-            run_migrations(False)
-        else:
-            exit(1)
+        logger.error(f"Migration failed: {e}")
+        raise

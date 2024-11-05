@@ -339,6 +339,7 @@ class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
     debug: bool = True
+    debug_database: bool = False
     log: bool = True
     force_refresh: bool = False
     map_metadata: bool = True
