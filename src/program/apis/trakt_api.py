@@ -311,7 +311,7 @@ class TraktAPI:
             "grant_type": "authorization_code",
         }
         headers = self.headers.copy()
-        headers["trakt-api-key"] = f"Bearer {api_key}"
+        headers["trakt-api-key"] = api_key
         response = self.request_handler.execute(HttpMethod.POST, token_url, data=payload, additional_headers=headers)
         if response.is_ok:
             token_data = response.data
