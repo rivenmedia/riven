@@ -22,8 +22,8 @@ class PlexRequestHandler(BaseRequestHandler):
 class PlexAPI:
     """Handles Plex API communication"""
 
-    def __init__(self, token: str, base_url: str, rss_urls: Optional[List[str]]):
-        self.rss_urls = rss_urls
+    def __init__(self, token: str, base_url: str):
+        self.rss_urls: Optional[List[str]] = None
         self.token = token
         self.BASE_URL = base_url
         session = create_service_session()
@@ -42,6 +42,13 @@ class PlexAPI:
 
     def validate_server(self):
         self.plex_server = PlexServer(self.BASE_URL, token=self.token, session=self.request_handler.session, timeout=60)
+
+    def set_rss_urls(self, rss_urls: List[str]):
+        self.rss_urls = rss_urls
+
+    def clear_rss_urls(self):
+        self.rss_urls = None
+        self.rss_enabled = False
 
     def validate_rss(self, url: str):
         return self.request_handler.execute(HttpMethod.GET, url)

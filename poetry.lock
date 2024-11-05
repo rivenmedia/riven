@@ -901,6 +901,20 @@ files = [
 referencing = ">=0.31.0"
 
 [[package]]
+name = "kink"
+version = "0.8.1"
+description = "Dependency injection for python."
+optional = false
+python-versions = "<4.0,>=3.8"
+files = [
+    {file = "kink-0.8.1-py3-none-any.whl", hash = "sha256:c046be42395de6e18776daa93ac78280a70b3aa5c70b9ea5ca716cc71b3ff91a"},
+    {file = "kink-0.8.1.tar.gz", hash = "sha256:9310fa5860ad4df3cdd4a2b998517a718cbc83ed4975c51b8ebd60f640a9702c"},
+]
+
+[package.dependencies]
+typing_extensions = ">=4.9.0,<5.0.0"
+
+[[package]]
 name = "levenshtein"
 version = "0.25.1"
 description = "Python extension for computing string edit distances and similarities."
@@ -3334,4 +3348,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "2757aff75c37be8d41e01a73644d010cd2a08b75cd1438758d5bf052b3e205b8"
+content-hash = "683396cff8b9e5aecb1bf9f4c6f567e357af3b5f990a95237d99ebf032dc61b0"

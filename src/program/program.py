@@ -19,6 +19,7 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
+from program.apis import bootstrap_apis
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
 from program.services.libraries import SymlinkLibrary
@@ -64,8 +65,11 @@ class Program(threading.Thread):
             self.malloc_time = time.monotonic()-50
             self.last_snapshot = None
 
-    def initialize_services(self):
+    def initialize_apis(self):
+        bootstrap_apis()
 
+    def initialize_services(self):
+        """Initialize all services."""
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -122,6 +126,7 @@ class Program(threading.Thread):
         latest_version = get_version()
         logger.log("PROGRAM", f"Riven v{latest_version} starting!")
 
+        settings_manager.register_observer(self.initialize_apis)
         settings_manager.register_observer(self.initialize_services)
         os.makedirs(data_dir_path, exist_ok=True)
 
@@ -129,6 +134,7 @@ class Program(threading.Thread):
             logger.log("PROGRAM", "Settings file not found, creating default settings")
             settings_manager.save()
 
+        self.initialize_apis()
         self.initialize_services()
 
         max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]

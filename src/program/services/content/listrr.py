@@ -1,5 +1,6 @@
 """Listrr content module"""
 from typing import Generator
+from kink import di
 from program.utils.request import logger
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -12,7 +13,7 @@ class Listrr:
     def __init__(self):
         self.key = "listrr"
         self.settings = settings_manager.settings.content.listrr
-        self.api = ListrrAPI(self.settings.api_key)
+        self.api = None
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -40,6 +41,7 @@ class Listrr:
             logger.error("Both Movie and Show lists are empty or not set.")
             return False
         try:
+            self.api = di[ListrrAPI]
             response = self.api.validate()
             if not response.is_ok:
                 logger.error(

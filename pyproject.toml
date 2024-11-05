@@ -40,6 +40,7 @@ psutil = "^6.0.0"
 python-dotenv = "^1.0.1"
 requests-ratelimiter = "^0.7.0"
 requests-cache = "^1.2.1"
+kink = "^0.8.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

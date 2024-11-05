@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from program.utils import root_dir
 
 import alembic
+from program.utils import root_dir
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager

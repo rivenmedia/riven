@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Generator, Union
 from loguru import logger
-
+from kink import di
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
@@ -19,7 +19,7 @@ class TraktIndexer:
         self.initialized = True
         self.settings = settings_manager.settings.indexer
         self.failed_ids = set()
-        self.api = TraktAPI(rate_limit=False)
+        self.api = di[TraktAPI]
 
     @staticmethod
     def copy_attributes(source, target):

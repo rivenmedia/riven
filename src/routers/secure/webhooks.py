@@ -8,6 +8,7 @@ from requests import RequestException
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.services.content.overseerr import Overseerr
+from kink import di
 
 from ..models.overseerr import OverseerrWebhook
 
@@ -50,7 +51,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
 def get_imdbid_from_overseerr(req: OverseerrWebhook) -> str:
     """Get the imdb_id from the Overseerr webhook"""
     imdb_id = req.media.imdbId
-    trakt_api = TraktAPI(rate_limit=False)
+    trakt_api = di[TraktAPI]
     if not imdb_id:
         try:
             _type = req.media.media_type
