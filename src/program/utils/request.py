@@ -140,7 +140,8 @@ class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
 def create_service_session(
         rate_limit_params: Optional[dict] = None,
         use_cache: bool = False,
-        cache_params: Optional[dict] = None
+        cache_params: Optional[dict] = None,
+        log_config: Optional[bool] = False,
 ) -> Session:
     """
     Create a session for a specific service with optional caching and rate-limiting.
@@ -148,30 +149,29 @@ def create_service_session(
     :param rate_limit_params: Dictionary of rate-limiting parameters.
     :param use_cache: Boolean indicating if caching should be enabled.
     :param cache_params: Dictionary of caching parameters if caching is enabled.
+    :param log_config: Boolean indicating if the session configuration should be logged.
     :return: Configured session for the service.
     """
     if use_cache and not cache_params:
         raise ValueError("Cache parameters must be provided if use_cache is True.")
 
-    session_kwargs = {}
-    if rate_limit_params:
-        session_kwargs = {
-            'limiter': rate_limit_params['limiter'],
-            'bucket_class': rate_limit_params['bucket_class'],
-            'bucket_kwargs': rate_limit_params['bucket_kwargs'],
-            'limit_statuses': rate_limit_params.get('limit_statuses', [429])
-        }
-
     if use_cache and cache_params:
+        if log_config:
+            logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
+            logger.debug(f"Cache Parameters: {cache_params}")
         session_class = CachedLimiterSession if rate_limit_params else CachedSession
-        return session_class(**session_kwargs, **cache_params)
+        return session_class(**rate_limit_params, **cache_params)
 
     if rate_limit_params:
-        return LimiterSession(**session_kwargs)
+        if log_config:
+            logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
+        return LimiterSession(**rate_limit_params)
 
     return Session()
 
+
 def get_rate_limit_params(
+        custom_limiter: Optional[Limiter] = None,
         per_second: Optional[int] = None,
         per_minute: Optional[int] = None,
         per_hour: Optional[int] = None,
@@ -180,12 +180,14 @@ def get_rate_limit_params(
         period: Optional[int] = None,
         db_name: Optional[str] = None,
         use_memory_list: bool = False,
-        limit_statuses: Optional[list[int]] = None
+        limit_statuses: Optional[list[int]] = None,
+        max_delay: Optional[int] = 0,
 ) -> Dict[str, any]:
     """
     Generate rate limit parameters for a service. If `db_name` is not provided,
     use an in-memory bucket for rate limiting.
 
+    :param custom_limiter: Optional custom limiter to use for rate limiting.
     :param per_second: Requests per second limit.
     :param per_minute: Requests per minute limit.
     :param per_hour: Requests per hour limit.
@@ -195,8 +197,10 @@ def get_rate_limit_params(
     :param db_name: Optional name for the SQLite database file for persistent rate limiting.
     :param use_memory_list: If true, use MemoryListBucket instead of MemoryQueueBucket for in-memory limiting.
     :param limit_statuses: Optional list of status codes to track for rate limiting.
+    :param max_delay: Optional maximum delay for rate limiting.
     :return: Dictionary with rate limit configuration.
     """
+
     bucket_class = SQLiteBucket if db_name else (MemoryListBucket if use_memory_list else MemoryQueueBucket)
     bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"} if db_name else {}
 
@@ -215,13 +219,14 @@ def get_rate_limit_params(
     if not rate_limits:
         raise ValueError("At least one rate limit (per_second, per_minute, per_hour, calculated_rate, or max_calls and period) must be specified.")
 
-    limiter = Limiter(*rate_limits, bucket_class=bucket_class, bucket_kwargs=bucket_kwargs)
+    limiter = custom_limiter or Limiter(*rate_limits, bucket_class=bucket_class, bucket_kwargs=bucket_kwargs)
 
     return {
         'limiter': limiter,
         'bucket_class': bucket_class,
         'bucket_kwargs': bucket_kwargs,
-        'limit_statuses': limit_statuses or [429]
+        'limit_statuses': limit_statuses or [429],
+        'max_delay': max_delay,
     }
 
 

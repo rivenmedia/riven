@@ -144,3 +144,73 @@ def test_rate_limit_reset():
     assert rate_limited_count == 1, "Expected one rate-limited request (second request)"
 
 
+def test_direct_rate_limiter():
+    """Test the Limiter directly to confirm it enforces rate limiting."""
+    from pyrate_limiter import Limiter, RequestRate, Duration
+
+    rate_limits = []
+    rate_limits.append(RequestRate(1, Duration.SECOND))
+    rate_limits.append(RequestRate(60, Duration.MINUTE))
+    limiter = Limiter(*rate_limits)  # 1 request per second and 60 requests per minute
+
+    success_count = 0
+    rate_limited_count = 0
+
+    # First request should succeed
+    try:
+        limiter.try_acquire("test_key")
+        print("Request 1: Success")
+        success_count += 1
+    except Exception as e:
+        print("Request 1: Rate limit hit")
+        rate_limited_count += 1
+
+    # Additional requests should be rate-limited
+    for i in range(4):
+        try:
+            limiter.try_acquire("test_key")
+            print(f"Request {i + 2}: Success")
+            success_count += 1
+        except Exception as e:
+            print(f"Request {i + 2}: Rate limit hit")
+            rate_limited_count += 1
+        time.sleep(0.2)  # Short interval to exceed rate limit
+
+    # Assertions
+    assert success_count == 1, "Expected only one successful request within the rate limit"
+    assert rate_limited_count >= 1, "Expected at least one rate-limited request after hitting the limit"
+
+
+def test_limiter_session_with_basic_rate_limit():
+    """Test a basic LimiterSession that enforces a rate limit of 5 requests per second."""
+    rate_limit_params = get_rate_limit_params(per_second=1)
+    session = create_service_session(rate_limit_params=rate_limit_params)
+    start = time.time()
+    request_count = 20
+    interval_limit = 5
+    buffer_time = 0.8
+
+    # Store timestamps to analyze intervals
+    request_timestamps = []
+
+    # Send 20 requests, observing the time intervals to confirm rate limiting
+    for i in range(request_count):
+        response = session.get('https://httpbin.org/get')
+        current_time = time.time()
+        request_timestamps.append(current_time)
+        print(f'[t+{current_time - start:.2f}] Sent request {i + 1} - Status code: {response.status_code}')
+
+        # Check time intervals every 5 requests to confirm rate limiting is applied
+        if (i + 1) % interval_limit == 0:
+            elapsed_time = request_timestamps[-1] - request_timestamps[-interval_limit]
+            assert elapsed_time >= 1 - buffer_time, (
+                f"Rate limit exceeded: {interval_limit} requests in {elapsed_time:.2f} seconds"
+            )
+
+    # Final assertion to ensure all requests respected the rate limit
+    total_elapsed_time = request_timestamps[-1] - request_timestamps[0]
+    expected_min_time = (request_count / interval_limit) - buffer_time
+    assert total_elapsed_time >= expected_min_time, (
+        f"Test failed: Expected at least {expected_min_time:.2f} seconds "
+        f"for {request_count} requests, got {total_elapsed_time:.2f} seconds"
+    )
