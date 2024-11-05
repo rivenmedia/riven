@@ -7,9 +7,9 @@ from requests import RequestException, Session
 from program import MediaItem
 from program.media import Movie, Show, Season, Episode
 from program.settings.manager import settings_manager
+from program.settings.models import TraktModel
 from program.utils.request import get_rate_limit_params, create_service_session, logger, BaseRequestHandler, \
     ResponseType, HttpMethod, ResponseObject, get_cache_params
-
 
 class TraktAPIError(Exception):
     """Base exception for TraktApi related errors"""
@@ -32,11 +32,11 @@ class TraktAPI:
         "short_list": re.compile(r"https://trakt.tv/lists/\d+")
     }
 
-    def __init__(self, oauth_client_id: Optional[str] = None, oauth_client_secret: Optional[str] = None, oauth_redirect_uri: Optional[str] = None):
+    def __init__(self, settings: TraktModel):
         self.settings = settings_manager.settings.content.trakt
-        self.oauth_client_id = oauth_client_id
-        self.oauth_client_secret = oauth_client_secret
-        self.oauth_redirect_uri = oauth_redirect_uri
+        self.oauth_client_id = settings.oauth.oauth_client_id
+        self.oauth_client_secret = settings.oauth.oauth_client_secret
+        self.oauth_redirect_uri = settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         trakt_cache = get_cache_params("trakt", 86400)
         session = create_service_session(rate_limit_params=rate_limit_params, use_cache=True, cache_params=trakt_cache)
@@ -152,7 +152,7 @@ class TraktAPI:
         """Wrapper for trakt.tv API show method."""
         if not imdb_id:
             return {}
-        url = f"https://api.trakt.tv/shows/{imdb_id}/seasons?extended=episodes,full"
+        url = f"{self.BASE_URL}/shows/{imdb_id}/seasons?extended=episodes,full"
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         return response.data if response.is_ok and response.data else {}
 
@@ -160,7 +160,7 @@ class TraktAPI:
         """Wrapper for trakt.tv API show method."""
         if not imdb_id:
             return []
-        url = f"https://api.trakt.tv/{item_type}/{imdb_id}/aliases"
+        url = f"{self.BASE_URL}/{item_type}/{imdb_id}/aliases"
         try:
             response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
             if response.is_ok and response.data:
@@ -182,7 +182,7 @@ class TraktAPI:
 
     def create_item_from_imdb_id(self, imdb_id: str, type: str = None) -> Optional[MediaItem]:
         """Wrapper for trakt.tv API search method."""
-        url = f"https://api.trakt.tv/search/imdb/{imdb_id}?extended=full"
+        url = f"{self.BASE_URL}/search/imdb/{imdb_id}?extended=full"
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             logger.error(
@@ -198,7 +198,7 @@ class TraktAPI:
 
     def get_imdbid_from_tmdb(self, tmdb_id: str, type: str = "movie") -> Optional[str]:
         """Wrapper for trakt.tv API search method."""
-        url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}"  # ?extended=full
+        url = f"{self.BASE_URL}/search/tmdb/{tmdb_id}"  # ?extended=full
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
@@ -210,7 +210,7 @@ class TraktAPI:
 
     def get_imdbid_from_tvdb(self, tvdb_id: str, type: str = "show") -> Optional[str]:
         """Wrapper for trakt.tv API search method."""
-        url = f"https://api.trakt.tv/search/tvdb/{tvdb_id}"
+        url = f"{self.BASE_URL}/search/tvdb/{tvdb_id}"
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
@@ -285,6 +285,10 @@ class TraktAPI:
 
     def perform_oauth_flow(self) -> str:
         """Initiate the OAuth flow and return the authorization URL."""
+        if not self.oauth_client_id or not self.oauth_client_secret or not self.oauth_redirect_uri:
+            logger.error("OAuth settings not found in Trakt settings")
+            raise TraktAPIError("OAuth settings not found in Trakt settings")
+
         params = {
             "response_type": "code",
             "client_id": self.oauth_client_id,
@@ -294,6 +298,10 @@ class TraktAPI:
 
     def handle_oauth_callback(self, api_key:str, code: str) -> bool:
         """Handle the OAuth callback and exchange the code for an access token."""
+        if not self.oauth_client_id or not self.oauth_client_secret or not self.oauth_redirect_uri:
+            logger.error("OAuth settings not found in Trakt settings")
+            return False
+
         token_url = f"{self.BASE_URL}/oauth/token"
         payload = {
             "code": code,

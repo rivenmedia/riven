@@ -11,9 +11,10 @@ def bootstrap_apis():
     __setup_plex()
     __setup_mdblist()
     __setup_overseerr()
+    __setup_listrr()
 
 def __setup_trakt():
-    traktApi = TraktAPI()
+    traktApi = TraktAPI(settings_manager.settings.content.trakt)
     di[TraktAPI] = traktApi
 
 def __setup_plex():
