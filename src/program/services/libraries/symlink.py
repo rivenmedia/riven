@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Generator
 
 from loguru import logger
 from sqla_wrapper import Session
+from PTT import parse_title
 
 from program.db.db import db
 from program.media.subtitle import Subtitle
@@ -159,24 +160,26 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
             for episode in os.listdir(directory / show / season):
                 if os.path.splitext(episode)[1][1:] not in ALLOWED_VIDEO_EXTENSIONS:
                     continue
-                if not (episode_number := re.search(r"s\d+e(\d+)", episode, re.IGNORECASE)):
+                episode_numbers: list[int] = parse_title(episode).get("episodes", [])
+                if not episode_numbers:
                     logger.log("NOT_FOUND", f"Can't extract episode number at path {directory / show / season / episode}")
                     # Delete the episode since it can't be indexed
                     os.remove(directory / show / season / episode)
                     continue
 
-                episode_item = Episode({"number": int(episode_number.group(1))})
-                resolve_symlink_and_set_attrs(episode_item, Path(directory) / show / season / episode)
-                find_subtitles(episode_item, Path(directory) / show / season / episode)
-                if settings_manager.settings.force_refresh:
-                    episode_item.set("symlinked", True)
-                    episode_item.set("update_folder", str(Path(directory) / show / season / episode))
-                else:
-                    episode_item.set("symlinked", True)
-                    episode_item.set("update_folder", "updated")
-                if is_anime:
-                    episode_item.is_anime = True
-                episodes[int(episode_number.group(1))] = episode_item
+                for episode_number in episode_numbers:
+                    episode_item = Episode({"number": episode_number})
+                    resolve_symlink_and_set_attrs(episode_item, Path(directory) / show / season / episode)
+                    find_subtitles(episode_item, Path(directory) / show / season / episode)
+                    if settings_manager.settings.force_refresh:
+                        episode_item.set("symlinked", True)
+                        episode_item.set("update_folder", str(Path(directory) / show / season / episode))
+                    else:
+                        episode_item.set("symlinked", True)
+                        episode_item.set("update_folder", "updated")
+                    if is_anime:
+                        episode_item.is_anime = True
+                    episodes[episode_number] = episode_item
             if len(episodes) > 0:
                 for i in range(1, max(episodes.keys())+1):
                     season_item.add_episode(episodes.get(i, Episode({"number": i})))
