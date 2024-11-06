@@ -98,6 +98,9 @@ class Downloader:
                 item.active_stream = {"infohash": info["hash"], "id": info["id"]}
                 found = True
                 break
+            else:
+                logger.debug(f"Deleting {info['id']} because it doesn't match the item type or size")
+                self.delete_torrent(info["id"])
             if item.type in ["show", "season", "episode"]:
                 show = item
                 if item.type == "season":
@@ -117,4 +120,7 @@ class Downloader:
                             # We have to make sure the episode is correct if item is an episode
                             if item.type != "episode" or (item.type == "episode" and episode.number == item.number):
                                 found = True
+                else:
+                    logger.debug(f"Deleting {info['id']} because it doesn't match the item type or size")
+                    self.delete_torrent(info["id"])
         return found
