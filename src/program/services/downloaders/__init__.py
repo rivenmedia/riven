@@ -6,6 +6,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
+from program.services.downloaders.shared import filesize_is_acceptable_movie, filesize_is_acceptable_show
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
@@ -90,7 +91,7 @@ class Downloader:
         item = item
         container = container
         for file in container.values():
-            if item.type == "movie" and self.service.file_finder.container_file_matches_movie(file):
+            if item.type == "movie" and self.service.file_finder.container_file_matches_movie(file) and filesize_is_acceptable_movie(file[self.service.file_finder.filesize_attr]):
                 item.file = file[self.service.file_finder.filename_attr]
                 item.folder = info["filename"]
                 item.alternative_folder = info["original_filename"]
@@ -104,7 +105,7 @@ class Downloader:
                 elif item.type == "episode":
                     show = item.parent.parent
                 file_season, file_episodes = self.service.file_finder.container_file_matches_episode(file)
-                if file_season and file_episodes:
+                if file_season and file_episodes and filesize_is_acceptable_show(file[self.service.file_finder.filesize_attr]):
                     season = next((season for season in show.seasons if season.number == file_season), None)
                     for file_episode in file_episodes:
                         episode = next((episode for episode in season.episodes if episode.number == file_episode), None)

@@ -73,31 +73,9 @@ class FileFinder:
         filename_attr (str): The name of the file attribute.
     """
 
-    min_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
-    max_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
-    min_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
-    max_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
-    are_filesizes_valid = False
-
     def __init__(self, name, size):
         self.filename_attr = name
         self.filesize_attr = size
-        self.are_filesizes_valid = self._validate_filesizes()
-
-    def _validate_filesizes(self) -> bool:
-        if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_min, int) or settings_manager.settings.downloaders.movie_filesize_mb_min < -1:
-            logger.error("Movie filesize min is not set or invalid.")
-            return False
-        if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_max, int) or settings_manager.settings.downloaders.movie_filesize_mb_max < -1:
-            logger.error("Movie filesize max is not set or invalid.")
-            return False
-        if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_min, int) or settings_manager.settings.downloaders.episode_filesize_mb_min < -1:
-            logger.error("Episode filesize min is not set or invalid.")
-            return False
-        if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_max, int) or settings_manager.settings.downloaders.episode_filesize_mb_max < -1:
-            logger.error("Episode filesize max is not set or invalid.")
-            return False
-        return True
 
     def container_file_matches_episode(self, file):
         filename = file[self.filename_attr]
@@ -114,29 +92,6 @@ class FileFinder:
             return parsed_data.type == "movie"
         except Exception:
             return None
-
-    def filesize_is_acceptable_movie(self, filesize):
-        if not self.are_filesizes_valid:
-            logger.error("Filesize settings are invalid, movie file sizes will not be checked.")
-            return True
-        min_size = settings_manager.settings.downloaders.movie_filesize_mb_min * 1_000_000
-        max_size = settings_manager.settings.downloaders.movie_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.movie_filesize_mb_max != -1 else float("inf")
-        is_acceptable = min_size <= filesize <= max_size
-        if not is_acceptable:
-            logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
-        return is_acceptable
-
-    def filesize_is_acceptable_show(self, filesize):
-        if not self.are_filesizes_valid:
-            logger.error("Filesize settings are invalid, episode file sizes will not be checked.")
-            return True
-        min_size = settings_manager.settings.downloaders.episode_filesize_mb_min * 1_000_000
-        max_size = settings_manager.settings.downloaders.episode_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.episode_filesize_mb_max != -1 else float("inf")
-        is_acceptable = min_size <= filesize <= max_size
-        if not is_acceptable:
-            logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
-        return is_acceptable
-
 
 def premium_days_left(expiration: datetime) -> str:
     """Convert an expiration date into a message showing days remaining on the user's premium account"""
@@ -162,3 +117,48 @@ def hash_from_uri(magnet_uri: str) -> str:
         return magnet_uri
     start = magnet_uri.index("urn:btih:") + len("urn:btih:")
     return magnet_uri[start : start + 40]
+
+min_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
+max_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
+min_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
+max_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
+are_filesizes_valid = False
+
+def _validate_filesizes() -> bool:
+    if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_min, int) or settings_manager.settings.downloaders.movie_filesize_mb_min < -1:
+        logger.error("Movie filesize min is not set or invalid.")
+        return False
+    if not isinstance(settings_manager.settings.downloaders.movie_filesize_mb_max, int) or settings_manager.settings.downloaders.movie_filesize_mb_max < -1:
+        logger.error("Movie filesize max is not set or invalid.")
+        return False
+    if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_min, int) or settings_manager.settings.downloaders.episode_filesize_mb_min < -1:
+        logger.error("Episode filesize min is not set or invalid.")
+        return False
+    if not isinstance(settings_manager.settings.downloaders.episode_filesize_mb_max, int) or settings_manager.settings.downloaders.episode_filesize_mb_max < -1:
+        logger.error("Episode filesize max is not set or invalid.")
+        return False
+    return True
+
+are_filesizes_valid = _validate_filesizes()
+
+def filesize_is_acceptable_movie(filesize):
+    if not are_filesizes_valid:
+        logger.error("Filesize settings are invalid, movie file sizes will not be checked.")
+        return True
+    min_size = settings_manager.settings.downloaders.movie_filesize_mb_min * 1_000_000
+    max_size = settings_manager.settings.downloaders.movie_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.movie_filesize_mb_max != -1 else float("inf")
+    is_acceptable = min_size <= filesize <= max_size
+    if not is_acceptable:
+        logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
+    return is_acceptable
+
+def filesize_is_acceptable_show(filesize):
+    if not are_filesizes_valid:
+        logger.error("Filesize settings are invalid, episode file sizes will not be checked.")
+        return True
+    min_size = settings_manager.settings.downloaders.episode_filesize_mb_min * 1_000_000
+    max_size = settings_manager.settings.downloaders.episode_filesize_mb_max * 1_000_000 if settings_manager.settings.downloaders.episode_filesize_mb_max != -1 else float("inf")
+    is_acceptable = min_size <= filesize <= max_size
+    if not is_acceptable:
+        logger.debug(f"Filesize {filesize} is not within acceptable range {min_size} - {max_size}")
+    return is_acceptable
