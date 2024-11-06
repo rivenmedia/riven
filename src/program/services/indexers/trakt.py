@@ -2,8 +2,10 @@
 
 from datetime import datetime, timedelta
 from typing import Generator, Union
-from loguru import logger
+
 from kink import di
+from loguru import logger
+
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager

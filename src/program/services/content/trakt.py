@@ -1,12 +1,15 @@
 """Trakt content module"""
 
 from datetime import datetime, timedelta
+
+from kink import di
 from loguru import logger
 from requests import RequestException
-from kink import di
+
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+
 
 class TraktContent:
     """Content class for Trakt"""

@@ -1,6 +1,9 @@
 import argparse
 
-from program.db.db_functions import hard_reset_database, hard_reset_database_pre_migration, resolve_duplicates
+from program.db.db_functions import (
+    hard_reset_database,
+    hard_reset_database_pre_migration,
+)
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils.logging import log_cleaner, logger

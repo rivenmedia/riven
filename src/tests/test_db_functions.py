@@ -6,8 +6,8 @@ from program.db.db import db, run_migrations
 from program.db.db_functions import (
     blacklist_stream,
     delete_media_item,
-    reset_streams,
     get_items_by_ids,
+    reset_streams,
 )
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation

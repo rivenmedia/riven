@@ -9,6 +9,7 @@ from queue import Empty
 from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
+from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -19,7 +20,6 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
-from program.apis import bootstrap_apis
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
 from program.services.libraries import SymlinkLibrary

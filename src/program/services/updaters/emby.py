@@ -6,8 +6,14 @@ from loguru import logger
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import BaseRequestHandler, ResponseType, ResponseObject, Session, HttpMethod, \
-    create_service_session
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    Session,
+    create_service_session,
+)
 
 
 class EmbyRequestHandler(BaseRequestHandler):

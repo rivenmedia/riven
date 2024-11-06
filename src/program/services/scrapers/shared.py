@@ -1,5 +1,5 @@
 """Shared functions for scrapers."""
-from typing import Dict, Set, Union, Type, Optional
+from typing import Dict, Optional, Set, Type, Union
 
 from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
@@ -10,7 +10,13 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from program.utils.request import BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    Session,
+)
 
 enable_aliases = settings_manager.settings.scraping.enable_aliases
 settings_model = settings_manager.settings.ranking

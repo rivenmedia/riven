@@ -1,12 +1,20 @@
-﻿from typing import List, Optional, Dict, Union
+﻿from typing import Dict, List, Optional, Union
+
 from loguru import logger
-from requests import Session
+from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
-from plexapi.library import LibrarySection
-from program.media import Movie, Episode
+from requests import Session
+
+from program.media import Episode, Movie
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, BaseRequestHandler, HttpMethod, ResponseType, ResponseObject
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    create_service_session,
+)
 
 
 class PlexAPIError(Exception):

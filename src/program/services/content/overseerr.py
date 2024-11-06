@@ -1,9 +1,10 @@
 """Overseerr content module"""
 
+from kink import di
 from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
-from kink import di
+
 from program.apis.overseerr_api import OverseerrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager

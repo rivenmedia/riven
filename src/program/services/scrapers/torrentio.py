@@ -4,10 +4,18 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
+from program.services.scrapers.shared import (
+    ScraperRequestHandler,
+    _get_stremio_identifier,
+)
 from program.settings.manager import settings_manager
 from program.settings.models import TorrentioConfig
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
+from program.utils.request import (
+    HttpMethod,
+    RateLimitExceeded,
+    create_service_session,
+    get_rate_limit_params,
+)
 
 
 class Torrentio:

@@ -1,20 +1,32 @@
 import json
 from enum import Enum
 from types import SimpleNamespace
-from typing import Dict, Type, Optional, Any
-from requests import Session
-from lxml import etree
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, RequestException, HTTPError
-from requests.models import Response
-from requests_cache import CacheMixin, CachedSession
-from requests_ratelimiter import LimiterMixin, LimiterSession, LimiterAdapter
-from xmltodict import parse as parse_xml
+from typing import Any, Dict, Optional, Type
+
 from loguru import logger
+from lxml import etree
+from pyrate_limiter import (
+    Duration,
+    Limiter,
+    MemoryListBucket,
+    MemoryQueueBucket,
+    RequestRate,
+)
+from requests import Session
+from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectTimeout, HTTPError, RequestException
+from requests.models import Response
+from requests_cache import CachedSession, CacheMixin
+from requests_ratelimiter import (
+    LimiterAdapter,
+    LimiterMixin,
+    LimiterSession,
+    SQLiteBucket,
+)
+from urllib3.util.retry import Retry
+from xmltodict import parse as parse_xml
+
 from program.utils import data_dir_path
-from pyrate_limiter import RequestRate, Duration, Limiter, MemoryQueueBucket, MemoryListBucket
-from requests_ratelimiter import SQLiteBucket
 
 
 class HttpMethod(Enum):

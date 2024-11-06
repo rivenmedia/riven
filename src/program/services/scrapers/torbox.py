@@ -7,7 +7,7 @@ from requests.exceptions import ConnectTimeout
 from program.media.item import MediaItem
 from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, RateLimitExceeded, HttpMethod
+from program.utils.request import HttpMethod, RateLimitExceeded, create_service_session
 
 
 class TorBoxScraper:

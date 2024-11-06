@@ -4,15 +4,14 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from sqlalchemy import delete, desc, func, insert, inspect, select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import delete, insert, inspect, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 import alembic
-from program.utils import root_dir
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
+from program.utils import root_dir
 
 from .db import db
 

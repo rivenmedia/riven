@@ -2,10 +2,11 @@ from typing import Literal
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from kink import di
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
-from kink import di
+
 from program.apis import TraktAPI
 from program.db.db import db
 from program.managers.event_manager import EventUpdate

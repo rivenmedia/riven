@@ -1,9 +1,11 @@
 """Plex Watchlist Module"""
 from typing import Generator
+
+from kink import di
 from loguru import logger
 from requests import HTTPError
+
 from program.apis.plex_api import PlexAPI
-from kink import di
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 

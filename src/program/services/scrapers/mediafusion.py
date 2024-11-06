@@ -7,10 +7,19 @@ from requests import ConnectTimeout, ReadTimeout
 from requests.exceptions import RequestException
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier, ScraperRequestHandler
+from program.services.scrapers.shared import (
+    ScraperRequestHandler,
+    _get_stremio_identifier,
+)
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod, ResponseType
+from program.utils.request import (
+    HttpMethod,
+    RateLimitExceeded,
+    ResponseType,
+    create_service_session,
+    get_rate_limit_params,
+)
 
 
 class Mediafusion:

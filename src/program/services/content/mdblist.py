@@ -1,8 +1,10 @@
 """Mdblist content module"""
 
 from typing import Generator
-from loguru import logger
+
 from kink import di
+from loguru import logger
+
 from program.apis.mdblist_api import MdblistAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager

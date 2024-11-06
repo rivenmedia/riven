@@ -15,8 +15,13 @@ from requests import HTTPError, ReadTimeout, RequestException, Timeout
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod, \
-    get_http_adapter
+from program.utils.request import (
+    HttpMethod,
+    RateLimitExceeded,
+    create_service_session,
+    get_http_adapter,
+    get_rate_limit_params,
+)
 
 
 class ProwlarrIndexer(BaseModel):

@@ -1,10 +1,13 @@
-from .listrr_api import ListrrAPI, ListrrAPIError
-from .trakt_api import TraktAPI, TraktAPIError
-from .plex_api import PlexAPI, PlexAPIError
-from .overseerr_api import OverseerrAPI, OverseerrAPIError
-from .mdblist_api import MdblistAPI, MdblistAPIError
-from program.settings.manager import settings_manager
 from kink import di
+
+from program.settings.manager import settings_manager
+
+from .listrr_api import ListrrAPI, ListrrAPIError
+from .mdblist_api import MdblistAPI, MdblistAPIError
+from .overseerr_api import OverseerrAPI, OverseerrAPIError
+from .plex_api import PlexAPI, PlexAPIError
+from .trakt_api import TraktAPI, TraktAPIError
+
 
 def bootstrap_apis():
     __setup_trakt()

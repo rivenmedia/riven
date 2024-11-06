@@ -4,7 +4,18 @@ from unittest.mock import patch
 import pytest
 import responses
 from requests.exceptions import HTTPError
-from program.utils.request import create_service_session, get_rate_limit_params, HttpMethod, BaseRequestHandler, ResponseType, RateLimitExceeded, get_http_adapter, get_retry_policy
+
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    RateLimitExceeded,
+    ResponseType,
+    create_service_session,
+    get_http_adapter,
+    get_rate_limit_params,
+    get_retry_policy,
+)
+
 
 @responses.activate
 def test_rate_limiter_with_base_request_handler():
@@ -149,7 +160,7 @@ def test_rate_limit_reset():
 
 def test_direct_rate_limiter():
     """Test the Limiter directly to confirm it enforces rate limiting."""
-    from pyrate_limiter import Limiter, RequestRate, Duration
+    from pyrate_limiter import Duration, Limiter, RequestRate
 
     rate_limits = []
     rate_limits.append(RequestRate(1, Duration.SECOND))
