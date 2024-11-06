@@ -102,14 +102,15 @@ async def get_items(
                 if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
                     filter_states.append(state_enum)
                     break
-        if len(filter_states) == len(states):
-            query = query.where(MediaItem.last_state.in_(filter_states))
-        else:
-            valid_states = [state_enum.name for state_enum in States]
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid filter states: {states}. Valid states are: {valid_states}",
-            )
+        if not 'All' in states:
+            if len(filter_states) == len(states):
+                query = query.where(MediaItem.last_state.in_(filter_states))
+            else:
+                valid_states = [state_enum.name for state_enum in States]
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid filter states: {states}. Valid states are: {valid_states}",
+                )
 
     if type:
         if "," in type:
