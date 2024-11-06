@@ -66,7 +66,7 @@ class Downloader:
         self.select_files(torrent_id, the_container.keys())
         if not self.update_item_attributes(item, info, the_container):
             raise Exception("No matching files found!")
-        logger.info(f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+        logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
         return torrent_id
 
     def get_instant_availability(self, infohashes: list[str]) -> dict[str, list[dict]]:
