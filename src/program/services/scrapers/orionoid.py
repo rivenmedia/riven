@@ -51,9 +51,6 @@ class Orionoid:
             url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
             if response.is_ok and hasattr(response.data, "result"):
-                if not response.data.data.subscription.package.enabled:
-                    logger.error("Orionoid subscription is not active. Please check your subscription status.")
-                    return False
                 if response.data.result.status != "success":
                     logger.error(
                         f"Orionoid API Key is invalid. Status: {response.data.result.status}",
