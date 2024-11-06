@@ -102,7 +102,7 @@ async def get_items(
                 if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
                     filter_states.append(state_enum)
                     break
-        if not 'All' in states:
+        if 'All' not in states:
             if len(filter_states) == len(states):
                 query = query.where(MediaItem.last_state.in_(filter_states))
             else:
