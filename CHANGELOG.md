@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0](https://github.com/rivenmedia/riven/compare/v0.17.0...v0.18.0) (2024-11-06)
+
+
+### Features
+
+* add retry policy and connection pool configuration to request utils ([#864](https://github.com/rivenmedia/riven/issues/864)) ([1713a51](https://github.com/rivenmedia/riven/commit/1713a5169805cabcc828b3f82204c05f796a9aa6))
+
+
+### Bug Fixes
+
+* add HTTP adapter configuration for Jackett and Prowlarr scrapers to manage connection pool size ([0c8057a](https://github.com/rivenmedia/riven/commit/0c8057aef45fcccd2c855a8413729b39020439db))
+* add HTTP adapter configuration for Jackett and Prowlarr scrapers… ([#865](https://github.com/rivenmedia/riven/issues/865)) ([0c8057a](https://github.com/rivenmedia/riven/commit/0c8057aef45fcccd2c855a8413729b39020439db))
+* fixed log for downloaded message ([656506f](https://github.com/rivenmedia/riven/commit/656506ffba7ed34256291a31eb882dee3b5f4de6))
+* remove orionoid sub check ([d2cb0d9](https://github.com/rivenmedia/riven/commit/d2cb0d9baa4be3421e5c56cafdbb6d5c024ca675))
+* removed unused functions relating to resolving duplicates ([5aec8fb](https://github.com/rivenmedia/riven/commit/5aec8fb036b9b549477304f46b6ff0548a72d7f7))
+* wrong headers attr and added orionoid sub check ([91d3f7d](https://github.com/rivenmedia/riven/commit/91d3f7d87c56a2cb4cb6898b57c480d1b4df94e9))
+
 ## [0.17.0](https://github.com/rivenmedia/riven/compare/v0.16.2...v0.17.0) (2024-11-05)
 
 

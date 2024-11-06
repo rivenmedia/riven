@@ -1,15 +1,26 @@
 ﻿import re
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Union, List, Optional
+from typing import List, Optional, Union
 from urllib.parse import urlencode
+
 from requests import RequestException, Session
+
 from program import MediaItem
-from program.media import Movie, Show, Season, Episode
+from program.media import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import TraktModel
-from program.utils.request import get_rate_limit_params, create_service_session, logger, BaseRequestHandler, \
-    ResponseType, HttpMethod, ResponseObject, get_cache_params
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    create_service_session,
+    get_cache_params,
+    get_rate_limit_params,
+    logger,
+)
+
 
 class TraktAPIError(Exception):
     """Base exception for TraktApi related errors"""

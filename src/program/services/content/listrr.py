@@ -1,10 +1,12 @@
 """Listrr content module"""
 from typing import Generator
+
 from kink import di
-from program.utils.request import logger
+
+from program.apis.listrr_api import ListrrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.apis.listrr_api import ListrrAPI
+from program.utils.request import logger
 
 
 class Listrr:

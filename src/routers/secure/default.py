@@ -2,10 +2,11 @@ from typing import Literal
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
-from loguru import logger
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from kink import di
+from loguru import logger
+from pydantic import BaseModel, Field, HttpUrl
+from sqlalchemy import func, select
+
 from program.apis import TraktAPI
 from program.db.db import db
 from program.managers.event_manager import EventUpdate
@@ -233,3 +234,42 @@ async def get_rclone_files() -> dict[str, str]:
 
     scan_dir(rclone_dir)  # dict of `filename: filepath``
     return file_map
+
+
+class UploadLogsResponse(BaseModel):
+    success: bool
+    url: HttpUrl = Field(description="URL to the uploaded log file. 50M Filesize limit. 180 day retention.")
+
+@router.post("/upload_logs", operation_id="upload_logs")
+async def upload_logs() -> UploadLogsResponse:
+    """Upload the latest log file to paste.c-net.org"""
+
+    log_file_path = None
+    for handler in logger._core.handlers.values():
+        if ".log" in handler._name:
+            log_file_path = handler._sink._path
+            break
+
+    if not log_file_path:
+        raise HTTPException(status_code=500, detail="Log file handler not found")
+
+    try:
+        with open(log_file_path, "r") as log_file:
+            log_contents = log_file.read()
+
+        response = requests.post(
+            "https://paste.c-net.org/",
+            data=log_contents.encode('utf-8'),
+            headers={"Content-Type": "text/plain"}
+        )
+
+        if response.status_code == 200:
+            logger.info(f"Uploaded log file to {response.text.strip()}")
+            return UploadLogsResponse(success=True, url=response.text.strip())
+        else:
+            logger.error(f"Failed to upload log file: {response.status_code}")
+            raise HTTPException(status_code=500, detail="Failed to upload log file")
+
+    except Exception as e:
+        logger.error(f"Failed to read or upload log file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read or upload log file")

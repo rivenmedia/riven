@@ -47,7 +47,7 @@ def reset_database(connection) -> bool:
             connection.execute(text("CREATE SCHEMA public"))
             connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
 
-        logger.debug("DATABASE", "Database reset complete")
+        logger.log("DATABASE", "Database reset complete")
         return True
     except Exception as e:
         logger.error(f"Database reset failed: {e}")

@@ -1,13 +1,30 @@
-﻿from unittest.mock import MagicMock
+﻿from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
-from types import SimpleNamespace
 from requests import Session
 from requests.exceptions import ConnectTimeout
+
 from program.utils.request import (
-    create_service_session, get, CachedLimiterSession, MemoryQueueBucket, ResponseObject, LimiterSession,
-    put, delete, _make_request, RateLimitExceeded, RequestException, ping,
-    get_rate_limit_params, get_cache_params, post, Response, CachedSession
+    CachedLimiterSession,
+    CachedSession,
+    LimiterSession,
+    MemoryQueueBucket,
+    RateLimitExceeded,
+    RequestException,
+    Response,
+    ResponseObject,
+    _make_request,
+    create_service_session,
+    delete,
+    get,
+    get_cache_params,
+    get_rate_limit_params,
+    ping,
+    post,
+    put,
 )
+
 
 class TestCodeUnderTest:
     def test_create_service_session_default(self):

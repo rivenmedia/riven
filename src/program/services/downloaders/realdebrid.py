@@ -3,15 +3,20 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-from requests import Session
 from loguru import logger
 from pydantic import BaseModel
+from requests import Session
 
 from program.settings.manager import settings_manager
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseType,
+    create_service_session,
+    get_rate_limit_params,
+)
 
 from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
-from program.utils.request import get_rate_limit_params, create_service_session, BaseRequestHandler, HttpMethod, \
-    ResponseType
 
 
 class RDTorrentStatus(str, Enum):

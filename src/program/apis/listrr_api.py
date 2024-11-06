@@ -1,9 +1,18 @@
-﻿from loguru import logger
+﻿from kink import di
+from loguru import logger
 from requests.exceptions import HTTPError
-from kink import di
+
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
-from program.utils.request import create_service_session, BaseRequestHandler, Session, ResponseType, ResponseObject, HttpMethod
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    Session,
+    create_service_session,
+)
+
 
 class ListrrAPIError(Exception):
     """Base exception for ListrrAPI related errors"""

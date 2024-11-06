@@ -1,13 +1,19 @@
 """Jellyfin Updater module"""
 from types import SimpleNamespace
-from typing import Generator, Type, Optional
+from typing import Generator, Optional, Type
 
 from loguru import logger
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, BaseRequestHandler, ResponseType, ResponseObject, Session, \
-    HttpMethod
+from program.utils.request import (
+    BaseRequestHandler,
+    HttpMethod,
+    ResponseObject,
+    ResponseType,
+    Session,
+    create_service_session,
+)
 
 
 class JellyfinRequestHandler(BaseRequestHandler):

@@ -1,7 +1,6 @@
 import os
 import threading
 import traceback
-from asyncio import CancelledError
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty

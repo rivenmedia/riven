@@ -2,12 +2,13 @@
 import os
 from typing import Dict, Generator, List, Union
 
+from kink import di
 from loguru import logger
 from plexapi.exceptions import BadRequest, Unauthorized
 from plexapi.library import LibrarySection
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
-from kink import di
+
 from program.apis.plex_api import PlexAPI
 from program.media.item import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager

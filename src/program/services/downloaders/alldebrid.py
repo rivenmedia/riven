@@ -1,13 +1,19 @@
 from datetime import datetime
 from typing import Dict, Iterator, List, Optional, Tuple
 
-from requests import Session
 from loguru import logger
+from requests import Session
 from requests.exceptions import ConnectTimeout
-from program.utils.request import get_rate_limit_params, create_service_session, BaseRequestHandler, \
-    BaseRequestParameters, HttpMethod, ResponseType
 
 from program.settings.manager import settings_manager
+from program.utils.request import (
+    BaseRequestHandler,
+    BaseRequestParameters,
+    HttpMethod,
+    ResponseType,
+    create_service_session,
+    get_rate_limit_params,
+)
 
 from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
 

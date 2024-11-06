@@ -1,11 +1,18 @@
 """ Zilean scraper module """
 
 from typing import Dict
+
 from loguru import logger
+
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import create_service_session, get_rate_limit_params, RateLimitExceeded, HttpMethod
+from program.utils.request import (
+    HttpMethod,
+    RateLimitExceeded,
+    create_service_session,
+    get_rate_limit_params,
+)
 
 
 class Zilean:

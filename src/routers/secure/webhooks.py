@@ -2,13 +2,13 @@ from typing import Any, Dict
 
 import pydantic
 from fastapi import APIRouter, Request
+from kink import di
 from loguru import logger
 from requests import RequestException
 
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.services.content.overseerr import Overseerr
-from kink import di
 
 from ..models.overseerr import OverseerrWebhook
 
