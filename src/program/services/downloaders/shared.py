@@ -172,7 +172,7 @@ def _validate_filesize(filesize: int, media_type: str) -> bool:
         bool: True if size is within configured range
     """
     if not are_filesizes_valid:
-        logger.error(f"Filesize settings are invalid, {media_type.name.lower()} file sizes will not be checked.")
+        logger.error(f"Filesize settings are invalid, {media_type} file sizes will not be checked.")
         return True
         
     min_mb, max_mb = _get_size_limits(media_type)
