@@ -179,11 +179,13 @@ def _validate_filesize(filesize: int, media_type: str) -> bool:
     min_size = 0 if min_mb == -1 else _convert_to_bytes(min_mb)
     max_size = float("inf") if max_mb == -1 else _convert_to_bytes(max_mb)
     
-    is_acceptable = min_size <= filesize <= max_size
-    if not is_acceptable:
-        logger.debug(f"{media_type} filesize {filesize} bytes is not within acceptable range {min_size} - {max_size} bytes")
-    return is_acceptable
+    return min_size <= filesize <= max_size
 
 
 def filesize_is_acceptable(filesize: int, media_type: str) -> bool:
     return _validate_filesize(filesize, media_type)
+
+def get_invalid_filesize_log_string(filesize: int, media_type: str) -> str:
+    min_mb, max_mb = _get_size_limits(media_type)
+    friendly_filesize = round(filesize / BYTES_PER_MB, 2)
+    return f"{friendly_filesize} MB is not within acceptable range of [{min_mb}MB] to [{max_mb}MB]"
