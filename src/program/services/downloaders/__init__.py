@@ -54,6 +54,8 @@ class Downloader:
                 download_result = self.download_cached_stream(item, stream)
                 if download_result:
                     self.validate_filesize(item, download_result)
+                    if not self.update_item_attributes(item, download_result):
+                        raise Exception("No matching files found!")
                     break
             except Exception as e:
                 if download_result and download_result.torrent_id:
@@ -71,8 +73,6 @@ class Downloader:
         torrent_id = self.add_torrent(stream.infohash)
         info = self.get_torrent_info(torrent_id)
         self.select_files(torrent_id, the_container.keys())
-        if not self.update_item_attributes(item, info, the_container):
-            raise Exception("No matching files found!")
         logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
         return DownloadCachedStreamResult(the_container, torrent_id, info, stream.infohash)
 
@@ -91,17 +91,23 @@ class Downloader:
     def delete_torrent(self, torrent_id):
         self.service.delete_torrent(torrent_id)
 
-    def update_item_attributes(self, item: MediaItem, info, container) -> bool:
+    def update_item_attributes(self, item: MediaItem, download_result: DownloadCachedStreamResult) -> bool:
         """Update the item attributes with the downloaded files and active stream"""
         found = False
         item = item
-        container = container
+        info_hash = download_result.info.get("hash", None)
+        id = download_result.info.get("id", None)
+        original_filename = download_result.info.get("original_filename", None)
+        filename = download_result.info.get("filename", None)
+        if not info_hash or not id or not original_filename or not filename:
+            return False
+        container = download_result.container
         for file in container.values():
             if item.type == MovieMediaType.Movie.value and self.service.file_finder.container_file_matches_movie(file):
                 item.file = file[self.service.file_finder.filename_attr]
-                item.folder = info["filename"]
-                item.alternative_folder = info["original_filename"]
-                item.active_stream = {"infohash": info["hash"], "id": info["id"]}
+                item.folder = filename
+                item.alternative_folder = original_filename
+                item.active_stream = {"infohash": info_hash, "id": id}
                 found = True
                 break
             if item.type in (ShowMediaType.Show.value, ShowMediaType.Season.value, ShowMediaType.Episode.value):
@@ -117,9 +123,9 @@ class Downloader:
                         episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
                         if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
                             episode.file = file[self.service.file_finder.filename_attr]
-                            episode.folder = info["filename"]
-                            episode.alternative_folder = info["original_filename"]
-                            episode.active_stream = {"infohash": info["hash"], "id": info["id"]}
+                            episode.folder = filename
+                            episode.alternative_folder = original_filename
+                            episode.active_stream = {"infohash": info_hash, "id": id}
                             # We have to make sure the episode is correct if item is an episode
                             if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
                                 found = True
@@ -129,6 +135,7 @@ class Downloader:
         for file in download_result.container.values():
             item_media_type = self._get_item_media_type(item)
             if not filesize_is_acceptable(file[self.service.file_finder.filesize_attr], item_media_type):
+
                 raise InvalidFileSizeException(f"File '{file[self.service.file_finder.filename_attr]}' is invalid: {get_invalid_filesize_log_string(file[self.service.file_finder.filesize_attr], item_media_type)}")
         logger.debug(f"All files for {download_result.info_hash} are of an acceptable size")
 
