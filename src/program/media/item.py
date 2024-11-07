@@ -423,9 +423,9 @@ class Movie(MediaItem):
         return self
 
     def __init__(self, item):
-        self.type = MovieMediaType.Movie.value
         self.file = item.get("file", None)
         super().__init__(item)
+        self.type = MovieMediaType.Movie.value
 
     def __repr__(self):
         return f"Movie:{self.log_string}:{self.state.name}"
@@ -660,10 +660,10 @@ class Episode(MediaItem):
     }
 
     def __init__(self, item):
-        self.type = ShowMediaType.Episode.value
         self.number = item.get("number", None)
         self.file = item.get("file", None)
         super().__init__(item)
+        self.type = ShowMediaType.Episode.value
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
 
