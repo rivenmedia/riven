@@ -5,6 +5,7 @@ from typing import Tuple
 from loguru import logger
 from RTN import parse
 
+from program.media import MovieMediaType, ShowMediaType
 from program.settings.manager import settings_manager
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
@@ -123,7 +124,6 @@ min_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
 max_movie_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
 min_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
 max_episode_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
-are_filesizes_valid = False
 
 def _validate_filesize_setting(value: int, setting_name: str) -> bool:
     """Validate a single filesize setting."""
@@ -156,7 +156,7 @@ def _convert_to_bytes(size_mb: int) -> int:
 def _get_size_limits(media_type: str) -> Tuple[int, int]:
     """Get min and max size limits in MB for given media type."""
     settings = settings_manager.settings.downloaders
-    if media_type == "movie":
+    if media_type == MovieMediaType.Movie.value:
         return (settings.movie_filesize_mb_min, settings.movie_filesize_mb_max)
     return (settings.episode_filesize_mb_min, settings.episode_filesize_mb_max)
 
@@ -185,8 +185,5 @@ def _validate_filesize(filesize: int, media_type: str) -> bool:
     return is_acceptable
 
 
-def filesize_is_acceptable_movie(filesize: int) -> bool:
-    return _validate_filesize(filesize, "movie")
-
-def filesize_is_acceptable_show(filesize: int) -> bool:
-    return _validate_filesize(filesize, "show")
+def filesize_is_acceptable(filesize: int, media_type: str) -> bool:
+    return _validate_filesize(filesize, media_type)

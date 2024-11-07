@@ -1,15 +1,15 @@
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
-
 from loguru import logger
 
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from program.services.downloaders.shared import filesize_is_acceptable_movie, filesize_is_acceptable_show
+from program.services.downloaders.shared import filesize_is_acceptable
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
+from ...media import MovieMediaType, ShowMediaType
+
 
 # from .torbox import TorBoxDownloader
 
@@ -91,24 +91,23 @@ class Downloader:
         item = item
         container = container
         for file in container.values():
-            if item.type == "movie" and self.service.file_finder.container_file_matches_movie(file) and filesize_is_acceptable_movie(file[self.service.file_finder.filesize_attr]):
+            if not self.validate_filesize(item, info, file):
+                continue
+            if item.type == MovieMediaType.Movie.value and self.service.file_finder.container_file_matches_movie(file):
                 item.file = file[self.service.file_finder.filename_attr]
                 item.folder = info["filename"]
                 item.alternative_folder = info["original_filename"]
                 item.active_stream = {"infohash": info["hash"], "id": info["id"]}
                 found = True
                 break
-            else:
-                logger.debug(f"Deleting {info['id']} because it doesn't match the item type or size")
-                self.delete_torrent(info["id"])
-            if item.type in ["show", "season", "episode"]:
+            if item.type in (media_type.value for media_type in ShowMediaType):
                 show = item
-                if item.type == "season":
+                if item.type == ShowMediaType.Season.value:
                     show = item.parent
-                elif item.type == "episode":
+                elif item.type == ShowMediaType.Episode.value:
                     show = item.parent.parent
                 file_season, file_episodes = self.service.file_finder.container_file_matches_episode(file)
-                if file_season and file_episodes and filesize_is_acceptable_show(file[self.service.file_finder.filesize_attr]):
+                if file_season and file_episodes:
                     season = next((season for season in show.seasons if season.number == file_season), None)
                     for file_episode in file_episodes:
                         episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
@@ -118,9 +117,24 @@ class Downloader:
                             episode.alternative_folder = info["original_filename"]
                             episode.active_stream = {"infohash": info["hash"], "id": info["id"]}
                             # We have to make sure the episode is correct if item is an episode
-                            if item.type != "episode" or (item.type == "episode" and episode.number == item.number):
+                            if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
                                 found = True
-                else:
-                    logger.debug(f"Deleting {info['id']} because it doesn't match the item type or size")
-                    self.delete_torrent(info["id"])
         return found
+
+    def validate_filesize(self, item, info, file) -> bool:
+        item_media_type = self._get_item_media_type(item)
+        if filesize_is_acceptable(file[self.service.file_finder.filesize_attr], item_media_type):
+            return True
+        torrent_id = info.get("id", None)
+        if not torrent_id:
+            logger.warning(f"Couldn't find torrent id to delete")
+            return False
+        logger.debug(f"Deleting {torrent_id} because it doesn't match the item type or size")
+        self.service.delete_torrent(torrent_id)
+        return False
+
+    @staticmethod
+    def _get_item_media_type(item):
+        if item.type in (media_type.value for media_type in ShowMediaType):
+            return ShowMediaType.Show.value
+        return MovieMediaType.Movie.value
