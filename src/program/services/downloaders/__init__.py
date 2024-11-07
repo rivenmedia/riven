@@ -104,7 +104,7 @@ class Downloader:
                 item.active_stream = {"infohash": info["hash"], "id": info["id"]}
                 found = True
                 break
-            if item.type in (media_type.value for media_type in ShowMediaType):
+            if item.type in (ShowMediaType.Show.value, ShowMediaType.Season.value, ShowMediaType.Episode.value):
                 show = item
                 if item.type == ShowMediaType.Season.value:
                     show = item.parent
