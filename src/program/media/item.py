@@ -146,7 +146,7 @@ class MediaItem(db.Model):
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
-        #Post processing
+        # Post-processing
         self.subtitles = item.get("subtitles", [])
 
     @staticmethod
@@ -423,9 +423,9 @@ class Movie(MediaItem):
         return self
 
     def __init__(self, item):
+        self.type = MovieMediaType.Movie.value
         self.file = item.get("file", None)
         super().__init__(item)
-        self.type = MovieMediaType.Movie.value
 
     def __repr__(self):
         return f"Movie:{self.log_string}:{self.state.name}"
@@ -445,11 +445,11 @@ class Show(MediaItem):
     }
 
     def __init__(self, item):
-        super().__init__(item)
         self.type = ShowMediaType.Show.value
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.propagate_attributes_to_childs()
+        super().__init__(item)
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its _id."""
@@ -563,7 +563,6 @@ class Season(MediaItem):
         self.type = ShowMediaType.Season.value
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
-        self.parent = item.get("parent", None)
         super().__init__(item)
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
@@ -660,10 +659,10 @@ class Episode(MediaItem):
     }
 
     def __init__(self, item):
+        self.type = ShowMediaType.Episode.value
         self.number = item.get("number", None)
         self.file = item.get("file", None)
         super().__init__(item)
-        self.type = ShowMediaType.Episode.value
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
 
