@@ -212,8 +212,9 @@ async def get_logs() -> str:
 @router.get("/events", operation_id="events")
 async def get_events(
     request: Request,
-) -> dict[str, list[EventUpdate]]:
-    return request.app.program.em.get_event_updates()
+) -> dict[str, list[str]]:
+    events = request.app.program.em.get_event_updates()
+    return events
 
 
 @router.get("/mount", operation_id="mount")

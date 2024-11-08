@@ -1,5 +1,6 @@
 """ Mediafusion scraper module """
 import json
+import re
 from typing import Dict
 
 from loguru import logger
@@ -89,7 +90,7 @@ class Mediafusion:
 
         try:
             response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, headers=headers)
-            self.encrypted_string = json.loads(response.data)["encrypted_str"]
+            self.encrypted_string = response.data["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
             return False
@@ -131,7 +132,6 @@ class Mediafusion:
             url += identifier
 
         response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
-
         if not response.is_ok or len(response.data.streams) <= 0:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
@@ -139,22 +139,11 @@ class Mediafusion:
         torrents: Dict[str, str] = {}
 
         for stream in response.data.streams:
-            description_split = stream.description.split("\n💾")
-            if len(description_split) < 2:
-                logger.warning(f"Invalid stream description: {stream.description}")
-                continue
-            raw_title = description_split[0].replace("📂 ", "")
-            
-            url_split = stream.url.split("?info_hash=")
-            if len(url_split) < 2:
-                logger.warning(f"Invalid stream URL: {stream.url}")
-                continue
-            info_hash = url_split[1]
-
-            if not info_hash or not raw_title:
-                continue
-
-            torrents[info_hash] = raw_title
+            description_split = stream.description.replace("📂 ", "").replace("/", "")
+            raw_title = description_split.split("\n")[0]
+            info_hash = re.search(r"info_hash=([A-Za-z0-9]+)", stream.url).group(1)
+            if info_hash and info_hash not in torrents:
+                torrents[info_hash] = raw_title
 
         if torrents:
             logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")

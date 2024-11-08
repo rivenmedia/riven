@@ -1,3 +1,4 @@
+from loguru import logger
 from program.media import MediaItem, States
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
@@ -19,6 +20,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
 #TODO - Reindex non-released badly indexed items here
     if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
         next_service = TraktIndexer
+        logger.debug(f"Submitting {content_item.log_string if content_item else existing_item.log_string} to trakt indexer")
         return next_service, [content_item or existing_item]
 
     elif existing_item is not None and existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:
@@ -71,6 +73,11 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
                 if not items_to_submit:
                     return no_further_processing
         else:
+
             return no_further_processing
+
+    # if items_to_submit and next_service:
+    #     for item in items_to_submit:
+    #         logger.debug(f"Submitting {item.log_string} ({item.id}) to {next_service if isinstance(next_service, str) else next_service.__name__}")
 
     return next_service, items_to_submit
