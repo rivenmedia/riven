@@ -77,6 +77,7 @@ class Zilean:
 
         response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
         if not response.is_ok or not response.data:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: Dict[str, str] = {}

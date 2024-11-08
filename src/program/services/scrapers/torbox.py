@@ -15,7 +15,7 @@ class TorBoxScraper:
         self.key = "torbox"
         self.settings = settings_manager.settings.scraping.torbox_scraper
         self.base_url = "http://search-api.torbox.app"
-        self.user_plan = None
+        self.headers = {"Authorization": f"Bearer {self.settings.api_key}"}
         self.timeout = self.settings.timeout
         session = create_service_session()
         self.request_handler = ScraperRequestHandler(session)
@@ -28,11 +28,14 @@ class TorBoxScraper:
         """Validate the TorBox Scraper as a service"""
         if not self.settings.enabled:
             return False
+        if not self.settings.api_key:
+            logger.error("TorBox API key is not set.")
+            return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("TorBox timeout is not set or invalid.")
             return False
         try:
-            response = self.request_handler.execute(HttpMethod.GET, f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", timeout=self.timeout)
+            response = self.request_handler.execute(HttpMethod.GET, f"{self.base_url}/torrents/imdb:tt0944947?metadata=false&season=1&episode=1", headers=self.headers, timeout=self.timeout)
             return response.is_ok
         except Exception as e:
             logger.exception(f"Error validating TorBox Scraper: {e}")
@@ -57,22 +60,25 @@ class TorBoxScraper:
 
     def _build_query_params(self, item: MediaItem) -> str:
         """Build the query params for the TorBox API"""
-        params = [f"imdb:{item.imdb_id}"]
-        if item.type == "show":
-            params.append("season=1")
+        imdb_id = item.get_top_imdb_id()
+        if item.type == "movie":
+            return f"torrents/imdb:{imdb_id}"
+        elif item.type == "show":
+            return f"torrents/imdb:{imdb_id}?season=1&episode=1"
         elif item.type == "season":
-            params.append(f"season={item.number}")
+            return f"torrents/imdb:{imdb_id}?season={item.number}&episode=1"
         elif item.type == "episode":
-            params.append(f"season={item.parent.number}&episode={item.number}")
-        return "&".join(params)
+            return f"torrents/imdb:{imdb_id}?season={item.parent.number}&episode={item.number}"
+        return ""
 
-    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Torbox` scrape method using Torbox API"""
         query_params = self._build_query_params(item)
-        url = f"{self.base_url}/torrents/{query_params}?metadata=false"
+        url = f"{self.base_url}/{query_params}&metadata=false"
 
-        response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
+        response = self.request_handler.execute(HttpMethod.GET, url, headers=self.headers, timeout=self.timeout)
         if not response.is_ok or not response.data.data.torrents:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents = {}

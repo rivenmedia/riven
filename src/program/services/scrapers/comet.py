@@ -88,18 +88,14 @@ class Comet:
             logger.error(f"Comet exception thrown: {str(e)}")
         return {}
 
-
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
-        if not imdb_id:
-            return {}
-
         url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
-
         if not response.is_ok or not getattr(response.data, "streams", None):
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: Dict[str, str] = {}

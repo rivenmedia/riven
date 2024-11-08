@@ -271,6 +271,7 @@ class ProwlarrConfig(Observable):
 
 class TorBoxScraperConfig(Observable):
     enabled: bool = False
+    api_key: str = ""
     timeout: int = 30
 
 

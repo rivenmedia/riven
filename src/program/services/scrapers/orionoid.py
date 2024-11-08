@@ -153,6 +153,7 @@ class Orionoid:
         params = self._build_query_params(item)
         response = self.request_handler.execute(HttpMethod.GET, self.base_url, params=params, timeout=self.timeout)
         if not response.is_ok or not hasattr(response.data, "data"):
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents = {}

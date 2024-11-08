@@ -25,16 +25,22 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
-        self.services = {
+        self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
             Torrentio: Torrentio(),
             Knightcrawler: Knightcrawler(),
             Orionoid: Orionoid(),
-            Jackett: Jackett(),
             TorBoxScraper: TorBoxScraper(),
             Mediafusion: Mediafusion(),
-            Prowlarr: Prowlarr(),
-            Zilean: Zilean(),
             Comet: Comet()
+        }
+        self.keyword_services = {
+            Jackett: Jackett(),
+            Prowlarr: Prowlarr(),
+            Zilean: Zilean()
+        }
+        self.services = {
+            **self.imdb_services,
+            **self.keyword_services
         }
         self.initialized = self.validate()
         if not self.initialized:
@@ -65,6 +71,9 @@ class Scraping:
         total_results = 0
         results_lock = threading.RLock()
 
+        imdb_id = item.get_top_imdb_id()
+        available_services = self.services if imdb_id else self.keyword_services
+
         def run_service(service, item,):
             nonlocal total_results
             service_results = service.run(item)
@@ -77,7 +86,7 @@ class Scraping:
                 results.update(service_results)
                 total_results += len(service_results)
 
-        for service_name, service in self.services.items():
+        for service_name, service in available_services.items():
             if service.initialized:
                 thread = threading.Thread(target=run_service, args=(service, item), name=service_name.__name__)
                 threads.append(thread)

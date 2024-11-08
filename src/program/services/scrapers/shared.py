@@ -132,7 +132,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             continue
 
     if torrents:
-        logger.log("SCRAPER", f"Processed {len(torrents)} matches for {item.log_string}")
+        logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
         torrents = sort_torrents(torrents)
         torrents_dict = {}
         for torrent in torrents.values():

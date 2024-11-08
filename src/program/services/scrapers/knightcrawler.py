@@ -89,8 +89,8 @@ class Knightcrawler:
             url += identifier
 
         response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
-
         if not response.is_ok or len(response.data.streams) <= 0:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents = {

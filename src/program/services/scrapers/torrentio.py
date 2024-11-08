@@ -74,10 +74,8 @@ class Torrentio:
             url += identifier
 
         response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
-        if not response.is_ok:
-            return {}
-
-        if not hasattr(response.data, 'streams') or not response.data.streams:
+        if not response.is_ok or not hasattr(response.data, 'streams') or not response.data.streams:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: Dict[str, str] = {}

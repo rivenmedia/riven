@@ -100,16 +100,7 @@ class Prowlarr:
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        data, stream_count = self.api_scrape(item)
-        if data:
-            logger.log("SCRAPER", f"Found {len(data)} streams out of {stream_count} for {item.log_string}")
-        else:
-            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
-        return data
-
-    def api_scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
-        """Wrapper for `Prowlarr` scrape method"""
+        """Scrape the given media item using Prowlarr indexers"""
         results_queue = queue.Queue()
         threads = [
             threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
@@ -121,8 +112,22 @@ class Prowlarr:
         for thread in threads:
             thread.join()
 
-        results = self._collect_results(results_queue)
-        return self._process_results(results)
+        results = []
+        while not results_queue.empty():
+            results.extend(results_queue.get())
+
+        torrents: Dict[str, str] = {}
+        for result in results:
+            if result[1] is None:
+                continue
+            torrents[result[1]] = result[0]
+
+        if torrents:
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        else:
+            logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+
+        return torrents
 
     def _thread_target(self, item: MediaItem, indexer: ProwlarrIndexer, results_queue: queue.Queue):
         try:
@@ -145,26 +150,6 @@ class Prowlarr:
             return self._search_series_indexer(item, indexer)
         else:
             raise TypeError("Only Movie and Series is allowed!")
-
-    def _collect_results(self, results_queue: queue.Queue) -> List[Tuple[str, str]]:
-        """Collect results from the queue"""
-        results = []
-        while not results_queue.empty():
-            results.extend(results_queue.get())
-        return results
-
-    def _process_results(self, results: List[Tuple[str, str]]) -> Tuple[Dict[str, str], int]:
-        """Process the results and return the torrents"""
-        torrents: Dict[str, str] = {}
-
-        for result in results:
-            if result[1] is None:
-                continue
-
-            # infohash: raw_title
-            torrents[result[1]] = result[0]
-
-        return torrents, len(results)
 
     def _search_movie_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
         """Search for movies on the given indexer"""
@@ -209,13 +194,14 @@ class Prowlarr:
 
     def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
         """Get search parameters for series"""
+        title = item.get_top_title()
         if isinstance(item, Show):
-            return item.get_top_title(), None, None
+            return title, None, None
         elif isinstance(item, Season):
-            return item.get_top_title(), item.number, None
+            return title, item.number, None
         elif isinstance(item, Episode):
-            return item.get_top_title(), item.parent.number, item.number
-        return "", 0, None
+            return title, item.parent.number, item.number
+        return title, None, None
 
     def _get_indexers(self) -> List[ProwlarrIndexer]:
         """Get the indexers from Prowlarr"""
