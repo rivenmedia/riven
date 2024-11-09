@@ -92,11 +92,11 @@ class Prowlarr:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
+            logger.debug(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Prowlarr request exception: {e}")
         except Exception as e:
-            logger.error(f"Prowlarr failed to scrape item with error: {e}")
+            logger.exception(f"Prowlarr failed to scrape item with error: {e}")
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:

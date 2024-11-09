@@ -34,7 +34,8 @@ class Mediafusion:
         self.settings = self.app_settings.scraping.mediafusion
         self.timeout = self.settings.timeout
         self.encrypted_string = None
-        rate_limit_params = get_rate_limit_params(max_calls=1, period=2) if self.settings.ratelimit else None
+        # https://github.com/elfhosted/infra/blob/ci/mediafusion/middleware-ratelimit-stream.yaml
+        rate_limit_params = get_rate_limit_params(max_calls=1, period=10) if self.settings.ratelimit else None
         session = create_service_session(rate_limit_params=rate_limit_params)
         self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
@@ -112,7 +113,7 @@ class Mediafusion:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
+            logger.debug(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Mediafusion connection timeout for item: {item.log_string}")
         except ReadTimeout:
@@ -120,7 +121,7 @@ class Mediafusion:
         except RequestException as e:
             logger.error(f"Mediafusion request exception: {e}")
         except Exception as e:
-            logger.error(f"Mediafusion exception thrown: {e}")
+            logger.exception(f"Mediafusion exception thrown: {e}")
         return {}
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
@@ -139,8 +140,10 @@ class Mediafusion:
         torrents: Dict[str, str] = {}
 
         for stream in response.data.streams:
-            description_split = stream.description.replace("📂 ", "").replace("/", "")
-            raw_title = description_split.split("\n")[0]
+            if not hasattr(stream, "description") and hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
+                raise RateLimitExceeded
+            description_split = stream.description.replace("📂 ", "")
+            raw_title = description_split.split("/")[0] or description_split.split("\n")[0]  # we want the torrent name if possible
             info_hash = re.search(r"info_hash=([A-Za-z0-9]+)", stream.url).group(1)
             if info_hash and info_hash not in torrents:
                 torrents[info_hash] = raw_title

@@ -109,9 +109,9 @@ class Orionoid:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Orionoid ratelimit exceeded for item: {item.log_string}")
+            logger.debug(f"Orionoid ratelimit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.opt(exception=True).error(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+            logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> dict:

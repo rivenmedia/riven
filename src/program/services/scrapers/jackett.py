@@ -89,7 +89,7 @@ class Jackett:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Jackett ratelimit exceeded for item: {item.log_string}")
+            logger.debug(f"Jackett ratelimit exceeded for item: {item.log_string}")
         except RequestException as e:
             logger.error(f"Jackett request exception: {e}")
         except Exception as e:

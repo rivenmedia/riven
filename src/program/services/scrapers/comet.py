@@ -77,7 +77,7 @@ class Comet:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Comet ratelimit exceeded for item: {item.log_string}")
+            logger.debug(f"Comet ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Comet connection timeout for item: {item.log_string}")
         except ReadTimeout:

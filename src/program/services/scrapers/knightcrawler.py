@@ -66,7 +66,7 @@ class Knightcrawler:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Knightcrawler rate limit exceeded for item: {item.log_string}")
+            logger.debug(f"Knightcrawler rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.warning(f"Knightcrawler connection timeout for item: {item.log_string}")
         except ReadTimeout:

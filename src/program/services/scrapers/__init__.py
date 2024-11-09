@@ -1,11 +1,10 @@
 import threading
 from datetime import datetime
-from typing import Dict, Generator, List, Union
+from typing import Dict, Generator, List
 
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
+from program.media.item import MediaItem
 from program.media.stream import Stream
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
@@ -98,7 +97,10 @@ class Scraping:
         if total_results != len(results):
             logger.debug(f"Scraped {item.log_string} with {total_results} results, removed {total_results - len(results)} duplicate hashes")
 
-        sorted_streams: Dict[str, Stream] = _parse_results(item, results, log)
+        sorted_streams: Dict[str, Stream] = {}
+
+        if results:
+            sorted_streams = _parse_results(item, results, log)
 
         if sorted_streams and (log and settings_manager.settings.debug):
             item_type = item.type.title()
@@ -110,6 +112,8 @@ class Scraping:
                 elif item.type == "episode":
                     item_info = f"[{item_type} {item.parent.number}:{item.number}]"
                 logger.debug(f"{item_info} Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
+        else:
+            logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
 
         return sorted_streams
 

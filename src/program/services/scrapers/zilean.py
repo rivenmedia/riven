@@ -53,9 +53,9 @@ class Zilean:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Zilean rate limit exceeded for item: {item.log_string}")
+            logger.debug(f"Zilean rate limit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.error(f"Zilean exception thrown: {e}")
+            logger.exception(f"Zilean exception thrown: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> Dict[str, str]:

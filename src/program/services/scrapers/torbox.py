@@ -46,7 +46,7 @@ class TorBoxScraper:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"TorBox rate limit exceeded for item: {item.log_string}")
+            logger.debug(f"TorBox rate limit exceeded for item: {item.log_string}")
         except ConnectTimeout:
             logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except RequestException as e:
@@ -55,7 +55,7 @@ class TorBoxScraper:
             elif e.response and e.response.status_code == 500:
                 logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except Exception as e:
-            logger.error(f"TorBox exception thrown: {e}")
+            logger.exception(f"TorBox exception thrown: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> str:

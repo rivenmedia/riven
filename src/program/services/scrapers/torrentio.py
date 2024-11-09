@@ -58,9 +58,9 @@ class Torrentio:
         try:
             return self.scrape(item)
         except RateLimitExceeded:
-            logger.warning(f"Torrentio rate limit exceeded for item: {item.log_string}")
+            logger.debug(f"Torrentio rate limit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.error(f"Torrentio exception thrown: {str(e)}")
+            logger.exception(f"Torrentio exception thrown: {str(e)}")
         return {}
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
