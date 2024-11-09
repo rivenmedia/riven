@@ -399,7 +399,8 @@ class Program(threading.Thread):
                                 added_items.add(item.imdb_id)
 
                                 log_message = f"Indexed IMDb Id: {enhanced_item.id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
-
+                            except NotADirectoryError:
+                                errors.append(f"Skipping {item.log_string} as it is not a valid directory")
                             except Exception as e:
                                 logger.exception(f"Error processing {item.log_string}: {e}")
                             finally:
