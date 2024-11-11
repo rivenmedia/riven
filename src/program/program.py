@@ -39,7 +39,7 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 
 from program.db import db_functions
 from program.db.db import (
@@ -212,9 +212,39 @@ class Program(threading.Thread):
             for item_id in result.scalars():
                 self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
+    def _reindex_ongoing(self) -> None:
+        """Reindex ongoing items."""
+        with db.Session() as session:
+            results = session.execute(
+                select(MediaItem.id)
+                .where(MediaItem.type.in_(["movie", "show"]))
+                .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
+                .where(or_(MediaItem.aired_at <= datetime.now(), MediaItem.aired_at.is_(None)))
+            ).scalars().all()
+
+            if len(results) == 0:
+                logger.log("PROGRAM", "No ongoing or unreleased items to reindex.")
+                return
+
+            logger.log("PROGRAM", f"Reindexing {len(results)} unreleased and ongoing items.")
+
+            for item_id in results:
+                try:
+                    item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
+                    if item:
+                        for indexed_item in TraktIndexer().run(item):
+                            indexed_item.store_state()
+                            session.merge(indexed_item)
+                            logger.debug(f"Reindexed {indexed_item.log_string} ({indexed_item.id})")
+                        session.commit()
+                except Exception as e:
+                    logger.error(f"Failed to reindex item with ID {item_id}: {e}")
+            logger.log("PROGRAM", "Reindexing completed.")
+
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
+            self._reindex_ongoing: {"interval": 60 * 60 * 24},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
@@ -225,9 +255,6 @@ class Program(threading.Thread):
                 "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
                 "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
             }
-
-        # if settings_manager.settings.post_processing.subliminal.enabled:
-            # scheduled_functions[self._download_subtitles] = {"interval": 60 * 60 * 24}
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(

@@ -4,7 +4,7 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from sqlalchemy import delete, insert, inspect, select, text
+from sqlalchemy import delete, exists, insert, inspect, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 import alembic
