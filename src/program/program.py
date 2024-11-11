@@ -244,7 +244,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._reindex_ongoing: {"interval": 60 * 60 * 24},
+            # self._reindex_ongoing: {"interval": 60 * 60 * 24},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
