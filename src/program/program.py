@@ -421,6 +421,10 @@ class Program(threading.Thread):
                                     continue
 
                                 enhanced_item = future.result()
+                                if not enhanced_item:
+                                    errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
+                                    continue
+
                                 enhanced_item.store_state()
                                 session.add(enhanced_item)
                                 added_items.add(item.imdb_id)

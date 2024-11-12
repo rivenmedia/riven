@@ -55,7 +55,10 @@ class TorBoxScraper:
             elif e.response and e.response.status_code == 500:
                 logger.log("NOT_FOUND", f"TorBox is caching request for {item.log_string}, will retry later")
         except Exception as e:
-            logger.exception(f"TorBox exception thrown: {e}")
+            if "418 Client Error" in str(e):
+                logger.log("NOT_FOUND", f"TorBox has no metadata for item: {item.log_string}, unable to scrape")
+            else:
+                logger.exception(f"TorBox exception thrown: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> str:
