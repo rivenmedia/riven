@@ -218,7 +218,7 @@ class Prowlarr:
         """Parse the indexers from the XML content"""
         indexer_list = []
         for indexer in json.loads(json_content):
-            indexer_list.append(ProwlarrIndexer(title=indexer["name"], id=str(indexer["id"]), link=indexer["infoLink"], type=indexer["protocol"], language=indexer["language"], movie_search_capabilities=(s[0] for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None, tv_search_capabilities=(s[0] for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None))
+            indexer_list.append(ProwlarrIndexer(title=indexer["name"], id=str(indexer["id"]), link=indexer["infoLink"], type=indexer["protocol"], language=indexer["language"], movie_search_capabilities=(s for s in indexer["capabilities"]["movieSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "Movies"]) > 0 else None, tv_search_capabilities=(s for s in indexer["capabilities"]["tvSearchParams"]) if  len([s for s in indexer["capabilities"]["categories"] if s["name"] == "TV"]) > 0 else None))
 
         return indexer_list
 
