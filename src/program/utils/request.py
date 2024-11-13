@@ -162,10 +162,8 @@ class BaseRequestHandler:
 
         except HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
-                logger.warning(f"Rate limit hit: {e}")
                 raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response) from e
             else:
-                logger.error(f"Request failed: {e}")
                 raise self.custom_exception(f"Request failed: {e}") from e
 
 

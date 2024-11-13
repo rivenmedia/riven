@@ -1,5 +1,6 @@
 """MediaItem class"""
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Self
 
@@ -17,6 +18,22 @@ from program.media.subtitle import Subtitle
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream
 
+class ShowMediaType(Enum):
+    """Show media types"""
+    Show = "show"
+    Season = "season"
+    Episode = "episode"
+
+class MovieMediaType(Enum):
+    """Media types"""
+    Movie = "movie"
+
+class MediaType(Enum):
+    """Combined media types"""
+    Show = ShowMediaType.Show.value
+    Season = ShowMediaType.Season.value
+    Episode = ShowMediaType.Episode.value
+    Movie = MovieMediaType.Movie.value
 
 class MediaItem(db.Model):
     """MediaItem class"""
@@ -129,7 +146,7 @@ class MediaItem(db.Model):
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
-        #Post processing
+        # Post-processing
         self.subtitles = item.get("subtitles", [])
 
     @staticmethod
@@ -406,7 +423,7 @@ class Movie(MediaItem):
         return self
 
     def __init__(self, item):
-        self.type = "movie"
+        self.type = MovieMediaType.Movie.value
         self.file = item.get("file", None)
         super().__init__(item)
 
@@ -428,11 +445,11 @@ class Show(MediaItem):
     }
 
     def __init__(self, item):
-        super().__init__(item)
-        self.type = "show"
+        self.type = ShowMediaType.Show.value
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.propagate_attributes_to_childs()
+        super().__init__(item)
 
     def get_season_index_by_id(self, item_id):
         """Find the index of an season by its _id."""
@@ -543,10 +560,9 @@ class Season(MediaItem):
         super().store_state(given_state)
 
     def __init__(self, item):
-        self.type = "season"
+        self.type = ShowMediaType.Season.value
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
-        self.parent = item.get("parent", None)
         super().__init__(item)
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
@@ -643,7 +659,7 @@ class Episode(MediaItem):
     }
 
     def __init__(self, item):
-        self.type = "episode"
+        self.type = ShowMediaType.Episode.value
         self.number = item.get("number", None)
         self.file = item.get("file", None)
         super().__init__(item)

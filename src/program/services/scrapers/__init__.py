@@ -81,6 +81,12 @@ class Scraping:
                 logger.error(f"Service {service.__class__.__name__} returned invalid results: {service_results}")
                 return
 
+            # ensure that info hash is lower case in each result
+            if isinstance(service_results, dict):
+                for infohash in list(service_results.keys()):
+                    if infohash.lower() != infohash:
+                        service_results[infohash.lower()] = service_results.pop(infohash)
+
             with results_lock:
                 results.update(service_results)
                 total_results += len(service_results)
