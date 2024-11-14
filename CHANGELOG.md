@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.19.0](https://github.com/rivenmedia/riven/compare/v0.18.0...v0.19.0) (2024-11-14)
+
+
+### Features
+
+* add reindexing of movie/shows in unreleased or ongoing state ([139d936](https://github.com/rivenmedia/riven/commit/139d936442de4d5a37e32fb482beb2e65557464c))
+* added upload logs endpoint to be used by frontend ([3ad6cae](https://github.com/rivenmedia/riven/commit/3ad6caeb6b0299cf60314ca2f87a76e30eba57be))
+* implement filesize validation for movies and episodes ([#869](https://github.com/rivenmedia/riven/issues/869)) ([d1041db](https://github.com/rivenmedia/riven/commit/d1041db78c295873f8f5cf572d9f296704c85506))
+
+
+### Bug Fixes
+
+* added cleaner directory log when rebuilding symlinks ([bb85517](https://github.com/rivenmedia/riven/commit/bb85517197bf10e855c1cfaa41e0d765dfd298e1))
+* chunk initial symlinks on re-ingest ([#882](https://github.com/rivenmedia/riven/issues/882)) ([21cd393](https://github.com/rivenmedia/riven/commit/21cd393913253678f4f580330aa4e28e114fc16f))
+* correct Prowlarr capabilities ([#879](https://github.com/rivenmedia/riven/issues/879)) ([f2636e4](https://github.com/rivenmedia/riven/commit/f2636e408f66a730915cfb2f49f56e38b1faf8c9))
+* detecting multiple episodes in symlink library ([#862](https://github.com/rivenmedia/riven/issues/862)) ([ebd11fd](https://github.com/rivenmedia/riven/commit/ebd11fd7d94a7763f0869bde6ed9b545d499e14e))
+* disable reindexing. wip. change get items endpoint to use id instead of imdbid. ([5123567](https://github.com/rivenmedia/riven/commit/5123567d4fe9ce8ef65d4fc09fa130d19a714ef7))
+* more tweaks for scrapers and fine tuning. ([b25658d](https://github.com/rivenmedia/riven/commit/b25658d21a43d2e0a097abf608c7a96216ed90ec))
+* re-check ongoing/unreleased items ([#880](https://github.com/rivenmedia/riven/issues/880)) ([47f23fa](https://github.com/rivenmedia/riven/commit/47f23fa0d78c41473445140801f5c6a6a6e076aa))
+* skip unindexable items when resetting db ([98cb2c1](https://github.com/rivenmedia/riven/commit/98cb2c12acc40fd2f2c12f79af247f89aa5638fa))
+* update state filtering logic to allow 'All' as a valid state ([#870](https://github.com/rivenmedia/riven/issues/870)) ([4430d2d](https://github.com/rivenmedia/riven/commit/4430d2daf682f26b9141a3130fa869524840a2d9))
+* updated mediafusion and tweaked scrape func to be cleaner ([73c0bcc](https://github.com/rivenmedia/riven/commit/73c0bcc91eb99c4825764775e986057951c713ae))
+* updated torbox scraper to use api key. refactored scrapers slightly. added more logging to scrapers. ([afdb9f6](https://github.com/rivenmedia/riven/commit/afdb9f6f202690dae9b04e7d2c8ce5e078b94d0c))
+
 ## [0.18.0](https://github.com/rivenmedia/riven/compare/v0.17.0...v0.18.0) (2024-11-06)
 
 
