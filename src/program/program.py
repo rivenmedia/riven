@@ -39,7 +39,7 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import and_, exists, func, or_, select, text
+from sqlalchemy import func, select, text
 
 from program.db import db_functions
 from program.db.db import (
@@ -212,39 +212,43 @@ class Program(threading.Thread):
             for item_id in result.scalars():
                 self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
-    def _reindex_ongoing(self) -> None:
-        """Reindex ongoing items."""
+    def _update_ongoing(self) -> None:
+        """Update state for ongoing and unreleased items."""
         with db.Session() as session:
-            results = session.execute(
+            item_ids = session.execute(
                 select(MediaItem.id)
                 .where(MediaItem.type.in_(["movie", "show"]))
                 .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-                .where(or_(MediaItem.aired_at <= datetime.now(), MediaItem.aired_at.is_(None)))
             ).scalars().all()
 
-            if len(results) == 0:
-                logger.log("PROGRAM", "No ongoing or unreleased items to reindex.")
+            if not item_ids:
+                logger.log("PROGRAM", "No ongoing or unreleased items to update.")
                 return
 
-            logger.log("PROGRAM", f"Reindexing {len(results)} unreleased and ongoing items.")
+            logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
 
-            for item_id in results:
+            counter = 0
+            for item_id in item_ids:
                 try:
                     item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
                     if item:
-                        for indexed_item in TraktIndexer().run(item):
-                            indexed_item.store_state()
-                            session.merge(indexed_item)
-                            logger.debug(f"Reindexed {indexed_item.log_string} ({indexed_item.id})")
+                        previous_state = item.last_state
+                        item.store_state()
+                        if previous_state != item.last_state:
+                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state} to {item.last_state}")
+                            counter += 1
+                        session.merge(item)
                         session.commit()
                 except Exception as e:
-                    logger.error(f"Failed to reindex item with ID {item_id}: {e}")
-            logger.log("PROGRAM", "Reindexing completed.")
+                    logger.error(f"Failed to update state for item with ID {item_id}: {e}")
+
+            logger.log("PROGRAM", f"Found {counter} items with updated state.")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            # self._reindex_ongoing: {"interval": 60 * 60 * 24},
+            self._update_ongoing: {"interval": 60 * 60 * 24},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
