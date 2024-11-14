@@ -217,12 +217,12 @@ class Program(threading.Thread):
         with db.Session() as session:
             item_ids = session.execute(
                 select(MediaItem.id)
-                .where(MediaItem.type.in_(["movie", "show"]))
+                .where(MediaItem.type.in_(["movie", "episode"]))
                 .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
             ).scalars().all()
 
             if not item_ids:
-                logger.log("PROGRAM", "No ongoing or unreleased items to update.")
+                logger.debug("PROGRAM", "No ongoing or unreleased items to update.")
                 return
 
             logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
@@ -243,7 +243,7 @@ class Program(threading.Thread):
                 except Exception as e:
                     logger.error(f"Failed to update state for item with ID {item_id}: {e}")
 
-            logger.log("PROGRAM", f"Found {counter} items with updated state.")
+            logger.debug("PROGRAM", f"Found {counter} items with updated state.")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
