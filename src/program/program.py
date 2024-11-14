@@ -232,11 +232,10 @@ class Program(threading.Thread):
                 try:
                     item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
                     if item:
-                        previous_state = item.last_state
-                        item.store_state()
-                        if previous_state != item.last_state:
+                        previous_state, new_state = item.store_state()
+                        if previous_state != new_state:
                             self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state} to {item.last_state}")
+                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
                             counter += 1
                         session.merge(item)
                         session.commit()

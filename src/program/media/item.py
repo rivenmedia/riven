@@ -141,11 +141,13 @@ class MediaItem(db.Model):
         item_type = item.get("type", "unknown")
         return f"{item_type}_{trakt_id}"
 
-    def store_state(self, given_state=None) -> None:
+    def store_state(self, given_state=None) -> tuple[States, States]:
+        """Store the state of the item."""
         new_state = given_state if given_state else self._determine_state()
         if self.last_state and self.last_state != new_state:
             sse_manager.publish_event("item_update", {"last_state": self.last_state, "new_state": new_state, "item_id": self.id})
         self.last_state = new_state
+        return (self.last_state, new_state)
 
     def is_stream_blacklisted(self, stream: Stream):
         """Check if a stream is blacklisted for this item."""
