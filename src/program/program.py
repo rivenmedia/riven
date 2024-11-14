@@ -31,6 +31,7 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
+from program.managers.item_scheduler import ItemScheduler
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -88,6 +89,7 @@ class Program(threading.Thread):
             # to run after it
             SymlinkLibrary: SymlinkLibrary(),
             PostProcessing: PostProcessing(),
+            ItemScheduler: ItemScheduler(),
         }
 
         self.all_services = {
@@ -182,6 +184,8 @@ class Program(threading.Thread):
         self._schedule_services()
         self._schedule_functions()
 
+        self.services[ItemScheduler].schedule_upcoming_items(self.em)
+
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
@@ -247,7 +251,7 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._update_ongoing: {"interval": 60 * 60 * 24},
+            # self._update_ongoing: {"interval": 60 * 60 * 24},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},

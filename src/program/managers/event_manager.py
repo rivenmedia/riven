@@ -2,8 +2,8 @@ import os
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
-from queue import Empty
+from datetime import datetime, timedelta
+from queue import Empty, PriorityQueue
 from threading import Lock
 from typing import Dict, List
 
@@ -33,6 +33,7 @@ class EventManager:
         self._running_events: list[Event] = []
         self._canceled_futures: list[Future] = []
         self._content_queue: list[Event] = []
+        self._scheduled_events: list[Event] = []
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls) -> ThreadPoolExecutor:
@@ -220,6 +221,14 @@ class EventManager:
 
         logger.debug(f"Canceled jobs for Item ID {item_id} and its children.")
 
+    def schedule_event(self, event: Event, run_at: datetime) -> None:
+        """Schedule an event to run at a specific time"""
+        event.run_at = run_at
+        with self.mutex:
+            self._scheduled_events.append(event)
+            self._scheduled_events.sort(key=lambda e: e.run_at)
+            logger.debug(f"Scheduled {event.log_message} to run at {run_at}")
+
     def next(self):
         """
         Get the next event in the queue with an optional timeout.
@@ -230,14 +239,21 @@ class EventManager:
         Returns:
             Event: The next event in the queue.
         """
-        while True:
-            if self._queued_events:
-                with self.mutex:
-                    self._queued_events.sort(key=lambda event: event.run_at)
-                    if datetime.now() >= self._queued_events[0].run_at:
-                        event = self._queued_events.pop(0)
-                        return event
-            raise Empty
+        now = datetime.now()
+
+        # First check scheduled events
+        with self.mutex:
+            if self._scheduled_events and self._scheduled_events[0].run_at <= now:
+                return self._scheduled_events.pop(0)
+
+        # Then check regular queued events
+        if self._queued_events:
+            with self.mutex:
+                self._queued_events.sort(key=lambda event: event.run_at)
+                if now >= self._queued_events[0].run_at:
+                    event = self._queued_events.pop(0)
+                    return event
+        raise Empty
 
     def _id_in_queue(self, _id):
         """
