@@ -77,6 +77,10 @@ class MediaItem(db.Model):
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
 
+    # Pause related fields
+    is_paused: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    paused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
@@ -257,6 +261,8 @@ class MediaItem(db.Model):
             "requested_by": self.requested_by,
             "scraped_at": str(self.scraped_at),
             "scraped_times": self.scraped_times,
+            "is_paused": self.is_paused,
+            "paused_at": str(self.paused_at) if self.paused_at else None,
         }
 
     def to_extended_dict(self, abbreviated_children=False, with_streams=True):
@@ -406,6 +412,24 @@ class MediaItem(db.Model):
     @property
     def log_string(self):
         return self.title or self.id
+
+    def pause(self) -> None:
+        """Pause processing of this media item"""
+        logger.debug(f"Pausing {self.id}")
+        self.is_paused = True
+        self.paused_at = datetime.now()
+        logger.info(f"{self.log_string} paused, is_paused={self.is_paused}, paused_at={self.paused_at}")
+        
+        # Get the session and flush changes
+        session = object_session(self)
+        if session:
+            session.flush()
+
+    def unpause(self) -> None:
+        """Resume processing of this media item"""
+        self.is_paused = False
+        self.paused_at = None
+        logger.info(f"{self.log_string} unpaused")
 
     @property
     def collection(self):
