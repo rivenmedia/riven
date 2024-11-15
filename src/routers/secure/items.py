@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db, get_db
-from program.media.item import MediaItem
+from program.media.item import MediaItem, MediaType  # Import MediaType from item module
 from program.media.state import States
 from program.services.content import Overseerr
 from program.symlink import Symlinker
@@ -20,10 +20,50 @@ from program.types import Event
 
 from ..models.shared import MessageResponse
 
+class StateResponse(BaseModel):
+    success: bool
+    states: list[str]
+
+class ItemsResponse(BaseModel):
+    success: bool
+    items: list[dict]
+    page: int
+    limit: int
+    total_items: int
+    total_pages: int
+
+class ResetResponse(BaseModel):
+    message: str
+    ids: list[str]
+
+class RetryResponse(BaseModel):
+    message: str
+    ids: list[str]
+
+class RemoveResponse(BaseModel):
+    message: str
+    ids: list[str]
+
+class PauseResponse(BaseModel):
+    """Response model for pause/unpause operations"""
+    message: str
+    ids: list[str]
+
+class PauseStateResponse(BaseModel):
+    """Response model for pause state check"""
+    is_paused: bool
+    paused_at: Optional[str]
+    item_id: str
+    title: Optional[str]
+
+class AllPausedResponse(BaseModel):
+    """Response model for getting all paused items"""
+    count: int
+    items: list[dict]
+
 router = APIRouter(
     prefix="/items",
     tags=["items"],
-    responses={404: {"description": "Not found"}},
 )
 
 
@@ -34,26 +74,12 @@ def handle_ids(ids: str) -> list[str]:
     return ids
 
 
-class StateResponse(BaseModel):
-    success: bool
-    states: list[str]
-
-
 @router.get("/states", operation_id="get_states")
 async def get_states() -> StateResponse:
     return {
         "success": True,
         "states": [state for state in States],
     }
-
-
-class ItemsResponse(BaseModel):
-    success: bool
-    items: list[dict]
-    page: int
-    limit: int
-    total_items: int
-    total_pages: int
 
 
 @router.get(
@@ -254,11 +280,6 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
         return [item.to_extended_dict() for item in items]
 
 
-class ResetResponse(BaseModel):
-    message: str
-    ids: list[str]
-
-
 @router.post(
     "/reset",
     summary="Reset Media Items",
@@ -284,11 +305,6 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
     return {"message": f"Reset items with id {ids}", "ids": ids}
 
 
-class RetryResponse(BaseModel):
-    message: str
-    ids: list[str]
-
-
 @router.post(
     "/retry",
     summary="Retry Media Items",
@@ -312,11 +328,6 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     return {"message": f"Retried items with ids {ids}", "ids": ids}
-
-
-class RemoveResponse(BaseModel):
-    message: str
-    ids: list[str]
 
 
 @router.delete(
@@ -433,3 +444,135 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
     return {
         "message": f"Unblacklisted stream {stream_id} for item {item_id}",
     }
+
+@router.post("/{ids}/pause", response_model=PauseResponse, operation_id="pause_items")
+async def pause_items(request: Request, ids: str = None, db: Session = Depends(get_db)):
+    """Pause media items from being processed"""
+    item_ids = handle_ids(ids)
+    
+    items = db.execute(
+        select(MediaItem).where(MediaItem.id.in_(item_ids))
+    ).unique().scalars().all()
+    
+    if not items:
+        raise HTTPException(status_code=404, detail="No items found")
+    
+    for item in items:
+        item.pause()
+    db.commit()
+    
+    return {
+        "message": f"Successfully paused {len(items)} items",
+        "ids": item_ids
+    }
+
+@router.post("/{ids}/unpause", response_model=PauseResponse, operation_id="unpause_items")
+async def unpause_items(request: Request, ids: str = None, db: Session = Depends(get_db)):
+    """Unpause media items to resume processing"""
+    item_ids = handle_ids(ids)
+    
+    items = db.execute(
+        select(MediaItem).where(MediaItem.id.in_(item_ids))
+    ).unique().scalars().all()
+    
+    if not items:
+        raise HTTPException(status_code=404, detail="No items found")
+    
+    for item in items:
+        item.unpause()
+    db.commit()
+    
+    return {
+        "message": f"Successfully unpaused {len(items)} items",
+        "ids": item_ids
+    }
+
+@router.get("/{id}/pause", response_model=PauseStateResponse, operation_id="get_pause_state")
+async def get_pause_state(request: Request, id: str, db: Session = Depends(get_db)):
+    """Check if a media item is paused"""
+    item = db.execute(
+        select(MediaItem).where(MediaItem.id == id)
+    ).unique().scalar_one_or_none()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    return {
+        "is_paused": item.is_paused,
+        "paused_at": str(item.paused_at) if item.paused_at else None,
+        "item_id": item.id,
+        "title": item.title
+    }
+
+@router.get("/paused", response_model=AllPausedResponse, operation_id="get_all_paused", responses={200: {"description": "Success, even if no items found"}}, response_model_exclude_none=True)
+async def get_all_paused(
+    request: Request, 
+    type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get all paused media items, optionally filtered by type"""
+    # Use raw SQL to verify data
+    sql = "SELECT id, title, type, is_paused, paused_at FROM \"MediaItem\" WHERE is_paused = true"
+    if type:
+        valid_types = [t.value for t in MediaType]
+        if type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid type. Must be one of: {', '.join(valid_types)}"
+            )
+        sql += f" AND type = '{type}'"
+    
+    logger.debug(f"Executing SQL: {sql}")
+    result = db.execute(sql)
+    rows = result.fetchall()
+    logger.debug(f"Raw SQL found {len(rows)} rows")
+    
+    # Map results to response model
+    items = [
+        {
+            "id": row.id,
+            "title": row.title,
+            "type": row.type,
+            "paused_at": str(row.paused_at) if row.paused_at else None
+        }
+        for row in rows
+    ]
+    
+    return AllPausedResponse(count=len(items), items=items)
+
+@router.get("/paused/count", response_model=dict, operation_id="get_paused_count")
+async def get_paused_count(
+    request: Request,
+    type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get total count of paused items, optionally filtered by type"""
+    try:
+        # Build query using SQLAlchemy
+        query = select(func.count(MediaItem.id)).where(MediaItem.is_paused.is_(True))
+        
+        if type:
+            valid_types = [t.value for t in MediaType]
+            if type not in valid_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid type. Must be one of: {', '.join(valid_types)}"
+                )
+            query = query.where(MediaItem.type == type)
+        
+        logger.debug(f"Executing count query: {str(query)}")
+        count = db.scalar(query) or 0  # Default to 0 if None
+        logger.debug(f"Found {count} paused items")
+        
+        return {
+            "total": count,
+            "type": type if type else "all"
+        }
+    except Exception as e:
+        logger.error(f"Error in get_paused_count: {str(e)}")
+        # Return 0 count on error
+        return {
+            "total": 0,
+            "type": type if type else "all",
+            "error": "Failed to get count"
+        }
