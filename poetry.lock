@@ -2062,13 +2062,13 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "1.5.1"
+version = "1.5.3"
 description = "Rank filenames based on user-defined rules!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-1.5.1-py3-none-any.whl", hash = "sha256:331a5e138cb4db2a1accb9b7907862e4c40ac37127f34f978f1c0ddbc7d3336b"},
-    {file = "rank_torrent_name-1.5.1.tar.gz", hash = "sha256:472f92ff5961ecd9b8b84adca89d1b7349e9243bd0cef58fdc07ac578fbd0377"},
+    {file = "rank_torrent_name-1.5.3-py3-none-any.whl", hash = "sha256:14f36f5eda958588b958412adfae6cda549369d6b96961ee1d321ad2dca8851d"},
+    {file = "rank_torrent_name-1.5.3.tar.gz", hash = "sha256:83faff6dab21483489fce633fe5f221f12bba31eb92a2cf024a8774031129ae4"},
 ]
 
 [package.dependencies]
@@ -3318,4 +3318,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "aaf30b963de9b0feb1b4ed1542790075f699ae4239bd86df201588f0de539575"
+content-hash = "10c26283be230d1f3925169b7b9403dd54391ac3ae86130a656a1dfde56b5afc"
