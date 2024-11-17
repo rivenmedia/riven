@@ -296,7 +296,7 @@ class ScraperModel(Observable):
 
 
 class RTNSettingsModel(SettingsModel, Observable):
-    profile: str = "default"
+    ...
 
 
 # Application Settings
