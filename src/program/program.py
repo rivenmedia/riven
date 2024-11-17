@@ -31,7 +31,7 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
-from program._hidden_scheduler import _HiddenScheduler
+from program._special_event_scheduler import _SpecialEventScheduler
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -65,7 +65,7 @@ class Program(threading.Thread):
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
             self.last_snapshot = None
-        self._scheduler = _HiddenScheduler(self)
+        self._scheduler = _SpecialEventScheduler(self)
 
     def initialize_apis(self):
         bootstrap_apis()
