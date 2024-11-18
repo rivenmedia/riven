@@ -1834,20 +1834,20 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pyperf"
-version = "2.8.0"
+version = "2.8.1"
 description = "Python module to run and analyze benchmarks"
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.9"
 files = [
-    {file = "pyperf-2.8.0-py3-none-any.whl", hash = "sha256:1a775b5a09882f18bf876430ef78e07646f773f50774546f5f6a8b34d60e3968"},
-    {file = "pyperf-2.8.0.tar.gz", hash = "sha256:b30a20465819daf102b6543b512f6799a5a879ff2a123981e6cd732d0e6a7a79"},
+    {file = "pyperf-2.8.1-py3-none-any.whl", hash = "sha256:12a974a800a96568575be51d229b88e6b14197d02440afd98e908d80a42a1a44"},
+    {file = "pyperf-2.8.1.tar.gz", hash = "sha256:ef103e21a4d04999315003026a2d659c48a7cfce5e1440f03d6e72591400713a"},
 ]
 
 [package.dependencies]
 psutil = ">=5.9.0"
 
 [package.extras]
-dev = ["importlib-metadata", "tox"]
+dev = ["tox"]
 
 [[package]]
 name = "pyrate-limiter"
@@ -3318,4 +3318,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "683396cff8b9e5aecb1bf9f4c6f567e357af3b5f990a95237d99ebf032dc61b0"
+content-hash = "7b2809f2ab915194da9d8eedbd338b051c10f36f06eb4d29983436082c73f188"
