@@ -1533,13 +1533,13 @@ type = ["mypy (>=1.11.2)"]
 
 [[package]]
 name = "plexapi"
-version = "4.15.16"
+version = "4.16.0"
 description = "Python bindings for the Plex API."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 files = [
-    {file = "PlexAPI-4.15.16-py3-none-any.whl", hash = "sha256:c6351750fc3cc79ac14e4d364d497f130ce33041326fcdae3e823121ff7d7eaa"},
-    {file = "PlexAPI-4.15.16.tar.gz", hash = "sha256:a8bd2e5a5b6fb43a626bb9dfe3bb3675985f6f3a1499d5d9aecbf881728078df"},
+    {file = "PlexAPI-4.16.0-py3-none-any.whl", hash = "sha256:0e96f9fbfdae55a0d707517f2843067a2c8e05e38f23e4fd30beb3a9ba6f0712"},
+    {file = "plexapi-4.16.0.tar.gz", hash = "sha256:d2798e4f234e139675ac8413bb30657425b3c74d8ff3b2efaff18bfe1644c2e9"},
 ]
 
 [package.dependencies]
@@ -3318,4 +3318,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "683396cff8b9e5aecb1bf9f4c6f567e357af3b5f990a95237d99ebf032dc61b0"
+content-hash = "af10062c45773bb67e59f761751f1875c7c1e65068e68e7bde678ab10af57cea"
