@@ -126,9 +126,9 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Skipping torrent: '{raw_title}' - {e}")
             continue
-        except GarbageTorrent:
+        except GarbageTorrent as e:
             if settings_manager.settings.scraping.parse_debug and log_msg:
-                logger.debug(f"Trashing torrent for {item.log_string}: '{raw_title}'")
+                logger.debug(e)
             continue
 
     if torrents:

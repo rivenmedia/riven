@@ -222,7 +222,7 @@ class Program(threading.Thread):
             ).scalars().all()
 
             if not item_ids:
-                logger.debug("PROGRAM", "No ongoing or unreleased items to update.")
+                logger.debug("No ongoing or unreleased items to update.")
                 return
 
             logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
@@ -242,7 +242,7 @@ class Program(threading.Thread):
                 except Exception as e:
                     logger.error(f"Failed to update state for item with ID {item_id}: {e}")
 
-            logger.debug("PROGRAM", f"Found {counter} items with updated state.")
+            logger.debug(f"Found {counter} items with updated state.")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""

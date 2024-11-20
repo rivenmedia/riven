@@ -351,11 +351,11 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
             if symlink_service:
                 symlink_service.delete_item_symlinks_by_id(item.id)
 
-            with db.Session() as session:
-                requested_id = session.execute(select(MediaItem.requested_id).where(MediaItem.id == item.id)).scalar_one()
-                if requested_id:
-                    logger.debug(f"Deleting request from Overseerr with ID {requested_id}")
-                    Overseerr.delete_request(requested_id)
+            if item.overseerr_id:
+                overseerr: Overseerr = request.app.program.services.get(Overseerr)
+                if overseerr:
+                    overseerr.delete_request(item.overseerr_id)
+                    logger.debug(f"Deleted request from Overseerr with ID {item.overseerr_id}")
 
             logger.debug(f"Deleting item from database with ID {item.id}")
             db_functions.delete_media_item_by_id(item.id)

@@ -41,10 +41,8 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized"}
 
-    new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "requested_id": req.request.request_id})
-
+    new_item = MediaItem({"imdb_id": imdb_id, "requested_by": "overseerr", "overseerr_id": req.request.request_id})
     request.app.program.em.add_item(new_item, service="Overseerr")
-
     return {"success": True}
 
 
