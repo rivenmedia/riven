@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/rivenmedia/riven/compare/v0.19.0...v0.20.0) (2024-11-20)
+
+
+### Features
+
+* add denied reasoning when trashing torrents and added adult parsing ([#888](https://github.com/rivenmedia/riven/issues/888)) ([d3b5293](https://github.com/rivenmedia/riven/commit/d3b5293dfdb07c7466ff77f7dba16754fbfa7d79))
+
 ## [0.19.0](https://github.com/rivenmedia/riven/compare/v0.18.0...v0.19.0) (2024-11-14)
 
 
