@@ -1491,13 +1491,13 @@ files = [
 
 [[package]]
 name = "parsett"
-version = "1.5.0"
+version = "1.5.1"
 description = "PTT"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "parsett-1.5.0-py3-none-any.whl", hash = "sha256:2c53a757d81ca1de52042c4d320dae05b1013814a8950d7a63d81abf28a2e6dc"},
-    {file = "parsett-1.5.0.tar.gz", hash = "sha256:fb7d37b3697a51f3483096cb121b4598968b8f1ee6478880b3886386d938c7c4"},
+    {file = "parsett-1.5.1-py3-none-any.whl", hash = "sha256:79c7a13e27e28a7975b1a5f3b2da551f86232e5227d424ef43aa12f782c5aab6"},
+    {file = "parsett-1.5.1.tar.gz", hash = "sha256:f9775a536f806d8a6b4fe719b0ee2356e110b629aedb1dc628a151e890168da5"},
 ]
 
 [package.dependencies]
@@ -2062,18 +2062,18 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "1.5.3"
+version = "1.5.4"
 description = "Rank filenames based on user-defined rules!"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "rank_torrent_name-1.5.3-py3-none-any.whl", hash = "sha256:14f36f5eda958588b958412adfae6cda549369d6b96961ee1d321ad2dca8851d"},
-    {file = "rank_torrent_name-1.5.3.tar.gz", hash = "sha256:83faff6dab21483489fce633fe5f221f12bba31eb92a2cf024a8774031129ae4"},
+    {file = "rank_torrent_name-1.5.4-py3-none-any.whl", hash = "sha256:6b97c3ddb9eca5418df026530e03ed3de47cfe2463cc33164e47b0c3aa823805"},
+    {file = "rank_torrent_name-1.5.4.tar.gz", hash = "sha256:fe8575347a33a3aa03b0c115fe28ee563ca39deea0572bde208d934de2d19e96"},
 ]
 
 [package.dependencies]
 levenshtein = ">=0.25.0,<0.26.0"
-parsett = ">=1.2.5,<2.0.0"
+parsett = ">=1.5.1,<2.0.0"
 pydantic = ">=2.6.3,<3.0.0"
 regex = ">=2023.12.25,<2024.0.0"
 
@@ -2754,13 +2754,13 @@ full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.7
 
 [[package]]
 name = "stevedore"
-version = "5.3.0"
+version = "5.4.0"
 description = "Manage dynamic plugins for Python applications"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 files = [
-    {file = "stevedore-5.3.0-py3-none-any.whl", hash = "sha256:1efd34ca08f474dad08d9b19e934a22c68bb6fe416926479ba29e5013bcc8f78"},
-    {file = "stevedore-5.3.0.tar.gz", hash = "sha256:9a64265f4060312828151c204efbe9b7a9852a0d9228756344dbc7e4023e375a"},
+    {file = "stevedore-5.4.0-py3-none-any.whl", hash = "sha256:b0be3c4748b3ea7b854b265dcb4caa891015e442416422be16f8b31756107857"},
+    {file = "stevedore-5.4.0.tar.gz", hash = "sha256:79e92235ecb828fe952b6b8b0c6c87863248631922c8e8e0fa5b17b232c4514d"},
 ]
 
 [package.dependencies]
@@ -3318,4 +3318,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "10c26283be230d1f3925169b7b9403dd54391ac3ae86130a656a1dfde56b5afc"
+content-hash = "e1b0c1da9e0f1c2c345b10509efdfc709ecde73ad946714013c590f71d8051a1"
