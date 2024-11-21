@@ -91,6 +91,9 @@ class Mediafusion:
 
         try:
             response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, headers=headers)
+            if not response.data or response.data["status"] != "success":
+                logger.error(f"Failed to encrypt user data: {response.data['message']}")
+                return False
             self.encrypted_string = response.data["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
