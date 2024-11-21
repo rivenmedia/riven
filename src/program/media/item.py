@@ -77,6 +77,10 @@ class MediaItem(db.Model):
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
 
+    # Pause related fields
+    is_paused: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    paused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
@@ -86,6 +90,7 @@ class MediaItem(db.Model):
     __table_args__ = (
         Index("ix_mediaitem_type", "type"),
         Index("ix_mediaitem_requested_by", "requested_by"),
+        Index("ix_mediaitem_is_paused", "is_paused"),
         Index("ix_mediaitem_title", "title"),
         Index("ix_mediaitem_imdb_id", "imdb_id"),
         Index("ix_mediaitem_tvdb_id", "tvdb_id"),
@@ -257,6 +262,8 @@ class MediaItem(db.Model):
             "requested_by": self.requested_by,
             "scraped_at": str(self.scraped_at),
             "scraped_times": self.scraped_times,
+            "is_paused": self.is_paused,
+            "paused_at": str(self.paused_at) if self.paused_at else None,
         }
 
     def to_extended_dict(self, abbreviated_children=False, with_streams=True):
@@ -406,6 +413,47 @@ class MediaItem(db.Model):
     @property
     def log_string(self):
         return self.title or self.id
+
+    def pause(self) -> None:
+        """Pause processing of this media item"""
+        if self.is_paused:
+            logger.debug(f"{self.log_string} is already paused")
+            return
+
+        logger.debug(f"Pausing {self.id}")
+        try:
+            self.is_paused = True
+            self.paused_at = datetime.now()
+            
+            session = object_session(self)
+            if session:
+                session.flush()
+                
+            logger.info(f"{self.log_string} paused, is_paused={self.is_paused}, paused_at={self.paused_at}")
+        except Exception as e:
+            logger.error(f"Failed to pause {self.log_string}: {str(e)}")
+            raise
+
+    def unpause(self) -> None:
+        """Resume processing of this media item"""
+
+        if not self.is_paused:
+            logger.debug(f"{self.log_string} is not paused")
+            return
+
+        logger.debug(f"Unpausing {self.id}")
+        try:
+            self.is_paused = False
+            self.paused_at = None
+            
+            session = object_session(self)
+            if session:
+                session.flush()
+                
+            logger.info(f"{self.log_string} unpaused, is_paused={self.is_paused}, paused_at={self.paused_at}")
+        except Exception as e:
+            logger.error(f"Failed to unpause {self.log_string}: {str(e)}")
+            raise
 
     @property
     def collection(self):
