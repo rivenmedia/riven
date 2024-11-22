@@ -8,7 +8,7 @@ from program.services.downloaders.shared import filesize_is_acceptable, get_inva
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
-# from .torbox import TorBoxDownloader
+from .torbox import TorBoxDownloader
 
 class InvalidFileSizeException(Exception):
     pass
@@ -30,7 +30,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             AllDebridDownloader: AllDebridDownloader(),
-            # TorBoxDownloader: TorBoxDownloader()
+            TorBoxDownloader: TorBoxDownloader()
         }
         self.service = next(
             (service for service in self.services.values() if service.initialized), None
@@ -48,25 +48,49 @@ class Downloader:
 
     def run(self, item: MediaItem):
         logger.debug(f"Running downloader for {item.log_string}")
-        for stream in item.streams:
-            download_result = None
-            try:
-                download_result = self.download_cached_stream(item, stream)
-                if download_result:
-                    self.validate_filesize(item, download_result)
+        # for stream in item.streams:
+        #     download_result = None
+        #     try:
+        #         download_result = self.download_cached_stream(item, stream)
+        #         if download_result:
+        #             self.validate_filesize(item, download_result)
+        #             if not self.update_item_attributes(item, download_result):
+        #                 raise Exception("No matching files found!")
+        #             break
+        #     except Exception as e:
+        #         if download_result and download_result.torrent_id:
+        #             self.service.delete_torrent(download_result.torrent_id)
+        #         logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
+        #         item.blacklist_stream(stream)
+
+        # Chunk streams into groups of 10
+        chunk_size = 10
+        for i in range(0, len(item.streams), chunk_size):
+            logger.debug(f"Processing chunk {i} to {i + chunk_size}")
+            chunk = item.streams[i:i + chunk_size]
+            instant_availability = self.get_instant_availability([stream.infohash for stream in chunk])
+            # Filter out streams that aren't cached
+            available_streams = [stream for stream in chunk if instant_availability.get(stream.infohash, None)]
+            if not available_streams:
+                continue
+            for stream in available_streams:
+                download_result = None
+                try:
+                    download_result = self.download_cached_stream(item, stream, instant_availability[stream.infohash])
+                    if download_result:
+                        self.validate_filesize(item, download_result)
                     if not self.update_item_attributes(item, download_result):
                         raise Exception("No matching files found!")
                     break
-            except Exception as e:
-                if download_result and download_result.torrent_id:
-                    self.service.delete_torrent(download_result.torrent_id)
-                logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
-                item.blacklist_stream(stream)
+                except Exception as e:
+                    if download_result and download_result.torrent_id:
+                        self.service.delete_torrent(download_result.torrent_id)
+                    logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
+                    item.blacklist_stream(stream)
         yield item
 
 
-    def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
-        cached_containers = self.get_instant_availability([stream.infohash]).get(stream.infohash, None)
+    def download_cached_stream(self, item: MediaItem, stream: Stream, cached_containers: list[dict]) -> DownloadCachedStreamResult:
         if not cached_containers:
             raise Exception("Not cached!")
         the_container = cached_containers[0]
