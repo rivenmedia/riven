@@ -45,7 +45,8 @@ class Torrentio:
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=10)
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=10, headers=headers)
             if response.is_ok:
                 return True
         except Exception as e:
