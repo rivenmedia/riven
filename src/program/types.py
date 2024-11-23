@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Generator, Optional, Union
+from program.event import Event
 
 from program.media.item import MediaItem
 from program.services.content import (

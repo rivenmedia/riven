@@ -231,7 +231,25 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
         target_path = os.readlink(symlink_path)
         filename = os.path.basename(target_path)
         dirname = os.path.dirname(target_path).split("/")[-1]
-        correct_path = file_map.get(filename)
+        
+        # Retry timings: 5s, 10s, 20s, 40s, 80s, 5min, 10min, 20min
+        retry_times = [5, 10, 20, 40, 80, 300, 600, 1200]
+        attempt = 0
+        
+        while attempt < len(retry_times):
+            correct_path = file_map.get(filename)
+            if correct_path:
+                break
+                
+            wait_time = retry_times[attempt]
+            attempts_left = len(retry_times) - attempt - 1
+            
+            if attempts_left > 0:
+                logger.debug(f"File {filename} not found in rclone_path, waiting {wait_time} seconds. {attempts_left} attempts left.")
+                time.sleep(wait_time)
+                file_map = build_file_map(rclone_path)  # Refresh the file map
+            attempt += 1
+
         failed = False
 
         with db.Session() as session:
@@ -265,7 +283,8 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
                     item.store_state()
                     session.merge(item)
                 missing_files += 1
-                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path")
+                total_wait = sum(retry_times[:attempt])
+                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path after {attempt} attempts and {total_wait} seconds")
 
             session.commit()
             logger.log("FILES", "Saved items to the database.")

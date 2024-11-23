@@ -4,21 +4,18 @@ from program.media.item import MediaItem, MovieMediaType, ShowMediaType
 from program.media.state import States
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from program.services.downloaders.shared import filesize_is_acceptable, get_invalid_filesize_log_string
+from program.services.downloaders.shared import (
+    DownloadCachedStreamResult,
+    filesize_is_acceptable,
+    get_invalid_filesize_log_string,
+)
 
 from .alldebrid import AllDebridDownloader
-from .realdebrid import RealDebridDownloader
+from .realdebrid import RealDebridDownloader, TorrentNotFoundError, InvalidFileIDError
 # from .torbox import TorBoxDownloader
 
 class InvalidFileSizeException(Exception):
     pass
-
-class DownloadCachedStreamResult:
-    def __init__(self, container=None, torrent_id=None, info=None, info_hash=None):
-        self.container = container
-        self.torrent_id = torrent_id
-        self.info = info
-        self.info_hash = info_hash
 
 class Downloader:
     def __init__(self):
@@ -49,32 +46,40 @@ class Downloader:
     def run(self, item: MediaItem):
         logger.debug(f"Running downloader for {item.log_string}")
         for stream in item.streams:
-            download_result = None
             try:
-                download_result = self.download_cached_stream(item, stream)
-                if download_result:
-                    self.validate_filesize(item, download_result)
-                    if not self.update_item_attributes(item, download_result):
-                        raise Exception("No matching files found!")
-                    break
-            except Exception as e:
-                if download_result and download_result.torrent_id:
-                    self.service.delete_torrent(download_result.torrent_id)
-                logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
+                result = self.download_cached_stream(item, stream)
+                if result.container is None:
+                    logger.debug(f"Invalid stream: {stream.infohash} - reason: No valid containers found")
+                    item.blacklist_stream(stream)
+                    continue
+                stream.container = result.container
+                stream.torrent_id = result.torrent_id
+                stream.info = result.info
+                stream.info_hash = result.info_hash
+                self.validate_filesize(item, result)
+                if not self.update_item_attributes(item, result):
+                    raise Exception("No matching files found!")
+                yield item
+            except TorrentNotFoundError as e:
+                logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
                 item.blacklist_stream(stream)
-        yield item
-
+                continue
+            except InvalidFileIDError as e:
+                # Don't blacklist for file ID errors as they may be temporary
+                logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
+                continue
+            except InvalidFileSizeException:
+                logger.debug(get_invalid_filesize_log_string(item))
+                item.blacklist_stream(stream)
+                continue
+            except Exception as e:
+                logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
+                item.blacklist_stream(stream)
+                continue
 
     def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
-        cached_containers = self.get_instant_availability([stream.infohash]).get(stream.infohash, None)
-        if not cached_containers:
-            raise Exception("Not cached!")
-        the_container = cached_containers[0]
-        torrent_id = self.add_torrent(stream.infohash)
-        info = self.get_torrent_info(torrent_id)
-        self.select_files(torrent_id, the_container.keys())
-        logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-        return DownloadCachedStreamResult(the_container, torrent_id, info, stream.infohash)
+        """Download a cached stream from the active debrid service"""
+        return self.service.download_cached_stream(item, stream)
 
     def get_instant_availability(self, infohashes: list[str]) -> dict[str, list[dict]]:
         return self.service.get_instant_availability(infohashes)

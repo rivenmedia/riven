@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
 from program.apis import bootstrap_apis
+from program.event import Event
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States

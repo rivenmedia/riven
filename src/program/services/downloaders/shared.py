@@ -67,6 +67,14 @@ class DownloaderBase(ABC):
     def delete_torrent():
         pass
 
+class DownloadCachedStreamResult:
+    """Result object for cached stream downloads"""
+    def __init__(self, container=None, torrent_id=None, info=None, info_hash=None):
+        self.container = container
+        self.torrent_id = torrent_id
+        self.info = info
+        self.info_hash = info_hash
+
 class FileFinder:
     """
     A class that helps you find files.
