@@ -10,7 +10,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from rich.live import Live
 
 from program.apis import bootstrap_apis
-from program.event import Event
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -35,7 +34,7 @@ from program.utils.logging import create_progress_bar, log_cleaner, logger
 
 from .state_transition import process_event
 from .symlink import Symlinker
-from .types import Event
+from .types import Event, ProcessedEvent, Service
 
 if settings_manager.settings.tracemalloc:
     import tracemalloc

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Generator, Optional, Union
-from program.event import Event
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -51,4 +50,6 @@ class Event:
 
     @property
     def log_message(self):
-        return f"Item ID {self.item_id}" if self.item_id else f"External ID {self.content_item.imdb_id}"
+        if self.content_item:
+            return f"Event for {self.content_item.log_string}"
+        return f"Event for Item ID: {self.item_id}"
