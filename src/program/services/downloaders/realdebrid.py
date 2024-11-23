@@ -329,9 +329,9 @@ class RealDebridDownloader(DownloaderBase):
                 logger.error(f"Download failed with status: {status}")
                 raise DownloadFailedError(f"Download failed with status: {status}")
             
-            # Check at 5-minute mark if download hasn't completed and has no seeders
+            # Check at 1-minute mark if download hasn't completed and has no seeders
             elapsed_time = time.time() - start_time
-            if elapsed_time > 300 and seeders == 0:  # 5 minutes = 300 seconds
+            if elapsed_time > 60 and seeders == 0:  # 5 minutes = 300 seconds
                 logger.error(f"Torrent {torrent_id} not completed in 5 minutes and has no seeders")
                 self.delete_torrent(torrent_id)
                 raise DownloadFailedError("Download not completed in 5 minutes and no seeders available")
