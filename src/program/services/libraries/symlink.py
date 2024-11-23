@@ -4,6 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Generator
+from sqlalchemy.orm import aliased
 
 from loguru import logger
 from sqla_wrapper import Session
@@ -14,7 +15,7 @@ from program.media.subtitle import Subtitle
 from program.settings.manager import settings_manager
 
 if TYPE_CHECKING:
-    from program.media.item import Episode, MediaItem, Movie, Show
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
 
 imdbid_pattern = re.compile(r"tt\d+")
 season_pattern = re.compile(r"s(\d+)")
@@ -72,8 +73,6 @@ class SymlinkLibrary:
         Create a library from the symlink paths. Return stub items that should
         be fed into an Indexer to have the rest of the metadata filled in.
         """
-        from program.media.item import Movie
-
         items = []
         for directory, item_type, is_anime in [("shows", "show", False), ("anime_shows", "anime show", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
@@ -83,7 +82,7 @@ class SymlinkLibrary:
         for directory, item_type, is_anime in [("movies", "movie", False), ("anime_movies", "anime movie", True)]:
             if not self.settings.separate_anime_dirs and is_anime:
                 continue
-            items.extend(process_items(self.settings.library_path / directory, Movie, item_type, is_anime))
+            items.extend(process_items(self.settings.library_path / directory, MediaItem, item_type, is_anime))
 
         return items
 
@@ -137,7 +136,8 @@ def find_subtitles(item, path: Path):
 
 def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Generator["Show", None, None]:
     """Process shows in the given directory and yield Show instances."""
-    from program.media.item import Episode, Season, Show
+    from program.media.item import Episode, Season, Show  # Import inside function to avoid circular import
+    
     for show in os.listdir(directory):
         imdb_id = re.search(r"(tt\d+)", show)
         title = re.search(r"(.+)?( \()", show)
@@ -332,41 +332,54 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
 
 def get_items_from_filepath(session: Session, filepath: str) -> list["Movie"] | list["Episode"]:
     """Get items that match the imdb_id or season and episode from a file in library_path"""
-    from program.media.item import Episode, Movie, Season, Show
-    imdb_id_match = imdbid_pattern.search(filepath)
-    season_number_match = season_pattern.search(filepath)
-    episode_number_match = episode_pattern.search(filepath)
+    from program.media.item import Episode, Movie, Season, Show  # Import inside function to avoid circular import
+    
+    items = []
+    imdb_id = None
 
-    if not imdb_id_match:
-        logger.log("NOT_FOUND", f"Path missing imdb_id: {filepath}")
+    # Try to find IMDB ID in the path
+    match = re.search(r"tt\d{7,8}", filepath)
+    if match:
+        imdb_id = match.group()
+
+    if not imdb_id:
+        logger.debug(f"No IMDB ID found in path: {filepath}")
         return []
 
-    imdb_id = imdb_id_match.group()
-    season_number = int(season_number_match.group(1)) if season_number_match else None
-    episode_number = int(episode_number_match.group(1)) if episode_number_match else None
-
-    with session:
-        items = []
-        if season_number and episode_number:
-            episode_numbers = [int(num) for num in re.findall(r"e(\d+)", filepath, re.IGNORECASE)]
-            for ep_num in episode_numbers:
-                query = (
-                    session.query(Episode)
-                    .join(Season, Episode.parent_id == Season.imdb_id)
-                    .join(Show, Season.parent_id == Show.imdb_id)
-                    .filter(Show.imdb_id == imdb_id, Season.number == season_number, Episode.number == ep_num)
+    # Check for season/episode numbers
+    season_match = re.search(r"s(\d+)", filepath, re.IGNORECASE)
+    if season_match:
+        season_number = int(season_match.group(1))
+        episode_numbers = [int(num) for num in re.findall(r"e(\d+)", filepath, re.IGNORECASE)]
+        for ep_num in episode_numbers:
+            # Create explicit aliases for Season and Show
+            SeasonAlias = aliased(Season, flat=True)
+            ShowAlias = aliased(Show, flat=True)
+            
+            query = (
+                session.query(Episode)
+                .join(SeasonAlias, Episode.parent_id == SeasonAlias.imdb_id)
+                .join(ShowAlias, SeasonAlias.parent_id == ShowAlias.imdb_id)
+                .filter(
+                    ShowAlias.imdb_id == imdb_id,
+                    SeasonAlias.number == season_number,
+                    Episode.number == ep_num
                 )
-                episode_item = query.with_entities(Episode).first()
-                if episode_item:
-                    items.append(episode_item)
-        else:
-            query = session.query(Movie).filter_by(imdb_id=imdb_id)
-            movie_item = query.first()
-            if movie_item:
-                items.append(movie_item)
+            )
+            episode_item = query.with_entities(Episode).first()
+            if episode_item:
+                items.append(episode_item)
+    else:
+        query = session.query(Movie).filter_by(imdb_id=imdb_id)
+        movie_item = query.first()
+        if movie_item:
+            items.append(movie_item)
 
-        if len(items) > 1:
-            logger.log("FILES", f"Found multiple items in database for path: {filepath}")
-            for item in items:
-                logger.log("FILES", f"Found (multiple) {item.log_string} from filepath: {filepath}")
-        return items
+    if len(items) > 1:
+        logger.log("FILES", f"Found multiple items in database for path: {filepath}")
+        for item in items:
+            logger.log("FILES", f"Found item: {item.log_string}")
+    elif not items:
+        logger.debug(f"No items found in database for path: {filepath}")
+
+    return items
