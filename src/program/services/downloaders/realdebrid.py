@@ -165,44 +165,55 @@ class RealDebridDownloader(DownloaderBase):
         if not self.initialized:
             raise RealDebridError("Downloader not properly initialized")
 
-        try:
-            # Try to add the torrent and immediately select files
-            magnet = f"magnet:?xt=urn:btih:{infohash}"
-            logger.debug(f"Adding torrent with magnet: {magnet}")
-            
-            response = self.api.request_handler.execute(
-                HttpMethod.POST,
-                "torrents/addMagnet",
-                data={"magnet": magnet}
-            )
-            logger.debug(f"Add torrent response: {response}")
-            
-            torrent_id = response.get("id")
-            if not torrent_id:
-                logger.error(f"Invalid response from Real-Debrid: {response}")
-                raise RealDebridError("No torrent ID in response")
-
-            # Get initial torrent info
-            info = self.get_torrent_info(torrent_id)
-            logger.debug(f"Initial torrent info: {info}")
-
-            # Immediately select all files to prevent torrent removal
+        max_retries = 5
+        base_delay = 2  # Start with 2 seconds delay
+        
+        for attempt in range(max_retries):
             try:
-                self.select_files(torrent_id, [])
-            except Exception as e:
-                logger.error(f"Failed to select files: {str(e)}")
-                # If selection fails, try to clean up
+                # Try to add the torrent and immediately select files
+                magnet = f"magnet:?xt=urn:btih:{infohash}"
+                logger.debug(f"Adding torrent with magnet: {magnet}")
+                
+                response = self.api.request_handler.execute(
+                    HttpMethod.POST,
+                    "torrents/addMagnet",
+                    data={"magnet": magnet}
+                )
+                
+                torrent_id = response.get("id")
+                if not torrent_id:
+                    logger.error(f"Invalid response from Real-Debrid: {response}")
+                    raise RealDebridError("No torrent ID in response")
+
+                # Get initial torrent info
+                info = self.get_torrent_info(torrent_id)
+                filename = info.get("filename", "Unknown")
+                logger.debug(f"Add torrent response for '{filename}': {response}")
+                logger.debug(f"Initial torrent info: {info}")
+
+                # Immediately select all files to prevent torrent removal
                 try:
-                    self.delete_torrent(torrent_id)
-                except Exception as delete_error:
-                    logger.error(f"Failed to delete torrent: {str(delete_error)}")
-                raise e
+                    self.select_files(torrent_id, [])
+                except Exception as e:
+                    logger.error(f"Failed to select files for '{filename}': {str(e)}")
+                    # If selection fails, try to clean up
+                    try:
+                        self.delete_torrent(torrent_id)
+                    except Exception as delete_error:
+                        logger.error(f"Failed to delete torrent '{filename}': {str(delete_error)}")
+                    raise e
 
-            return torrent_id
+                return torrent_id
 
-        except Exception as e:
-            logger.error(f"Failed to add torrent {infohash}: {str(e)}")
-            raise
+            except Exception as e:
+                if "Rate limit exceeded" in str(e):
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"Rate limit hit, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                logger.error(f"Failed to add torrent {infohash}: {str(e)}")
+                raise
 
     def select_files(self, torrent_id: str, files: List[str]):
         """
@@ -276,28 +287,59 @@ class RealDebridDownloader(DownloaderBase):
         if not self.initialized:
             raise RealDebridError("Downloader not properly initialized")
 
-        try:
-            info = self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
-            logger.debug(f"Torrent info response: {info}")
-            return info
-        except Exception as e:
-            logger.error(f"Failed to get torrent info for {torrent_id}: {str(e)}")
-            raise
+        response = self.api.request_handler.execute(
+            HttpMethod.GET,
+            f"torrents/info/{torrent_id}"
+        )
+        
+        # Log a cleaner version with just the important info
+        if response:
+            status = response.get('status', 'unknown')
+            progress = response.get('progress', 0)
+            speed = response.get('speed', 0)
+            seeders = response.get('seeders', 0)
+            filename = response.get('filename', 'unknown')
+            
+            speed_mb = speed / 1000000 if speed else 0  # Convert to MB/s
+            
+            logger.debug(
+                f"Torrent: {filename}\n"
+                f"Status: \033[94m{status}\033[0m, "
+                f"Progress: \033[95m{progress}%\033[0m, "
+                f"Speed: \033[92m{speed_mb:.2f}MB/s\033[0m, "
+                f"Seeders: \033[93m{seeders}\033[0m"
+            )
+            
+        return response
 
     def delete_torrent(self, torrent_id: str):
         """
         Delete a torrent
         Required by DownloaderBase
         """
-
         if not self.initialized:
             raise RealDebridError("Downloader not properly initialized")
 
         try:
-            self.api.request_handler.execute(HttpMethod.DELETE, f"torrents/delete/{torrent_id}")
+            self.api.request_handler.execute(
+                HttpMethod.DELETE,
+                f"torrents/delete/{torrent_id}"
+            )
         except Exception as e:
-            logger.error(f"Failed to delete torrent {torrent_id}: {str(e)}")
-            raise
+            error_str = str(e)
+            if "404" in error_str:
+                # Could mean: already deleted, invalid ID, or never existed
+                logger.warning(f"Could not delete torrent {torrent_id}: Unknown resource (404)")
+                return
+            elif "401" in error_str:
+                logger.error(f"Failed to delete torrent {torrent_id}: Bad token (expired/invalid)")
+                raise
+            elif "403" in error_str:
+                logger.error(f"Failed to delete torrent {torrent_id}: Permission denied (account locked)")
+                raise
+            else:
+                logger.error(f"Failed to delete torrent {torrent_id}: {error_str}")
+                raise
 
     def _process_files(self, files: List[dict]) -> Dict[str, dict]:
         """Process and filter valid video files"""
@@ -316,33 +358,39 @@ class RealDebridDownloader(DownloaderBase):
     def wait_for_download(self, torrent_id: str) -> dict:
         """Wait for torrent to finish downloading"""
         start_time = time.time()
+        last_check_time = time.time()
         
         while True:
             info = self.get_torrent_info(torrent_id)
             status = RDTorrentStatus(info.get("status", ""))
             seeders = info.get("seeders", 0)
-            logger.debug(f"Torrent {torrent_id} status: {status}, seeders: {seeders}")
+            filename = info.get("filename", "Unknown")
+            current_time = time.time()
+            
+            # Check status and seeders every minute
+            if current_time - last_check_time >= 60:  # Check every minute
+                logger.debug(f"{filename} status: {status}, seeders: {seeders}")
+                if "progress" in info:
+                    logger.debug(f"{filename} progress: \033[95m{info['progress']}%\033[0m")
+                    
+                # If no seeders at minute check, delete and move on
+                if seeders == 0:
+                    logger.error(f"{filename} has no seeders at minute check")
+                    self.delete_torrent(torrent_id)
+                    raise DownloadFailedError(f"{filename} has no seeders available at minute check")
+                    
+                last_check_time = current_time
 
             if status == RDTorrentStatus.DOWNLOADED:
                 return info
             elif status in (RDTorrentStatus.ERROR, RDTorrentStatus.MAGNET_ERROR, RDTorrentStatus.DEAD):
-                logger.error(f"Download failed with status: {status}")
-                raise DownloadFailedError(f"Download failed with status: {status}")
-            
-            # Check at 1-minute mark if download hasn't completed and has no seeders
-            elapsed_time = time.time() - start_time
-            if elapsed_time > 60 and seeders == 0:  # 5 minutes = 300 seconds
-                logger.error(f"Torrent {torrent_id} not completed in 5 minutes and has no seeders")
+                logger.error(f"{filename} failed with status: {status}")
                 self.delete_torrent(torrent_id)
-                raise DownloadFailedError("Download not completed in 5 minutes and no seeders available")
-            elif elapsed_time > self.DOWNLOAD_TIMEOUT:
-                logger.error("Download timeout exceeded")
+                raise DownloadFailedError(f"{filename} failed with status: {status}")
+            elif current_time - start_time > self.DOWNLOAD_TIMEOUT:
+                logger.error(f"{filename} download timeout exceeded")
                 self.delete_torrent(torrent_id)
-                raise DownloadFailedError("Download timeout exceeded")
-
-            # Log progress if available
-            if "progress" in info:
-                logger.debug(f"Download progress for {torrent_id}: {info['progress']}%")
+                raise DownloadFailedError(f"{filename} download timeout exceeded")
 
             time.sleep(self.DOWNLOAD_POLL_INTERVAL)
 

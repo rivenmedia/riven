@@ -44,38 +44,66 @@ class Downloader:
         return True
 
     def run(self, item: MediaItem):
+        """Run downloader for media item with concurrent downloads"""
         logger.debug(f"Running downloader for {item.log_string}")
-        for stream in item.streams:
-            try:
-                result = self.download_cached_stream(item, stream)
-                if result.container is None:
-                    logger.debug(f"Invalid stream: {stream.infohash} - reason: No valid containers found")
+        
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        MAX_CONCURRENT_DOWNLOADS = 10
+
+        # Sort streams by RTN rank (higher rank is better)
+        sorted_streams = sorted(item.streams, key=lambda x: x.rank, reverse=True)
+
+        # Take only the top 3 streams to try
+        streams_to_try = sorted_streams[:3]
+        logger.debug(f"Selected top {len(streams_to_try)} streams to try downloading (by RTN rank)")
+        for stream in streams_to_try:
+            logger.debug(f"Will try stream: {stream.raw_title} (rank: {stream.rank})")
+        
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
+            # Submit selected streams to the thread pool
+            future_to_stream = {
+                executor.submit(self.download_cached_stream, item, stream): (stream, item)
+                for stream in streams_to_try
+            }
+            
+            # Process completed downloads
+            for future in as_completed(future_to_stream):
+                stream, item = future_to_stream[future]
+                try:
+                    result = future.result()
+                    if result.container is None:
+                        logger.debug(f"Invalid stream: {stream.infohash} - reason: No valid containers found")
+                        item.blacklist_stream(stream)
+                        continue
+                    stream.container = result.container
+                    stream.torrent_id = result.torrent_id
+                    stream.info = result.info
+                    stream.info_hash = result.info_hash
+                    self.validate_filesize(item, result)
+                    if not self.update_item_attributes(item, result):
+                        raise Exception("No matching files found!")
+                    # Cancel other downloads since we got a good one
+                    for f in future_to_stream:
+                        if not f.done():
+                            f.cancel()
+                    yield item
+                    return
+                except TorrentNotFoundError as e:
+                    logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
                     item.blacklist_stream(stream)
                     continue
-                stream.container = result.container
-                stream.torrent_id = result.torrent_id
-                stream.info = result.info
-                stream.info_hash = result.info_hash
-                self.validate_filesize(item, result)
-                if not self.update_item_attributes(item, result):
-                    raise Exception("No matching files found!")
-                yield item
-            except TorrentNotFoundError as e:
-                logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
-                item.blacklist_stream(stream)
-                continue
-            except InvalidFileIDError as e:
-                # Don't blacklist for file ID errors as they may be temporary
-                logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
-                continue
-            except InvalidFileSizeException:
-                logger.debug(get_invalid_filesize_log_string(item))
-                item.blacklist_stream(stream)
-                continue
-            except Exception as e:
-                logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
-                item.blacklist_stream(stream)
-                continue
+                except InvalidFileIDError as e:
+                    # Don't blacklist for file ID errors as they may be temporary
+                    logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
+                    continue
+                except InvalidFileSizeException:
+                    logger.debug(get_invalid_filesize_log_string(item))
+                    item.blacklist_stream(stream)
+                    continue
+                except Exception as e:
+                    logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
+                    item.blacklist_stream(stream)
+                    continue
 
     def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
         """Download a cached stream from the active debrid service"""
