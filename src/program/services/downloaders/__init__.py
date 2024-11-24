@@ -43,35 +43,42 @@ class Downloader:
         for i in range(0, len(item.streams), chunk_size):
             chunk: List[Stream] = item.streams[i:i + chunk_size]
             response: List[TorrentContainer] = self.get_instant_availability([stream.infohash for stream in chunk], item.type)
-            for container in response:
-                stream: Stream = next((s for s in chunk if s.infohash == container.infohash), None)
+            for stream in chunk:
+                container: TorrentContainer = next((c for c in response if c.infohash == stream.infohash), None)
                 download_result = None
                 try:
-                    if not container.cached:
+                    if container and container.cached:
+                        # Handle cached streams
+                        download_result: DownloadedTorrent = self.download_cached_stream(stream, container)
+                    else:
+                        # Handle uncached streams (not implemented)
                         raise NotCachedException("Not cached!")
-                    download_result: DownloadedTorrent = self.download_cached_stream(stream, container)
                     if download_result:
                         logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-                    if not self.update_item_attributes(item, download_result):
-                        raise NoMatchingFilesException("No matching files found!")
-                    break
+                        if not self.update_item_attributes(item, download_result):
+                            raise NoMatchingFilesException("No matching files found!")
+                        break
                 except Exception as e:
                     logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
-                    if download_result and download_result.torrent_id:
-                        self.service.delete_torrent(download_result.torrent_id)
+                    if download_result and download_result.id:
+                        self.service.delete_torrent(download_result.id)
                     item.blacklist_stream(stream)
         yield item
 
     def download_cached_stream(self, stream: Stream, container: TorrentContainer) -> DownloadedTorrent:
         """Download a cached stream"""
-        torrent_id: str = self.add_torrent(stream.infohash)
+        torrent_id: int = self.add_torrent(stream.infohash)
         info: TorrentInfo = self.get_torrent_info(torrent_id)
         self.select_files(torrent_id, container)
-        return DownloadedTorrent(id=torrent_id, info=info, infohash=container.infohash, container=container)
+        return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
+
+    def download_uncached_stream(self, stream: Stream) -> DownloadedTorrent:
+        """Download an uncached stream"""
+        pass
 
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
         """Update the item attributes with the downloaded files and active stream"""
-        if not any(download_result.infohash, download_result.info.id, download_result.info.filename):
+        if not any(download_result.infohash, download_result.info.id, download_result.info.name):
             return False
         item = item
         found = False
@@ -97,7 +104,7 @@ class Downloader:
     def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent) -> None:
         """Update the item attributes with the downloaded files and active stream"""
         item.file = debrid_file.filename
-        item.folder = download_result.info.filename
+        item.folder = download_result.info.name
         item.alternative_folder = download_result.info.alternative_filename
         item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
 

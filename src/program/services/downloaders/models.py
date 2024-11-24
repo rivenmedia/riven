@@ -99,7 +99,7 @@ class TorrentInfo(BaseModel):
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
-    id: str
+    id: int
     infohash: str
     container: TorrentContainer
     info: TorrentInfo
