@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Union
 from collections import defaultdict
+from datetime import timedelta
 
 from loguru import logger
 from pydantic import BaseModel
@@ -66,6 +67,9 @@ class InvalidFileIDError(RealDebridError):
 class DownloadFailedError(RealDebridError):
     """Raised when a torrent download fails"""
 
+class QueuedTooManyTimesError(RealDebridError):
+    """Raised when a torrent is queued too many times"""
+
 class RealDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, request_logging: bool = False):
         super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
@@ -98,15 +102,18 @@ class RealDebridDownloader(DownloaderBase):
     RETRY_DELAY = 1.0
     DOWNLOAD_POLL_INTERVAL = 5  # seconds
     DOWNLOAD_TIMEOUT = 300  # 5 minutes
-
+    MAX_QUEUE_ATTEMPTS = 6  # Maximum number of queued torrents before retrying item later
+    
     def __init__(self):
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
+        self.scraping_settings = settings_manager.settings.scraping
         self.api = None
         self.file_finder = None
         self.initialized = self.validate()
         self.active_downloads = defaultdict(set)  # {content_id: set(torrent_ids)}
         self.download_complete = {}  # Track if a content's download is complete
+        self.queue_attempts = defaultdict(int)  # Track number of queued attempts per content
         self.MAX_CONCURRENT_TOTAL = 10
         self.MAX_CONCURRENT_PER_CONTENT = 3
 
@@ -238,7 +245,6 @@ class RealDebridDownloader(DownloaderBase):
                 # First verify the torrent exists by getting its info
                 try:
                     torrent_info = self.get_torrent_info(torrent_id)
-                    logger.debug(f"Got torrent info (attempt {attempt + 1}): {torrent_info}")
                 except Exception as e:
                     if "404" in str(e):
                         logger.error(f"Torrent {torrent_id} no longer exists on Real-Debrid servers")
@@ -248,7 +254,6 @@ class RealDebridDownloader(DownloaderBase):
                 # If no specific files requested, select all files
                 if not files:
                     files = [str(f["id"]) for f in torrent_info.get("files", [])]
-                    logger.debug(f"Selecting all files: {files}")
 
                 # Verify file IDs are valid
                 available_files = {str(f["id"]) for f in torrent_info.get("files", [])}
@@ -260,7 +265,6 @@ class RealDebridDownloader(DownloaderBase):
                 # Select the files
                 try:
                     data = {"files": ",".join(files)}
-                    logger.debug(f"Selecting files with data: {data}")
                     self.api.request_handler.execute(
                         HttpMethod.POST,
                         f"torrents/selectFiles/{torrent_id}",
@@ -439,15 +443,24 @@ class RealDebridDownloader(DownloaderBase):
             self.select_files(torrent_id, list(container.keys()))
 
             # Wait for download to complete
-            info = self.wait_for_download(torrent_id)
+            info = self.wait_for_download(torrent_id, content_id, item)
             
             logger.log("DEBRID", f"Downloading {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
             
             # Mark content as complete since download succeeded
             self._mark_content_complete(content_id)
+            # Reset queue attempts on successful download
+            self.queue_attempts[content_id] = 0
             
             return DownloadCachedStreamResult(container, torrent_id, info, stream.infohash)
             
+        except QueuedTooManyTimesError:
+            # Don't blacklist the stream, but mark the item for retry later based on scrape count
+            retry_hours = self._get_retry_hours(item.scraped_times)
+            retry_time = datetime.now() + timedelta(hours=retry_hours)
+            logger.warning(f"Too many queued attempts for {item.log_string}, will retry after {retry_hours} hours")
+            item.set("retry_after", retry_time)
+            return DownloadCachedStreamResult(None, torrent_id, None, stream.infohash)
         except Exception as e:
             # Clean up torrent if something goes wrong
             if torrent_id:
@@ -460,7 +473,17 @@ class RealDebridDownloader(DownloaderBase):
             if torrent_id:
                 self._remove_active_download(content_id, torrent_id)
 
-    def wait_for_download(self, torrent_id: str) -> dict:
+    def _get_retry_hours(self, scrape_times: int) -> float:
+        """Get retry hours based on number of scrape attempts."""
+        if scrape_times >= 10:
+            return self.scraping_settings.after_10
+        elif scrape_times >= 5:
+            return self.scraping_settings.after_5
+        elif scrape_times >= 2:
+            return self.scraping_settings.after_2
+        return 2.0  # Default to 2 hours
+
+    def wait_for_download(self, torrent_id: str, content_id: str, item: MediaItem) -> dict:
         """Wait for torrent to finish downloading"""
         start_time = time.time()
         last_check_time = time.time()
@@ -474,9 +497,14 @@ class RealDebridDownloader(DownloaderBase):
             progress = info.get("progress", 0)
             current_time = time.time()
             
-            # Skip queued torrents immediately
+            # Handle queued torrents
             if status == RDTorrentStatus.QUEUED:
-                logger.debug(f"{filename} is queued, skipping to next stream")
+                self.queue_attempts[content_id] += 1
+                if self.queue_attempts[content_id] >= self.MAX_QUEUE_ATTEMPTS:
+                    logger.warning(f"Hit maximum queue attempts ({self.MAX_QUEUE_ATTEMPTS}) for content {content_id}")
+                    raise QueuedTooManyTimesError(f"Too many queued attempts for {filename}")
+                
+                logger.debug(f"{filename} is queued on Real-Debrid (attempt {self.queue_attempts[content_id]}/{self.MAX_QUEUE_ATTEMPTS}), blacklisting and trying next stream")
                 raise DownloadFailedError(f"{filename} is queued on Real-Debrid")
             
             # Check status and seeders every minute
