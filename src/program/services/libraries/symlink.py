@@ -232,14 +232,14 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
         filename = os.path.basename(target_path)
         dirname = os.path.dirname(target_path).split("/")[-1]
         
-        delays = settings_manager.settings.symlink.retry_delays
+        delays = settings_manager.settings.symlink.retry_delays[:7]  # Only use first 7 retry attempts
         attempt = 0
         
         while attempt < len(delays):
             correct_path = file_map.get(filename)
             if correct_path:
                 break
-                
+            
             delay = delays[attempt]
             attempts_left = len(delays) - attempt - 1
             
@@ -283,7 +283,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
                     session.merge(item)
                 missing_files += 1
                 total_wait = sum(delays[:attempt])
-                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path after {attempt} attempts and {total_wait} seconds")
+                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path after 7 attempts and {total_wait} seconds. Will not retry symlinking.")
 
             session.commit()
             logger.log("FILES", "Saved items to the database.")

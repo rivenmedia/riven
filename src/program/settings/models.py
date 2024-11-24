@@ -10,6 +10,7 @@ from program.utils import generate_api_key, get_version
 
 deprecation_warning = "This has been deprecated and will be removed in a future version."
 
+
 class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -39,6 +40,7 @@ class Observable(MigratableBaseModel):
 
 
 # Download Services
+
 
 class RealDebridModel(Observable):
     enabled: bool = False
@@ -80,7 +82,7 @@ class SymlinkModel(Observable):
     separate_anime_dirs: bool = False
     repair_symlinks: bool = False
     repair_interval: float = 6
-    retry_delays: List[int] = [5, 10, 20, 40, 80]  # Fixed retry delays in seconds
+    retry_delays: List[int] = [5, 10, 20, 40, 80, 100, 120]  # Fixed retry delays in seconds
 
 
 # Content Services
@@ -240,6 +242,7 @@ class MediafusionConfig(Observable):
         "zilean_dmm_streams"
     ]
 
+
 class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -306,17 +309,21 @@ class RTNSettingsModel(SettingsModel, Observable):
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
 
+
 class LoggingModel(Observable):
     ...
 
+
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
+
 
 class NotificationsModel(Observable):
     enabled: bool = False
     title: str = "Riven completed something!"
     on_item_type: List[str] = ["movie", "show", "season"]
     service_urls: List[str] = []
+
 
 class SubliminalConfig(Observable):
     enabled: bool = False
@@ -334,8 +341,10 @@ class SubliminalConfig(Observable):
         }
     }
 
+
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
+
 
 class AppModel(Observable):
     version: str = get_version()
