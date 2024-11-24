@@ -48,58 +48,57 @@ class Downloader:
         """Run downloader for media item with concurrent downloads"""
         logger.debug(f"Running downloader for {item.log_string}")
         
-        # Skip if item or any of its children are already downloaded
-        if item.type == ShowMediaType.Show.value:
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if episode.state in [States.Downloaded, States.Symlinked, States.Completed]:
-                        logger.debug(f"Skipping download for {episode.log_string} - already in state: {episode.state}")
-                        continue
-        elif item.type == ShowMediaType.Season.value:
-            for episode in item.episodes:
-                if episode.state in [States.Downloaded, States.Symlinked, States.Completed]:
-                    logger.debug(f"Skipping download for {episode.log_string} - already in state: {episode.state}")
-                    continue
-        elif item.state in [States.Downloaded, States.Symlinked, States.Completed]:
+        # Skip if item is already in a completed state
+        if item.state in [States.Downloaded, States.Symlinked, States.Completed]:
             logger.debug(f"Skipping download for {item.log_string} - already in state: {item.state}")
             return
-
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        MAX_CONCURRENT_DOWNLOADS = 1
 
         # Sort streams by RTN rank (higher rank is better)
         sorted_streams = sorted(item.streams, key=lambda x: x.rank, reverse=True)
 
-        # Take only the top 3 streams to try
-        for stream in sorted_streams[:3]:
+        # Take only the top 3 streams to try concurrently
+        concurrent_streams = sorted_streams[:3]
+        successful_download = False
+
+        for stream in concurrent_streams:
             try:
-                result = self.download_cached_stream(item, stream)
-                if not result:
-                    logger.debug(f"No result returned for stream {stream.infohash}")
+                result = self.service.download_cached_stream(item, stream)
+                
+                # Skip if no result or container
+                if not result or not result.container:
+                    if not result:
+                        logger.debug(f"No result returned for stream {stream.infohash}")
+                    else:
+                        logger.debug(f"No valid files found in torrent for stream {stream.infohash}")
+                        item.blacklist_stream(stream)
                     continue
-                if not result.container:
-                    logger.debug(f"No valid files found in torrent for stream {stream.infohash}")
+
+                # Validate filesize
+                try:
+                    self.validate_filesize(item, result)
+                except InvalidFileSizeException:
+                    logger.debug(f"Invalid filesize for stream {stream.infohash}")
                     item.blacklist_stream(stream)
                     continue
-                self.validate_filesize(item, result)
-                if self.update_item_attributes(item, result):
-                    # Store the state before yielding
+                
+                # Update item attributes if download was successful
+                if result.torrent_id and self.update_item_attributes(item, result):
+                    successful_download = True
                     item.store_state()
                     yield item
-                    return
+                    break  # Exit loop since we have a successful download
+                    
             except InvalidFileIDError as e:
                 # Don't blacklist for file ID errors as they may be temporary
                 logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
-                continue
-            except InvalidFileSizeException:
-                media_type = self._get_item_media_type(item)
-                logger.debug(f"Invalid filesize for stream {stream.infohash}")
-                item.blacklist_stream(stream)
                 continue
             except Exception as e:
                 logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
                 item.blacklist_stream(stream)
                 continue
+
+        if not successful_download:
+            logger.warning(f"No successful download for {item.log_string} after trying {len(concurrent_streams)} streams")
 
     def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
         """Download a cached stream from the active debrid service"""

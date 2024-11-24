@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Union
+from collections import defaultdict
 
 from loguru import logger
 from pydantic import BaseModel
@@ -103,6 +104,10 @@ class RealDebridDownloader(DownloaderBase):
         self.api = None
         self.file_finder = None
         self.initialized = self.validate()
+        self.active_downloads = defaultdict(set)  # {content_id: set(torrent_ids)}
+        self.download_complete = {}  # Track if a content's download is complete
+        self.MAX_CONCURRENT_TOTAL = 10
+        self.MAX_CONCURRENT_PER_CONTENT = 3
 
     def validate(self) -> bool:
         """
@@ -364,6 +369,96 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(f"No valid video files found among: {[f.get('path', '') for f in files]}")
         return result
 
+    def _can_start_download(self, content_id: str) -> bool:
+        """Check if we can start a new download for this content."""
+        # If any download for this content is complete, don't start new ones
+        if content_id in self.download_complete and self.download_complete[content_id]:
+            return False
+            
+        # Check content-specific concurrent limit
+        if len(self.active_downloads[content_id]) >= self.MAX_CONCURRENT_PER_CONTENT:
+            return False
+            
+        # Check total concurrent limit
+        total_downloads = sum(len(downloads) for downloads in self.active_downloads.values())
+        return total_downloads < self.MAX_CONCURRENT_TOTAL
+
+    def _add_active_download(self, content_id: str, torrent_id: str):
+        """Add a download to active downloads tracking."""
+        self.active_downloads[content_id].add(torrent_id)
+
+    def _remove_active_download(self, content_id: str, torrent_id: str):
+        """Remove a download from active downloads tracking."""
+        if content_id in self.active_downloads:
+            self.active_downloads[content_id].discard(torrent_id)
+            if not self.active_downloads[content_id]:
+                del self.active_downloads[content_id]
+
+    def _mark_content_complete(self, content_id: str):
+        """Mark a content as having completed download."""
+        self.download_complete[content_id] = True
+
+    def _is_content_complete(self, content_id: str) -> bool:
+        """Check if content has completed download."""
+        return content_id in self.download_complete and self.download_complete[content_id]
+
+    def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
+        """Download a stream from Real-Debrid"""
+        if not self.initialized:
+            raise RealDebridError("Downloader not properly initialized")
+
+        content_id = str(item.id)
+
+        # Check if content already has a successful download
+        if self._is_content_complete(content_id):
+            logger.info(f"Skipping download for {item.log_string} - another download already completed")
+            return DownloadCachedStreamResult(None, None, None, stream.infohash)
+
+        # Check if we can start a new download for this content
+        if not self._can_start_download(content_id):
+            logger.warning(f"Cannot start download for {item.log_string} - max concurrent downloads reached")
+            return DownloadCachedStreamResult(None, None, None, stream.infohash)
+
+        torrent_id = None
+        try:
+            # Add torrent and get initial info
+            torrent_id = self.add_torrent(stream.infohash)
+            self._add_active_download(content_id, torrent_id)
+            
+            info = self.get_torrent_info(torrent_id)
+
+            # Process files to find valid video files
+            files = info.get("files", [])
+            container = self._process_files(files)
+            if not container:
+                logger.debug(f"No valid video files found in torrent {torrent_id}")
+                return DownloadCachedStreamResult(None, torrent_id, info, stream.infohash)
+
+            # Select all files by default
+            self.select_files(torrent_id, list(container.keys()))
+
+            # Wait for download to complete
+            info = self.wait_for_download(torrent_id)
+            
+            logger.log("DEBRID", f"Downloading {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+            
+            # Mark content as complete since download succeeded
+            self._mark_content_complete(content_id)
+            
+            return DownloadCachedStreamResult(container, torrent_id, info, stream.infohash)
+            
+        except Exception as e:
+            # Clean up torrent if something goes wrong
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception as delete_error:
+                    logger.error(f"Failed to delete torrent {torrent_id} after error: {delete_error}")
+            raise
+        finally:
+            if torrent_id:
+                self._remove_active_download(content_id, torrent_id)
+
     def wait_for_download(self, torrent_id: str) -> dict:
         """Wait for torrent to finish downloading"""
         start_time = time.time()
@@ -390,7 +485,7 @@ class RealDebridDownloader(DownloaderBase):
                         zero_seeder_count += 1
                         logger.debug(f"{filename} has no seeders ({zero_seeder_count}/2 checks)")
                         if zero_seeder_count >= 2:  # Give up after 2 consecutive zero seeder checks
-                            logger.error(f"{filename} has no seeders after 2 consecutive checks")
+                            logger.error(f"{filename} has no seeders available after 2 consecutive checks")
                             self.delete_torrent(torrent_id)
                             raise DownloadFailedError(f"{filename} has no seeders available after 2 consecutive checks")
                     else:
@@ -410,39 +505,3 @@ class RealDebridDownloader(DownloaderBase):
                 raise DownloadFailedError(f"{filename} download timeout exceeded")
 
             time.sleep(self.DOWNLOAD_POLL_INTERVAL)
-
-    def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
-        """Download a stream from Real-Debrid"""
-        if not self.initialized:
-            raise RealDebridError("Downloader not properly initialized")
-
-        torrent_id = None
-        try:
-            # Add torrent and get initial info
-            torrent_id = self.add_torrent(stream.infohash)
-            info = self.get_torrent_info(torrent_id)
-
-            # Process files to find valid video files
-            files = info.get("files", [])
-            container = self._process_files(files)
-            if not container:
-                logger.debug(f"No valid video files found in torrent {torrent_id}")
-                return DownloadCachedStreamResult(None, torrent_id, info, stream.infohash)
-
-            # Select all files by default
-            self.select_files(torrent_id, list(container.keys()))
-
-            # Wait for download to complete
-            info = self.wait_for_download(torrent_id)
-            
-            logger.log("DEBRID", f"Downloading {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-            return DownloadCachedStreamResult(container, torrent_id, info, stream.infohash)
-            
-        except Exception as e:
-            # Clean up torrent if something goes wrong
-            if torrent_id:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception as delete_error:
-                    logger.error(f"Failed to delete torrent {torrent_id} after error: {delete_error}")
-            raise
