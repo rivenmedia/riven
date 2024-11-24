@@ -101,7 +101,9 @@ class RealDebridDownloader(DownloaderBase):
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0
     DOWNLOAD_POLL_INTERVAL = 5  # seconds
-    DOWNLOAD_TIMEOUT = 300  # 5 minutes
+    BASE_TIMEOUT = 300  # 5 minutes
+    MAX_TIMEOUT = 1800  # 30 minutes
+    TIMEOUT_PER_50MB = 10  # 10 seconds per 50MB
     MAX_QUEUE_ATTEMPTS = 6  # Maximum number of queued torrents before retrying item later
     
     def __init__(self):
@@ -507,6 +509,30 @@ class RealDebridDownloader(DownloaderBase):
                 logger.debug(f"{filename} is queued on Real-Debrid (attempt {self.queue_attempts[content_id]}/{self.MAX_QUEUE_ATTEMPTS}), blacklisting and trying next stream")
                 raise DownloadFailedError(f"{filename} is queued on Real-Debrid")
             
+            # Use dynamic timeout based on file size and progress
+            file_size_mb = info.get("bytes", 0) / (1024 * 1024)  # Convert to MB
+            size_based_timeout = (file_size_mb / 50) * self.TIMEOUT_PER_50MB  # 10 seconds per 50MB
+            timeout = min(
+                self.BASE_TIMEOUT + size_based_timeout,
+                self.MAX_TIMEOUT
+            )
+            
+            # Log timeout calculation on first check
+            if not hasattr(self, '_logged_timeout') and size_based_timeout > 0:
+                logger.debug(
+                    f"Timeout calculation for {filename}:\n"
+                    f"  File size: {file_size_mb:.1f}MB\n"
+                    f"  Base timeout: {self.BASE_TIMEOUT}s\n"
+                    f"  Size-based addition: {size_based_timeout:.1f}s\n"
+                    f"  Total timeout: {timeout:.1f}s"
+                )
+                self._logged_timeout = True
+            
+            if current_time - start_time > timeout:
+                logger.warning(f"{filename} download taking too long ({int(timeout)} seconds), skipping and trying next stream")
+                # Don't delete torrent, just break and let Real-Debrid continue in background
+                break
+
             # Check status and seeders every minute
             if current_time - last_check_time >= 60:  # Check every minute
                 logger.debug(f"{filename} status: {status}, seeders: {seeders}")
@@ -534,10 +560,8 @@ class RealDebridDownloader(DownloaderBase):
                 self.delete_torrent(torrent_id)
                 raise DownloadFailedError(f"{filename} failed with status: {status}")
 
-            # Check if we've exceeded the timeout
-            if current_time - start_time > self.DOWNLOAD_TIMEOUT:
-                logger.error(f"{filename} download timed out after {self.DOWNLOAD_TIMEOUT} seconds")
-                self.delete_torrent(torrent_id)
-                raise DownloadFailedError(f"{filename} download timed out")
-
             time.sleep(self.DOWNLOAD_POLL_INTERVAL)
+        
+        # If we broke out of loop due to timeout, raise error to try next stream
+        if current_time - start_time > timeout:
+            raise DownloadFailedError(f"{filename} download taking too long")
