@@ -79,7 +79,8 @@ class SymlinkModel(Observable):
     library_path: Path = Path()
     separate_anime_dirs: bool = False
     repair_symlinks: bool = False
-    repair_interval: float = 6 # hours
+    repair_interval: float = 6
+    retry_delays: List[int] = [5, 10, 20, 40, 80]  # Fixed retry delays in seconds
 
 
 # Content Services

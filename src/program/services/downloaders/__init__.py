@@ -13,6 +13,7 @@ from program.services.downloaders.shared import (
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader, TorrentNotFoundError, InvalidFileIDError
 # from .torbox import TorBoxDownloader
+import os
 
 class InvalidFileSizeException(Exception):
     pass
@@ -64,65 +65,41 @@ class Downloader:
             return
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        MAX_CONCURRENT_DOWNLOADS = 10
+        MAX_CONCURRENT_DOWNLOADS = 1
 
         # Sort streams by RTN rank (higher rank is better)
         sorted_streams = sorted(item.streams, key=lambda x: x.rank, reverse=True)
 
         # Take only the top 3 streams to try
-        streams_to_try = sorted_streams[:3]
-        logger.debug(f"Selected top {len(streams_to_try)} streams to try downloading (by RTN rank)")
-        for stream in streams_to_try:
-            logger.debug(f"Will try stream: {stream.raw_title} (rank: {stream.rank})")
-        
-        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
-            # Submit selected streams to the thread pool
-            future_to_stream = {
-                executor.submit(self.download_cached_stream, item, stream): (stream, item)
-                for stream in streams_to_try
-            }
-            
-            # Process completed downloads
-            for future in as_completed(future_to_stream):
-                stream, item = future_to_stream[future]
-                try:
-                    result = future.result()
-                    if result.container is None:
-                        logger.debug(f"Invalid stream: {stream.infohash} - reason: No valid containers found")
-                        item.blacklist_stream(stream)
-                        continue
-                    stream.container = result.container
-                    stream.torrent_id = result.torrent_id
-                    stream.info = result.info
-                    stream.info_hash = result.info_hash
-                    self.validate_filesize(item, result)
-                    if not self.update_item_attributes(item, result):
-                        raise Exception("No matching files found!")
+        for stream in sorted_streams[:3]:
+            try:
+                result = self.download_cached_stream(item, stream)
+                if not result:
+                    logger.debug(f"No result returned for stream {stream.infohash}")
+                    continue
+                if not result.container:
+                    logger.debug(f"No valid files found in torrent for stream {stream.infohash}")
+                    item.blacklist_stream(stream)
+                    continue
+                self.validate_filesize(item, result)
+                if self.update_item_attributes(item, result):
                     # Store the state before yielding
                     item.store_state()
-                    # Cancel other downloads since we got a good one
-                    for f in future_to_stream:
-                        if not f.done():
-                            f.cancel()
                     yield item
                     return
-                except TorrentNotFoundError as e:
-                    logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
-                    item.blacklist_stream(stream)
-                    continue
-                except InvalidFileIDError as e:
-                    # Don't blacklist for file ID errors as they may be temporary
-                    logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
-                    continue
-                except InvalidFileSizeException:
-                    media_type = self._get_item_media_type(item)
-                    logger.debug(get_invalid_filesize_log_string(file[self.service.file_finder.filesize_attr], media_type))
-                    item.blacklist_stream(stream)
-                    continue
-                except Exception as e:
-                    logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
-                    item.blacklist_stream(stream)
-                    continue
+            except InvalidFileIDError as e:
+                # Don't blacklist for file ID errors as they may be temporary
+                logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
+                continue
+            except InvalidFileSizeException:
+                media_type = self._get_item_media_type(item)
+                logger.debug(f"Invalid filesize for stream {stream.infohash}")
+                item.blacklist_stream(stream)
+                continue
+            except Exception as e:
+                logger.debug(f"Invalid stream: {stream.infohash} - reason: {str(e)}")
+                item.blacklist_stream(stream)
+                continue
 
     def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
         """Download a cached stream from the active debrid service"""
@@ -146,32 +123,29 @@ class Downloader:
     def update_item_attributes(self, item: MediaItem, download_result: DownloadCachedStreamResult) -> bool:
         """Update the item attributes with the downloaded files and active stream"""
         found = False
-        item = item
-        info_hash = download_result.info.get("hash", None)
-        id = download_result.info.get("id", None)
-        original_filename = download_result.info.get("original_filename", None)
-        filename = download_result.info.get("filename", None)
-        if not info_hash or not id or not original_filename or not filename:
-            logger.debug(f"Missing required info - hash: {info_hash}, id: {id}, original_filename: {original_filename}, filename: {filename}")
-            return False
+        info_hash = download_result.info_hash
+        id = download_result.torrent_id
         
-        container = download_result.container
-        logger.debug(f"Processing container with {len(container)} files for {item.log_string}")
+        # Get the original filename from the torrent info
+        original_filename = download_result.info.get("filename", "")
+        filename = original_filename
         
-        for file in container.values():
-            logger.debug(f"Checking file: {file[self.service.file_finder.filename_attr]}")
-            
+        # Process each file in the container
+        for file in download_result.container.values():
             if item.type == MovieMediaType.Movie.value:
-                is_movie = self.service.file_finder.container_file_matches_movie(file)
-                logger.debug(f"Movie match result: {is_movie}")
-                if is_movie:
-                    item.file = file[self.service.file_finder.filename_attr]
-                    item.folder = filename
+                if self.service.file_finder.container_file_matches_movie(file):
+                    file_path = file[self.service.file_finder.filename_attr]
+                    logger.debug(f"Found matching movie file: {file_path}")
+                    # Get just the filename from the path
+                    item.file = os.path.basename(file_path)
+                    # Get the parent folder from the path, fallback to torrent name
+                    item.folder = os.path.dirname(file_path) or filename
+                    # Store the original torrent name for alternative matching
                     item.alternative_folder = original_filename
                     item.active_stream = {"infohash": info_hash, "id": id}
                     found = True
                     break
-                    
+            
             if item.type in (ShowMediaType.Show.value, ShowMediaType.Season.value, ShowMediaType.Episode.value):
                 show = item
                 if item.type == ShowMediaType.Season.value:
@@ -190,10 +164,21 @@ class Downloader:
                             episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
                             if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
                                 logger.debug(f"Found matching episode {file_episode} in season {file_season}")
-                                episode.file = file[self.service.file_finder.filename_attr]
-                                episode.folder = filename
+                                # Store the full file path for the episode
+                                file_path = file[self.service.file_finder.filename_attr]
+                                # Get just the filename from the path
+                                episode.file = os.path.basename(file_path)
+                                # Get the parent folder from the path, fallback to torrent name
+                                episode.folder = os.path.dirname(file_path) or filename
+                                # Store the original torrent name for alternative matching
                                 episode.alternative_folder = original_filename
+                                # Store stream info for future reference
                                 episode.active_stream = {"infohash": info_hash, "id": id}
+                                # Log the stored paths for debugging
+                                logger.debug(f"Stored paths for {episode.log_string}:")
+                                logger.debug(f"  File: {episode.file}")
+                                logger.debug(f"  Folder: {episode.folder}")
+                                logger.debug(f"  Alt Folder: {episode.alternative_folder}")
                                 # We have to make sure the episode is correct if item is an episode
                                 if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
                                     found = True

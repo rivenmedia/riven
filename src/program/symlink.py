@@ -106,10 +106,11 @@ class Symlinker:
         yield item
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
-        base_delay = timedelta(seconds=5)
-        next_attempt_delay = base_delay * (2 ** item.symlinked_times)
-        next_attempt_time = datetime.now() + next_attempt_delay
-        return next_attempt_time
+        """Calculate next retry attempt time using fixed delays."""
+        delays = self.settings.retry_delays
+        attempt = min(item.symlinked_times, len(delays) - 1)
+        delay = timedelta(seconds=delays[attempt])
+        return datetime.now() + delay
 
     def _should_submit(self, items: Union[Movie, Show, Season, Episode]) -> bool:
         """Check if the item should be submitted for symlink creation."""

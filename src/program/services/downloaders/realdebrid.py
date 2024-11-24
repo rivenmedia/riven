@@ -368,25 +368,33 @@ class RealDebridDownloader(DownloaderBase):
         """Wait for torrent to finish downloading"""
         start_time = time.time()
         last_check_time = time.time()
+        zero_seeder_count = 0  # Track consecutive zero seeder checks
         
         while True:
             info = self.get_torrent_info(torrent_id)
             status = RDTorrentStatus(info.get("status", ""))
             seeders = info.get("seeders", 0)
             filename = info.get("filename", "Unknown")
+            progress = info.get("progress", 0)
             current_time = time.time()
             
             # Check status and seeders every minute
             if current_time - last_check_time >= 60:  # Check every minute
                 logger.debug(f"{filename} status: {status}, seeders: {seeders}")
                 if "progress" in info:
-                    logger.debug(f"{filename} progress: \033[95m{info['progress']}%\033[0m")
+                    logger.debug(f"{filename} progress: \033[95m{progress}%\033[0m")
                     
-                # If no seeders at minute check, delete and move on
-                if seeders == 0:
-                    logger.error(f"{filename} has no seeders at minute check")
-                    self.delete_torrent(torrent_id)
-                    raise DownloadFailedError(f"{filename} has no seeders available at minute check")
+                # Only check seeders if download is not complete
+                if progress < 100 and status == RDTorrentStatus.DOWNLOADING:
+                    if seeders == 0:
+                        zero_seeder_count += 1
+                        logger.debug(f"{filename} has no seeders ({zero_seeder_count}/2 checks)")
+                        if zero_seeder_count >= 2:  # Give up after 2 consecutive zero seeder checks
+                            logger.error(f"{filename} has no seeders after 2 consecutive checks")
+                            self.delete_torrent(torrent_id)
+                            raise DownloadFailedError(f"{filename} has no seeders available after 2 consecutive checks")
+                    else:
+                        zero_seeder_count = 0  # Reset counter if we find seeders
                     
                 last_check_time = current_time
 
