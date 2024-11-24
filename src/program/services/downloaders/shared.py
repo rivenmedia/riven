@@ -89,18 +89,39 @@ class FileFinder:
 
     def container_file_matches_episode(self, file):
         filename = file[self.filename_attr]
+        logger.debug(f"Attempting to parse filename for episode matching: {filename}")
         try:
+            # First try parsing the full path
             parsed_data = parse(filename)
+            if not parsed_data.seasons or not parsed_data.episodes:
+                # If full path doesn't work, try just the filename
+                filename_only = filename.split('/')[-1]
+                logger.debug(f"Full path parse failed, trying filename only: {filename_only}")
+                parsed_data = parse(filename_only)
+            
+            logger.debug(f"Successfully parsed '{filename}': seasons={parsed_data.seasons}, episodes={parsed_data.episodes}")
             return parsed_data.seasons[0], parsed_data.episodes
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse '{filename}' for episode matching: {str(e)}")
             return None, None
 
     def container_file_matches_movie(self, file):
         filename = file[self.filename_attr]
+        logger.debug(f"Attempting to parse filename for movie matching: {filename}")
         try:
+            # First try parsing the full path
             parsed_data = parse(filename)
-            return parsed_data.type == "movie"
-        except Exception:
+            if parsed_data.type != "movie":
+                # If full path doesn't work, try just the filename
+                filename_only = filename.split('/')[-1]
+                logger.debug(f"Full path parse failed, trying filename only: {filename_only}")
+                parsed_data = parse(filename_only)
+            
+            is_movie = parsed_data.type == "movie"
+            logger.debug(f"Successfully parsed '{filename}': type={parsed_data.type}, is_movie={is_movie}")
+            return is_movie
+        except Exception as e:
+            logger.debug(f"Failed to parse '{filename}' for movie matching: {str(e)}")
             return None
 
 def premium_days_left(expiration: datetime) -> str:

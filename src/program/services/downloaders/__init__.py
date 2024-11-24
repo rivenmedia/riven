@@ -47,6 +47,22 @@ class Downloader:
         """Run downloader for media item with concurrent downloads"""
         logger.debug(f"Running downloader for {item.log_string}")
         
+        # Skip if item or any of its children are already downloaded
+        if item.type == ShowMediaType.Show.value:
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.state in [States.Downloaded, States.Symlinked, States.Completed]:
+                        logger.debug(f"Skipping download for {episode.log_string} - already in state: {episode.state}")
+                        continue
+        elif item.type == ShowMediaType.Season.value:
+            for episode in item.episodes:
+                if episode.state in [States.Downloaded, States.Symlinked, States.Completed]:
+                    logger.debug(f"Skipping download for {episode.log_string} - already in state: {episode.state}")
+                    continue
+        elif item.state in [States.Downloaded, States.Symlinked, States.Completed]:
+            logger.debug(f"Skipping download for {item.log_string} - already in state: {item.state}")
+            return
+
         from concurrent.futures import ThreadPoolExecutor, as_completed
         MAX_CONCURRENT_DOWNLOADS = 10
 
@@ -99,7 +115,8 @@ class Downloader:
                     logger.debug(f"File selection failed for stream {stream.infohash}: {str(e)}")
                     continue
                 except InvalidFileSizeException:
-                    logger.debug(get_invalid_filesize_log_string(item))
+                    media_type = self._get_item_media_type(item)
+                    logger.debug(get_invalid_filesize_log_string(file[self.service.file_finder.filesize_attr], media_type))
                     item.blacklist_stream(stream)
                     continue
                 except Exception as e:
@@ -135,35 +152,53 @@ class Downloader:
         original_filename = download_result.info.get("original_filename", None)
         filename = download_result.info.get("filename", None)
         if not info_hash or not id or not original_filename or not filename:
+            logger.debug(f"Missing required info - hash: {info_hash}, id: {id}, original_filename: {original_filename}, filename: {filename}")
             return False
+        
         container = download_result.container
+        logger.debug(f"Processing container with {len(container)} files for {item.log_string}")
+        
         for file in container.values():
-            if item.type == MovieMediaType.Movie.value and self.service.file_finder.container_file_matches_movie(file):
-                item.file = file[self.service.file_finder.filename_attr]
-                item.folder = filename
-                item.alternative_folder = original_filename
-                item.active_stream = {"infohash": info_hash, "id": id}
-                found = True
-                break
+            logger.debug(f"Checking file: {file[self.service.file_finder.filename_attr]}")
+            
+            if item.type == MovieMediaType.Movie.value:
+                is_movie = self.service.file_finder.container_file_matches_movie(file)
+                logger.debug(f"Movie match result: {is_movie}")
+                if is_movie:
+                    item.file = file[self.service.file_finder.filename_attr]
+                    item.folder = filename
+                    item.alternative_folder = original_filename
+                    item.active_stream = {"infohash": info_hash, "id": id}
+                    found = True
+                    break
+                    
             if item.type in (ShowMediaType.Show.value, ShowMediaType.Season.value, ShowMediaType.Episode.value):
                 show = item
                 if item.type == ShowMediaType.Season.value:
                     show = item.parent
                 elif item.type == ShowMediaType.Episode.value:
                     show = item.parent.parent
+                    
                 file_season, file_episodes = self.service.file_finder.container_file_matches_episode(file)
+                logger.debug(f"Episode match result - season: {file_season}, episodes: {file_episodes}")
+                
                 if file_season and file_episodes:
                     season = next((season for season in show.seasons if season.number == file_season), None)
-                    for file_episode in file_episodes:
-                        episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
-                        if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
-                            episode.file = file[self.service.file_finder.filename_attr]
-                            episode.folder = filename
-                            episode.alternative_folder = original_filename
-                            episode.active_stream = {"infohash": info_hash, "id": id}
-                            # We have to make sure the episode is correct if item is an episode
-                            if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
-                                found = True
+                    if season:
+                        logger.debug(f"Found matching season {file_season}")
+                        for file_episode in file_episodes:
+                            episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
+                            if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
+                                logger.debug(f"Found matching episode {file_episode} in season {file_season}")
+                                episode.file = file[self.service.file_finder.filename_attr]
+                                episode.folder = filename
+                                episode.alternative_folder = original_filename
+                                episode.active_stream = {"infohash": info_hash, "id": id}
+                                # We have to make sure the episode is correct if item is an episode
+                                if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
+                                    found = True
+                    else:
+                        logger.debug(f"No matching season found for season {file_season}")
         return found
 
     def validate_filesize(self, item: MediaItem, download_result: DownloadCachedStreamResult):
