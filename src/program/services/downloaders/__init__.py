@@ -82,6 +82,8 @@ class Downloader:
                     self.validate_filesize(item, result)
                     if not self.update_item_attributes(item, result):
                         raise Exception("No matching files found!")
+                    # Store the state before yielding
+                    item.store_state()
                     # Cancel other downloads since we got a good one
                     for f in future_to_stream:
                         if not f.done():

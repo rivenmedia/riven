@@ -345,11 +345,20 @@ class RealDebridDownloader(DownloaderBase):
         """Process and filter valid video files"""
         result = {}
         for file in files:
-            name = file.get("path", "").lower()
+            path = file.get("path", "")
+            name = path.lower()
             size = file.get("bytes", 0)
             if any(name.endswith(f".{ext}") for ext in VIDEO_EXTENSIONS):
-                result[str(file["id"])] = {"filename": file["path"], "filesize": size}
-                logger.debug(f"Found valid video file: {name} (size: {size} bytes)")
+                # Extract parent folder name from path
+                path_parts = path.split("/")
+                parent_path = path_parts[-2] if len(path_parts) > 1 else ""
+                
+                result[str(file["id"])] = {
+                    "filename": path,
+                    "filesize": size,
+                    "parent_path": parent_path
+                }
+                logger.debug(f"Found valid video file: {name} (size: {size} bytes, parent: {parent_path})")
         
         if not result:
             logger.debug(f"No valid video files found among: {[f.get('path', '') for f in files]}")
