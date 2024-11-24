@@ -545,9 +545,8 @@ class RealDebridDownloader(DownloaderBase):
                         zero_seeder_count += 1
                         logger.debug(f"{filename} has no seeders ({zero_seeder_count}/2 checks)")
                         if zero_seeder_count >= 2:  # Give up after 2 consecutive zero seeder checks
-                            logger.error(f"{filename} has no seeders available after 2 consecutive checks")
-                            self.delete_torrent(torrent_id)
-                            raise DownloadFailedError(f"{filename} has no seeders available after 2 consecutive checks")
+                            logger.warning(f"{filename} has no seeders available after 2 consecutive checks, skipping and trying next stream")
+                            break
                     else:
                         zero_seeder_count = 0  # Reset counter if we find seeders
                     
@@ -557,11 +556,15 @@ class RealDebridDownloader(DownloaderBase):
                 return info
             elif status in (RDTorrentStatus.ERROR, RDTorrentStatus.MAGNET_ERROR, RDTorrentStatus.DEAD):
                 logger.error(f"{filename} failed with status: {status}")
-                self.delete_torrent(torrent_id)
-                raise DownloadFailedError(f"{filename} failed with status: {status}")
+                # Don't delete torrent, just skip and try next stream
+                break
 
             time.sleep(self.DOWNLOAD_POLL_INTERVAL)
         
-        # If we broke out of loop due to timeout, raise error to try next stream
+        # If we broke out of loop due to timeout, no seeders, or error status
         if current_time - start_time > timeout:
             raise DownloadFailedError(f"{filename} download taking too long")
+        elif zero_seeder_count >= 2:
+            raise DownloadFailedError(f"{filename} has no seeders available")
+        elif status in (RDTorrentStatus.ERROR, RDTorrentStatus.MAGNET_ERROR, RDTorrentStatus.DEAD):
+            raise DownloadFailedError(f"{filename} failed with status: {status}")
