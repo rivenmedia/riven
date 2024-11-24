@@ -78,7 +78,8 @@ class Downloader:
 
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
         """Update the item attributes with the downloaded files and active stream"""
-        if not any(download_result.infohash, download_result.info.id, download_result.info.name):
+        if not download_result.container:
+            logger.error(f"No container found for {item.log_string} ({item.id})")
             return False
         item = item
         found = False

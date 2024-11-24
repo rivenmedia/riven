@@ -53,6 +53,7 @@ class TorBoxAPI:
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
         rate_limit_params = get_rate_limit_params(per_second=5)
+        self.timeout = 60
         self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
@@ -117,9 +118,11 @@ class TorBoxDownloader(DownloaderBase):
         results = []
         for attempt in range(self.MAX_RETRIES):
             try:
+                hash_string = ','.join(infohashes)
                 response = self.api.request_handler.execute(
                     HttpMethod.GET,
-                    f"torrents/checkcached?hash={','.join(infohashes)}&format=list&list_files=true"
+                    f"torrents/checkcached?hash={hash_string}&format=list&list_files=true",
+                    timeout=30
                 )
 
                 data: list = response["data"]
@@ -180,10 +183,10 @@ class TorBoxDownloader(DownloaderBase):
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
 
-    def delete_torrent(self, torrent_id: str) -> None:
+    def delete_torrent(self, torrent_id: int) -> None:
         """Delete a torrent"""
         try:
-            self.api.request_handler.execute(HttpMethod.POST, f"torrents/controltorrent", data={"torrent_id": torrent_id, "operation": "delete"})
+            self.api.request_handler.execute(HttpMethod.POST, f"torrents/controltorrent", json={"torrent_id": str(torrent_id), "operation": "delete"}, timeout=15)
         except Exception as e:
-            logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+            logger.error(f"Failed to delete torrent id {torrent_id}: {e}")
             raise
