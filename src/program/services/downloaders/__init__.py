@@ -53,8 +53,23 @@ class Downloader:
             logger.debug(f"Skipping download for {item.log_string} - already in state: {item.state}")
             return
 
+        # If no streams available, try to scrape first
+        if not item.streams:
+            from program.services.scrapers import Scraping
+            scraper = Scraping()
+            if scraper.initialized and scraper.can_we_scrape(item):
+                logger.debug(f"No streams found for {item.log_string}, attempting to scrape first")
+                for updated_item in scraper.run(item):
+                    item = updated_item
+            else:
+                logger.warning(f"No streams available for {item.log_string} and cannot scrape")
+                return
+
         # Sort streams by RTN rank (higher rank is better)
         sorted_streams = sorted(item.streams, key=lambda x: x.rank, reverse=True)
+        if not sorted_streams:
+            logger.warning(f"No streams available for {item.log_string} after scraping")
+            return
 
         # Take only the top 3 streams to try concurrently
         concurrent_streams = sorted_streams[:3]

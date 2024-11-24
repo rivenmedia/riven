@@ -20,30 +20,38 @@ from program.settings.manager import settings_manager
 
 
 class Scraping:
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        self.key = "scraping"
-        self.initialized = False
-        self.settings = settings_manager.settings.scraping
-        self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
-            Torrentio: Torrentio(),
-            Knightcrawler: Knightcrawler(),
-            Orionoid: Orionoid(),
-            TorBoxScraper: TorBoxScraper(),
-            Mediafusion: Mediafusion(),
-            Comet: Comet()
-        }
-        self.keyword_services = {
-            Jackett: Jackett(),
-            Prowlarr: Prowlarr(),
-            Zilean: Zilean()
-        }
-        self.services = {
-            **self.imdb_services,
-            **self.keyword_services
-        }
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
+        if not self._initialized:
+            self.key = "scraping"
+            self.initialized = False
+            self.settings = settings_manager.settings.scraping
+            self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
+                Torrentio: Torrentio(),
+                Knightcrawler: Knightcrawler(),
+                Orionoid: Orionoid(),
+                TorBoxScraper: TorBoxScraper(),
+                Mediafusion: Mediafusion(),
+                Comet: Comet()
+            }
+            self.keyword_services = {
+                Jackett: Jackett(),
+                Prowlarr: Prowlarr(),
+                Zilean: Zilean()
+            }
+            self.services = {
+                **self.imdb_services,
+                **self.keyword_services
+            }
+            self.initialized = self.validate()
+            self.__class__._initialized = True
 
     def validate(self):
         return any(service.initialized for service in self.services.values())
