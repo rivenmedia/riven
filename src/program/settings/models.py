@@ -57,6 +57,8 @@ class AllDebridModel(Observable):
 class TorboxModel(Observable):
     enabled: bool = False
     api_key: str = ""
+    proxy_enabled: bool = False
+    proxy_url: str = ""
 
 
 class DownloadersModel(Observable):

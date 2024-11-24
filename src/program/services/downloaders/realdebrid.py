@@ -1,7 +1,6 @@
-import time
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Union
+from typing import  List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
@@ -15,8 +14,9 @@ from program.utils.request import (
     create_service_session,
     get_rate_limit_params,
 )
+from program.services.downloaders.models import TorrentContainer, TorrentInfo
 
-from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+from .shared import DownloaderBase, premium_days_left
 
 
 class RDTorrentStatus(str, Enum):
@@ -75,14 +75,11 @@ class RealDebridAPI:
 
 class RealDebridDownloader(DownloaderBase):
     """Main Real-Debrid downloader class implementing DownloaderBase"""
-    MAX_RETRIES = 3
-    RETRY_DELAY = 1.0
 
     def __init__(self):
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
         self.api = None
-        self.file_finder = None
         self.initialized = self.validate()
 
     def validate(self) -> bool:
@@ -97,7 +94,6 @@ class RealDebridDownloader(DownloaderBase):
             api_key=self.settings.api_key,
             proxy_url=self.settings.proxy_url if self.settings.proxy_enabled else None
         )
-        self.file_finder = FileFinder("filename", "filesize")
 
         return self._validate_premium()
 
@@ -130,73 +126,13 @@ class RealDebridDownloader(DownloaderBase):
             logger.error(f"Failed to validate premium status: {e}")
             return False
 
-    def get_instant_availability(self, infohashes: List[str]) -> Dict[str, list]:
-        """
-        Get instant availability for multiple infohashes with retry logic
-        Required by DownloaderBase
-        """
-
-        if len(infohashes) == 0:
-            return {}
-
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                response = self.api.request_handler.execute(
-                    HttpMethod.GET,
-                    f"torrents/instantAvailability/{'/'.join(infohashes)}"
-                )
-
-                # Return early if response is not a dict
-                if not isinstance(response, dict):
-                    return {}
-
-                # Check for empty response
-                if all(isinstance(data, list) for data in response.values()):
-                    logger.debug(f"Empty response received (attempt {attempt + 1}/{self.MAX_RETRIES})")
-                    time.sleep(self.RETRY_DELAY)
-                    continue
-
-                return {
-                    infohash: self._filter_valid_containers(data.get("rd", []))
-                    for infohash, data in response.items()
-                    if isinstance(data, dict) and "rd" in data
-                }
-
-            except Exception as e:
-                logger.debug(f"Failed to get instant availability (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(self.RETRY_DELAY)
-                continue
-
-        logger.debug("All retry attempts failed for instant availability")
-        return {}
-
-    def _filter_valid_containers(self, containers: List[dict]) -> List[dict]:
-        """Filter and sort valid video containers"""
-        valid_containers = [
-            container for container in containers
-            if self._contains_valid_video_files(container)
-        ]
-        return sorted(valid_containers, key=len, reverse=True)
-
-    def _contains_valid_video_files(self, container: dict) -> bool:
-        """Check if container has valid video files"""
-        return all(
-            any(
-                file["filename"].endswith(ext) and "sample" not in file["filename"].lower()
-                for ext in VIDEO_EXTENSIONS
-            )
-            for file in container.values()
-        )
+    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
+        """Get instant availability for multiple infohashes with retry logic"""
+        # Real-Debrid does not support instant availability anymore
+        return []
 
     def add_torrent(self, infohash: str) -> str:
-        """
-        Add a torrent by infohash
-        Required by DownloaderBase
-        """
-        if not self.initialized:
-            raise RealDebridError("Downloader not properly initialized")
-
+        """Add a torrent by infohash"""
         try:
             magnet = f"magnet:?xt=urn:btih:{infohash}"
             response = self.api.request_handler.execute(
@@ -209,47 +145,29 @@ class RealDebridDownloader(DownloaderBase):
             logger.error(f"Failed to add torrent {infohash}: {e}")
             raise
 
-    def select_files(self, torrent_id: str, files: List[str]):
-        """
-        Select files from a torrent
-        Required by DownloaderBase
-        """
-        if not self.initialized:
-            raise RealDebridError("Downloader not properly initialized")
-
+    def select_files(self, torrent_id: str, files: TorrentContainer) -> None:
+        """Select files from a torrent"""
         try:
             self.api.request_handler.execute(
                 HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
-                data={"files": ",".join(files)}
+                data={"files": "all"}
             )
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
 
-    def get_torrent_info(self, torrent_id: str) -> dict:
-        """
-        Get information about a torrent
-        Required by DownloaderBase
-        """
-        if not self.initialized:
-            raise RealDebridError("Downloader not properly initialized")
-
+    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+        """Get information about a torrent"""
         try:
-            return self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
+            data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
+            return TorrentInfo(**data)
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
 
-    def delete_torrent(self, torrent_id: str):
-        """
-        Delete a torrent
-        Required by DownloaderBase
-        """
-
-        if not self.initialized:
-            raise RealDebridError("Downloader not properly initialized")
-
+    def delete_torrent(self, torrent_id: str) -> None:
+        """Delete a torrent"""
         try:
             self.api.request_handler.execute(HttpMethod.DELETE, f"torrents/delete/{torrent_id}")
         except Exception as e:
