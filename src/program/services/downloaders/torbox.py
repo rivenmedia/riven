@@ -166,9 +166,16 @@ class TorBoxDownloader(DownloaderBase):
         pass
 
     def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
-        """Get information about a torrent"""
+        """Get information about a torrent using a torrent ID"""
         try:
-            return self.api.request_handler.execute(HttpMethod.GET, f"torrents/torrentinfo/{torrent_id}")['data']
+            data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/mylist?id={torrent_id}")['data']
+            return TorrentInfo(
+                id=data["id"],
+                name=data["name"],  # points to dir
+                infohash=data["hash"],
+                status=data["download_state"],
+                bytes=data["size"]
+            )
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise

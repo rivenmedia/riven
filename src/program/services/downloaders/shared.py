@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List
-from RTN import parse
+from RTN import ParsedData, parse
 
 from program.services.downloaders.models import ParsedFileData, TorrentInfo, TorrentContainer
 
@@ -33,7 +33,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def add_torrent(self, infohash: str) -> str:
+    def add_torrent(self, infohash: str) -> int:
         """
         Add a torrent and return its information
         
@@ -81,8 +81,8 @@ class DownloaderBase(ABC):
 
 def parse_filename(filename: str) -> ParsedFileData:
     """Parse a filename into a ParsedFileData object"""
-    parsed_data = parse(filename)
-    season = parsed_data.seasons[0] if parsed_data.seasons else None
+    parsed_data: ParsedData = parse(filename)
+    season: int | None = parsed_data.seasons[0] if parsed_data.seasons else None
     return ParsedFileData(item_type=parsed_data.type, season=season, episodes=parsed_data.episodes)
 
 

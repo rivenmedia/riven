@@ -45,17 +45,19 @@ class DebridFile(BaseModel):
     filesize: Optional[int] = None
 
     @classmethod
-    def create(cls, filename: str, filesize: int, filetype: str) -> Optional["DebridFile"]:
+    def create(cls, filename: str, filesize_bytes: int, filetype: Literal["movie", "episode"]) -> Optional["DebridFile"]:
         """Factory method to validate and create a DebridFile"""
         if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) and not "sample" in filename.lower():
             return None
+        
+        filesize_mb = filesize_bytes / 1_000_000
         if filetype == "movie":
-            if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize <= FILESIZE_MOVIE_CONSTRAINT[1]):
+            if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_MOVIE_CONSTRAINT[1]):
                 return None
         elif filetype == "episode":
-            if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize <= FILESIZE_EPISODE_CONSTRAINT[1]):
+            if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
                 return None
-        return cls(filename=filename, filesize=filesize)
+        return cls(filename=filename, filesize=filesize_bytes)
 
 
 class ParsedFileData(BaseModel):
@@ -78,14 +80,12 @@ class TorrentContainer(BaseModel):
 
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
-    id: str
-    infohash: str = Field(default=None)
-    filename: str = Field(default=None)
+    id: int
+    name: str
     status: str = Field(default=None)
+    infohash: str = Field(default=None)
     progress: float = Field(default=None)
     bytes: int = Field(default=None)
-    speed: int = Field(default=None)
-    seeders: int = Field(default=None)
     created_at: datetime = Field(default=None)
     expires_at: datetime = Field(default=None)
     completed_at: datetime = Field(default=None)

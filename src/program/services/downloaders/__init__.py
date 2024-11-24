@@ -41,7 +41,6 @@ class Downloader:
         logger.debug(f"Running downloader for {item.log_string} ({item.id})")
         chunk_size = 10
         for i in range(0, len(item.streams), chunk_size):
-            logger.debug(f"Processing chunk {i} to {i + chunk_size} of {len(item.streams)} for {item.log_string}")
             chunk: List[Stream] = item.streams[i:i + chunk_size]
             response: List[TorrentContainer] = self.get_instant_availability([stream.infohash for stream in chunk], item.type)
             for container in response:
@@ -106,7 +105,7 @@ class Downloader:
         """Check if the torrent is cached"""
         return self.service.get_instant_availability(infohashes, item_type)
 
-    def add_torrent(self, infohash: str) -> str:
+    def add_torrent(self, infohash: str) -> int:
         """Add a torrent by infohash"""
         return self.service.add_torrent(infohash)
 
