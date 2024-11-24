@@ -70,6 +70,9 @@ class DownloadFailedError(RealDebridError):
 class QueuedTooManyTimesError(RealDebridError):
     """Raised when a torrent is queued too many times"""
 
+class RealDebridActiveLimitError(RealDebridError):
+    """Raised when Real-Debrid's active torrent limit is exceeded"""
+
 class RealDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, request_logging: bool = False):
         super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
@@ -173,62 +176,83 @@ class RealDebridDownloader(DownloaderBase):
         return {}
 
     def add_torrent(self, infohash: str) -> str:
-        """
-        Add a torrent to Real-Debrid
-        Required by DownloaderBase
-        """
+        """Add a torrent to Real-Debrid and return the torrent ID"""
         if not self.initialized:
             raise RealDebridError("Downloader not properly initialized")
 
-        max_retries = 5
-        base_delay = 2  # Start with 2 seconds delay
+        magnet = f"magnet:?xt=urn:btih:{infohash}"
+        logger.debug(f"Adding torrent with magnet: {magnet}")
         
-        for attempt in range(max_retries):
-            try:
-                # Try to add the torrent and immediately select files
-                magnet = f"magnet:?xt=urn:btih:{infohash}"
-                logger.debug(f"Adding torrent with magnet: {magnet}")
-                
-                response = self.api.request_handler.execute(
-                    HttpMethod.POST,
-                    "torrents/addMagnet",
-                    data={"magnet": magnet}
-                )
-                
-                torrent_id = response.get("id")
-                if not torrent_id:
-                    logger.error(f"Invalid response from Real-Debrid: {response}")
-                    raise RealDebridError("No torrent ID in response")
-
-                # Get initial torrent info
-                info = self.get_torrent_info(torrent_id)
-                filename = info.get("filename", "Unknown")
-                logger.debug(f"Add torrent response for '{filename}': {response}")
-                logger.debug(f"Initial torrent info: {info}")
-
-                # Immediately select all files to prevent torrent removal
-                try:
-                    self.select_files(torrent_id, [])
-                except Exception as e:
-                    logger.error(f"Failed to select files for '{filename}': {str(e)}")
-                    # If selection fails, try to clean up
+        try:
+            response = self.api.request_handler.execute(HttpMethod.POST, "torrents/addMagnet", data={"magnet": magnet})
+            return response["id"]
+        except RealDebridError as e:
+            if "509 Server Error: Active Limit Exceeded" in str(e):
+                # Try to clean up inactive torrents
+                cleaned = self._cleanup_inactive_torrents()
+                if cleaned > 0:
+                    # Try adding the torrent again if we cleaned some up
                     try:
-                        self.delete_torrent(torrent_id)
-                    except Exception as delete_error:
-                        logger.error(f"Failed to delete torrent '{filename}': {str(delete_error)}")
-                    raise e
+                        response = self.api.request_handler.execute(HttpMethod.POST, "torrents/addMagnet", data={"magnet": magnet})
+                        logger.info(f"Successfully added torrent after cleaning up {cleaned} inactive/stalled torrents")
+                        return response["id"]
+                    except:
+                        pass  # If it fails again, raise the original error
+                
+                logger.warning(f"Real-Debrid active torrent limit exceeded for {infohash}")
+                raise RealDebridActiveLimitError(f"Real-Debrid active torrent limit exceeded") from e
+            
+            # Handle rate limit errors
+            if "429" in str(e):
+                delay = 1.0
+                if isinstance(e, RealDebridError) and e.retry_after:
+                    delay = e.retry_after
+                logger.warning(f"Rate limited by Real-Debrid, waiting {delay}s before retry")
+                time.sleep(delay)
+                return self.add_torrent(infohash)
+                
+            logger.error(f"Failed to add torrent {infohash}: {e}")
+            raise
 
-                return torrent_id
-
-            except Exception as e:
-                if "Rate limit exceeded" in str(e):
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)  # Exponential backoff
-                        logger.warning(f"Rate limit hit, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries})")
-                        time.sleep(delay)
+    def _cleanup_inactive_torrents(self) -> int:
+        """Clean up inactive, errored, or stalled torrents to free up slots.
+        Returns number of torrents cleaned up."""
+        try:
+            # Get list of all torrents
+            torrents = self.api.request_handler.execute(HttpMethod.GET, "torrents")
+            cleaned = 0
+            
+            for torrent in torrents:
+                status = torrent.get("status", "")
+                
+                # Clean up error states, unknown status, and queued torrents
+                if status in ("error", "magnet_error", "virus", "dead", "unknown", "queued"):
+                    try:
+                        self.delete_torrent(torrent["id"])
+                        cleaned += 1
+                        logger.debug(f"Cleaned up torrent {torrent['id']} with status {status}")
                         continue
-                logger.error(f"Failed to add torrent {infohash}: {str(e)}")
-                raise
+                    except Exception as e:
+                        logger.error(f"Failed to delete torrent {torrent['id']}: {e}")
+                
+                # Clean up stalled downloads (0% progress)
+                if status == "downloading":
+                    progress = torrent.get("progress", 0)
+                    if progress == 0:
+                        try:
+                            self.delete_torrent(torrent["id"])
+                            cleaned += 1
+                            logger.debug(f"Cleaned up stalled torrent {torrent['id']} with 0% progress")
+                        except Exception as e:
+                            logger.error(f"Failed to delete torrent {torrent['id']}: {e}")
+            
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} inactive/stalled torrents")
+            return cleaned
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup inactive torrents: {e}")
+            return 0
 
     def select_files(self, torrent_id: str, files: List[str]):
         """
@@ -355,11 +379,16 @@ class RealDebridDownloader(DownloaderBase):
 
     def _process_files(self, files: List[dict]) -> Dict[str, dict]:
         """Process and filter valid video files"""
+        logger.debug(f"Processing {len(files)} files from Real-Debrid")
         result = {}
         for file in files:
             path = file.get("path", "")
             name = path.lower()
             size = file.get("bytes", 0)
+            
+            # Log each file being checked
+            logger.debug(f"Checking file: {path} (size: {size} bytes)")
+            
             if any(name.endswith(f".{ext}") for ext in VIDEO_EXTENSIONS):
                 # Extract parent folder name from path
                 path_parts = path.split("/")
@@ -370,10 +399,17 @@ class RealDebridDownloader(DownloaderBase):
                     "filesize": size,
                     "parent_path": parent_path
                 }
-                logger.debug(f"Found valid video file: {name} (size: {size} bytes, parent: {parent_path})")
+                logger.debug(f"✓ Found valid video file: {name} (size: {size} bytes, parent: {parent_path})")
+            else:
+                # Log why file was rejected
+                extensions = [ext for ext in VIDEO_EXTENSIONS if name.endswith(f".{ext}")]
+                if not extensions:
+                    logger.debug(f"✗ Skipped file: {name} - not a video file (valid extensions: {VIDEO_EXTENSIONS})")
         
         if not result:
-            logger.debug(f"No valid video files found among: {[f.get('path', '') for f in files]}")
+            logger.debug("No valid video files found. Files received:")
+            for file in files:
+                logger.debug(f"- {file.get('path', '')} ({file.get('bytes', 0)} bytes)")
         return result
 
     def _can_start_download(self, content_id: str) -> bool:
@@ -415,23 +451,11 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError("Downloader not properly initialized")
 
         content_id = str(item.id)
-
-        # Check if content already has a successful download
-        if self._is_content_complete(content_id):
-            logger.info(f"Skipping download for {item.log_string} - another download already completed")
-            return DownloadCachedStreamResult(None, None, None, stream.infohash)
-
-        # Check if we can start a new download for this content
-        if not self._can_start_download(content_id):
-            logger.warning(f"Cannot start download for {item.log_string} - max concurrent downloads reached")
-            return DownloadCachedStreamResult(None, None, None, stream.infohash)
-
         torrent_id = None
+
         try:
-            # Add torrent and get initial info
+            # Add torrent and get initial info to check files
             torrent_id = self.add_torrent(stream.infohash)
-            self._add_active_download(content_id, torrent_id)
-            
             info = self.get_torrent_info(torrent_id)
 
             # Process files to find valid video files
@@ -440,6 +464,17 @@ class RealDebridDownloader(DownloaderBase):
             if not container:
                 logger.debug(f"No valid video files found in torrent {torrent_id}")
                 return DownloadCachedStreamResult(None, torrent_id, info, stream.infohash)
+
+            # Check if we can start a new download for this content
+            if not self._can_start_download(content_id):
+                logger.warning(f"Cannot start download for {item.log_string} - max concurrent downloads reached")
+                return DownloadCachedStreamResult(container, torrent_id, info, stream.infohash)
+
+            # If content is complete but we found valid files, proceed with download
+            if self._is_content_complete(content_id):
+                logger.info(f"Content {item.log_string} marked as complete but valid files found - proceeding with download")
+            
+            self._add_active_download(content_id, torrent_id)
 
             # Select all files by default
             self.select_files(torrent_id, list(container.keys()))
@@ -456,13 +491,19 @@ class RealDebridDownloader(DownloaderBase):
             
             return DownloadCachedStreamResult(container, torrent_id, info, stream.infohash)
             
+        except RealDebridActiveLimitError:
+            # Don't blacklist the stream, mark for retry after a short delay
+            retry_time = datetime.now() + timedelta(minutes=30)  # Retry after 30 minutes
+            logger.warning(f"Real-Debrid active limit exceeded for {item.log_string}, will retry after 30 minutes")
+            item.set("retry_after", retry_time)
+            return DownloadCachedStreamResult(None, torrent_id, None, stream.infohash)
         except QueuedTooManyTimesError:
             # Don't blacklist the stream, but mark the item for retry later based on scrape count
             retry_hours = self._get_retry_hours(item.scraped_times)
             retry_time = datetime.now() + timedelta(hours=retry_hours)
             logger.warning(f"Too many queued attempts for {item.log_string}, will retry after {retry_hours} hours")
             item.set("retry_after", retry_time)
-            return DownloadCachedStreamResult(None, torrent_id, None, stream.infohash)
+            return DownloadCachedStreamResult(container if 'container' in locals() else None, torrent_id, None, stream.infohash)
         except Exception as e:
             # Clean up torrent if something goes wrong
             if torrent_id:
