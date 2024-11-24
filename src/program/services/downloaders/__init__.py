@@ -88,6 +88,23 @@ class Downloader:
                         item.blacklist_stream(stream)
                     continue
 
+                # For episodes, check if the required episode is present
+                if item.type == ShowMediaType.Episode.value:
+                    required_season = item.parent.number
+                    required_episode = item.number
+                    found_required_episode = False
+
+                    for file_data in result.container.values():
+                        season, episodes = self.service.file_finder.container_file_matches_episode(file_data)
+                        if season == required_season and episodes and required_episode in episodes:
+                            found_required_episode = True
+                            break
+
+                    if not found_required_episode:
+                        logger.debug(f"Required episode S{required_season:02d}E{required_episode:02d} not found in torrent {result.torrent_id}, trying next stream")
+                        item.blacklist_stream(stream)
+                        continue
+
                 # Validate filesize
                 try:
                     self.validate_filesize(item, result)
