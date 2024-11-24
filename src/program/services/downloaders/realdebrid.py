@@ -39,6 +39,7 @@ class RDTorrentStatus(str, Enum):
     DEAD = "dead"
     UPLOADING = "uploading"
     COMPRESSING = "compressing"
+    QUEUED = "queued"
 
 class RDTorrent(BaseModel):
     """Real-Debrid torrent model"""
@@ -473,6 +474,11 @@ class RealDebridDownloader(DownloaderBase):
             progress = info.get("progress", 0)
             current_time = time.time()
             
+            # Skip queued torrents immediately
+            if status == RDTorrentStatus.QUEUED:
+                logger.debug(f"{filename} is queued, skipping to next stream")
+                raise DownloadFailedError(f"{filename} is queued on Real-Debrid")
+            
             # Check status and seeders every minute
             if current_time - last_check_time >= 60:  # Check every minute
                 logger.debug(f"{filename} status: {status}, seeders: {seeders}")
@@ -499,9 +505,11 @@ class RealDebridDownloader(DownloaderBase):
                 logger.error(f"{filename} failed with status: {status}")
                 self.delete_torrent(torrent_id)
                 raise DownloadFailedError(f"{filename} failed with status: {status}")
-            elif current_time - start_time > self.DOWNLOAD_TIMEOUT:
-                logger.error(f"{filename} download timeout exceeded")
+
+            # Check if we've exceeded the timeout
+            if current_time - start_time > self.DOWNLOAD_TIMEOUT:
+                logger.error(f"{filename} download timed out after {self.DOWNLOAD_TIMEOUT} seconds")
                 self.delete_torrent(torrent_id)
-                raise DownloadFailedError(f"{filename} download timeout exceeded")
+                raise DownloadFailedError(f"{filename} download timed out")
 
             time.sleep(self.DOWNLOAD_POLL_INTERVAL)
