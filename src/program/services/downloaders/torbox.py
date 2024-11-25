@@ -112,34 +112,33 @@ class TorBoxDownloader(DownloaderBase):
             logger.error(f"Failed to validate premium status: {e}")
             return False
 
-    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
-        """Get instant availability for multiple infohashes with retry logic"""
-        results = []
+    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+        """Get instant availability for a single infohash with retry logic"""
         for attempt in range(self.MAX_RETRIES):
             try:
-                hash_string = ','.join(infohashes)
                 response = self.api.request_handler.execute(
                     HttpMethod.GET,
-                    f"torrents/checkcached?hash={hash_string}&format=list&list_files=true",
-                    timeout=15
+                    f"torrents/checkcached?hash={infohash}&format=list&list_files=true"
                 )
 
                 data: list = response["data"]
                 if not data:
-                    return results
+                    return None
 
-                for torrent in data:
-                    files = []
-                    for file in torrent["files"]:
-                        debrid_file = DebridFile.create(file["name"], file["size"], item_type)
-                        if debrid_file:
-                            files.append(debrid_file)
-                    if files:
-                        results.append(TorrentContainer(
-                            infohash=torrent["hash"],
-                            files=files
-                        ))
-                return results
+                torrent = data[0]  # We only expect one result since we're passing one hash
+                files = []
+                for file in torrent["files"]:
+                    debrid_file = DebridFile.create(file["name"], file["size"], item_type)
+                    if debrid_file:
+                        files.append(debrid_file)
+                
+                if files:
+                    return TorrentContainer(
+                        infohash=torrent["hash"],
+                        files=files
+                    )
+                return None
+
             except Exception as e:
                 logger.debug(f"Failed to get instant availability (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES - 1:
@@ -147,7 +146,7 @@ class TorBoxDownloader(DownloaderBase):
                 continue
 
         logger.debug("All retry attempts failed for instant availability")
-        return []
+        return None
 
     def add_torrent(self, infohash: str) -> str:
         """Add a torrent by infohash"""

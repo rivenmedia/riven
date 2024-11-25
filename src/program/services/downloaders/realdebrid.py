@@ -128,53 +128,64 @@ class RealDebridDownloader(DownloaderBase):
             logger.error(f"Failed to validate premium status: {e}")
             return False
 
-    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
-        """Get instant availability for multiple infohashes with retry logic"""
-        # Real-Debrid does not support instant availability anymore so lets create a makeshift one!
-        containers: List[TorrentContainer] = []
+    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+        """
+        Get instant availability for multiple infohashes.
+        Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
+        """
+        valid_container: Optional[TorrentContainer] = None
         torrent_id = None
-        break_loop = False
-        for infohash in infohashes:
-            try:
-                # lets go over all the hashes and add them to see what files they have
-                torrent_id = self.add_torrent(infohash)
-                torrent_info = self.get_torrent_info(torrent_id)
-                if torrent_info.status == "waiting_files_selection":
-                    ids = [
-                        file_id for file_id in torrent_info.files.keys()
-                        if torrent_info.files[file_id]["filename"].endswith(tuple(ext.lower() for ext in VIDEO_EXTENSIONS))
-                    ]
-                    if not ids:
-                        logger.debug(f"No video files found in torrent {torrent_id} with infohash {infohash}")
-                        continue
-                    self.select_files(torrent_id, ids)
-                    torrent_info = self.get_torrent_info(torrent_id)
-                    if torrent_info.status != "downloaded":
-                        # this isnt cached, so we skip it
-                        logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached")
-                        continue
-                if torrent_info.files:
-                    torrent_files = [
-                        file for file in (
-                            DebridFile.create(file_info["filename"], file_info["bytes"], item_type, file_id)
-                            for file_id, file_info in torrent_info.files.items()
-                        ) if file is not None
-                    ]
-                    if torrent_files:
-                        container = TorrentContainer(infohash=infohash, files=torrent_files)
-                        containers.append(container)
-            except Exception as e:
-                logger.error(f"Failed to get instant availability for {infohash}: {e}")
-                break_loop = True
-            finally:
-                # Delete the torrent because we don't need it anymore
-                # we just wanted to know what files are inside
-                if torrent_id:
-                    self.delete_torrent(torrent_id)
-                torrent_id = None
-                if break_loop:
-                    break
-        return containers
+
+        try:
+            torrent_id = self.add_torrent(infohash)
+            container = self._process_torrent(torrent_id, infohash, item_type)
+            if container:
+                valid_container = container
+        except Exception as e:
+            logger.error(f"Failed to get instant availability for {infohash}: {e}")
+        finally:
+            if torrent_id is not None:
+                self.delete_torrent(torrent_id)
+
+        return valid_container
+
+    def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+        """Process a single torrent and return a TorrentContainer if valid."""
+        torrent_info = self.get_torrent_info(torrent_id)
+        
+        if torrent_info.status == "waiting_files_selection":
+            video_file_ids = [
+                file_id for file_id, file_info in torrent_info.files.items()
+                if file_info["filename"].endswith(tuple(ext.lower() for ext in VIDEO_EXTENSIONS))
+            ]
+
+            if not video_file_ids:
+                logger.debug(f"No video files found in torrent {torrent_id} with infohash {infohash}")
+                return None
+
+            self.select_files(torrent_id, video_file_ids)
+            torrent_info = self.get_torrent_info(torrent_id)
+
+            if torrent_info.status != "downloaded":
+                logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached")
+                return None
+
+        if not torrent_info.files:
+            return None
+
+        torrent_files = [
+            file for file in (
+                DebridFile.create(
+                    file_info["filename"],
+                    file_info["bytes"],
+                    item_type,
+                    file_id
+                )
+                for file_id, file_info in torrent_info.files.items()
+            ) if file is not None
+        ]
+
+        return TorrentContainer(infohash=infohash, files=torrent_files) if torrent_files else None
 
     def add_torrent(self, infohash: str) -> str:
         """Add a torrent by infohash"""

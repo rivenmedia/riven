@@ -1,5 +1,4 @@
-import time
-from typing import List, Literal, Union
+from typing import List, Optional, Union
 from loguru import logger
 
 from program.media.item import MediaItem, Show, Season, Episode, Movie
@@ -40,73 +39,59 @@ class Downloader:
 
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
-        chunk_size = 10
         download_success = False
 
-        for i in range(0, len(item.streams), chunk_size):
-            chunk: List[Stream] = item.streams[i:i + chunk_size]
-            valid_streams = self.validate_streams(chunk, item)
-            if not valid_streams:
-                logger.debug(f"No valid streams found in chunk {i // chunk_size}-{i + chunk_size} for {item.log_string} ({item.id}).")
+        for stream in item.streams:
+            container = self.validate_stream(stream, item)
+            if not container:
+                logger.debug(f"Stream {stream.infohash} is not cached or valid.")
                 continue
 
-            for stream, container in valid_streams:
-                try:
-                    download_result = self.download_cached_stream(stream, container)
-                    if self.update_item_attributes(item, download_result):
-                        logger.log("DEBRID", f"Successfully downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-                        download_success = True
-                        break
-                    else:
-                        raise NoMatchingFilesException(f"No valid files found for stream {stream.infohash}")
-                except Exception as e:
-                    logger.debug(f"Stream {stream.infohash} failed: {e}")
-                    if 'download_result' in locals() and download_result.id:
-                        self.service.delete_torrent(download_result.id)
-                    item.blacklist_stream(stream)
-
-            if download_success:
-                break
+            try:
+                download_result = self.download_cached_stream(stream, container)
+                if self.update_item_attributes(item, download_result):
+                    logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                    download_success = True
+                    break
+                else:
+                    raise NoMatchingFilesException(f"No valid files found for stream {stream.infohash}")
+            except Exception as e:
+                logger.debug(f"Stream {stream.infohash} failed: {e}")
+                if 'download_result' in locals() and download_result.id:
+                    self.service.delete_torrent(download_result.id)
+                item.blacklist_stream(stream)
 
         if not download_success:
             logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
 
         yield item
 
-    def validate_streams(self, streams: List[Stream], item: MediaItem) -> List[tuple[Stream, TorrentContainer]]:
+    def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
         """
-        Validate streams by ensuring their files match the item's requirements.
+        Validate a single stream by ensuring its files match the item's requirements.
         """
-        infohashes = [stream.infohash for stream in streams]
-        containers: List[TorrentContainer] = self.get_instant_availability(infohashes, item.type)
-        valid_streams = []
+        container = self.get_instant_availability(stream.infohash, item.type)
+        if not container:
+            item.blacklist_stream(stream)
+            return None
 
-        for stream in streams:
-            container = next((c for c in containers if c.infohash == stream.infohash and c.cached), None)
-            if not container:
-                logger.debug(f"Stream {stream.infohash} is not cached or valid.")
-                item.blacklist_stream(stream)
-                continue
+        valid_files = []
+        for file in container.files or []:
+            debrid_file = DebridFile.create(
+                filename=file.filename,
+                filesize_bytes=file.filesize,
+                filetype=item.type,
+                file_id=file.file_id
+            )
+            if debrid_file:
+                valid_files.append(debrid_file)
 
-            valid_files = []
-            for file in container.files or []:
-                debrid_file = DebridFile.create(
-                    filename=file.filename,
-                    filesize_bytes=file.filesize,
-                    filetype=item.type,
-                    file_id=file.file_id
-                )
-                if debrid_file:
-                    valid_files.append(debrid_file)
+        if valid_files:
+            container.files = valid_files
+            return container
 
-            if valid_files:
-                container.files = valid_files
-                valid_streams.append((stream, container))
-            else:
-                logger.debug(f"Stream {stream.infohash} has no valid files.")
-                item.blacklist_stream(stream)
-
-        return valid_streams
+        item.blacklist_stream(stream)
+        return None
 
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
@@ -158,9 +143,9 @@ class Downloader:
         item.alternative_folder = download_result.info.alternative_filename
         item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
 
-    def get_instant_availability(self, infohashes: list[str], item_type: str) -> List[TorrentContainer]:
+    def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """Check if the torrent is cached"""
-        return self.service.get_instant_availability(infohashes, item_type)
+        return self.service.get_instant_availability(infohash, item_type)
 
     def add_torrent(self, infohash: str) -> int:
         """Add a torrent by infohash"""

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from RTN import ParsedData, parse
 
 from program.services.downloaders.models import ParsedFileData, TorrentInfo, TorrentContainer
@@ -20,15 +20,16 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
+    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for multiple infohashes
+        Get instant availability for a single infohash
 
         Args:
-            infohashes: List of torrent hashes to check
+            infohash: The hash of the torrent to check
+            item_type: The type of media item being checked
 
         Returns:
-            List[TorrentContainer]: Cached status and available files for each hash
+            Optional[TorrentContainer]: Cached status and available files for the hash, or None if not available
         """
         pass
 

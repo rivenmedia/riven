@@ -115,36 +115,35 @@ class AllDebridDownloader(DownloaderBase):
             logger.error(f"Failed to validate premium status: {e}")
         return False
 
-    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
+    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for multiple infohashes
+        Get instant availability for a single infohash
         Required by DownloaderBase
         """
         if not self.initialized:
             logger.error("Downloader not properly initialized")
-            return {}
+            return None
 
         try:
-            params = {f"magnets[{i}]": infohash for i, infohash in enumerate(infohashes)}
+            params = {"magnets[]": infohash}
             response = self.api.request_handler.execute(HttpMethod.GET, "magnet/instant", params=params)
             magnets = response.get("magnets", [])
 
-            availability = []
-            for magnet in magnets:
-                if not isinstance(magnet, dict) or "files" not in magnet:
-                    continue
+            if not magnets or not isinstance(magnets[0], dict) or "files" not in magnets[0]:
+                return None
 
-                files = magnet.get("files", [])
-                valid_files = self._process_files(files)
+            magnet = magnets[0]
+            files = magnet.get("files", [])
+            valid_files = self._process_files(files)
 
-                if valid_files:
-                    availability.append(TorrentContainer(infohash=magnet["hash"], files=valid_files))
+            if valid_files:
+                return TorrentContainer(infohash=magnet["hash"], files=valid_files)
 
-            return availability
+            return None
 
         except Exception as e:
             logger.error(f"Failed to get instant availability: {e}")
-            return {}
+            return None
 
     def _walk_files(self, files: List[dict]) -> Iterator[Tuple[str, int]]:
         """Walks nested files structure and yields filename, size pairs"""

@@ -41,9 +41,9 @@ class NoMatchingFilesException(Exception):
 
 class DebridFile(BaseModel):
     """Represents a file in from a debrid service"""
-    file_id: Optional[int] = None
-    filename: Optional[str] = None
-    filesize: Optional[int] = None
+    file_id: Optional[int] = Field(default=None)
+    filename: Optional[str] = Field(default=None)
+    filesize: Optional[int] = Field(default=None)
 
     @classmethod
     def create(cls, filename: str, filesize_bytes: int, filetype: Literal["movie", "episode"], file_id: Optional[int] = None) -> Optional["DebridFile"]:
@@ -58,6 +58,7 @@ class DebridFile(BaseModel):
         elif filetype == "episode":
             if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
                 return None
+
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
 
@@ -82,6 +83,7 @@ class TorrentContainer(BaseModel):
     def file_ids(self) -> List[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
+
 
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
