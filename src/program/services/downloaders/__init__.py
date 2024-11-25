@@ -71,8 +71,8 @@ class Downloader:
             logger.warning(f"No streams available for {item.log_string} after scraping")
             return
 
-        # Take only the top 3 streams to try concurrently
-        concurrent_streams = sorted_streams[:3]
+        # Take only the top 6 streams to try
+        concurrent_streams = sorted_streams[:5]
         successful_download = False
 
         for stream in concurrent_streams:
