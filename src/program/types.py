@@ -11,8 +11,9 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import (
-    # AllDebridDownloader,
-    RealDebridDownloader
+    AllDebridDownloader,
+    RealDebridDownloader,
+    TorBoxDownloader
 )
 
 # TorBoxDownloader,
@@ -36,8 +37,8 @@ Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jacke
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[
     RealDebridDownloader,
-    # TorBoxDownloader,
-    # AllDebridDownloader
+    TorBoxDownloader,
+    AllDebridDownloader
 ]
 
 Service = Union[Content, SymlinkLibrary, Scraper, Downloader, Symlinker, Updater]

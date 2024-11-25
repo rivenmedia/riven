@@ -13,20 +13,20 @@ class DownloaderBase(ABC):
     def validate(self) -> bool:
         """
         Validate the downloader configuration and premium status
-        
+
         Returns:
             ValidationResult: Contains validation status and any error messages
         """
         pass
 
     @abstractmethod
-    def get_instant_availability(self, infohashes: List[str]) -> List[TorrentContainer]:
+    def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
         """
         Get instant availability for multiple infohashes
-        
+
         Args:
             infohashes: List of torrent hashes to check
-            
+
         Returns:
             List[TorrentContainer]: Cached status and available files for each hash
         """
@@ -36,10 +36,10 @@ class DownloaderBase(ABC):
     def add_torrent(self, infohash: str) -> int:
         """
         Add a torrent and return its information
-        
+
         Args:
             infohash: The hash of the torrent to add
-            
+
         Returns:
             str: The ID of the added torrent
         """
@@ -49,7 +49,7 @@ class DownloaderBase(ABC):
     def select_files(self, request: list[int]) -> None:
         """
         Select which files to download from the torrent
-        
+
         Args:
             request: File selection details including torrent ID and file IDs
         """
@@ -59,10 +59,10 @@ class DownloaderBase(ABC):
     def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
-        
+
         Args:
             torrent_id: ID of the torrent to get info for
-            
+
         Returns:
             TorrentInfo: Current information about the torrent
         """
@@ -72,7 +72,7 @@ class DownloaderBase(ABC):
     def delete_torrent(self, torrent_id: str) -> None:
         """
         Delete a torrent from the service
-        
+
         Args:
             torrent_id: ID of the torrent to delete
         """

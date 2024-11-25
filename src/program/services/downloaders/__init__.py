@@ -12,7 +12,7 @@ from program.services.downloaders.models import (
     DownloadedTorrent, NoMatchingFilesException, NotCachedException
 )
 
-# from .alldebrid import AllDebridDownloader
+from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
 
@@ -25,7 +25,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
-            # AllDebridDownloader: AllDebridDownloader()
+            AllDebridDownloader: AllDebridDownloader()
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()
@@ -111,8 +111,7 @@ class Downloader:
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
         if not download_result.container:
-            logger.error(f"No container found for {item.log_string} ({item.id})")
-            return False
+            raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
 
         found = False
         for file in download_result.container.files:
