@@ -148,7 +148,7 @@ class BaseRequestHandler:
             elif 'params' in kwargs and not kwargs['params']:
                 del kwargs['params']
 
-            kwargs.setdefault('timeout', self.timeout)
+            kwargs.setdefault("timeout", self.timeout)
 
             if self.request_logging:
                 logger.debug(f"Making request to {url} with kwargs: {kwargs}")

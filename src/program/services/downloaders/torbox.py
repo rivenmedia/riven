@@ -53,7 +53,6 @@ class TorBoxAPI:
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
         rate_limit_params = get_rate_limit_params(per_second=5)
-        self.timeout = 60
         self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
@@ -122,7 +121,7 @@ class TorBoxDownloader(DownloaderBase):
                 response = self.api.request_handler.execute(
                     HttpMethod.GET,
                     f"torrents/checkcached?hash={hash_string}&format=list&list_files=true",
-                    timeout=30
+                    timeout=15
                 )
 
                 data: list = response["data"]
@@ -157,7 +156,8 @@ class TorBoxDownloader(DownloaderBase):
             response = self.api.request_handler.execute(
                 HttpMethod.POST,
                 "torrents/createtorrent",
-                data={"magnet": magnet.lower()}
+                data={"magnet": magnet.lower()},
+                timeout=15
             )
             return response["data"]["torrent_id"]
         except Exception as e:
@@ -171,10 +171,10 @@ class TorBoxDownloader(DownloaderBase):
     def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """Get information about a torrent using a torrent ID"""
         try:
-            data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/mylist?id={torrent_id}")['data']
+            data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/mylist?id={torrent_id}", timeout=15)['data']
             return TorrentInfo(
                 id=data["id"],
-                name=data["name"],  # points to dir
+                name=data["name"].split("/")[-1],  # points to dir
                 infohash=data["hash"],
                 status=data["download_state"],
                 bytes=data["size"]

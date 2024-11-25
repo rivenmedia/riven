@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+import time
 from typing import  List, Optional, Union
 
 from loguru import logger
@@ -14,9 +15,10 @@ from program.utils.request import (
     create_service_session,
     get_rate_limit_params,
 )
-from program.services.downloaders.models import TorrentContainer, TorrentInfo
+from program.services.downloaders.models import DebridFile, TorrentContainer, TorrentInfo
 
 from .shared import DownloaderBase, premium_days_left
+from program.services.downloaders.models import VIDEO_EXTENSIONS
 
 
 class RDTorrentStatus(str, Enum):
@@ -128,8 +130,51 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohashes: List[str], item_type: str) -> List[TorrentContainer]:
         """Get instant availability for multiple infohashes with retry logic"""
-        # Real-Debrid does not support instant availability anymore
-        return []
+        # Real-Debrid does not support instant availability anymore so lets create a makeshift one!
+        containers: List[TorrentContainer] = []
+        torrent_id = None
+        break_loop = False
+        for infohash in infohashes:
+            try:
+                # lets go over all the hashes and add them to see what files they have
+                torrent_id = self.add_torrent(infohash)
+                torrent_info = self.get_torrent_info(torrent_id)
+                if torrent_info.status == "waiting_files_selection":
+                    ids = [
+                        file_id for file_id in torrent_info.files.keys()
+                        if torrent_info.files[file_id]["filename"].endswith(tuple(ext.lower() for ext in VIDEO_EXTENSIONS))
+                    ]
+                    if not ids:
+                        logger.debug(f"No video files found in torrent {torrent_id} with infohash {infohash}")
+                        continue
+                    self.select_files(torrent_id, ids)
+                    torrent_info = self.get_torrent_info(torrent_id)
+                    if torrent_info.status != "downloaded":
+                        # this isnt cached, so we skip it
+                        logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached")
+                        continue
+                if torrent_info.files:
+                    torrent_files = [
+                        file for file in (
+                            DebridFile.create(file_info["filename"], file_info["bytes"], item_type, file_id)
+                            for file_id, file_info in torrent_info.files.items()
+                        ) if file is not None
+                    ]
+                    if torrent_files:
+                        container = TorrentContainer(infohash=infohash, files=torrent_files)
+                        containers.append(container)
+            except Exception as e:
+                logger.error(f"Failed to get instant availability for {infohash}: {e}")
+                break_loop = True
+            finally:
+                # Delete the torrent because we don't need it anymore
+                # we just wanted to know what files are inside
+                if torrent_id:
+                    self.delete_torrent(torrent_id)
+                torrent_id = None
+                if break_loop:
+                    break
+        return containers
 
     def add_torrent(self, infohash: str) -> str:
         """Add a torrent by infohash"""
@@ -145,14 +190,16 @@ class RealDebridDownloader(DownloaderBase):
             logger.error(f"Failed to add torrent {infohash}: {e}")
             raise
 
-    def select_files(self, torrent_id: str, files: TorrentContainer) -> None:
+    def select_files(self, torrent_id: str, ids: List[int] = None) -> None:
         """Select files from a torrent"""
         try:
+            selection = ",".join(str(file_id) for file_id in ids) if ids else "all"
             self.api.request_handler.execute(
                 HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
-                data={"files": "all"}
+                data={"files": selection}
             )
+            time.sleep(1)
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
@@ -161,7 +208,18 @@ class RealDebridDownloader(DownloaderBase):
         """Get information about a torrent"""
         try:
             data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
-            return TorrentInfo(**data)
+            files = {file["id"]: {"filename": file["path"].split("/")[-1], "bytes": file["bytes"]} for file in data["files"]}
+            return TorrentInfo(
+                id=data["id"],
+                name=data["filename"],
+                status=data["status"],
+                infohash=data["hash"],
+                bytes=data["bytes"],
+                created_at=data["added"],
+                alternative_filename=data.get("original_filename", None),
+                progress=data.get("progress", None),
+                files=files,
+            )
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
