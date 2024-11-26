@@ -11,7 +11,7 @@ from program.services.downloaders.models import (
     DownloadedTorrent, NoMatchingFilesException, NotCachedException
 )
 
-from .alldebrid import AllDebridDownloader
+# from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
 
@@ -24,7 +24,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
-            AllDebridDownloader: AllDebridDownloader()
+            # AllDebridDownloader: AllDebridDownloader()
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()
@@ -39,8 +39,13 @@ class Downloader:
 
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
-        download_success = False
 
+        if item.state == States.Downloaded:
+            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded")
+            yield item
+            return
+
+        download_success = False
         for stream in item.streams:
             container = self.validate_stream(stream, item)
             if not container:
