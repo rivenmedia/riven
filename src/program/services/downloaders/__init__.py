@@ -40,10 +40,9 @@ class Downloader:
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
-        if item.state == States.Downloaded:
-            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded")
+        if item.active_stream:
+            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
             yield item
-            return
 
         download_success = False
         for stream in item.streams:
