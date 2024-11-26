@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
@@ -14,7 +15,6 @@ from program.db.db import db
 from program.media.item import Episode, MediaItem
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
-from program.services.downloaders.shared import hash_from_uri
 from program.services.indexers.trakt import TraktIndexer
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
@@ -240,7 +240,15 @@ async def start_manual_session(
     magnet: str
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
-    info_hash = hash_from_uri(magnet).lower()
+
+    def get_info_hash(magnet: str) -> str:
+        pattern = r"[A-Fa-f0-9]{40}"
+        match = re.search(pattern, magnet)
+        return match.group(0) if match else None
+
+    info_hash = get_info_hash(magnet)
+    if not info_hash:
+        raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
     # Identify item based on IMDb or database ID
     if item_id.startswith("tt"):

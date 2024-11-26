@@ -1,5 +1,7 @@
 import os
+import sys
 import threading
+import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -170,7 +172,6 @@ class EventManager:
             item (Event, optional): The event item to process. Defaults to None.
         """
         log_message = f"Submitting service {service.__name__} to be executed"
-        item_id = None
         # Content services dont provide an event.
         if event:
             log_message += f" with {event.log_message}"
@@ -185,6 +186,95 @@ class EventManager:
         self._futures.append(future)
         sse_manager.publish_event("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
+
+    # For debugging purposes we can monitor the execution time of the service. (comment out above and uncomment below)
+    # def submit_job(self, service, program, event=None):
+    #     """
+    #     Submits a job to be executed by the service.
+
+    #     Args:
+    #         service (type): The service class to execute.
+    #         program (Program): The program containing the service.
+    #         item (Event, optional): The event item to process. Defaults to None.
+    #     """
+    #     log_message = f"Submitting service {service.__name__} to be executed"
+    #     if event:
+    #         log_message += f" with {event.log_message}"
+    #     logger.debug(log_message)
+
+    #     cancellation_event = threading.Event()
+    #     executor = self._find_or_create_executor(service)
+        
+    #     # Add start time to track execution duration
+    #     start_time = datetime.now()
+        
+    #     def _monitor_execution(future):
+    #         """Monitor execution time and log if taking too long"""
+    #         while not future.done():
+    #             execution_time = (datetime.now() - start_time).total_seconds()
+    #             if execution_time > 180:  # 3 minutes
+    #                 current_thread = None
+    #                 for thread in threading.enumerate():
+    #                     if thread.name.startswith(service.__name__) and not thread.name.endswith('_monitor'):
+    #                         current_thread = thread
+    #                         break
+                            
+    #                 if current_thread:
+    #                     # Get stack frames for the worker thread
+    #                     frames = sys._current_frames()
+    #                     thread_frame = None
+    #                     for thread_id, frame in frames.items():
+    #                         if thread_id == current_thread.ident:
+    #                             thread_frame = frame
+    #                             break
+                        
+    #                     if thread_frame:
+    #                         stack_trace = ''.join(traceback.format_stack(thread_frame))
+    #                     else:
+    #                         stack_trace = "Could not get stack trace for worker thread"
+    #                 else:
+    #                     stack_trace = "Could not find worker thread"
+                    
+    #                 logger.warning(
+    #                     f"Service {service.__name__} execution taking longer than 3 minutes!\n"
+    #                     f"Event: {event.log_message if event else 'No event'}\n"
+    #                     f"Execution time: {execution_time:.1f} seconds\n"
+    #                     f"Thread name: {current_thread.name if current_thread else 'Unknown'}\n"
+    #                     f"Thread alive: {current_thread.is_alive() if current_thread else 'Unknown'}\n"
+    #                     f"Stack trace:\n{stack_trace}"
+    #                 )
+                    
+    #                 # Cancel the future and kill the thread
+    #                 future.cancellation_event.set()
+    #                 future.cancel()
+    #                 if current_thread:
+    #                     logger.warning(f"Killing thread {current_thread.name} due to timeout")
+    #                     self._futures.remove(future)
+    #                     if event:
+    #                         self.remove_event_from_running(event)
+    #                 return  # Exit the monitoring thread
+                    
+    #             time.sleep(60)  # Check every minute
+
+    #     future = executor.submit(db_functions.run_thread_with_db_item, 
+    #                         program.all_services[service].run, 
+    #                         service, program, event, cancellation_event)
+        
+    #     # Start monitoring thread
+    #     monitor_thread = threading.Thread(
+    #         target=_monitor_execution, 
+    #         args=(future,),
+    #         name=f"{service.__name__}_monitor",
+    #         daemon=True
+    #     )
+    #     monitor_thread.start()
+        
+    #     future.cancellation_event = cancellation_event
+    #     if event:
+    #         future.event = event
+    #     self._futures.append(future)
+    #     sse_manager.publish_event("event_update", self.get_event_updates())
+    #     future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):
         """

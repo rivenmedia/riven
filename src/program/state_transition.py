@@ -1,4 +1,5 @@
 from loguru import logger
+
 from program.media import MediaItem, States
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer

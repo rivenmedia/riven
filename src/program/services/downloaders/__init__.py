@@ -1,41 +1,38 @@
+from typing import List, Optional, Union
+
 from loguru import logger
 
-from program.media.item import MediaItem, MovieMediaType, ShowMediaType
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
+from program.services.downloaders.models import (
+    DebridFile,
+    DownloadedTorrent,
+    NoMatchingFilesException,
+    NotCachedException,
+    ParsedFileData,
+    TorrentContainer,
+    TorrentInfo,
+)
+from program.services.downloaders.shared import parse_filename
 from program.settings.manager import settings_manager
-from program.services.downloaders.shared import filesize_is_acceptable, get_invalid_filesize_log_string
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
-# from .torbox import TorBoxDownloader
+from .torbox import TorBoxDownloader
 
-class InvalidFileSizeException(Exception):
-    pass
-
-class DownloadCachedStreamResult:
-    def __init__(self, container=None, torrent_id=None, info=None, info_hash=None):
-        self.container = container
-        self.torrent_id = torrent_id
-        self.info = info
-        self.info_hash = info_hash
 
 class Downloader:
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
-        self.speed_mode = (
-            settings_manager.settings.downloaders.prefer_speed_over_quality
-        )
+        self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            AllDebridDownloader: AllDebridDownloader(),
-            # TorBoxDownloader: TorBoxDownloader()
+            TorBoxDownloader: TorBoxDownloader(),
+            AllDebridDownloader: AllDebridDownloader()
         }
-        self.service = next(
-            (service for service in self.services.values() if service.initialized), None
-        )
-
+        self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()
 
     def validate(self):
@@ -47,100 +44,131 @@ class Downloader:
         return True
 
     def run(self, item: MediaItem):
-        logger.debug(f"Running downloader for {item.log_string}")
+        logger.debug(f"Starting download process for {item.log_string} ({item.id})")
+
+        if item.active_stream:
+            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
+            yield item
+
+        download_success = False
         for stream in item.streams:
-            download_result = None
+            container = self.validate_stream(stream, item)
+            if not container:
+                logger.debug(f"Stream {stream.infohash} is not cached or valid.")
+                continue
+
             try:
-                download_result = self.download_cached_stream(item, stream)
-                if download_result:
-                    self.validate_filesize(item, download_result)
-                    if not self.update_item_attributes(item, download_result):
-                        raise Exception("No matching files found!")
+                download_result = self.download_cached_stream(stream, container)
+                if self.update_item_attributes(item, download_result):
+                    logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                    download_success = True
                     break
+                else:
+                    raise NoMatchingFilesException(f"No valid files found for stream {stream.infohash}")
             except Exception as e:
-                if download_result and download_result.torrent_id:
-                    self.service.delete_torrent(download_result.torrent_id)
-                logger.debug(f"Invalid stream: {stream.infohash} - reason: {e}")
+                logger.debug(f"Stream {stream.infohash} failed: {e}")
+                if 'download_result' in locals() and download_result.id:
+                    self.service.delete_torrent(download_result.id)
                 item.blacklist_stream(stream)
+
+        if not download_success:
+            logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
+
         yield item
 
+    def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
+        """
+        Validate a single stream by ensuring its files match the item's requirements.
+        """
+        container = self.get_instant_availability(stream.infohash, item.type)
+        if not container:
+            item.blacklist_stream(stream)
+            return None
 
-    def download_cached_stream(self, item: MediaItem, stream: Stream) -> DownloadCachedStreamResult:
-        cached_containers = self.get_instant_availability([stream.infohash]).get(stream.infohash, None)
-        if not cached_containers:
-            raise Exception("Not cached!")
-        the_container = cached_containers[0]
-        torrent_id = self.add_torrent(stream.infohash)
-        info = self.get_torrent_info(torrent_id)
-        self.select_files(torrent_id, the_container.keys())
-        logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-        return DownloadCachedStreamResult(the_container, torrent_id, info, stream.infohash)
+        valid_files = []
+        for file in container.files or []:
+            debrid_file = DebridFile.create(
+                filename=file.filename,
+                filesize_bytes=file.filesize,
+                filetype=item.type,
+                file_id=file.file_id
+            )
+            if debrid_file:
+                valid_files.append(debrid_file)
 
-    def get_instant_availability(self, infohashes: list[str]) -> dict[str, list[dict]]:
-        return self.service.get_instant_availability(infohashes)
+        if valid_files:
+            container.files = valid_files
+            return container
 
-    def add_torrent(self, infohash: str) -> int:
-        return self.service.add_torrent(infohash)
+        item.blacklist_stream(stream)
+        return None
 
-    def get_torrent_info(self, torrent_id: int):
-        return self.service.get_torrent_info(torrent_id)
+    def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
+        """Update the item attributes with the downloaded files and active stream."""
+        if not download_result.container:
+            raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
 
-    def select_files(self, torrent_id, container):
-        self.service.select_files(torrent_id, container)
-
-    def delete_torrent(self, torrent_id):
-        self.service.delete_torrent(torrent_id)
-
-    def update_item_attributes(self, item: MediaItem, download_result: DownloadCachedStreamResult) -> bool:
-        """Update the item attributes with the downloaded files and active stream"""
         found = False
-        item = item
-        info_hash = download_result.info.get("hash", None)
-        id = download_result.info.get("id", None)
-        original_filename = download_result.info.get("original_filename", None)
-        filename = download_result.info.get("filename", None)
-        if not info_hash or not id or not original_filename or not filename:
-            return False
-        container = download_result.container
-        for file in container.values():
-            if item.type == MovieMediaType.Movie.value and self.service.file_finder.container_file_matches_movie(file):
-                item.file = file[self.service.file_finder.filename_attr]
-                item.folder = filename
-                item.alternative_folder = original_filename
-                item.active_stream = {"infohash": info_hash, "id": id}
+        for file in download_result.container.files:
+            file_data: ParsedFileData = parse_filename(file.filename)
+            if self.match_file_to_item(item, file_data, file, download_result):
                 found = True
                 break
-            if item.type in (ShowMediaType.Show.value, ShowMediaType.Season.value, ShowMediaType.Episode.value):
-                show = item
-                if item.type == ShowMediaType.Season.value:
-                    show = item.parent
-                elif item.type == ShowMediaType.Episode.value:
-                    show = item.parent.parent
-                file_season, file_episodes = self.service.file_finder.container_file_matches_episode(file)
-                if file_season and file_episodes:
-                    season = next((season for season in show.seasons if season.number == file_season), None)
-                    for file_episode in file_episodes:
-                        episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
-                        if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
-                            episode.file = file[self.service.file_finder.filename_attr]
-                            episode.folder = filename
-                            episode.alternative_folder = original_filename
-                            episode.active_stream = {"infohash": info_hash, "id": id}
-                            # We have to make sure the episode is correct if item is an episode
-                            if item.type != ShowMediaType.Episode.value or (item.type == ShowMediaType.Episode.value and episode.number == item.number):
-                                found = True
+
         return found
 
-    def validate_filesize(self, item: MediaItem, download_result: DownloadCachedStreamResult):
-        for file in download_result.container.values():
-            item_media_type = self._get_item_media_type(item)
-            if not filesize_is_acceptable(file[self.service.file_finder.filesize_attr], item_media_type):
+    def match_file_to_item(self, item: MediaItem, file_data: ParsedFileData, file: DebridFile, download_result: DownloadedTorrent) -> bool:
+        """Check if the file matches the item and update attributes."""
+        found = False
+        if item.type == "movie" and file_data.item_type == "movie":
+            self._update_attributes(item, file, download_result)
+            return True
 
-                raise InvalidFileSizeException(f"File '{file[self.service.file_finder.filename_attr]}' is invalid: {get_invalid_filesize_log_string(file[self.service.file_finder.filesize_attr], item_media_type)}")
-        logger.debug(f"All files for {download_result.info_hash} are of an acceptable size")
+        if item.type in ("show", "season", "episode"):
+            if not (file_data.season and file_data.episodes):
+                return False
 
-    @staticmethod
-    def _get_item_media_type(item):
-        if item.type in (media_type.value for media_type in ShowMediaType):
-            return ShowMediaType.Show.value
-        return MovieMediaType.Movie.value
+            show: Show = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
+            season: Season = next((season for season in show.seasons if season.number == file_data.season), None)
+            for file_episode in file_data.episodes:
+                episode: Episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
+                if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
+                    self._update_attributes(episode, file, download_result)
+                    found = True
+
+        return found
+
+    def download_cached_stream(self, stream: Stream, container: TorrentContainer) -> DownloadedTorrent:
+        """Download a cached stream"""
+        torrent_id: int = self.add_torrent(stream.infohash)
+        info: TorrentInfo = self.get_torrent_info(torrent_id)
+        if container.file_ids:
+            self.select_files(torrent_id, container.file_ids)
+        return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
+
+    def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent) -> None:
+        """Update the item attributes with the downloaded files and active stream"""
+        item.file = debrid_file.filename
+        item.folder = download_result.info.name
+        item.alternative_folder = download_result.info.alternative_filename
+        item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
+
+    def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
+        """Check if the torrent is cached"""
+        return self.service.get_instant_availability(infohash, item_type)
+
+    def add_torrent(self, infohash: str) -> int:
+        """Add a torrent by infohash"""
+        return self.service.add_torrent(infohash)
+
+    def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
+        """Get information about a torrent"""
+        return self.service.get_torrent_info(torrent_id)
+
+    def select_files(self, torrent_id: int, container: list[str]) -> None:
+        """Select files from a torrent"""
+        self.service.select_files(torrent_id, container)
+
+    def delete_torrent(self, torrent_id: int) -> None:
+        """Delete a torrent"""
+        self.service.delete_torrent(torrent_id)

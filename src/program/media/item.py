@@ -18,22 +18,6 @@ from program.media.subtitle import Subtitle
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream
 
-class ShowMediaType(Enum):
-    """Show media types"""
-    Show = "show"
-    Season = "season"
-    Episode = "episode"
-
-class MovieMediaType(Enum):
-    """Media types"""
-    Movie = "movie"
-
-class MediaType(Enum):
-    """Combined media types"""
-    Show = ShowMediaType.Show.value
-    Season = ShowMediaType.Season.value
-    Episode = ShowMediaType.Episode.value
-    Movie = MovieMediaType.Movie.value
 
 class MediaItem(db.Model):
     """MediaItem class"""
@@ -426,7 +410,7 @@ class Movie(MediaItem):
         return self
 
     def __init__(self, item):
-        self.type = MovieMediaType.Movie.value
+        self.type = "movie"
         self.file = item.get("file", None)
         super().__init__(item)
 
@@ -448,7 +432,7 @@ class Show(MediaItem):
     }
 
     def __init__(self, item):
-        self.type = ShowMediaType.Show.value
+        self.type = "show"
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.propagate_attributes_to_childs()
@@ -563,7 +547,7 @@ class Season(MediaItem):
         super().store_state(given_state)
 
     def __init__(self, item):
-        self.type = ShowMediaType.Season.value
+        self.type = "season"
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
         super().__init__(item)
@@ -662,7 +646,7 @@ class Episode(MediaItem):
     }
 
     def __init__(self, item):
-        self.type = ShowMediaType.Episode.value
+        self.type = "episode"
         self.number = item.get("number", None)
         self.file = item.get("file", None)
         super().__init__(item)

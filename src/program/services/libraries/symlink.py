@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Generator
 
 from loguru import logger
-from sqla_wrapper import Session
 from PTT import parse_title
+from sqla_wrapper import Session
 
 from program.db.db import db
 from program.media.subtitle import Subtitle

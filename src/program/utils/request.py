@@ -126,6 +126,7 @@ class BaseRequestHandler:
         self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
         self.custom_exception = custom_exception or Exception
         self.request_logging = request_logging
+        self.timeout = 15
 
     def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
         """Generic request handler with error handling, using kwargs for flexibility.
@@ -146,6 +147,8 @@ class BaseRequestHandler:
                 kwargs.setdefault('params', {}).update(request_params)
             elif 'params' in kwargs and not kwargs['params']:
                 del kwargs['params']
+
+            kwargs.setdefault("timeout", self.timeout)
 
             if self.request_logging:
                 logger.debug(f"Making request to {url} with kwargs: {kwargs}")
