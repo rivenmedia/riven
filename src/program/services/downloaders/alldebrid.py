@@ -1,11 +1,17 @@
-from datetime import datetime
 import time
+from datetime import datetime
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from loguru import logger
 from requests import Session
 from requests.exceptions import ConnectTimeout
 
+from program.services.downloaders.models import (
+    VIDEO_EXTENSIONS,
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
 from program.settings.manager import settings_manager
 from program.utils.request import (
     BaseRequestHandler,
@@ -15,7 +21,6 @@ from program.utils.request import (
     create_service_session,
     get_rate_limit_params,
 )
-from program.services.downloaders.models import VIDEO_EXTENSIONS, DebridFile, TorrentContainer, TorrentInfo
 
 from .shared import DownloaderBase, premium_days_left
 

@@ -1,9 +1,15 @@
 import time
 from datetime import datetime
 from typing import List, Optional, Union
+
 from loguru import logger
 from requests import Session
 
+from program.services.downloaders.models import (
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
 from program.settings.manager import settings_manager
 from program.utils.request import (
     BaseRequestHandler,
@@ -12,10 +18,8 @@ from program.utils.request import (
     create_service_session,
     get_rate_limit_params,
 )
-from program.services.downloaders.models import TorrentContainer, DebridFile, TorrentInfo
 
 from .shared import DownloaderBase, premium_days_left
-
 
 # class TBTorrentStatus(str, Enum):
 #     """Torbox torrent status enumeration"""

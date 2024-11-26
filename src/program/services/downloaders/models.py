@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Union
+
 from loguru import logger
 from pydantic import BaseModel, Field
-from program.settings.manager import settings_manager
 
+from program.settings.manager import settings_manager
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [

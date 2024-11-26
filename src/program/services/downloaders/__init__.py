@@ -1,15 +1,21 @@
 from typing import List, Optional, Union
+
 from loguru import logger
 
-from program.media.item import MediaItem, Show, Season, Episode, Movie
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
-from program.settings.manager import settings_manager
-from program.services.downloaders.shared import parse_filename
 from program.services.downloaders.models import (
-    DebridFile, ParsedFileData, TorrentContainer, TorrentInfo,
-    DownloadedTorrent, NoMatchingFilesException, NotCachedException
+    DebridFile,
+    DownloadedTorrent,
+    NoMatchingFilesException,
+    NotCachedException,
+    ParsedFileData,
+    TorrentContainer,
+    TorrentInfo,
 )
+from program.services.downloaders.shared import parse_filename
+from program.settings.manager import settings_manager
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader

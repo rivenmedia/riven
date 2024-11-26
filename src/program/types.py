@@ -10,10 +10,9 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
-from program.services.downloaders import (
-    # AllDebridDownloader,
+from program.services.downloaders import (  # AllDebridDownloader,
     RealDebridDownloader,
-    TorBoxDownloader
+    TorBoxDownloader,
 )
 
 # TorBoxDownloader,

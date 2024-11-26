@@ -1,12 +1,18 @@
+import time
 from datetime import datetime
 from enum import Enum
-import time
-from typing import  List, Optional, Union
+from typing import List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
 from requests import Session
 
+from program.services.downloaders.models import (
+    VIDEO_EXTENSIONS,
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
 from program.settings.manager import settings_manager
 from program.utils.request import (
     BaseRequestHandler,
@@ -15,10 +21,8 @@ from program.utils.request import (
     create_service_session,
     get_rate_limit_params,
 )
-from program.services.downloaders.models import DebridFile, TorrentContainer, TorrentInfo
 
 from .shared import DownloaderBase, premium_days_left
-from program.services.downloaders.models import VIDEO_EXTENSIONS
 
 
 class RDTorrentStatus(str, Enum):

@@ -1,9 +1,14 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Optional
+
 from RTN import ParsedData, parse
 
-from program.services.downloaders.models import ParsedFileData, TorrentInfo, TorrentContainer
+from program.services.downloaders.models import (
+    ParsedFileData,
+    TorrentContainer,
+    TorrentInfo,
+)
 
 
 class DownloaderBase(ABC):
