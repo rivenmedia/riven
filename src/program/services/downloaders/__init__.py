@@ -11,7 +11,7 @@ from program.services.downloaders.models import (
     DownloadedTorrent, NoMatchingFilesException, NotCachedException
 )
 
-# from .alldebrid import AllDebridDownloader
+from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
 
@@ -24,7 +24,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
-            # AllDebridDownloader: AllDebridDownloader()
+            AllDebridDownloader: AllDebridDownloader()
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()

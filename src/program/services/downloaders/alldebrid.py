@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from loguru import logger
@@ -120,54 +121,24 @@ class AllDebridDownloader(DownloaderBase):
         Get instant availability for a single infohash
         Required by DownloaderBase
         """
-        if not self.initialized:
-            logger.error("Downloader not properly initialized")
-            return None
+        torrent_id = None
+        return_value = None
 
         try:
-            params = {"magnets[]": infohash}
-            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/instant", params=params)
-            magnets = response.get("magnets", [])
-
-            if not magnets or not isinstance(magnets[0], dict) or "files" not in magnets[0]:
-                return None
-
-            magnet = magnets[0]
-            files = magnet.get("files", [])
-            valid_files = self._process_files(files)
-
-            if valid_files:
-                return TorrentContainer(infohash=magnet["hash"], files=valid_files)
-
-            return None
-
+            torrent_id = self.add_torrent(infohash)
+            time.sleep(1)
+            info = self.get_torrent_info(torrent_id)
+            if info.status == "Ready":
+                files = self.get_files_and_links(torrent_id)
+                processed_files = [DebridFile.create(filename=file["n"], filesize_bytes=file["s"], filetype=item_type) for file in files]
+                if processed_files is not None:
+                    return_value = TorrentContainer(infohash=infohash, files=processed_files)
         except Exception as e:
             logger.error(f"Failed to get instant availability: {e}")
-            return None
-
-    def _walk_files(self, files: List[dict]) -> Iterator[Tuple[str, int]]:
-        """Walks nested files structure and yields filename, size pairs"""
-        dirs = []
-        for file in files:
-            try:
-                size = int(file.get("s", ""))
-                yield file.get("n", "UNKNOWN"), size
-            except ValueError:
-                dirs.append(file)
-
-        for directory in dirs:
-            yield from self._walk_files(directory.get("e", []))
-
-    def _process_files(self, files: List[dict]) -> List[DebridFile]:
-        """Process and filter valid video files"""
-        result = []
-        for i, (name, size) in enumerate(self._walk_files(files)):
-            if (
-                any(name.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
-                and "sample" not in name.lower()
-            ):
-                result.append(DebridFile(file_id=i, filename=name, filesize=size))
-        return result
+        finally:
+            if torrent_id:
+                self.delete_torrent(torrent_id)
+            return return_value
 
     def add_torrent(self, infohash: str) -> str:
         """
@@ -208,7 +179,7 @@ class AllDebridDownloader(DownloaderBase):
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
 
-    def get_torrent_info(self, torrent_id: str) -> dict:
+    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """
         Get information about a torrent
         Required by DownloaderBase
@@ -227,7 +198,7 @@ class AllDebridDownloader(DownloaderBase):
                 status=info["status"],
                 bytes=info["size"],
                 created_at=info["uploadDate"],
-                progress=info["size"] / info["downloaded"]
+                progress=(info["size"] / info["downloaded"]) if info["downloaded"] != 0 else 0
             )
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
@@ -242,4 +213,21 @@ class AllDebridDownloader(DownloaderBase):
             self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", params={"id": torrent_id})
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+            raise
+
+    def get_files_and_links(self, torrent_id: str) -> List[DebridFile]:
+        """
+        Get torrent files and links by id
+        """
+        try:
+            response = self.api.request_handler.execute(
+                HttpMethod.GET,
+                "magnet/files",
+                params={"id[]": torrent_id}
+            )
+            magnet_info = next((info for info in response.get("magnets") if info["id"] == torrent_id), {})
+            return magnet_info.get("files", {})
+
+        except Exception as e:
+            logger.error(f"Failed to get files for {torrent_id}: {e}")
             raise
