@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.1](https://github.com/rivenmedia/riven/compare/v0.20.0...v0.20.1) (2024-11-27)
+
+
+### Bug Fixes
+
+* add User-Agent header to torrentio request ([bb799b5](https://github.com/rivenmedia/riven/commit/bb799b57fe6ddfbc5871a87f926d211898776351))
+* consolidate User-Agent header usage in Torrentio scraper ([83418d6](https://github.com/rivenmedia/riven/commit/83418d6f8095a0c74c16f20c7598d63e5841237c))
+* fixed RD, TB and AD support ([f945d25](https://github.com/rivenmedia/riven/commit/f945d25fe0bff83e60f6fde43c0fc27ea6314c32))
+* improve mediafusion validation on startup ([3511e6c](https://github.com/rivenmedia/riven/commit/3511e6cfda6fcf6045cbf9014e1e454ae4937d73))
+* moved downloader proxy settings to parent instead of per debrid ([50d9d6e](https://github.com/rivenmedia/riven/commit/50d9d6eb5e37912beff765f7bf753cf08486216b))
+
 ## [0.20.0](https://github.com/rivenmedia/riven/compare/v0.19.0...v0.20.0) (2024-11-20)
 
 
