@@ -1,7 +1,7 @@
 from loguru import logger
 
 from program.media import MediaItem, States
-from program.services.downloaders import Downloader
+from program.services.downloaders.downloader import Downloader
 from program.services.indexers.trakt import TraktIndexer
 from program.services.post_processing import PostProcessing, notify
 from program.services.post_processing.subliminal import Subliminal

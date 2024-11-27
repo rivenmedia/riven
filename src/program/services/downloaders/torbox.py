@@ -171,7 +171,7 @@ class TorBoxDownloader(DownloaderBase):
         """Select files from a torrent"""
         pass
 
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: str, _ = None) -> TorrentInfo:
         """Get information about a torrent using a torrent ID"""
         try:
             data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/mylist?id={torrent_id}", timeout=15)['data']

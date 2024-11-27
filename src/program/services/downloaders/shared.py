@@ -64,12 +64,13 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: str, item_type: str = None) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 
         Args:
             torrent_id: ID of the torrent to get info for
+            item_type: item type as string
 
         Returns:
             TorrentInfo: Current information about the torrent

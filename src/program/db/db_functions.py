@@ -185,10 +185,6 @@ def reset_streams(item: "MediaItem"):
         )
         session.commit()
 
-def clear_streams(item: "MediaItem"):
-    """Clear all streams for a media item."""
-    reset_streams(item)
-
 def clear_streams_by_id(media_item_id: str):
     """Clear all streams for a media item by the MediaItem id."""
     with db.Session() as session:
