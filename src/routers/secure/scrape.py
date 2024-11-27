@@ -19,6 +19,7 @@ from program.services.indexers.trakt import TraktIndexer
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
+from program.services.downloaders.models import TorrentContainer, TorrentInfo
 
 
 class Stream(BaseModel):
@@ -218,13 +219,10 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
                 .unique()
                 .scalar_one_or_none()
             )
-        streams = scraper.scrape(item)
-        stream_containers = downloader.get_instant_availability([stream for stream in streams.keys()])
-        for stream in streams.keys():
-            if len(stream_containers.get(stream, [])) > 0:
-                streams[stream].is_cached = True
-            else:
-                streams[stream].is_cached = False
+        streams: Dict[str, Stream] = scraper.scrape(item)
+        for stream in streams.values():
+            container = downloader.get_instant_availability(stream.infohash, item.type)
+            stream.is_cached = bool(container and container.cached)
         log_string = item.log_string
 
     return {
@@ -278,10 +276,10 @@ async def start_manual_session(
     session = session_manager.create_session(item_id or imdb_id, info_hash)
 
     try:
-        torrent_id = downloader.add_torrent(info_hash)
-        torrent_info = downloader.get_torrent_info(torrent_id)
-        containers = downloader.get_instant_availability([session.magnet]).get(session.magnet, None)
-        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=containers)
+        torrent_id: Union[int, str] = downloader.add_torrent(info_hash)
+        torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
+        container: Optional[TorrentContainer] = downloader.get_instant_availability(info_hash, item.type)
+        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
     except Exception as e:
         background_tasks.add_task(session_manager.abort_session, session.id)
         raise HTTPException(status_code=500, detail=str(e))
@@ -290,8 +288,8 @@ async def start_manual_session(
         "message": "Started manual scraping session",
         "session_id": session.id,
         "torrent_id": torrent_id,
-        "torrent_info": torrent_info,
-        "containers": containers,
+        "torrent_info": torrent_info.model_dump_json() if torrent_info else None,
+        "containers": [container.model_dump_json()] if container else None,
         "expires_at": session.expires_at.isoformat()
     }
 
@@ -307,7 +305,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
         raise HTTPException(status_code=404, detail="Session not found or expired")
     if not session.torrent_id:
         session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="")
+        raise HTTPException(status_code=500, detail="No torrent ID found")
 
     download_type = "uncached"
     if files.model_dump() in session.containers:

@@ -47,21 +47,37 @@ class DebridFile(BaseModel):
     filesize: Optional[int] = Field(default=None)
 
     @classmethod
-    def create(cls, filename: str, filesize_bytes: int, filetype: Literal["movie", "episode"], file_id: Optional[int] = None) -> Optional["DebridFile"]:
+    def create(
+        cls,
+        filename: str,
+        filesize_bytes: int,
+        filetype: Literal["movie", "show", "season", "episode"],
+        file_id: Optional[int] = None,
+        limit_filesize: bool = True
+
+    ) -> Optional["DebridFile"]:
         """Factory method to validate and create a DebridFile"""
         if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) and not "sample" in filename.lower():
             return None
-        
-        filesize_mb = filesize_bytes / 1_000_000
-        if filetype == "movie":
-            if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_MOVIE_CONSTRAINT[1]):
-                return None
-        elif filetype == "episode":
-            if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
-                return None
+
+        if limit_filesize:
+            filesize_mb = filesize_bytes / 1_000_000
+            if filetype == "movie":
+                if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_MOVIE_CONSTRAINT[1]):
+                    return None
+            elif filetype in ["show", "season", "episode"]:
+                if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
+                    return None
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
+    def to_dict(self) -> dict:
+        """Convert the DebridFile to a dictionary"""
+        return {
+            "file_id": self.file_id,
+            "filename": self.filename,
+            "filesize": self.filesize
+        }
 
 class ParsedFileData(BaseModel):
     """Represents a parsed file from a filename"""
@@ -85,6 +101,12 @@ class TorrentContainer(BaseModel):
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
 
+    def to_dict(self) -> dict:
+        """Convert the TorrentContainer to a dictionary"""
+        return {
+            "infohash": self.infohash,
+            "files": [file.to_dict() for file in self.files]
+        }
 
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
@@ -105,6 +127,13 @@ class TorrentInfo(BaseModel):
         """Convert bytes to megabytes"""
         return self.bytes / 1_000_000
 
+    def to_dict(self) -> dict:
+        """Convert the TorrentInfo to a dictionary"""
+        files = [file.to_dict() for file in self.files]
+        return {
+            **self.model_dump(),
+            "files": files
+        }
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
