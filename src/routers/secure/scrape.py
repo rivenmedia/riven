@@ -103,10 +103,10 @@ class ScrapingSession:
         self.id = id
         self.item_id = item_id
         self.magnet = magnet
-        self.torrent_id: Optional[str] = None
-        self.torrent_info: Optional[dict] = None
-        self.containers: Optional[list] = None
-        self.selected_files: Optional[dict] = None
+        self.torrent_id: Optional[Union[int, str]] = None
+        self.torrent_info: Optional[TorrentInfo] = None
+        self.containers: Optional[TorrentContainer] = None
+        self.selected_files: Optional[Dict[str, Dict[str, Union[str, int]]]] = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
@@ -288,8 +288,8 @@ async def start_manual_session(
         "message": "Started manual scraping session",
         "session_id": session.id,
         "torrent_id": torrent_id,
-        "torrent_info": torrent_info.model_dump_json() if torrent_info else None,
-        "containers": [container.model_dump_json()] if container else None,
+        "torrent_info": torrent_info.to_dict(),
+        "containers": [container.to_dict()] if container else None,
         "expires_at": session.expires_at.isoformat()
     }
 
@@ -334,7 +334,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
         raise HTTPException(status_code=404, detail="Session not found or expired")
     if not session.item_id:
         session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="")
+        raise HTTPException(status_code=500, detail="No item ID found")
 
     with db.Session() as db_session:
         if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id) and not db_functions.get_item_by_id(session.item_id):
@@ -355,8 +355,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
             item.reset()
             item.file = data.filename
             item.folder = data.filename
-            item.alternative_folder = session.torrent_info["original_filename"]
-            item.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
+            item.alternative_folder = session.torrent_info.alternative_filename
+            item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
             torrent = rtn.rank(session.magnet, session.magnet)
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.append(item.id)
@@ -375,8 +375,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
                         item_episode.reset()
                         item_episode.file = episode_data.filename
                         item_episode.folder = episode_data.filename
-                        item_episode.alternative_folder = session.torrent_info["original_filename"]
-                        item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
+                        item_episode.alternative_folder = session.torrent_info.alternative_filename
+                        item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
                         torrent = rtn.rank(session.magnet, session.magnet)
                         item_episode.streams.append(ItemStream(torrent))
                         item_ids_to_submit.append(item_episode.id)

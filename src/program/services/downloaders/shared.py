@@ -57,7 +57,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def select_files(self, torrent_id: str, file_ids: list[int]) -> None:
+    def select_files(self, torrent_id: Union[int, str], file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent
 
@@ -68,7 +68,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: Union[int, str]) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 
@@ -81,7 +81,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def delete_torrent(self, torrent_id: str) -> None:
+    def delete_torrent(self, torrent_id: Union[int, str]) -> None:
         """
         Delete a torrent from the service
 

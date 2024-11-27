@@ -104,8 +104,11 @@ class TorrentContainer(BaseModel):
     def to_dict(self) -> dict:
         """Convert the TorrentContainer to a dictionary"""
         return {
-            "infohash": self.infohash,
-            "files": [file.to_dict() for file in self.files]
+            file.file_id or str(i): {
+                "filename": file.filename,
+                "filesize": file.filesize
+            }
+            for i, file in enumerate(self.files)
         }
 
 class TorrentInfo(BaseModel):
@@ -129,11 +132,7 @@ class TorrentInfo(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert the TorrentInfo to a dictionary"""
-        files = [file.to_dict() for file in self.files]
-        return {
-            **self.model_dump(),
-            "files": files
-        }
+        return self.model_dump()
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
