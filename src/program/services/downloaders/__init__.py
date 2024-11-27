@@ -26,7 +26,6 @@ class Downloader:
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
-        self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),

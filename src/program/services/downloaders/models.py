@@ -25,11 +25,11 @@ episode_max_filesize: int = settings_manager.settings.downloaders.episode_filesi
 # constraints for filesizes, follows the format tuple(min, max)
 FILESIZE_MOVIE_CONSTRAINT: tuple[int, int] = (
     movie_min_filesize if movie_min_filesize >= 0 else 0,
-    movie_max_filesize if movie_max_filesize >= 0 else float("inf")
+    movie_max_filesize if movie_max_filesize > 0 else float("inf")
 )
 FILESIZE_EPISODE_CONSTRAINT: tuple[int, int] = (
     episode_min_filesize if episode_min_filesize >= 0 else 0,
-    episode_max_filesize if episode_max_filesize >= 0 else float("inf")
+    episode_max_filesize if episode_max_filesize > 0 else float("inf")
 )
 
 

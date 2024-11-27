@@ -46,8 +46,8 @@ async def get_rd_user() -> RDUser:
     headers = {"Authorization": f"Bearer {api_key}"}
 
     proxy = (
-        settings_manager.settings.downloaders.real_debrid.proxy_url
-        if settings_manager.settings.downloaders.real_debrid.proxy_enabled
+        settings_manager.settings.downloaders.proxy_url
+        if settings_manager.settings.downloaders.proxy_url
         else None
     )
 
