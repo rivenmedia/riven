@@ -84,7 +84,7 @@ class TorBoxDownloader(DownloaderBase):
 
         self.api = TorBoxAPI(
             api_key=self.settings.api_key,
-            proxy_url=self.settings.proxy_url if self.settings.proxy_enabled else None
+            proxy_url=self.PROXY_URL if self.PROXY_URL else None
         )
 
         return self._validate_premium()

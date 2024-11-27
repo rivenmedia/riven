@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from RTN import ParsedData, parse
 
@@ -9,10 +9,12 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
 )
+from program.settings.manager import settings_manager
 
 
 class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
+    PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
 
     @abstractmethod
     def validate(self) -> bool:

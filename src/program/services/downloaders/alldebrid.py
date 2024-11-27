@@ -80,7 +80,7 @@ class AllDebridDownloader(DownloaderBase):
 
         self.api = AllDebridAPI(
             api_key=self.settings.api_key,
-            proxy_url=self.settings.proxy_url if self.settings.proxy_enabled else None
+            proxy_url=self.PROXY_URL if self.PROXY_URL else None
         )
 
         if not self._validate_premium():
@@ -95,9 +95,6 @@ class AllDebridDownloader(DownloaderBase):
             return False
         if not self.settings.api_key:
             logger.warning("AllDebrid API key is not set")
-            return False
-        if self.settings.proxy_enabled and not self.settings.proxy_url:
-            logger.error("Proxy is enabled but no proxy URL is provided")
             return False
         return True
 
