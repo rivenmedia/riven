@@ -64,6 +64,8 @@ class MediaItem(db.Model):
     # Pause related fields
     is_paused: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     paused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    unpaused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    paused_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -248,6 +250,7 @@ class MediaItem(db.Model):
             "scraped_times": self.scraped_times,
             "is_paused": self.is_paused,
             "paused_at": str(self.paused_at) if self.paused_at else None,
+            "unpaused_at": str(self.unpaused_at) if self.unpaused_at else None,
         }
 
     def to_extended_dict(self, abbreviated_children=False, with_streams=True):
@@ -408,6 +411,7 @@ class MediaItem(db.Model):
         try:
             self.is_paused = True
             self.paused_at = datetime.now()
+            self.unpaused_at = None
             
             session = object_session(self)
             if session:
@@ -428,13 +432,14 @@ class MediaItem(db.Model):
         logger.debug(f"Unpausing {self.id}")
         try:
             self.is_paused = False
-            self.paused_at = None
+            self.unpaused_at = datetime.now()
+            # Keep paused_at for history
             
             session = object_session(self)
             if session:
                 session.flush()
                 
-            logger.info(f"{self.log_string} unpaused, is_paused={self.is_paused}, paused_at={self.paused_at}")
+            logger.info(f"{self.log_string} unpaused, is_paused={self.is_paused}, unpaused_at={self.unpaused_at}")
         except Exception as e:
             logger.error(f"Failed to unpause {self.log_string}: {str(e)}")
             raise

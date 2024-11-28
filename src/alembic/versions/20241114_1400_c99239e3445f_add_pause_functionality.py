@@ -26,6 +26,8 @@ def upgrade() -> None:
     op.add_column('MediaItem',
         sa.Column('paused_at', sa.DateTime(), nullable=True))
     op.add_column('MediaItem',
+        sa.Column('unpaused_at', sa.DateTime(), nullable=True))
+    op.add_column('MediaItem',
         sa.Column('paused_by', sa.String(), nullable=True))
 
     # Add index for is_paused column
@@ -36,5 +38,6 @@ def downgrade() -> None:
     # Remove pause-related columns from MediaItem table
     op.drop_index(op.f('ix_mediaitem_is_paused'), table_name='MediaItem')
     op.drop_column('MediaItem', 'paused_by')
+    op.drop_column('MediaItem', 'unpaused_at')
     op.drop_column('MediaItem', 'paused_at')
     op.drop_column('MediaItem', 'is_paused')

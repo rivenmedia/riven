@@ -460,12 +460,12 @@ async def pause_items(request: Request, ids: str = None, db: Session = Depends(g
     
     try:
         for item in items:
-            item.pause()  # or item.unpause()
+            item.pause()
         db.commit()
-    except Exception as e:
+    except SQLAlchemyError as e:
         db.rollback()
-        logger.error(f"Failed to update items: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to update items.")
+        logger.error(f"Failed to pause items: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to pause items")
     
     return {
         "message": f"Successfully paused {len(items)} items",
