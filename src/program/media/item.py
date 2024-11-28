@@ -18,6 +18,12 @@ from program.media.subtitle import Subtitle
 from ..db.db_functions import blacklist_stream, reset_streams
 from .stream import Stream
 
+class MediaType(str, Enum):
+    """Media type enum"""
+    MOVIE = "movie"
+    SHOW = "show"
+    SEASON = "season"
+    EPISODE = "episode"
 
 class MediaItem(db.Model):
     """MediaItem class"""
@@ -62,7 +68,7 @@ class MediaItem(db.Model):
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
 
     # Pause related fields
-    is_paused: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
+    is_paused: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False, nullable=True, index=True)
     paused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     unpaused_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     paused_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
