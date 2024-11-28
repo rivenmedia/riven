@@ -69,7 +69,8 @@ class SettingsManager:
             self.settings = AppModel.model_validate(settings_dict)
             self.save()
         except ValidationError as e:
-            logger.error(f"Error validating settings: {e}")
+            formatted_error = format_validation_error(e)
+            logger.error(f"Settings validation failed:\n{formatted_error}")
             raise
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing settings file: {e}")
@@ -83,6 +84,16 @@ class SettingsManager:
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4))
+
+
+def format_validation_error(e: ValidationError) -> str:
+    """Format validation errors in a user-friendly way"""
+    messages = []
+    for error in e.errors():
+        field = ".".join(str(x) for x in error["loc"])
+        message = error.get("msg")
+        messages.append(f"• {field}: {message}")
+    return "\n".join(messages)
 
 
 settings_manager = SettingsManager()

@@ -76,8 +76,7 @@ class OverseerrAPI:
                     MediaItem({
                         "imdb_id": imdb_id,
                         "requested_by": service_key,
-                        "overseerr_id": item.media.id,
-                        "requested_id": item.id
+                        "overseerr_id": item.media.id
                     })
                 )
             elif item.media.tmdbId:
@@ -137,7 +136,7 @@ class OverseerrAPI:
         try:
             response = self.request_handler.execute(HttpMethod.DELETE, f"api/v1/request/{mediaId}", headers=headers)
             logger.debug(f"Deleted request {mediaId} from overseerr")
-            return response.is_ok == True
+            return response.is_ok
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")
             return False

@@ -18,10 +18,11 @@ from program.utils.request import (
     Session,
 )
 
+bucket_limit = settings_manager.settings.scraping.bucket_limit or 5
 enable_aliases = settings_manager.settings.scraping.enable_aliases
-settings_model = settings_manager.settings.ranking
-ranking_model = models.get(settings_model.profile)
-rtn = RTN(settings_model, ranking_model)
+ranking_settings = settings_manager.settings.ranking
+ranking_model = models.get(ranking_settings.profile)
+rtn = RTN(ranking_settings, ranking_model)
 
 
 class ScraperRequestHandler(BaseRequestHandler):
@@ -126,17 +127,18 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             if settings_manager.settings.scraping.parse_debug and log_msg:
                 logger.debug(f"Skipping torrent: '{raw_title}' - {e}")
             continue
-        except GarbageTorrent:
+        except GarbageTorrent as e:
             if settings_manager.settings.scraping.parse_debug and log_msg:
-                logger.debug(f"Trashing torrent for {item.log_string}: '{raw_title}'")
+                logger.debug(e)
             continue
 
     if torrents:
         logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
-        torrents = sort_torrents(torrents)
+        torrents = sort_torrents(torrents, bucket_limit=bucket_limit)
         torrents_dict = {}
         for torrent in torrents.values():
             torrents_dict[torrent.infohash] = Stream(torrent)
+        logger.log("SCRAPER", f"Kept {len(torrents_dict)} streams for {item.log_string} after processing bucket limit")
         return torrents_dict
     return {}
 

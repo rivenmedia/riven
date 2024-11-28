@@ -91,6 +91,9 @@ class Mediafusion:
 
         try:
             response = self.request_handler.execute(HttpMethod.POST, url, overriden_response_type=ResponseType.DICT, json=payload, headers=headers)
+            if not response.data or response.data["status"] != "success":
+                logger.error(f"Failed to encrypt user data: {response.data['message']}")
+                return False
             self.encrypted_string = response.data["encrypted_str"]
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
@@ -143,7 +146,7 @@ class Mediafusion:
             if not hasattr(stream, "description") and hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
                 raise RateLimitExceeded(f"Mediafusion rate-limit exceeded for item: {item.log_string}")
             description_split = stream.description.replace("📂 ", "")
-            raw_title = description_split.split("/")[0] or description_split.split("\n")[0]  # we want the torrent name if possible
+            raw_title = description_split.split("\n")[0]
             info_hash = re.search(r"info_hash=([A-Za-z0-9]+)", stream.url).group(1)
             if info_hash and info_hash not in torrents:
                 torrents[info_hash] = raw_title

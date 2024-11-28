@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -5,6 +6,12 @@ from loguru import logger
 from requests import Session
 from requests.exceptions import ConnectTimeout
 
+from program.services.downloaders.models import (
+    VIDEO_EXTENSIONS,
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
 from program.settings.manager import settings_manager
 from program.utils.request import (
     BaseRequestHandler,
@@ -15,7 +22,7 @@ from program.utils.request import (
     get_rate_limit_params,
 )
 
-from .shared import VIDEO_EXTENSIONS, DownloaderBase, FileFinder, premium_days_left
+from .shared import DownloaderBase, premium_days_left
 
 
 class AllDebridError(Exception):
@@ -61,7 +68,6 @@ class AllDebridDownloader(DownloaderBase):
         self.key = "alldebrid"
         self.settings = settings_manager.settings.downloaders.all_debrid
         self.api = None
-        self.file_finder = None
         self.initialized = self.validate()
 
     def validate(self) -> bool:
@@ -74,13 +80,12 @@ class AllDebridDownloader(DownloaderBase):
 
         self.api = AllDebridAPI(
             api_key=self.settings.api_key,
-            proxy_url=self.settings.proxy_url if self.settings.proxy_enabled else None
+            proxy_url=self.PROXY_URL if self.PROXY_URL else None
         )
 
         if not self._validate_premium():
             return False
 
-        self.file_finder = FileFinder("filename", "filesize")
         logger.success("AllDebrid initialized!")
         return True
 
@@ -90,9 +95,6 @@ class AllDebridDownloader(DownloaderBase):
             return False
         if not self.settings.api_key:
             logger.warning("AllDebrid API key is not set")
-            return False
-        if self.settings.proxy_enabled and not self.settings.proxy_url:
-            logger.error("Proxy is enabled but no proxy URL is provided")
             return False
         return True
 
@@ -116,60 +118,29 @@ class AllDebridDownloader(DownloaderBase):
             logger.error(f"Failed to validate premium status: {e}")
         return False
 
-    def get_instant_availability(self, infohashes: List[str]) -> Dict[str, list]:
+    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for multiple infohashes
+        Get instant availability for a single infohash
         Required by DownloaderBase
         """
-        if not self.initialized:
-            logger.error("Downloader not properly initialized")
-            return {}
+        torrent_id = None
+        return_value = None
 
         try:
-            params = {f"magnets[{i}]": infohash for i, infohash in enumerate(infohashes)}
-            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/instant", **params)
-            magnets = response.get("magnets", [])
-
-            availability = {}
-            for magnet in magnets:
-                if not isinstance(magnet, dict) or "files" not in magnet:
-                    continue
-
-                files = magnet.get("files", [])
-                valid_files = self._process_files(files)
-
-                if valid_files:
-                    availability[magnet["hash"]] = [valid_files]
-
-            return availability
-
+            torrent_id = self.add_torrent(infohash)
+            time.sleep(1)
+            info = self.get_torrent_info(torrent_id)
+            if info.status == "Ready":
+                files = self.get_files_and_links(torrent_id)
+                processed_files = [DebridFile.create(filename=file["n"], filesize_bytes=file["s"], filetype=item_type) for file in files]
+                if processed_files is not None:
+                    return_value = TorrentContainer(infohash=infohash, files=processed_files)
         except Exception as e:
             logger.error(f"Failed to get instant availability: {e}")
-            return {}
-
-    def _walk_files(self, files: List[dict]) -> Iterator[Tuple[str, int]]:
-        """Walks nested files structure and yields filename, size pairs"""
-        dirs = []
-        for file in files:
-            try:
-                size = int(file.get("s", ""))
-                yield file.get("n", "UNKNOWN"), size
-            except ValueError:
-                dirs.append(file)
-
-        for directory in dirs:
-            yield from self._walk_files(directory.get("e", []))
-
-    def _process_files(self, files: List[dict]) -> Dict[str, dict]:
-        """Process and filter valid video files"""
-        result = {}
-        for i, (name, size) in enumerate(self._walk_files(files)):
-            if (
-                any(name.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
-                and "sample" not in name.lower()
-            ):
-                result[str(i)] = {"filename": name, "filesize": size}
-        return result
+        finally:
+            if torrent_id:
+                self.delete_torrent(torrent_id)
+            return return_value
 
     def add_torrent(self, infohash: str) -> str:
         """
@@ -183,7 +154,7 @@ class AllDebridDownloader(DownloaderBase):
             response = self.api.request_handler.execute(
                 HttpMethod.GET,
                 "magnet/upload",
-                **{"magnets[]": infohash}
+                params={"magnets[]": infohash}
             )
             magnet_info = response.get("magnets", [])[0]
             torrent_id = magnet_info.get("id")
@@ -197,14 +168,11 @@ class AllDebridDownloader(DownloaderBase):
             logger.error(f"Failed to add torrent {infohash}: {e}")
             raise
 
-    def select_files(self, torrent_id: str, files: List[str]):
+    def select_files(self, torrent_id: str, _: List[str] = None) -> None:
         """
         Select files from a torrent
         Required by DownloaderBase
         """
-        if not self.initialized:
-            raise AllDebridError("Downloader not properly initialized")
-
         try:
             # AllDebrid doesn't have a separate file selection endpoint
             # All files are automatically selected when adding the torrent
@@ -213,7 +181,7 @@ class AllDebridDownloader(DownloaderBase):
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
 
-    def get_torrent_info(self, torrent_id: str) -> dict:
+    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """
         Get information about a torrent
         Required by DownloaderBase
@@ -222,11 +190,18 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/status", id=torrent_id)
+            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/status", params={"id": torrent_id})
             info = response.get("magnets", {})
             if "filename" not in info:
                 raise AllDebridError("Invalid torrent info response")
-            return info
+            return TorrentInfo(
+                id=info["id"],
+                name=info["filename"],
+                status=info["status"],
+                bytes=info["size"],
+                created_at=info["uploadDate"],
+                progress=(info["size"] / info["downloaded"]) if info["downloaded"] != 0 else 0
+            )
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
@@ -236,11 +211,25 @@ class AllDebridDownloader(DownloaderBase):
         Delete a torrent
         Required by DownloaderBase
         """
-        if not self.initialized:
-            raise AllDebridError("Downloader not properly initialized")
-
         try:
-            self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", id=torrent_id)
+            self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", params={"id": torrent_id})
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+            raise
+
+    def get_files_and_links(self, torrent_id: str) -> List[DebridFile]:
+        """
+        Get torrent files and links by id
+        """
+        try:
+            response = self.api.request_handler.execute(
+                HttpMethod.GET,
+                "magnet/files",
+                params={"id[]": torrent_id}
+            )
+            magnet_info = next((info for info in response.get("magnets") if info["id"] == torrent_id), {})
+            return magnet_info.get("files", {})
+
+        except Exception as e:
+            logger.error(f"Failed to get files for {torrent_id}: {e}")
             raise
