@@ -15,6 +15,7 @@ from program.settings.manager import settings_manager
 class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
+    concurrent_download_limit: str
 
     @abstractmethod
     def validate(self) -> bool:

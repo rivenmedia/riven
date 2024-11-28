@@ -49,6 +49,10 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         next_service = Downloader
         items_to_submit = [existing_item]
 
+    elif existing_item is not None and existing_item.last_state == States.Downloading:
+        next_service = Downloader
+        items_to_submit = [existing_item]
+
     elif existing_item is not None and existing_item.last_state == States.Downloaded:
         next_service = Symlinker
         items_to_submit = [existing_item]

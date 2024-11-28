@@ -216,6 +216,8 @@ class MediaItem(db.Model):
             return States.Symlinked
         elif self.file and self.folder:
             return States.Downloaded
+        elif self.active_stream.infohash:
+            return States.Downloading
         elif self.is_scraped():
             return States.Scraped
         elif self.title and self.is_released:
@@ -371,7 +373,7 @@ class MediaItem(db.Model):
             for season in self.seasons:
                 for episode in season.episodes:
                     episode._reset(reset_streams)
-                season._reset()
+                season._reset(reset_streams)
         elif self.type == "season":
             for episode in self.episodes:
                 episode._reset(reset_streams)
@@ -481,6 +483,8 @@ class Show(MediaItem):
             return States.Symlinked
         if any(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
+        elif self.active_stream.infohash:
+            return States.Downloading
         if self.is_scraped():
             return States.Scraped
         if any(season.state == States.Indexed for season in self.seasons):
@@ -589,6 +593,8 @@ class Season(MediaItem):
                 return States.Symlinked
             if any(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
+            if self.active_stream.infohash:
+                return States.Downloading
             if self.is_scraped():
                 return States.Scraped
             if any(episode.state == States.Indexed for episode in self.episodes):

@@ -69,6 +69,7 @@ class AllDebridDownloader(DownloaderBase):
         self.key = "alldebrid"
         self.settings = settings_manager.settings.downloaders.all_debrid
         self.api = None
+        self.concurrent_download_limit = 30
         self.initialized = self.validate()
 
     def validate(self) -> bool:

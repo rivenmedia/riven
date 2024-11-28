@@ -74,6 +74,7 @@ class RealDebridDownloader(DownloaderBase):
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
         self.api = None
+        self.concurrent_download_limit = 5
         self.initialized = self.validate()
 
     def validate(self) -> bool:

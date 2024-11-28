@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from queue import Queue
 import time
 from typing import List, Optional, Union
 from loguru import logger
@@ -16,19 +17,21 @@ from program.services.downloaders.models import (
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
+import program.db.db_functions as db_functions
 
 
 class Downloader:
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
-        self.speed_mode = settings_manager.settings.downloaders.prefer_speed_over_quality
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
             AllDebridDownloader: AllDebridDownloader()
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
+        self.concurrent_downloads = []
+        self.concurrent_limit = self.service.concurrent_download_limit
         self.initialized = self.validate()
 
     def validate(self):
@@ -37,6 +40,7 @@ class Downloader:
                 "No downloader service is initialized. Please initialize a downloader service."
             )
             return False
+        self.concurrent_downloads = [item.id for item in db_functions.get_items_by_state(States.Downloading)] 
         return True
 
     def run(self, item: MediaItem):
@@ -49,58 +53,65 @@ class Downloader:
         run_at = None
 
         # Uncached stuff
-        if item.active_stream.infohash:
-            try:
-                # Due to pydantic limitation we need to instantiate a new active_stream
-                item.active_stream = DownloadedTorrent(**item.active_stream.model_dump(mode="json"))
+        if item.last_state == States.Downloading:
+            if len(self.concurrent_downloads > self.concurrent_limit):
+                logger.debug(f"Looks like we are short on downloading slots, trying again in 10 minutes...")
+                run_at = datetime.now() + timedelta(minutes=10)
+            else:
+                try:
+                    # Due to pydantic limitation we need to instantiate a new active_stream
+                    item.active_stream = DownloadedTorrent(**item.active_stream.model_dump(mode="json"))
 
-                # Step 1 - Add Torrent
-                if not item.active_stream.id:
-                    logger.debug(f"Starting uncached download for {item.log_string}")
-                    item.active_stream.id = self.add_torrent(item.active_stream.infohash)
-                    run_at = datetime.now() + timedelta(minutes=1)
-                else:
-                    # Step 2 - Update the torrent information
-                    item.active_stream.info = self.get_torrent_info(item.active_stream.id, item.type)
-
-                    if item.active_stream.info.status == DownloadStatus.WAITING_FOR_USER:
-                        logger.debug(f"Selected files for download of {item.log_string}...")
-                        self.select_files(item.active_stream.id, [file.file_id for file in item.active_stream.info.files])
-
-                    if item.active_stream.info.status == DownloadStatus.READY:
-                        logger.debug(f"Looks like {item.log_string} is ready, lets complete it.")
-                        the_container = TorrentContainer(infohash = item.active_stream.infohash, files=item.active_stream.info.files)
-                        the_container = self.validate_container(the_container, item.type)
-                        item.active_stream.container = the_container
-                        if self.update_item_attributes(item, item.active_stream):
-                            logger.log("DEBRID", f"Downloaded {item.log_string}")
-
-                    # Step 3 - Denial ;)
-                    elif datetime.now() > item.active_stream.downloaded_at + timedelta(minutes=5):
-                        logger.debug(f"Item {item.log_string} doesnt have enough seeders, lets try another...")
-                        raise Exception(f"Not enough seeders for {item.log_string}")
-
-                    elif item.active_stream.info.status == DownloadStatus.QUEUE:
-                        logger.debug(f"Item {item.log_string} is still in downloading queue. Lets try again in a minute...")
+                    # Step 1 - Add Torrent
+                    if not item.active_stream.id:
+                        logger.debug(f"Starting uncached download for {item.log_string}")
+                        item.active_stream.id = self.add_torrent(item.active_stream.infohash)
+                        self.concurrent_downloads.append(item.id)
                         run_at = datetime.now() + timedelta(minutes=1)
-
-                    elif item.active_stream.info.status == DownloadStatus.DOWNLOADING:
-                        # We could do some fancy calculating here, maybe even introduce a time ceiling
-                        logger.debug(f"Item {item.log_string} is still downloading. Lets try again in a minute...")
-                        run_at = datetime.now() + timedelta(minutes=1)
-
-                    elif item.active_stream.info.status == DownloadStatus.ERROR:
-                        raise Exception(f"Debrid service is reporting error for {item.log_string}...")
-
                     else:
-                        raise Exception("WE DONT HAVE A DOWNLOADSTATUS, WTF!")
+                        # Step 2 - Update the torrent information
+                        item.active_stream.info = self.get_torrent_info(item.active_stream.id, item.type)
 
-            except Exception as e:
-                logger.debug(f"Stream {item.active_stream.infohash} failed: {e}")
-                item.blacklist_active_stream()
-                if item.active_stream.id:
-                    self.service.delete_torrent(item.active_stream.id)
-                item.active_stream = DownloadedTorrent(infohash=item.streams[0].infohash)
+                        if item.active_stream.info.status == DownloadStatus.WAITING_FOR_USER:
+                            logger.debug(f"Selected files for download of {item.log_string}...")
+                            self.select_files(item.active_stream.id, [file.file_id for file in item.active_stream.info.files])
+
+                        if item.active_stream.info.status == DownloadStatus.READY:
+                            logger.debug(f"Looks like {item.log_string} is ready, lets complete it.")
+                            the_container = TorrentContainer(infohash = item.active_stream.infohash, files=item.active_stream.info.files)
+                            the_container = self.validate_container(the_container, item.type)
+                            item.active_stream.container = the_container
+                            if self.update_item_attributes(item, item.active_stream):
+                                logger.log("DEBRID", f"Downloaded {item.log_string}")
+                                self.concurrent_downloads.remove(item.id)
+
+                        # Step 3 - Denial ;)
+                        elif datetime.now() > item.active_stream.downloaded_at + timedelta(minutes=5):
+                            logger.debug(f"Item {item.log_string} doesnt have enough seeders, lets try another...")
+                            raise Exception(f"Not enough seeders for {item.log_string}")
+
+                        elif item.active_stream.info.status == DownloadStatus.QUEUE:
+                            logger.debug(f"Item {item.log_string} is still in downloading queue. Lets try again in a minute...")
+                            run_at = datetime.now() + timedelta(minutes=1)
+
+                        elif item.active_stream.info.status == DownloadStatus.DOWNLOADING:
+                            # We could do some fancy calculating here, maybe even introduce a time ceiling
+                            logger.debug(f"Item {item.log_string} is still downloading. Lets try again in a minute...")
+                            run_at = datetime.now() + timedelta(minutes=1)
+
+                        elif item.active_stream.info.status == DownloadStatus.ERROR:
+                            raise Exception(f"Debrid service is reporting error for {item.log_string}...")
+
+                        else:
+                            raise Exception("WE DONT HAVE A DOWNLOADSTATUS, WTF!")
+
+                except Exception as e:
+                    logger.debug(f"Stream {item.active_stream.infohash} failed: {e}")
+                    item.blacklist_active_stream()
+                    if item.active_stream.id:
+                        self.service.delete_torrent(item.active_stream.id)
+                    self.concurrent_downloads.remove(item.id)
+                    item.active_stream = DownloadedTorrent(infohash=item.streams[0].infohash)
 
         # Cached stuff
         else:
@@ -115,6 +126,7 @@ class Downloader:
                         download_result = self.download_stream(stream, the_container)
                         if self.update_item_attributes(item, download_result):
                             logger.log("DEBRID", f"Downloaded cached {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                            item.active_stream = download_result
                             break
                 except Exception as e:
                     logger.debug(f"Stream {stream.infohash} failed: {e}")
