@@ -1,16 +1,17 @@
-{
-    "status": "success",
-    "data": {
-        "magnets": [
-            {
-                "magnet": "magnet:?xt=urn:btih:3648baf850d5930510c1f172b534200ebb5496e6",
-                "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
-                "name": "Ubuntu 24.04",
-                "filename_original": "",
-                "size": 8869638144,
-                "ready": true,
-                "id": 251993753
-            }
-        ]
-    }
+
+  "status": "success",
+  "data": {
+    "magnets": [
+      {
+        "magnet": "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+        "hash": "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+        "name": "Big Buck Bunny",
+        "filename_original": "",
+        "size": 276445467,
+        "ready": true,
+        "id": 264640947
+      }
+    ]
+  }
 }
+

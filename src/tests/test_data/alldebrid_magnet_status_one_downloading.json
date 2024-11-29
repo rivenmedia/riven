@@ -2,10 +2,10 @@
     "status": "success",
     "data": {
         "magnets": {
-            "id": 251993753,
-            "filename": "Ubuntu 24.04",
-            "size": 8869638144,
-            "hash": "3648baf850d5930510c1f172b534200ebb5496e6",
+            "id": 264640947,
+            "filename": "Big Buck Bunny",
+            "size": 276445467,
+            "hash": "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
             "status": "Downloading",
             "statusCode": 1,
             "downloaded": 165063971,
@@ -16,7 +16,6 @@
             "uploadSpeed": 0,
             "uploadDate": 1727454272,
             "completionDate": 0,
-            "links": [],
             "type": "m",
             "notified": false,
             "version": 2

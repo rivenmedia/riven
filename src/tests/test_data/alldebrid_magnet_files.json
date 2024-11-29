@@ -1,0 +1,27 @@
+{
+  "status": "success",
+  "data": {
+    "magnets": [
+      {
+        "id": "264640947",
+        "files": [
+          {
+            "n": "Big Buck Bunny.en.srt",
+            "s": 140,
+            "l": "https://alldebrid.com/f/some-hash"
+          },
+          {
+            "n": "Big Buck Bunny.mp4",
+            "s": 276134947,
+            "l": "https://alldebrid.com/f/some-other-hash"
+          },
+          {
+            "n": "poster.jpg",
+            "s": 310380,
+            "l": "https://alldebrid.com/f/some-different-hash"
+          }
+        ]
+      }
+    ]
+  }
+}
