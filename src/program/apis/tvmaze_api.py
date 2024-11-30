@@ -84,11 +84,15 @@ class TVMazeAPI:
             try:
                 # Handle both 'Z' suffix and explicit timezone
                 timestamp = airstamp.replace('Z', '+00:00')
-                if '.' in timestamp and '+' in timestamp:
-                    # Keep timezone info when stripping milliseconds
-                    ms_start = timestamp.find('.')
-                    tz_start = timestamp.rfind('+')
-                    timestamp = timestamp[:ms_start] + timestamp[tz_start:]
+                if '.' in timestamp:
+                    # Strip milliseconds but preserve timezone
+                    parts = timestamp.split('.')
+                    base = parts[0]
+                    tz = parts[1][parts[1].find('+'):]
+                    timestamp = base + tz if '+' in parts[1] else base + '+00:00'
+                elif not ('+' in timestamp or '-' in timestamp):
+                    # Add UTC timezone if none specified
+                    timestamp = timestamp + '+00:00'
                 return datetime.fromisoformat(timestamp)
             except (ValueError, AttributeError) as e:
                 logger.debug(f"Failed to parse TVMaze airstamp: {airstamp} - {e}")
@@ -96,19 +100,28 @@ class TVMazeAPI:
         try:
             if airdate := getattr(episode_data, "airdate", None):
                 if airtime := getattr(episode_data, "airtime", None):
-                    dt_str = f"{airdate}T{airtime}"
+                    # Combine date and time with UTC timezone
+                    dt_str = f"{airdate}T{airtime}+00:00"
                     return datetime.fromisoformat(dt_str)
                 # If we only have a date, set time to midnight UTC
                 return datetime.fromisoformat(f"{airdate}T00:00:00+00:00")
         except (ValueError, AttributeError) as e:
-            logger.error(f"Failed to parse TVMaze air date/time: {airdate} - {e}")
+            logger.error(f"Failed to parse TVMaze air date/time: {airdate}/{getattr(episode_data, 'airtime', None)} - {e}")
         
         return None
 
     def get_episode_release_time(self, item: MediaItem) -> Optional[datetime]:
         """Get episode release time for a media item"""
-        if not isinstance(item, Episode) or not item.parent or not item.parent.parent or not item.parent.parent.imdb_id:
-            logger.debug(f"Skipping release time lookup - invalid item structure: {item.log_string if item else None}")
+        if not isinstance(item, Episode):
+            logger.debug(f"Skipping release time lookup - not an episode: {item.log_string if item else None}")
+            return None
+            
+        if not item.parent or not item.parent.parent:
+            logger.debug(f"Skipping release time lookup - missing parent/show: {item.log_string}")
+            return None
+            
+        if not item.parent.parent.imdb_id:
+            logger.debug(f"Skipping release time lookup - no IMDb ID: {item.log_string}")
             return None
 
         show = self.get_show_by_imdb_id(item.parent.parent.imdb_id)
@@ -122,7 +135,7 @@ class TVMazeAPI:
             logger.debug(f"Found regular schedule time for {item.log_string}: {air_date}")
         
         # Check streaming releases for next 30 days
-        today = datetime.now()
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         logger.debug(f"Checking streaming schedule for {item.log_string} (Show ID: {show.id})")
         
         for i in range(30):
@@ -142,13 +155,21 @@ class TVMazeAPI:
                 continue
                 
             for release in response.data:
-                if not release or not hasattr(release, "show"):
+                if not release:
                     continue
                     
+                show_data = getattr(release, "show", None)
+                if not show_data:
+                    continue
+                    
+                # Get externals safely
+                externals = getattr(show_data, "externals", {}) or {}
+                show_imdb = externals.get("imdb")
+                show_id = getattr(show_data, "id", None)
+                
                 # Check both IMDb ID and TVMaze show ID
                 is_match = (
-                    (getattr(release.show, "externals", {}).get("imdb") == item.parent.parent.imdb_id or
-                     getattr(release.show, "id", None) == show.id) and
+                    (show_imdb == item.parent.parent.imdb_id or show_id == show.id) and
                     getattr(release, "season", 0) == item.parent.number and
                     getattr(release, "number", 0) == item.number
                 )
