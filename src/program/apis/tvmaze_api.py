@@ -40,18 +40,8 @@ class TVMazeAPI:
         )
         self.request_handler = TVMazeRequestHandler(session)
         
-        # Get timezone by comparing local time with UTC
-        local_time = datetime.now()
-        utc_time = datetime.now(timezone.utc)
-        offset = local_time.hour - utc_time.hour
-        
-        # Create timezone with the calculated offset
-        try:
-            self.local_tz = timezone(timedelta(hours=offset))
-        except Exception:
-            self.local_tz = timezone.utc
-            logger.warning("Could not determine system timezone, using UTC")
-
+        # Obtain the local timezone
+        self.local_tz = datetime.now().astimezone().tzinfo
     def get_show_by_imdb_id(self, imdb_id: str) -> Optional[dict]:
         """Get show information by IMDb ID"""
         if not imdb_id:
