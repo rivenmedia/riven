@@ -1,12 +1,13 @@
 """Trakt updater module"""
 
 from datetime import datetime, timedelta
-from typing import Generator, Union
+from typing import Generator, Optional, Union
 
 from kink import di
 from loguru import logger
 
 from program.apis.trakt_api import TraktAPI
+from program.apis.tvmaze_api import TVMazeAPI
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 
@@ -22,6 +23,7 @@ class TraktIndexer:
         self.settings = settings_manager.settings.indexer
         self.failed_ids = set()
         self.api = di[TraktAPI]
+        self.tvmaze_api = di[TVMazeAPI]
 
     @staticmethod
     def copy_attributes(source, target):
@@ -102,7 +104,6 @@ class TraktIndexer:
             logger.error(f"Failed to parse date: {item.indexed_at} with format: {interval}")
             return False
 
-
     def _add_seasons_to_show(self, show: Show, imdb_id: str):
         """Add seasons to the given show using Trakt API."""
         if not imdb_id or not imdb_id.startswith("tt"):
@@ -118,10 +119,10 @@ class TraktIndexer:
                 for episode in season.episodes:
                     episode_item = self.api.map_item_from_data(episode, "episode", show.genres)
                     if episode_item:
+                        # Try to get an earlier release time from TVMaze
+                        if tvmaze_time := self.tvmaze_api.get_episode_release_time(episode_item):
+                            if not episode_item.aired_at or tvmaze_time < episode_item.aired_at:
+                                episode_item.aired_at = tvmaze_time
+                                logger.debug(f"Using earlier TVMaze release time for {episode_item.log_string}")
                         season_item.add_episode(episode_item)
                 show.add_season(season_item)
-
-
-
-
-
