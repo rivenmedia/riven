@@ -1,7 +1,7 @@
 import logging
 
 from loguru import logger
-from sqlalchemy import engine_from_config, pool, text
+from sqlalchemy import engine_from_config, pool, text, event
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
@@ -73,6 +73,13 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    # Set PostgreSQL to handle case-sensitive identifiers
+    @event.listens_for(connectable, "connect")
+    def set_postgresql_case_sensitive(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("SET quote_all_identifiers = true;")
+        cursor.close()
 
     with connectable.connect() as connection:
         connection = connection.execution_options(isolation_level="AUTOCOMMIT")

@@ -174,9 +174,18 @@ class MediaItem(db.Model):
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        if self.aired_at and self.aired_at <= datetime.now():
-            return True
-        return False
+        if not self.aired_at:
+            return False
+            
+        # Ensure both datetimes are timezone-aware for comparison
+        now = datetime.now().astimezone()
+        aired_at = self.aired_at
+        
+        # Make aired_at timezone-aware if it isn't already
+        if aired_at.tzinfo is None:
+            aired_at = aired_at.replace(tzinfo=now.tzinfo)
+            
+        return aired_at <= now
 
     @property
     def state(self):
@@ -391,6 +400,9 @@ class MediaItem(db.Model):
     def log_string(self):
         return self.title or self.id
 
+    def __repr__(self):
+        return f"MediaItem:{self.log_string}:{self.state.name}"
+
     @property
     def collection(self):
         return self.parent.collection if self.parent else self.id
@@ -419,6 +431,7 @@ class Movie(MediaItem):
 
     def __hash__(self):
         return super().__hash__()
+
 
 class Show(MediaItem):
     """Show class"""

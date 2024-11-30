@@ -82,7 +82,14 @@ class TVMazeAPI:
         """Parse episode air date from TVMaze response"""
         if airstamp := getattr(episode_data, "airstamp", None):
             try:
-                return datetime.fromisoformat(airstamp.replace('Z', '+00:00'))
+                # Handle both 'Z' suffix and explicit timezone
+                timestamp = airstamp.replace('Z', '+00:00')
+                if '.' in timestamp and '+' in timestamp:
+                    # Keep timezone info when stripping milliseconds
+                    ms_start = timestamp.find('.')
+                    tz_start = timestamp.rfind('+')
+                    timestamp = timestamp[:ms_start] + timestamp[tz_start:]
+                return datetime.fromisoformat(timestamp)
             except (ValueError, AttributeError) as e:
                 logger.debug(f"Failed to parse TVMaze airstamp: {airstamp} - {e}")
 
@@ -91,27 +98,34 @@ class TVMazeAPI:
                 if airtime := getattr(episode_data, "airtime", None):
                     dt_str = f"{airdate}T{airtime}"
                     return datetime.fromisoformat(dt_str)
-                return datetime.fromisoformat(airdate)
+                # If we only have a date, set time to midnight UTC
+                return datetime.fromisoformat(f"{airdate}T00:00:00+00:00")
         except (ValueError, AttributeError) as e:
-            logger.error(f"Failed to parse TVMaze air date/time: {airdate}/{airtime} - {e}")
+            logger.error(f"Failed to parse TVMaze air date/time: {airdate} - {e}")
         
         return None
 
     def get_episode_release_time(self, item: MediaItem) -> Optional[datetime]:
         """Get episode release time for a media item"""
         if not isinstance(item, Episode) or not item.parent or not item.parent.parent or not item.parent.parent.imdb_id:
+            logger.debug(f"Skipping release time lookup - invalid item structure: {item.log_string if item else None}")
             return None
 
         show = self.get_show_by_imdb_id(item.parent.parent.imdb_id)
         if not show or not hasattr(show, "id"):
+            logger.debug(f"Failed to get TVMaze show for IMDb ID: {item.parent.parent.imdb_id}")
             return None
 
         # Get episode air date from regular schedule
         air_date = self.get_episode_by_number(show.id, item.parent.number, item.number)
+        if air_date:
+            logger.debug(f"Found regular schedule time for {item.log_string}: {air_date}")
         
-        # Check streaming releases for next 7 days
+        # Check streaming releases for next 30 days
         today = datetime.now()
-        for i in range(7):
+        logger.debug(f"Checking streaming schedule for {item.log_string} (Show ID: {show.id})")
+        
+        for i in range(30):
             check_date = today + timedelta(days=i)
             url = f"{self.BASE_URL}/schedule/web"
             response = self.request_handler.execute(
@@ -119,24 +133,36 @@ class TVMazeAPI:
                 url, 
                 params={
                     "date": check_date.strftime("%Y-%m-%d"),
-                    "country": ""
+                    "country": None
                 }
             )
             
             if not response.is_ok:
+                logger.debug(f"Failed to get streaming schedule for {check_date.strftime('%Y-%m-%d')}")
                 continue
                 
             for release in response.data:
                 if not release or not hasattr(release, "show"):
                     continue
                     
-                if (getattr(release.show, "externals", {}).get("imdb") == item.parent.parent.imdb_id and
+                # Check both IMDb ID and TVMaze show ID
+                is_match = (
+                    (getattr(release.show, "externals", {}).get("imdb") == item.parent.parent.imdb_id or
+                     getattr(release.show, "id", None) == show.id) and
                     getattr(release, "season", 0) == item.parent.number and
-                    getattr(release, "number", 0) == item.number):
-                    
+                    getattr(release, "number", 0) == item.number
+                )
+                
+                if is_match:
                     streaming_date = self._parse_air_date(release)
-                    if streaming_date and (not air_date or streaming_date < air_date):
-                        air_date = streaming_date
-                        logger.debug(f"Found earlier streaming release time for {item.log_string}")
+                    if streaming_date:
+                        logger.debug(f"Found streaming release for {item.log_string}: {streaming_date}")
+                        if not air_date or streaming_date < air_date:
+                            air_date = streaming_date
+                            logger.debug(f"Using earlier streaming release time for {item.log_string}: {streaming_date}")
 
+        if air_date:
+            logger.debug(f"Final release time for {item.log_string}: {air_date}")
+        else:
+            logger.debug(f"No release time found for {item.log_string}")
         return air_date

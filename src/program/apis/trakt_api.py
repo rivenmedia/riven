@@ -360,7 +360,20 @@ class TraktAPI:
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
         """Get the formatted aired date from the data."""
         if item_type in ["show", "season", "episode"] and (first_aired := getattr(data, "first_aired", None)):
-            return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
+            try:
+                # First try with milliseconds
+                return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
+            except ValueError:
+                try:
+                    # Try without milliseconds
+                    return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%SZ")
+                except ValueError as e:
+                    logger.error(f"Failed to parse Trakt air date: {first_aired} - {e}")
+                    return None
         if item_type == "movie" and (released := getattr(data, "released", None)):
-            return datetime.strptime(released, "%Y-%m-%d")
+            try:
+                return datetime.strptime(released, "%Y-%m-%d")
+            except ValueError as e:
+                logger.error(f"Failed to parse Trakt release date: {released} - {e}")
+                return None
         return None

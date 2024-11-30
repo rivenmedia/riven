@@ -116,13 +116,52 @@ class TraktIndexer:
                 continue
             season_item = self.api.map_item_from_data(season, "season", show.genres)
             if season_item:
+                # Set season's parent to show
+                season_item.parent = show
+                
                 for episode in season.episodes:
                     episode_item = self.api.map_item_from_data(episode, "episode", show.genres)
                     if episode_item:
-                        # Try to get an earlier release time from TVMaze
-                        if tvmaze_time := self.tvmaze_api.get_episode_release_time(episode_item):
-                            if not episode_item.aired_at or tvmaze_time < episode_item.aired_at:
+                        # Set episode's parent to season
+                        episode_item.parent = season_item
+                        
+                        # Safe logging with fallback for missing attributes
+                        log_id = getattr(episode_item, 'number', 'unknown')
+                        logger.debug(f"Processing release time for episode {log_id} of season {season_item.number}")
+                        
+                        # Ensure Trakt time is timezone-aware
+                        trakt_time = episode_item.aired_at
+                        if trakt_time and trakt_time.tzinfo is None:
+                            trakt_time = trakt_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                            episode_item.aired_at = trakt_time
+                        
+                        logger.debug(f"Trakt release time: {trakt_time}")
+                        
+                        # Get release time from TVMaze and use it if it's earlier or if Trakt has no time
+                        tvmaze_time = self.tvmaze_api.get_episode_release_time(episode_item)
+                        if tvmaze_time:
+                            # Ensure TVMaze time is timezone-aware
+                            if tvmaze_time.tzinfo is None:
+                                tvmaze_time = tvmaze_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                                
+                            logger.debug(f"TVMaze release time: {tvmaze_time}")
+                            if not trakt_time:
+                                logger.debug(f"Using TVMaze time for episode {log_id} (no Trakt time available)")
                                 episode_item.aired_at = tvmaze_time
-                                logger.debug(f"Using earlier TVMaze release time for {episode_item.log_string}")
-                        season_item.add_episode(episode_item)
-                show.add_season(season_item)
+                            elif tvmaze_time < trakt_time:
+                                logger.debug(f"Using earlier TVMaze time for episode {log_id}")
+                                logger.debug(f"TVMaze: {tvmaze_time} vs Trakt: {trakt_time}")
+                                episode_item.aired_at = tvmaze_time
+                            else:
+                                logger.debug(f"Keeping Trakt time for episode {log_id} (earlier than TVMaze)")
+                                logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
+                        else:
+                            logger.debug(f"No TVMaze release time found for episode {log_id}")
+                            
+                        if episode_item.aired_at:
+                            logger.debug(f"Final release time for episode {log_id}: {episode_item.aired_at}")
+                        else:
+                            logger.debug(f"No release time available for episode {log_id}")
+                            
+                        season_item.episodes.append(episode_item)
+                show.seasons.append(season_item)
