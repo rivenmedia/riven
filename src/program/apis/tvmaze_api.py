@@ -1,6 +1,6 @@
 """TVMaze API client module"""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from loguru import logger
@@ -39,6 +39,18 @@ class TVMazeAPI:
             cache_params=tvmaze_cache
         )
         self.request_handler = TVMazeRequestHandler(session)
+        
+        # Get timezone by comparing local time with UTC
+        local_time = datetime.now()
+        utc_time = datetime.now(timezone.utc)
+        offset = local_time.hour - utc_time.hour
+        
+        # Create timezone with the calculated offset
+        try:
+            self.local_tz = timezone(timedelta(hours=offset))
+        except Exception:
+            self.local_tz = timezone.utc
+            logger.warning("Could not determine system timezone, using UTC")
 
     def get_show_by_imdb_id(self, imdb_id: str) -> Optional[dict]:
         """Get show information by IMDb ID"""
@@ -93,18 +105,23 @@ class TVMazeAPI:
                 elif not ('+' in timestamp or '-' in timestamp):
                     # Add UTC timezone if none specified
                     timestamp = timestamp + '+00:00'
-                return datetime.fromisoformat(timestamp)
+                # Convert to user's timezone
+                utc_dt = datetime.fromisoformat(timestamp)
+                return utc_dt.astimezone(self.local_tz)
             except (ValueError, AttributeError) as e:
                 logger.debug(f"Failed to parse TVMaze airstamp: {airstamp} - {e}")
 
         try:
             if airdate := getattr(episode_data, "airdate", None):
                 if airtime := getattr(episode_data, "airtime", None):
-                    # Combine date and time with UTC timezone
+                    # Combine date and time with UTC timezone first
                     dt_str = f"{airdate}T{airtime}+00:00"
-                    return datetime.fromisoformat(dt_str)
-                # If we only have a date, set time to midnight UTC
-                return datetime.fromisoformat(f"{airdate}T00:00:00+00:00")
+                    utc_dt = datetime.fromisoformat(dt_str)
+                    # Convert to user's timezone
+                    return utc_dt.astimezone(self.local_tz)
+                # If we only have a date, set time to midnight in user's timezone
+                local_midnight = datetime.fromisoformat(f"{airdate}T00:00:00").replace(tzinfo=self.local_tz)
+                return local_midnight
         except (ValueError, AttributeError) as e:
             logger.error(f"Failed to parse TVMaze air date/time: {airdate}/{getattr(episode_data, 'airtime', None)} - {e}")
         
@@ -135,7 +152,7 @@ class TVMazeAPI:
             logger.debug(f"Found regular schedule time for {item.log_string}: {air_date}")
         
         # Check streaming releases for next 30 days
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(self.local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
         logger.debug(f"Checking streaming schedule for {item.log_string} (Show ID: {show.id})")
         
         for i in range(30):

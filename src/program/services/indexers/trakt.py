@@ -1,8 +1,8 @@
 """Trakt updater module"""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import time
 from typing import Generator, Optional, Union
-
 from kink import di
 from loguru import logger
 
@@ -24,6 +24,18 @@ class TraktIndexer:
         self.failed_ids = set()
         self.api = di[TraktAPI]
         self.tvmaze_api = di[TVMazeAPI]
+        
+        # Get timezone by comparing local time with UTC
+        local_time = datetime.now()
+        utc_time = datetime.now(timezone.utc)
+        offset = local_time.hour - utc_time.hour
+        
+        # Create timezone with the calculated offset
+        try:
+            self.local_tz = timezone(timedelta(hours=offset))
+        except Exception:
+            self.local_tz = timezone.utc
+            logger.warning("Could not determine system timezone, using UTC")
 
     @staticmethod
     def copy_attributes(source, target):
@@ -119,11 +131,19 @@ class TraktIndexer:
                 # Set season's parent to show
                 season_item.parent = show
                 
+                # Ensure season has timezone-aware dates
+                if season_item.aired_at and season_item.aired_at.tzinfo is None:
+                    season_item.aired_at = season_item.aired_at.replace(tzinfo=self.local_tz)
+                
                 for episode in season.episodes:
                     episode_item = self.api.map_item_from_data(episode, "episode", show.genres)
                     if episode_item:
                         # Set episode's parent to season
                         episode_item.parent = season_item
+                        
+                        # Ensure episode has timezone-aware dates
+                        if episode_item.aired_at and episode_item.aired_at.tzinfo is None:
+                            episode_item.aired_at = episode_item.aired_at.replace(tzinfo=self.local_tz)
                         
                         # Safe logging with fallback for missing attributes
                         log_id = getattr(episode_item, 'number', 'unknown')
