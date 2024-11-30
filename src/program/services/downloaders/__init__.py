@@ -63,7 +63,7 @@ class Downloader:
                     download_success = True
                     break
                 else:
-                    raise NoMatchingFilesException(f"No valid files found for stream {stream.infohash}")
+                    raise NoMatchingFilesException(f"No valid files found")
             except Exception as e:
                 logger.debug(f"Stream {stream.infohash} failed: {e}")
                 if 'download_result' in locals() and download_result.id:

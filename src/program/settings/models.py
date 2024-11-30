@@ -229,11 +229,6 @@ class MediafusionConfig(Observable):
     url: str = "https://mediafusion.elfhosted.com"
     timeout: int = 30
     ratelimit: bool = True
-    catalogs: List[str] = [
-        "prowlarr_streams",
-        "torrentio_streams",
-        "zilean_dmm_streams"
-    ]
 
 class OrionoidConfig(Observable):
     enabled: bool = False

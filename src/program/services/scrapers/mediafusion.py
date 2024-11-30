@@ -56,9 +56,6 @@ class Mediafusion:
         if not isinstance(self.settings.ratelimit, bool):
             logger.error("Mediafusion ratelimit must be a valid boolean.")
             return False
-        if not self.settings.catalogs:
-            logger.error("Configure at least one Mediafusion catalog.")
-            return False
 
         if self.app_settings.downloaders.real_debrid.enabled:
             self.api_key = self.app_settings.downloaders.real_debrid.api_key
@@ -76,7 +73,6 @@ class Mediafusion:
                 "tk": self.api_key,
                 "ewc": False
             },
-            "sc": self.settings.catalogs,
             "sr": ["4k", "2160p", "1440p", "1080p", "720p", "480p", None],
             "ec": False,
             "eim": False,

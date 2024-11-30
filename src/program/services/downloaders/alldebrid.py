@@ -132,8 +132,27 @@ class AllDebridDownloader(DownloaderBase):
             info = self.get_torrent_info(torrent_id)
             if info.status == "Ready":
                 files = self.get_files_and_links(torrent_id)
-                processed_files = [DebridFile.create(filename=file["n"], filesize_bytes=file["s"], filetype=item_type) for file in files]
-                if processed_files is not None:
+                processed_files = []
+                
+                def process_entry(entry):
+                    if isinstance(entry, dict):
+                        # file entries
+                        if 'n' in entry and 's' in entry and 'l' in entry:
+                            if debrid_file := DebridFile.create(
+                                filename=entry['n'],
+                                filesize_bytes=entry['s'],
+                                filetype=item_type
+                            ):
+                                processed_files.append(debrid_file)
+                        # directory entries
+                        elif 'e' in entry:
+                            for sub_entry in entry['e']:
+                                process_entry(sub_entry)
+
+                for file_entry in files:
+                    process_entry(file_entry)
+
+                if processed_files:
                     return_value = TorrentContainer(infohash=infohash, files=processed_files)
         except Exception as e:
             logger.error(f"Failed to get instant availability: {e}")
