@@ -5,6 +5,7 @@ import time
 from typing import Generator, Optional, Union
 from kink import di
 from loguru import logger
+from tzlocal import get_localzone
 
 from program.apis.trakt_api import TraktAPI
 from program.apis.tvmaze_api import TVMazeAPI
@@ -25,14 +26,9 @@ class TraktIndexer:
         self.api = di[TraktAPI]
         self.tvmaze_api = di[TVMazeAPI]
         
-        # Get timezone by comparing local time with UTC
-        local_time = datetime.now()
-        utc_time = datetime.now(timezone.utc)
-        offset = local_time.hour - utc_time.hour
-        
-        # Create timezone with the calculated offset
+        # Get the system's local timezone
         try:
-            self.local_tz = timezone(timedelta(hours=offset))
+            self.local_tz = get_localzone()
         except Exception:
             self.local_tz = timezone.utc
             logger.warning("Could not determine system timezone, using UTC")

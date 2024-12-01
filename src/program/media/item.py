@@ -426,9 +426,6 @@ class Movie(MediaItem):
         self.file = item.get("file", None)
         super().__init__(item)
 
-    def __repr__(self):
-        return f"Movie:{self.log_string}:{self.state.name}"
-
     def __hash__(self):
         return super().__hash__()
 
@@ -487,12 +484,6 @@ class Show(MediaItem):
         for season in self.seasons:
             season.store_state(given_state)
         super().store_state(given_state)
-
-    def __repr__(self):
-        return f"Show:{self.log_string}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
 
     def copy(self, other):
         super(Show, self).copy(other)
@@ -596,12 +587,6 @@ class Season(MediaItem):
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
 
-    def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
-
     def copy(self, other, copy_parent=True):
         super(Season, self).copy(other)
         for episode in other.episodes:
@@ -665,9 +650,6 @@ class Episode(MediaItem):
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
-
-    def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
 
     def __hash__(self):
         return super().__hash__()

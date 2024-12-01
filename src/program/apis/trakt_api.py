@@ -62,14 +62,9 @@ class TraktAPI:
         session.headers.update(self.headers)
         self.request_handler = TraktRequestHandler(session)
         
-        # Get timezone by comparing local time with UTC
-        local_time = datetime.now()
-        utc_time = datetime.now(timezone.utc)
-        offset = local_time.hour - utc_time.hour
-        
-        # Create timezone with the calculated offset
+        # Get the system's local timezone
         try:
-            self.local_tz = timezone(timedelta(hours=offset))
+            self.local_tz = get_localzone()
         except Exception:
             self.local_tz = timezone.utc
             logger.warning("Could not determine system timezone, using UTC")
