@@ -413,7 +413,7 @@ class MediaItem(db.Model):
             logger.debug(f"{self.log_string} is already paused")
             return
 
-        logger.debug(f"Pausing {self.id}")
+        logger.debug(f"Pausing {self.log_string} (ID: {self.id}, State: {self.state.name})")
         try:
             self.is_paused = True
             self.paused_at = datetime.now()
