@@ -39,8 +39,8 @@ class StartSessionResponse(BaseModel):
     message: str
     session_id: str
     torrent_id: str
-    torrent_info: dict
-    containers: Optional[List[dict]]
+    torrent_info: TorrentInfo
+    containers: Optional[List[TorrentContainer]]
     expires_at: str
 
 class SelectFilesResponse(BaseModel):
@@ -276,7 +276,7 @@ async def start_manual_session(
     session = session_manager.create_session(item_id or imdb_id, info_hash)
 
     try:
-        torrent_id: Union[int, str] = downloader.add_torrent(info_hash)
+        torrent_id: str = downloader.add_torrent(info_hash)
         torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
         container: Optional[TorrentContainer] = downloader.get_instant_availability(info_hash, item.type)
         session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
@@ -284,14 +284,16 @@ async def start_manual_session(
         background_tasks.add_task(session_manager.abort_session, session.id)
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
+    data = {
         "message": "Started manual scraping session",
         "session_id": session.id,
         "torrent_id": torrent_id,
-        "torrent_info": torrent_info.to_dict(),
-        "containers": [container.to_dict()] if container else None,
+        "torrent_info": torrent_info,
+        "containers": [container] if container else None,
         "expires_at": session.expires_at.isoformat()
     }
+
+    return StartSessionResponse(**data)
 
 @router.post(
     "/scrape/select_files/{session_id}",
