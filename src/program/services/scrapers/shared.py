@@ -91,7 +91,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 if _check_item_year(item, torrent.data):
                     torrents.add(torrent)
                 else:
-                    logger.debug(f"Ignoring torrent {torrent.infohash} due to not in time year range, {item.log_string}")
+                    logger.debug(f"Ignoring torrent {torrent.infohash}:{raw_title} due to not in time year range, {item.log_string}")
 
             elif item.type == "show":
                 if torrent.data.seasons and not torrent.data.episodes:
@@ -100,14 +100,14 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     if len(torrent.data.seasons) >= (len(needed_seasons) - 1):
                         torrents.add(torrent)
                     else:
-                        logger.debug(f"Ignoring torrent {torrent.infohash} due mismatch in season size, required {len(needed_seasons)} current {len(torrent.data.seasons)}, {item.log_string}")
+                        logger.debug(f"Ignoring torrent {torrent.infohash}:{raw_title} due mismatch in season size, required {len(needed_seasons)} current {len(torrent.data.seasons)}, {item.log_string}")
 
             elif item.type == "season":
                 # If the torrent has the needed seasons and no episodes, we can add it
                 if any(season in torrent.data.seasons for season in needed_seasons) and not torrent.data.episodes:
                     torrents.add(torrent)
                 else:
-                    logger.debug(f"Ignoring torrent {torrent.infohash} due to missing required season, {item.log_string}")
+                    logger.debug(f"Ignoring torrent {torrent.infohash}:{raw_title} due to missing required season, {item.log_string}")
 
 
             elif item.type == "episode":
@@ -125,10 +125,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 ) and not torrent.data.episodes:
                     torrents.add(torrent)
                 else:
-                    logger.debug(f"Ignoring torrent {torrent.infohash} due to mismatch in season and episode numbers, {item.log_string}")
+                    logger.debug(f"Ignoring torrent {torrent.infohash}:{raw_title} due to mismatch in season and episode numbers, {item.log_string}")
 
             else:
-                logger.debug(f"Skipping torrent {infohash} as it does not fit to any category. {item.log_string}")
+                logger.debug(f"Skipping torrent {infohash}:{raw_title} as it does not fit to any category. {item.log_string}")
             processed_infohashes.add(infohash)
 
         except (ValueError, AttributeError) as e:
@@ -153,7 +153,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             torrents_dict[torrent.infohash] = Stream(torrent)
         logger.log("SCRAPER", f"Kept {len(torrents_dict)} streams for {item.log_string} after processing bucket limit")
         return torrents_dict
-    logger.debug(f"No valid torrent remains after filtering for {item.log_string}: {raw_title}")
+    logger.debug(f"No valid torrent remains after filtering for {item.log_string}")
     return {}
 
 
