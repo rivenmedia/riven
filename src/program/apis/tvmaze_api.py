@@ -71,19 +71,23 @@ class TVMazeAPI:
             return None
 
         url = f"{self.BASE_URL}/shows/{show_id}/episodebynumber"
-        response = self.request_handler.execute(
-            HttpMethod.GET,
-            url,
-            params={
-                "season": season,
-                "number": episode
-            }
-        )
-        
-        if not response.is_ok or not response.data:
-            return None
+        try:
+            response = self.request_handler.execute(
+                HttpMethod.GET,
+                url,
+                params={
+                    "season": season,
+                    "number": episode
+                }
+            )
+            
+            if not response.is_ok or not response.data:
+                return None
 
-        return self._parse_air_date(response.data)
+            return self._parse_air_date(response.data)
+        except Exception as e:
+            logger.debug(f"Error getting episode by number - show_id={show_id}, S{season:02d}E{episode:02d}: {e}")
+            return None
 
     def _parse_air_date(self, episode_data) -> Optional[datetime]:
         """Parse episode air date from TVMaze response"""
