@@ -71,13 +71,6 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
-    def to_dict(self) -> dict:
-        """Convert the DebridFile to a dictionary"""
-        return {
-            "file_id": self.file_id,
-            "filename": self.filename,
-            "filesize": self.filesize
-        }
 
 class ParsedFileData(BaseModel):
     """Represents a parsed file from a filename"""
@@ -101,15 +94,6 @@ class TorrentContainer(BaseModel):
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> dict:
-        """Convert the TorrentContainer to a dictionary"""
-        return {
-            file.file_id or str(i): {
-                "filename": file.filename,
-                "filesize": file.filesize
-            }
-            for i, file in enumerate(self.files)
-        }
 
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
@@ -130,9 +114,6 @@ class TorrentInfo(BaseModel):
         """Convert bytes to megabytes"""
         return self.bytes / 1_000_000
 
-    def to_dict(self) -> dict:
-        """Convert the TorrentInfo to a dictionary"""
-        return self.model_dump()
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
