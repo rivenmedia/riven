@@ -42,18 +42,28 @@ class TVMazeAPI:
         
         # Obtain the local timezone
         self.local_tz = datetime.now().astimezone().tzinfo
+
     def get_show_by_imdb_id(self, imdb_id: str) -> Optional[dict]:
         """Get show information by IMDb ID"""
         if not imdb_id:
             return None
         
         url = f"{self.BASE_URL}/lookup/shows"
-        response = self.request_handler.execute(
-            HttpMethod.GET, 
-            url,
-            params={"imdb": imdb_id}
-        )
-        return response.data if response.is_ok else None
+        try:
+            response = self.request_handler.execute(
+                HttpMethod.GET, 
+                url,
+                params={"imdb": imdb_id}
+            )
+            if response.is_ok and response.data:
+                logger.debug(f"Found TVMaze show for IMDb ID {imdb_id}: ID={getattr(response.data, 'id', None)}")
+                return response.data
+            else:
+                logger.debug(f"No TVMaze show found for IMDb ID: {imdb_id}")
+                return None
+        except Exception as e:
+            logger.debug(f"Error getting TVMaze show for IMDb ID {imdb_id}: {e}")
+            return None
 
     def get_episode_by_number(self, show_id: int, season: int, episode: int) -> Optional[datetime]:
         """Get episode information by show ID and episode number"""
@@ -112,81 +122,46 @@ class TVMazeAPI:
         
         return None
 
-    def get_episode_release_time(self, item: MediaItem) -> Optional[datetime]:
-        """Get episode release time for a media item"""
-        if item.type != "episode":
-            logger.debug(f"Skipping release time lookup - not an episode: {item.log_string if item else None}")
-            return None
-            
-        # Get show from season's parent
-        season = item.parent if item.parent else None
-        show = season.parent if season else None
-        
-        if not show or not show.imdb_id:
-            logger.debug(f"Skipping release time lookup - no IMDb ID: {item.log_string}")
+    def get_episode_release_time(self, episode: Episode) -> Optional[datetime]:
+        """Get episode release time from TVMaze."""
+        if not episode or not episode.parent or not episode.parent.parent:
             return None
 
-        show_data = self.get_show_by_imdb_id(show.imdb_id)
-        if not show_data or not hasattr(show_data, "id"):
-            logger.debug(f"Failed to get TVMaze show for IMDb ID: {show.imdb_id}")
+        show = episode.parent.parent
+        if not hasattr(show, 'tvmaze_id') or not show.tvmaze_id:
+            # Try to get TVMaze ID using IMDb ID
+            show_data = self.get_show_by_imdb_id(show.imdb_id)
+            if show_data:
+                show.tvmaze_id = getattr(show_data, 'id', None)
+                logger.debug(f"Set TVMaze ID {show.tvmaze_id} for show {show.title} (IMDb: {show.imdb_id})")
+            else:
+                logger.debug(f"Could not find TVMaze ID for show {show.title} (IMDb: {show.imdb_id})")
+                return None
+
+        if not show.tvmaze_id:
+            logger.debug(f"No valid TVMaze ID for show {show.title}")
             return None
 
-        # Get episode air date from regular schedule
-        season_number = season.number if season else None
-        air_date = self.get_episode_by_number(show_data.id, season_number, item.number)
-        if air_date:
-            logger.debug(f"Found regular schedule time for {item.log_string}: {air_date}")
-        
-        # Check streaming releases for next 30 days
-        today = datetime.now(self.local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
-        logger.debug(f"Checking streaming schedule for {item.log_string} (Show ID: {show_data.id})")
-        
-        for i in range(30):
-            check_date = today + timedelta(days=i)
-            url = f"{self.BASE_URL}/schedule/web"
-            response = self.request_handler.execute(
-                HttpMethod.GET, 
-                url, 
-                params={
-                    "date": check_date.strftime("%Y-%m-%d"),
-                    "country": None
-                }
-            )
-            
-            if not response.is_ok:
-                logger.debug(f"Failed to get streaming schedule for {check_date.strftime('%Y-%m-%d')}")
-                continue
-                
-            for release in response.data:
-                if not release:
-                    continue
-                    
-                show_data = getattr(release, "show", None)
-                if not show_data:
-                    continue
-                    
-                # Get externals safely
-                externals = getattr(show_data, "externals", {}) or {}
-                show_imdb = externals.get("imdb")
-                show_id = getattr(show_data, "id", None)
-                
-                # Check both IMDb ID and TVMaze show ID
-                is_match = (
-                    (show_imdb == show.imdb_id or show_id == show_data.id) and
-                    getattr(release, "season", 0) == item.parent.number and
-                    getattr(release, "number", 0) == item.number
-                )
-                
-                if is_match:
-                    streaming_date = self._parse_air_date(release)
-                    if streaming_date:
-                        logger.debug(f"Found streaming release for {item.log_string}: {streaming_date}")
-                        if not air_date or streaming_date < air_date:
-                            air_date = streaming_date
-                            logger.debug(f"Using earlier streaming release time for {item.log_string}: {streaming_date}")
+        # Log what we're checking
+        logger.debug(f"Found regular schedule time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {episode.aired_at}")
 
-        if air_date:
-            logger.debug(f"Final release time for {item.log_string}: {air_date}")
-        else:
-            logger.debug(f"No release time found for {item.log_string}")
-        return air_date
+        # Get episode by number
+        try:
+            logger.debug(f"Checking streaming schedule for {show.title} S{episode.parent.number:02d}E{episode.number:02d} (Show ID: {show.tvmaze_id})")
+            release_time = self.get_episode_by_number(show.tvmaze_id, episode.parent.number, episode.number)
+            if release_time:
+                logger.debug(f"Final release time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {release_time}")
+                return release_time
+        except TVMazeAPIError as e:
+            if "404" in str(e):
+                # This is expected for future episodes that don't exist in TVMaze yet
+                logger.debug(f"Episode not found in TVMaze (likely future episode): {show.title} S{episode.parent.number:02d}E{episode.number:02d}")
+            else:
+                # Log other API errors
+                logger.error(f"TVMaze API error for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting TVMaze time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {e}")
+            return None
+
+        return None

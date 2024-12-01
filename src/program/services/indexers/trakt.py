@@ -10,6 +10,7 @@ from tzlocal import get_localzone
 from program.apis.trakt_api import TraktAPI
 from program.apis.tvmaze_api import TVMazeAPI
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.settings.manager import settings_manager
 
 
@@ -147,17 +148,29 @@ class TraktIndexer:
     def update_release_times(self, show: Show) -> None:
         """Update release times for a show by comparing Trakt and TVMaze times."""
         for season in show.seasons:
+            # Track if we've hit a missing episode or future episode in TVMaze
+            skip_remaining = False
+            
             for episode in season.episodes:
+                # Skip remaining episodes in season if we already found a reason to skip
+                if skip_remaining:
+                    logger.debug(f"Skipping episode {episode.number} of {show.title} S{season.number} - earlier episode is far in future or missing")
+                    continue
+
+                # Only check ongoing/unreleased episodes
+                if episode.last_state not in [States.Ongoing, States.Unreleased]:
+                    continue
+
                 # Safe logging with fallback for missing attributes
                 log_id = getattr(episode, 'number', 'unknown')
-                logger.debug(f"Processing release time for episode {log_id} of season {season.number}")
+                logger.debug(f"Processing release time for episode {log_id} of {show.title} season {season.number}")
                 
                 # Ensure Trakt time is timezone-aware
                 trakt_time = episode.aired_at
                 if trakt_time and trakt_time.tzinfo is None:
                     trakt_time = trakt_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
                     episode.aired_at = trakt_time
-                
+        
                 logger.debug(f"Trakt release time: {trakt_time}")
                 
                 # Get release time from TVMaze and use it if it's earlier or if Trakt has no time
@@ -166,22 +179,33 @@ class TraktIndexer:
                     # Ensure TVMaze time is timezone-aware
                     if tvmaze_time.tzinfo is None:
                         tvmaze_time = tvmaze_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
-                        
+                    
                     logger.debug(f"TVMaze release time: {tvmaze_time}")
                     if not trakt_time:
                         logger.debug(f"Using TVMaze time for episode {log_id} (no Trakt time available)")
                         episode.aired_at = tvmaze_time
                     elif tvmaze_time < trakt_time:
-                        logger.debug(f"Using earlier TVMaze time for episode {log_id}")
-                        logger.debug(f"TVMaze: {tvmaze_time} vs Trakt: {trakt_time}")
+                        logger.debug(f"Using TVMaze time for episode {log_id} (earlier than Trakt)")
+                        logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
                         episode.aired_at = tvmaze_time
                     else:
                         logger.debug(f"Keeping Trakt time for episode {log_id} (earlier than TVMaze)")
                         logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
                 else:
                     logger.debug(f"No TVMaze release time found for episode {log_id}")
-                    
+                    # Only skip future episodes if we have no release date from either source
+                    if not trakt_time:
+                        logger.debug(f"No release date available from either source for episode {log_id}")
+                        skip_remaining = True
+            
+                # Check if the final release time is more than a week away
                 if episode.aired_at:
                     logger.debug(f"Final release time for episode {log_id}: {episode.aired_at}")
+                    # Get current time in the same timezone as episode.aired_at
+                    now = datetime.now(episode.aired_at.tzinfo)
+                    time_until_release = episode.aired_at - now
+                    if time_until_release.days > 7:
+                        logger.debug(f"Episode {log_id} is {time_until_release.days} days away, skipping remaining episodes")
+                        skip_remaining = True
                 else:
                     logger.debug(f"No release time available for episode {log_id}")
