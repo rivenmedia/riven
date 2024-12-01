@@ -40,6 +40,7 @@ if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import func, select, text
+from sqlalchemy.orm import joinedload
 
 from program.db import db_functions
 from program.db.db import (
@@ -210,39 +211,67 @@ class Program(threading.Thread):
 
             result = session.execute(items_query)
             for item_id in result.scalars():
-                self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+                self.em.add_event(Event("RetryLibrary", item_id=item_id))
 
     def _update_ongoing(self) -> None:
-        """Update state for ongoing and unreleased items."""
+        """Update ongoing and unreleased items."""
         with db.Session() as session:
-            item_ids = session.execute(
-                select(MediaItem.id)
-                .where(MediaItem.type.in_(["movie", "episode"]))
-                .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-            ).scalars().all()
+            # Get all items that are ongoing or unreleased
+            items = session.execute(
+                select(MediaItem)
+                .options(
+                    # For shows, eagerly load seasons and episodes
+                    joinedload(Show.seasons)
+                    .joinedload(Season.episodes),
+                    # For seasons, eagerly load episodes and parent show
+                    joinedload(Season.episodes),
+                    joinedload(Season.parent),
+                    # For episodes, eagerly load parent season and grandparent show
+                    joinedload(Episode.parent)
+                    .joinedload(Season.parent)
+                )
+                .where(
+                    MediaItem.type.in_(["show", "season", "episode"]),
+                    MediaItem.last_state.in_([States.Ongoing, States.Unreleased])
+                )
+            ).unique().scalars().all()
 
-            if not item_ids:
-                logger.debug("No ongoing or unreleased items to update.")
+            if not items:
                 return
 
-            logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
+            logger.debug(f"Updating state for {len(items)} ongoing and unreleased items.")
+            trakt_indexer = self.services[TraktIndexer]
 
-            counter = 0
-            for item_id in item_ids:
+            for item in items:
                 try:
-                    item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
-                    if item:
-                        previous_state, new_state = item.store_state()
-                        if previous_state != new_state:
-                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
-                            counter += 1
-                        session.merge(item)
-                        session.commit()
+                    # Get the top-level show for any item type
+                    show = item if item.type == "show" else (
+                        item.parent.parent if item.type == "episode" else item.parent
+                    )
+                    
+                    # Update release times by comparing Trakt and TVMaze
+                    trakt_indexer.update_release_times(show)
+                    
+                    # Check if the item's state needs to be updated
+                    if item.is_released:
+                        if item.type == "show":
+                            # For shows, check if all episodes are released
+                            all_episodes_released = all(
+                                episode.is_released 
+                                for season in item.seasons 
+                                for episode in season.episodes
+                            )
+                            if all_episodes_released:
+                                item.store_state(States.Indexed)
+                        else:
+                            item.store_state(States.Indexed)
+                    
+                    session.commit()
+                    
                 except Exception as e:
-                    logger.error(f"Failed to update state for item with ID {item_id}: {e}")
-
-            logger.debug(f"Found {counter} items with updated state.")
+                    logger.error(f"Failed to update {item.log_string}: {e}")
+                    session.rollback()
+                    continue
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""

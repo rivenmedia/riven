@@ -141,43 +141,47 @@ class TraktIndexer:
                         if episode_item.aired_at and episode_item.aired_at.tzinfo is None:
                             episode_item.aired_at = episode_item.aired_at.replace(tzinfo=self.local_tz)
                         
-                        # Safe logging with fallback for missing attributes
-                        log_id = getattr(episode_item, 'number', 'unknown')
-                        logger.debug(f"Processing release time for episode {log_id} of season {season_item.number}")
-                        
-                        # Ensure Trakt time is timezone-aware
-                        trakt_time = episode_item.aired_at
-                        if trakt_time and trakt_time.tzinfo is None:
-                            trakt_time = trakt_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
-                            episode_item.aired_at = trakt_time
-                        
-                        logger.debug(f"Trakt release time: {trakt_time}")
-                        
-                        # Get release time from TVMaze and use it if it's earlier or if Trakt has no time
-                        tvmaze_time = self.tvmaze_api.get_episode_release_time(episode_item)
-                        if tvmaze_time:
-                            # Ensure TVMaze time is timezone-aware
-                            if tvmaze_time.tzinfo is None:
-                                tvmaze_time = tvmaze_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
-                                
-                            logger.debug(f"TVMaze release time: {tvmaze_time}")
-                            if not trakt_time:
-                                logger.debug(f"Using TVMaze time for episode {log_id} (no Trakt time available)")
-                                episode_item.aired_at = tvmaze_time
-                            elif tvmaze_time < trakt_time:
-                                logger.debug(f"Using earlier TVMaze time for episode {log_id}")
-                                logger.debug(f"TVMaze: {tvmaze_time} vs Trakt: {trakt_time}")
-                                episode_item.aired_at = tvmaze_time
-                            else:
-                                logger.debug(f"Keeping Trakt time for episode {log_id} (earlier than TVMaze)")
-                                logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
-                        else:
-                            logger.debug(f"No TVMaze release time found for episode {log_id}")
-                            
-                        if episode_item.aired_at:
-                            logger.debug(f"Final release time for episode {log_id}: {episode_item.aired_at}")
-                        else:
-                            logger.debug(f"No release time available for episode {log_id}")
-                            
                         season_item.episodes.append(episode_item)
                 show.seasons.append(season_item)
+
+    def update_release_times(self, show: Show) -> None:
+        """Update release times for a show by comparing Trakt and TVMaze times."""
+        for season in show.seasons:
+            for episode in season.episodes:
+                # Safe logging with fallback for missing attributes
+                log_id = getattr(episode, 'number', 'unknown')
+                logger.debug(f"Processing release time for episode {log_id} of season {season.number}")
+                
+                # Ensure Trakt time is timezone-aware
+                trakt_time = episode.aired_at
+                if trakt_time and trakt_time.tzinfo is None:
+                    trakt_time = trakt_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                    episode.aired_at = trakt_time
+                
+                logger.debug(f"Trakt release time: {trakt_time}")
+                
+                # Get release time from TVMaze and use it if it's earlier or if Trakt has no time
+                tvmaze_time = self.tvmaze_api.get_episode_release_time(episode)
+                if tvmaze_time:
+                    # Ensure TVMaze time is timezone-aware
+                    if tvmaze_time.tzinfo is None:
+                        tvmaze_time = tvmaze_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                        
+                    logger.debug(f"TVMaze release time: {tvmaze_time}")
+                    if not trakt_time:
+                        logger.debug(f"Using TVMaze time for episode {log_id} (no Trakt time available)")
+                        episode.aired_at = tvmaze_time
+                    elif tvmaze_time < trakt_time:
+                        logger.debug(f"Using earlier TVMaze time for episode {log_id}")
+                        logger.debug(f"TVMaze: {tvmaze_time} vs Trakt: {trakt_time}")
+                        episode.aired_at = tvmaze_time
+                    else:
+                        logger.debug(f"Keeping Trakt time for episode {log_id} (earlier than TVMaze)")
+                        logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
+                else:
+                    logger.debug(f"No TVMaze release time found for episode {log_id}")
+                    
+                if episode.aired_at:
+                    logger.debug(f"Final release time for episode {log_id}: {episode.aired_at}")
+                else:
+                    logger.debug(f"No release time available for episode {log_id}")
