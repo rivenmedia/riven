@@ -105,7 +105,7 @@ class Symlinker:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
         yield item
 
-   def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
+    def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
         base_delay = timedelta(seconds=5)
         delay_seconds = min(100, 5 * (2 ** item.symlinked_times))
         next_attempt_delay = timedelta(seconds=delay_seconds)
