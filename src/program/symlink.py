@@ -106,9 +106,8 @@ class Symlinker:
         yield item
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
-        base_delay = timedelta(seconds=5)
-        delay_seconds = min(100, 5 * (2 ** item.symlinked_times))
-        next_attempt_delay = timedelta(seconds=delay_seconds)
+        base_delay = timedelta(seconds=4)
+        next_attempt_delay = base_delay * (2 ** item.symlinked_times)
         next_attempt_time = datetime.now() + next_attempt_delay
         return next_attempt_time
 
