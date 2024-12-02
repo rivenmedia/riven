@@ -39,7 +39,7 @@ from .types import Event
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, or_, and_, exists
 from sqlalchemy.orm import joinedload
 
 from program.db import db_functions
@@ -216,7 +216,7 @@ class Program(threading.Thread):
     def _update_ongoing(self) -> None:
         """Update ongoing and unreleased items."""
         with db.Session() as session:
-            # Get all items that are ongoing or unreleased
+            # Get all items that are ongoing or unreleased, excluding completed and indexed items
             items = session.execute(
                 select(MediaItem)
                 .options(
@@ -232,7 +232,39 @@ class Program(threading.Thread):
                 )
                 .where(
                     MediaItem.type.in_(["show", "season", "episode"]),
-                    MediaItem.last_state.in_([States.Ongoing, States.Unreleased])
+                    MediaItem.last_state.in_([States.Ongoing, States.Unreleased]),
+                    # Exclude items that are part of completed/indexed shows/seasons
+                    or_(
+                        # For shows: exclude if any season is completed/indexed
+                        and_(
+                            MediaItem.type == "show",
+                            ~exists(
+                                select(1)
+                                .select_from(Season)
+                                .where(
+                                    Season.parent_id == MediaItem.id,
+                                    Season.last_state.in_([States.Completed, States.Indexed])
+                                )
+                            ).correlate(MediaItem)
+                        ),
+                        # For seasons: exclude if completed/indexed
+                        and_(
+                            MediaItem.type == "season",
+                            ~MediaItem.last_state.in_([States.Completed, States.Indexed])
+                        ),
+                        # For episodes: exclude if parent season is completed/indexed
+                        and_(
+                            MediaItem.type == "episode",
+                            exists(
+                                select(1)
+                                .select_from(Season)
+                                .where(
+                                    Season.id == Episode.parent_id,
+                                    ~Season.last_state.in_([States.Completed, States.Indexed])
+                                )
+                            ).correlate(MediaItem)
+                        )
+                    )
                 )
             ).unique().scalars().all()
 
@@ -255,17 +287,19 @@ class Program(threading.Thread):
                     # Check if the item's state needs to be updated
                     if item.is_released:
                         if item.type == "show":
-                            # For shows, check if all episodes are released
-                            all_episodes_released = all(
-                                episode.is_released 
-                                for season in item.seasons 
-                                for episode in season.episodes
-                            )
-                            if all_episodes_released:
-                                item.store_state(States.Indexed)
+                            # For shows, only update state of non-completed/indexed seasons/episodes
+                            for season in item.seasons:
+                                if season.last_state not in [States.Completed, States.Indexed]:
+                                    for episode in season.episodes:
+                                        if episode.last_state not in [States.Completed, States.Indexed] and episode.is_released:
+                                            episode.store_state(States.Indexed)
+                                    season.store_state()  # Let season determine its own state
+                            show.store_state()  # Let show determine its own state
                         else:
-                            item.store_state(States.Indexed)
-                    
+                            # For individual season/episode items
+                            if item.last_state not in [States.Completed, States.Indexed]:
+                                item.store_state(States.Indexed)
+                
                     session.commit()
                     
                 except Exception as e:

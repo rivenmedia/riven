@@ -142,8 +142,11 @@ class MediaItem(db.Model):
         item_type = item.get("type", "unknown")
         return f"{item_type}_{trakt_id}"
 
-    def store_state(self, given_state=None) -> tuple[States, States]:
+    def store_state(self, given_state: States = None) -> tuple[States, States]:
         """Store the state of the item."""
+        if self.last_state == States.Completed:
+            return
+        
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
         if previous_state and previous_state != new_state:

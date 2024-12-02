@@ -147,23 +147,31 @@ class TraktIndexer:
 
     def update_release_times(self, show: Show) -> None:
         """Update release times for a show by comparing Trakt and TVMaze times."""
+        # Skip if show is already fully processed
+        if show.last_state in [States.Completed, States.Indexed]:
+            return
+
         for season in show.seasons:
+            # Skip if season is already fully processed
+            if season.last_state in [States.Completed, States.Indexed]:
+                continue
+
             # Track if we've hit a missing episode or future episode in TVMaze
             skip_remaining = False
+            season_exists = False  # Track if the season exists in TVMaze
             
             for episode in season.episodes:
+                # Skip if episode is already fully processed
+                if episode.last_state in [States.Completed, States.Indexed]:
+                    continue
+
                 # Skip remaining episodes in season if we already found a reason to skip
                 if skip_remaining:
-                    logger.debug(f"Skipping episode {episode.number} of {show.title} S{season.number} - earlier episode is far in future or missing")
-                    continue
-
-                # Only check ongoing/unreleased episodes
-                if episode.last_state not in [States.Ongoing, States.Unreleased]:
-                    continue
+                    break
 
                 # Safe logging with fallback for missing attributes
-                log_id = getattr(episode, 'number', 'unknown')
-                logger.debug(f"Processing release time for episode {log_id} of {show.title} season {season.number}")
+                log_id = f"{show.title} S{season.number}E{episode.number}"
+                logger.debug(f"Processing {log_id}")
                 
                 # Ensure Trakt time is timezone-aware
                 trakt_time = episode.aired_at
@@ -171,41 +179,50 @@ class TraktIndexer:
                     trakt_time = trakt_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
                     episode.aired_at = trakt_time
         
-                logger.debug(f"Trakt release time: {trakt_time}")
+                logger.debug(f"Trakt time for {log_id}: {trakt_time}")
                 
                 # Get release time from TVMaze and use it if it's earlier or if Trakt has no time
-                tvmaze_time = self.tvmaze_api.get_episode_release_time(episode)
-                if tvmaze_time:
+                tvmaze_result = self.tvmaze_api.get_episode_release_time(episode)
+                
+                # Handle different TVMaze response types
+                if isinstance(tvmaze_result, datetime):
+                    # Got a valid air date
+                    season_exists = True
+                    tvmaze_time = tvmaze_result
+                    
                     # Ensure TVMaze time is timezone-aware
                     if tvmaze_time.tzinfo is None:
                         tvmaze_time = tvmaze_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
                     
-                    logger.debug(f"TVMaze release time: {tvmaze_time}")
+                    logger.debug(f"TVMaze time for {log_id}: {tvmaze_time}")
                     if not trakt_time:
-                        logger.debug(f"Using TVMaze time for episode {log_id} (no Trakt time available)")
+                        logger.debug(f"Using TVMaze time (no Trakt time available)")
                         episode.aired_at = tvmaze_time
                     elif tvmaze_time < trakt_time:
-                        logger.debug(f"Using TVMaze time for episode {log_id} (earlier than Trakt)")
-                        logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
+                        logger.debug(f"Using TVMaze time (earlier than Trakt: {tvmaze_time} vs {trakt_time})")
                         episode.aired_at = tvmaze_time
                     else:
-                        logger.debug(f"Keeping Trakt time for episode {log_id} (earlier than TVMaze)")
-                        logger.debug(f"Trakt: {trakt_time} vs TVMaze: {tvmaze_time}")
-                else:
-                    logger.debug(f"No TVMaze release time found for episode {log_id}")
-                    # Only skip future episodes if we have no release date from either source
+                        logger.debug(f"Using Trakt time (earlier than TVMaze: {trakt_time} vs {tvmaze_time})")
+                elif tvmaze_result is False:
+                    # Episode exists but has no air date
+                    season_exists = True
                     if not trakt_time:
-                        logger.debug(f"No release date available from either source for episode {log_id}")
+                        logger.error(f"No air date available for {log_id}")
+                        skip_remaining = True
+                else:
+                    # Episode doesn't exist in TVMaze
+                    if not season_exists:
+                        logger.error(f"{show.title} S{season.number} not in TVMaze")
+                        break  # Exit episode loop since whole season is missing
+                    elif not trakt_time:
+                        logger.error(f"No air date available for {log_id}")
                         skip_remaining = True
             
                 # Check if the final release time is more than a week away
                 if episode.aired_at:
-                    logger.debug(f"Final release time for episode {log_id}: {episode.aired_at}")
                     # Get current time in the same timezone as episode.aired_at
                     now = datetime.now(episode.aired_at.tzinfo)
                     time_until_release = episode.aired_at - now
                     if time_until_release.days > 7:
-                        logger.debug(f"Episode {log_id} is {time_until_release.days} days away, skipping remaining episodes")
+                        logger.debug(f"Skipping remaining episodes - {log_id} is {time_until_release.days} days away")
                         skip_remaining = True
-                else:
-                    logger.debug(f"No release time available for episode {log_id}")

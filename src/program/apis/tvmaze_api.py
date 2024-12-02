@@ -1,7 +1,7 @@
 """TVMaze API client module"""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Union
 
 from loguru import logger
 from requests import Session
@@ -62,11 +62,16 @@ class TVMazeAPI:
                 logger.debug(f"No TVMaze show found for IMDb ID: {imdb_id}")
                 return None
         except Exception as e:
-            logger.debug(f"Error getting TVMaze show for IMDb ID {imdb_id}: {e}")
+            logger.error(f"Error getting TVMaze show for IMDb ID {imdb_id}: {e}")
             return None
 
-    def get_episode_by_number(self, show_id: int, season: int, episode: int) -> Optional[datetime]:
-        """Get episode information by show ID and episode number"""
+    def get_episode_by_number(self, show_id: int, season: int, episode: int) -> Optional[Union[datetime, bool]]:
+        """Get episode information by show ID and episode number.
+        Returns:
+            - datetime: If episode exists and has an air date
+            - False: If episode exists but has no air date
+            - None: If episode doesn't exist (404) or error occurred
+        """
         if not show_id or not season or not episode:
             return None
 
@@ -81,12 +86,22 @@ class TVMazeAPI:
                 }
             )
             
+            # Don't log 404s as they're expected for future/nonexistent episodes
+            if response.status_code == 404:
+                return None
+            
             if not response.is_ok or not response.data:
+                logger.error(f"Invalid TVMaze response for S{season:02d}E{episode:02d} (show_id={show_id})")
                 return None
 
-            return self._parse_air_date(response.data)
+            # Episode exists but might not have an air date
+            air_date = self._parse_air_date(response.data)
+            return air_date if air_date else False
+            
         except Exception as e:
-            logger.debug(f"Error getting episode by number - show_id={show_id}, S{season:02d}E{episode:02d}: {e}")
+            # Only log unexpected errors, not 404s
+            if "404" not in str(e):
+                logger.error(f"TVMaze API error for S{season:02d}E{episode:02d} (show_id={show_id})")
             return None
 
     def _parse_air_date(self, episode_data) -> Optional[datetime]:
@@ -108,7 +123,7 @@ class TVMazeAPI:
                 utc_dt = datetime.fromisoformat(timestamp)
                 return utc_dt.astimezone(self.local_tz)
             except (ValueError, AttributeError) as e:
-                logger.debug(f"Failed to parse TVMaze airstamp: {airstamp} - {e}")
+                logger.error(f"Failed to parse TVMaze airstamp: {airstamp} - {e}")
 
         try:
             if airdate := getattr(episode_data, "airdate", None):
@@ -126,8 +141,13 @@ class TVMazeAPI:
         
         return None
 
-    def get_episode_release_time(self, episode: Episode) -> Optional[datetime]:
-        """Get episode release time from TVMaze."""
+    def get_episode_release_time(self, episode: Episode) -> Optional[Union[datetime, bool]]:
+        """Get episode release time from TVMaze.
+        Returns:
+            - datetime: If episode exists and has an air date
+            - False: If episode exists but has no air date
+            - None: If episode doesn't exist (404) or error occurred
+        """
         if not episode or not episode.parent or not episode.parent.parent:
             return None
 
@@ -152,18 +172,18 @@ class TVMazeAPI:
         # Get episode by number
         try:
             logger.debug(f"Checking streaming schedule for {show.title} S{episode.parent.number:02d}E{episode.number:02d} (Show ID: {show.tvmaze_id})")
-            release_time = self.get_episode_by_number(show.tvmaze_id, episode.parent.number, episode.number)
-            if release_time:
-                logger.debug(f"Final release time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {release_time}")
-                return release_time
-        except TVMazeAPIError as e:
-            if "404" in str(e):
-                # This is expected for future episodes that don't exist in TVMaze yet
-                logger.debug(f"Episode not found in TVMaze (likely future episode): {show.title} S{episode.parent.number:02d}E{episode.number:02d}")
+            result = self.get_episode_by_number(show.tvmaze_id, episode.parent.number, episode.number)
+            
+            if isinstance(result, datetime):
+                logger.debug(f"Final release time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {result}")
+                return result
+            elif result is False:
+                logger.debug(f"Episode exists in TVMaze but has no air date: {show.title} S{episode.parent.number:02d}E{episode.number:02d}")
+                return False
             else:
-                # Log other API errors
-                logger.error(f"TVMaze API error for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {e}")
-            return None
+                logger.debug(f"Episode not found in TVMaze: {show.title} S{episode.parent.number:02d}E{episode.number:02d}")
+                return None
+                
         except Exception as e:
             logger.error(f"Unexpected error getting TVMaze time for {show.title} S{episode.parent.number:02d}E{episode.number:02d}: {e}")
             return None
