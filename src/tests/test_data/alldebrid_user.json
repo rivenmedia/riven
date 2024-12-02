@@ -1,0 +1,31 @@
+{
+  "status": "success",
+  "data": {
+    "user": {
+      "username": "user1",
+      "email": "alldebrid-user@example.com",
+      "isPremium": true,
+      "isTrial": false,
+      "isSubscribed": false,
+      "premiumUntil": 2035514599,
+      "lang": "en",
+      "preferedDomain": "com",
+      "fidelityPoints": 140,
+      "limitedHostersQuotas": {
+        "ddl": 1000,
+        "dropgalaxy": 5000,
+        "fileal": 5000,
+        "filedot": 1000,
+        "filefactory": 3000,
+        "filespace": 3000,
+        "flashbit": 5000,
+        "gigapeta": 5000,
+        "isra": 3000,
+        "katfile": 3000,
+        "worldbytez": 3000
+      },
+      "notifications": [],
+      "history": true
+    }
+  }
+}
