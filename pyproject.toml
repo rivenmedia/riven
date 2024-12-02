@@ -45,7 +45,7 @@ kink = "^0.8.1"
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
 pyperf = "^2.2.0"
-pytest = "^8.3.2"
+pytest = "^8.3.4"
 pytest-mock = "^3.14.0"
 responses = "0.25.3"
 pyfakefs = "^5.4.1"
@@ -61,7 +61,7 @@ mypy = "^1.11.2"
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = "^8.3.2"
+pytest = "^8.3.4"
 
 [build-system]
 requires = ["poetry-core"]
