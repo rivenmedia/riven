@@ -63,6 +63,9 @@ class Mediafusion:
         elif self.app_settings.downloaders.torbox.enabled:
             self.api_key = self.app_settings.downloaders.torbox.api_key
             self.downloader = "torbox"
+        elif self.app_settings.downloaders.all_debrid.enabled:
+            self.api_key = self.app_settings.downloaders.all_debrid.api_key
+            self.downloader = "alldebrid"
         else:
             logger.error("No downloader enabled, please enable at least one.")
             return False
