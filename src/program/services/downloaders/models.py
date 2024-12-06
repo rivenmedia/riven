@@ -57,7 +57,7 @@ class DebridFile(BaseModel):
 
     ) -> Optional["DebridFile"]:
         """Factory method to validate and create a DebridFile"""
-        if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) and not "sample" in filename.lower():
+        if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) or "sample" in filename.lower():
             return None
 
         if limit_filesize:
