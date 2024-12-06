@@ -88,7 +88,7 @@ class Symlinker:
         """Check if the media item exists and create a symlink if it does"""
         items = self._get_items_to_update(item)
         if not self._should_submit(items):
-            if item.symlinked_times == 5:
+            if item.symlinked_times == 6:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
                 item.blacklist_active_stream()
                 item.reset()
@@ -106,7 +106,7 @@ class Symlinker:
         yield item
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
-        base_delay = timedelta(seconds=5)
+        base_delay = timedelta(seconds=4)
         next_attempt_delay = base_delay * (2 ** item.symlinked_times)
         next_attempt_time = datetime.now() + next_attempt_delay
         return next_attempt_time
