@@ -1,5 +1,8 @@
 ﻿import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import time
+from zoneinfo import ZoneInfo
+from tzlocal import get_localzone
 from types import SimpleNamespace
 from typing import List, Optional, Union
 from urllib.parse import urlencode
@@ -58,6 +61,13 @@ class TraktAPI:
         }
         session.headers.update(self.headers)
         self.request_handler = TraktRequestHandler(session)
+        
+        # Get the system's local timezone
+        try:
+            self.local_tz = get_localzone()
+        except Exception:
+            self.local_tz = timezone.utc
+            logger.warning("Could not determine system timezone, using UTC")
 
     def validate(self):
         return self.request_handler.execute(HttpMethod.GET, f"{self.BASE_URL}/lists/2")
@@ -360,7 +370,25 @@ class TraktAPI:
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
         """Get the formatted aired date from the data."""
         if item_type in ["show", "season", "episode"] and (first_aired := getattr(data, "first_aired", None)):
-            return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
+            try:
+                # First try with milliseconds
+                utc_dt = datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+                return utc_dt.astimezone(self.local_tz)
+            except ValueError:
+                try:
+                    # Try without milliseconds
+                    utc_dt = datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    return utc_dt.astimezone(self.local_tz)
+                except ValueError as e:
+                    logger.error(f"Failed to parse Trakt air date: {first_aired} - {e}")
+                    return None
+                    
         if item_type == "movie" and (released := getattr(data, "released", None)):
-            return datetime.strptime(released, "%Y-%m-%d")
+            try:
+                # For movies, Trakt provides date only, set to midnight in user's timezone
+                local_midnight = datetime.strptime(released, "%Y-%m-%d").replace(tzinfo=self.local_tz)
+                return local_midnight
+            except ValueError as e:
+                logger.error(f"Failed to parse Trakt release date: {released} - {e}")
+                return None
         return None
