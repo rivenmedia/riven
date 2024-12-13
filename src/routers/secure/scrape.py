@@ -19,6 +19,7 @@ from program.services.indexers.trakt import TraktIndexer
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
+from program.services.downloaders.models import TorrentContainer, TorrentInfo
 
 
 class Stream(BaseModel):
@@ -38,8 +39,8 @@ class StartSessionResponse(BaseModel):
     message: str
     session_id: str
     torrent_id: str
-    torrent_info: dict
-    containers: Optional[List[dict]]
+    torrent_info: TorrentInfo
+    containers: Optional[List[TorrentContainer]]
     expires_at: str
 
 class SelectFilesResponse(BaseModel):
@@ -102,10 +103,10 @@ class ScrapingSession:
         self.id = id
         self.item_id = item_id
         self.magnet = magnet
-        self.torrent_id: Optional[str] = None
-        self.torrent_info: Optional[dict] = None
-        self.containers: Optional[list] = None
-        self.selected_files: Optional[dict] = None
+        self.torrent_id: Optional[Union[int, str]] = None
+        self.torrent_info: Optional[TorrentInfo] = None
+        self.containers: Optional[TorrentContainer] = None
+        self.selected_files: Optional[Dict[str, Dict[str, Union[str, int]]]] = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
@@ -218,13 +219,10 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
                 .unique()
                 .scalar_one_or_none()
             )
-        streams = scraper.scrape(item)
-        stream_containers = downloader.get_instant_availability([stream for stream in streams.keys()])
-        for stream in streams.keys():
-            if len(stream_containers.get(stream, [])) > 0:
-                streams[stream].is_cached = True
-            else:
-                streams[stream].is_cached = False
+        streams: Dict[str, Stream] = scraper.scrape(item)
+        for stream in streams.values():
+            container = downloader.get_instant_availability(stream.infohash, item.type)
+            stream.is_cached = bool(container and container.cached)
         log_string = item.log_string
 
     return {
@@ -278,22 +276,24 @@ async def start_manual_session(
     session = session_manager.create_session(item_id or imdb_id, info_hash)
 
     try:
-        torrent_id = downloader.add_torrent(info_hash)
-        torrent_info = downloader.get_torrent_info(torrent_id)
-        containers = downloader.get_instant_availability([session.magnet]).get(session.magnet, None)
-        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=containers)
+        torrent_id: str = downloader.add_torrent(info_hash)
+        torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
+        container: Optional[TorrentContainer] = downloader.get_instant_availability(info_hash, item.type)
+        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
     except Exception as e:
         background_tasks.add_task(session_manager.abort_session, session.id)
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
+    data = {
         "message": "Started manual scraping session",
         "session_id": session.id,
         "torrent_id": torrent_id,
         "torrent_info": torrent_info,
-        "containers": containers,
+        "containers": [container] if container else None,
         "expires_at": session.expires_at.isoformat()
     }
+
+    return StartSessionResponse(**data)
 
 @router.post(
     "/scrape/select_files/{session_id}",
@@ -307,7 +307,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
         raise HTTPException(status_code=404, detail="Session not found or expired")
     if not session.torrent_id:
         session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="")
+        raise HTTPException(status_code=500, detail="No torrent ID found")
 
     download_type = "uncached"
     if files.model_dump() in session.containers:
@@ -336,7 +336,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
         raise HTTPException(status_code=404, detail="Session not found or expired")
     if not session.item_id:
         session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="")
+        raise HTTPException(status_code=500, detail="No item ID found")
 
     with db.Session() as db_session:
         if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id) and not db_functions.get_item_by_id(session.item_id):
@@ -357,8 +357,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
             item.reset()
             item.file = data.filename
             item.folder = data.filename
-            item.alternative_folder = session.torrent_info["original_filename"]
-            item.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
+            item.alternative_folder = session.torrent_info.alternative_filename
+            item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
             torrent = rtn.rank(session.magnet, session.magnet)
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.append(item.id)
@@ -377,8 +377,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Con
                         item_episode.reset()
                         item_episode.file = episode_data.filename
                         item_episode.folder = episode_data.filename
-                        item_episode.alternative_folder = session.torrent_info["original_filename"]
-                        item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info["id"]}
+                        item_episode.alternative_folder = session.torrent_info.alternative_filename
+                        item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
                         torrent = rtn.rank(session.magnet, session.magnet)
                         item_episode.streams.append(ItemStream(torrent))
                         item_ids_to_submit.append(item_episode.id)

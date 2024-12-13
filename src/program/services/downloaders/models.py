@@ -47,18 +47,27 @@ class DebridFile(BaseModel):
     filesize: Optional[int] = Field(default=None)
 
     @classmethod
-    def create(cls, filename: str, filesize_bytes: int, filetype: Literal["movie", "episode"], file_id: Optional[int] = None) -> Optional["DebridFile"]:
+    def create(
+        cls,
+        filename: str,
+        filesize_bytes: int,
+        filetype: Literal["movie", "show", "season", "episode"],
+        file_id: Optional[int] = None,
+        limit_filesize: bool = True
+
+    ) -> Optional["DebridFile"]:
         """Factory method to validate and create a DebridFile"""
-        if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) and not "sample" in filename.lower():
+        if not any(filename.endswith(ext) for ext in VIDEO_EXTENSIONS) or "sample" in filename.lower():
             return None
-        
-        filesize_mb = filesize_bytes / 1_000_000
-        if filetype == "movie":
-            if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_MOVIE_CONSTRAINT[1]):
-                return None
-        elif filetype == "episode":
-            if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
-                return None
+
+        if limit_filesize:
+            filesize_mb = filesize_bytes / 1_000_000
+            if filetype == "movie":
+                if not (FILESIZE_MOVIE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_MOVIE_CONSTRAINT[1]):
+                    return None
+            elif filetype in ["show", "season", "episode"]:
+                if not (FILESIZE_EPISODE_CONSTRAINT[0] <= filesize_mb <= FILESIZE_EPISODE_CONSTRAINT[1]):
+                    return None
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 

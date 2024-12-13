@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from RTN import ParsedData, parse
 
@@ -41,7 +41,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def add_torrent(self, infohash: str) -> int:
+    def add_torrent(self, infohash: str) -> Union[int, str]:
         """
         Add a torrent and return its information
 
@@ -49,22 +49,26 @@ class DownloaderBase(ABC):
             infohash: The hash of the torrent to add
 
         Returns:
-            str: The ID of the added torrent
+            Union[int, str]: The ID of the added torrent
+        
+        Notes:
+            The return type changes depending on the downloader
         """
         pass
 
     @abstractmethod
-    def select_files(self, request: list[int]) -> None:
+    def select_files(self, torrent_id: Union[int, str], file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent
 
         Args:
-            request: File selection details including torrent ID and file IDs
+            torrent_id: ID of the torrent to select files for
+            file_ids: IDs of the files to select
         """
         pass
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: Union[int, str]) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 
@@ -77,7 +81,7 @@ class DownloaderBase(ABC):
         pass
 
     @abstractmethod
-    def delete_torrent(self, torrent_id: str) -> None:
+    def delete_torrent(self, torrent_id: Union[int, str]) -> None:
         """
         Delete a torrent from the service
 
