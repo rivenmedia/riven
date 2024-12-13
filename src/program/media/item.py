@@ -142,8 +142,11 @@ class MediaItem(db.Model):
         item_type = item.get("type", "unknown")
         return f"{item_type}_{trakt_id}"
 
-    def store_state(self, given_state=None) -> tuple[States, States]:
+    def store_state(self, given_state: States = None) -> tuple[States, States]:
         """Store the state of the item."""
+        if self.last_state == States.Completed:
+            return
+        
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
         if previous_state and previous_state != new_state:
@@ -174,9 +177,18 @@ class MediaItem(db.Model):
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        if self.aired_at and self.aired_at <= datetime.now():
-            return True
-        return False
+        if not self.aired_at:
+            return False
+            
+        # Ensure both datetimes are timezone-aware for comparison
+        now = datetime.now().astimezone()
+        aired_at = self.aired_at
+        
+        # Make aired_at timezone-aware if it isn't already
+        if aired_at.tzinfo is None:
+            aired_at = aired_at.replace(tzinfo=now.tzinfo)
+            
+        return aired_at <= now
 
     @property
     def state(self):
@@ -391,6 +403,9 @@ class MediaItem(db.Model):
     def log_string(self):
         return self.title or self.id
 
+    def __repr__(self):
+        return f"MediaItem:{self.log_string}:{self.state.name}"
+
     @property
     def collection(self):
         return self.parent.collection if self.parent else self.id
@@ -414,11 +429,9 @@ class Movie(MediaItem):
         self.file = item.get("file", None)
         super().__init__(item)
 
-    def __repr__(self):
-        return f"Movie:{self.log_string}:{self.state.name}"
-
     def __hash__(self):
         return super().__hash__()
+
 
 class Show(MediaItem):
     """Show class"""
@@ -474,12 +487,6 @@ class Show(MediaItem):
         for season in self.seasons:
             season.store_state(given_state)
         super().store_state(given_state)
-
-    def __repr__(self):
-        return f"Show:{self.log_string}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
 
     def copy(self, other):
         super(Show, self).copy(other)
@@ -583,12 +590,6 @@ class Season(MediaItem):
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
 
-    def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
-
-    def __hash__(self):
-        return super().__hash__()
-
     def copy(self, other, copy_parent=True):
         super(Season, self).copy(other)
         for episode in other.episodes:
@@ -652,9 +653,6 @@ class Episode(MediaItem):
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
-
-    def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
