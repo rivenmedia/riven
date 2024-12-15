@@ -381,7 +381,8 @@ class TraktAPI:
                 logger.debug(f"  3. Your local time will be: {local_time}")
                 
                 # Check if we have timezone information from Trakt
-                tz = getattr(data, "airs", {}).get("timezone", None)
+                airs = getattr(data, "airs", None)
+                tz = getattr(airs, "timezone", None) if airs else None
                 if tz:
                     logger.debug(f"  4. Show timezone from Trakt: {tz}")
                     try:
