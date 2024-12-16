@@ -380,21 +380,44 @@ class Program(threading.Thread):
         """Update the state of a single item."""
         with db.Session() as session:
             try:
-                item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
-                if item:
-                    previous_state, new_state = item.store_state()
-                    if previous_state != new_state:
-                        self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                        logger.log("RELEASE", f" {item.log_string} has been released!")
-                        logger.debug(f"Changed state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
-                    session.merge(item)
-                    session.commit()
+                item = session.execute(
+                    select(MediaItem).where(MediaItem.id == item_id)
+                ).scalar_one()
+
+                if not item:
+                    logger.error(f"Item {item_id} not found")
+                    return
+
+                # Check if this item should be scheduled for release today
+                current_time = datetime.now().astimezone()
+                if item.aired_at:
+                    delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
+                    delayed_time = item.aired_at + timedelta(minutes=delay_minutes)
+                    
+                    # If it's a future release for today, schedule it
+                    if (delayed_time > current_time and
+                        item.aired_at.year == current_time.year and
+                        item.aired_at.month == current_time.month and
+                        item.aired_at.day == current_time.day):
+                        release_time_str = delayed_time.strftime("%I:%M %p").lstrip('0')
+                        logger.log("PROGRAM", f"Scheduling {item.log_string} for release at {release_time_str}")
+                        self.scheduled_releases[item.id] = delayed_time
+                    # If it should have been released already, release it now
+                    elif delayed_time <= current_time:
+                        previous_state, new_state = item.store_state()
+                        if previous_state != new_state:
+                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
+                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
+
+                session.merge(item)
+                session.commit()
             except Exception as e:
                 session.rollback()
                 logger.error(f"Failed to update scheduled state for item with ID {item_id}: {e}")
             finally:
                 # Remove from scheduled releases after processing
-                self.scheduled_releases.pop(item_id, None)
+                if item_id in self.scheduled_releases and self.scheduled_releases[item_id] <= current_time:
+                    del self.scheduled_releases[item_id]
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
