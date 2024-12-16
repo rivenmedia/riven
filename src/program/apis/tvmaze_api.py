@@ -100,7 +100,7 @@ class TVMazeAPI:
                 return None
             
             # Find the next episode that hasn't aired yet
-            current_time = datetime.fromisoformat("2024-12-14T20:04:26-08:00")
+            current_time = datetime.now()
             next_episode = None
             target_episode_time = None
             

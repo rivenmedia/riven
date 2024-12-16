@@ -217,157 +217,164 @@ class Program(threading.Thread):
 
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
-        # Use the user's local time as source of truth
-        current_time = datetime.fromisoformat("2024-12-14T02:59:41-08:00")
-        logger.debug(f"Current time: {current_time}")
-        
-        logger.log("PROGRAM", "Checking for today's releases...")
-        trakt_api = di[TraktAPI]
+        try:
+            # Get current time with timezone info
+            current_time = datetime.now().astimezone()
+            logger.debug(f"Current time: {current_time.strftime('%I:%M %p').lstrip('0')}")
+            
+            logger.log("PROGRAM", "Checking for today's releases...")
+            trakt_api = di[TraktAPI]
 
-        # Clear old scheduled releases
-        new_scheduled_releases = {}
-        for k, v in self.scheduled_releases.items():
-            if v > current_time:
-                new_scheduled_releases[k] = v
-        self.scheduled_releases = new_scheduled_releases
+            # Clear old scheduled releases
+            new_scheduled_releases = {}
+            for k, v in self.scheduled_releases.items():
+                if v > current_time:
+                    new_scheduled_releases[k] = v
+            self.scheduled_releases = new_scheduled_releases
 
-        with db.Session() as session:
-            try:
-                # Get items that are either ongoing or unreleased
-                items = session.execute(
-                    select(MediaItem, MediaItem.aired_at)
-                    .where(MediaItem.type.in_(["movie", "episode"]))
-                    .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-                ).unique().all()
+            items_found_today = False  # Track if we found any items for today
+            todays_releases = []  # Track items and their release times
 
-                for item, aired_at in items:
-                    if not aired_at:
-                        continue
-                    
-                    # Fetch latest airtime from both Trakt and TVMaze
-                    try:
-                        if item.imdb_id:
-                            trakt_time = None
-                            tvmaze_time = None
-                            air_time = None  # Initialize air_time here
-                            
-                            # Get Trakt time
-                            try:
-                                trakt_item = trakt_api.create_item_from_imdb_id(item.imdb_id, type=item.type)
-                                if trakt_item and trakt_item.aired_at:
-                                    # Convert Trakt time to local time
-                                    trakt_time = trakt_item.aired_at
-                                    if trakt_time.tzinfo is None:
-                                        trakt_time = trakt_time.replace(tzinfo=ZoneInfo("UTC"))
-                                    trakt_time = trakt_time.astimezone(current_time.tzinfo)
-                                    logger.debug(f"Trakt airtime for {item.log_string}: {trakt_time}")
-                                    
-                                    # Store network info if available
-                                    if hasattr(trakt_item, "network"):
-                                        item.network = trakt_item.network
-                            except Exception as e:
-                                logger.error(f"Failed to fetch airtime from Trakt for {item.log_string}: {e}")
-                            
-                            # Get TVMaze time (already in local time)
-                            try:
-                                # Skip TVMaze lookup for movies
-                                if item.type == "movie":
+            with db.Session() as session:
+                try:
+                    # Get items that are either ongoing or unreleased
+                    items = session.execute(
+                        select(MediaItem, MediaItem.aired_at)
+                        .where(MediaItem.type.in_(["movie", "episode"]))
+                        .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
+                    ).unique().all()
+
+                    for item, aired_at in items:
+                        if not aired_at:
+                            continue
+                        
+                        try:
+                            if item.imdb_id:
+                                trakt_time = None
+                                tvmaze_time = None
+                                air_time = None  # Initialize air_time here
+                                
+                                # Get Trakt time
+                                try:
+                                    trakt_item = trakt_api.create_item_from_imdb_id(item.imdb_id, type=item.type)
+                                    if trakt_item and trakt_item.aired_at:
+                                        # Convert Trakt time to local time
+                                        trakt_time = trakt_item.aired_at
+                                        if trakt_time.tzinfo is None:
+                                            trakt_time = trakt_time.replace(tzinfo=ZoneInfo("UTC"))
+                                        trakt_time = trakt_time.astimezone(current_time.tzinfo)
+                                        logger.debug(f"Trakt airtime for {item.log_string}: {trakt_time}")
+                                        
+                                        # Store network info if available
+                                        if hasattr(trakt_item, "network"):
+                                            item.network = trakt_item.network
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch airtime from Trakt for {item.log_string}: {e}")
+                                
+                                # Get TVMaze time (already in local time)
+                                try:
+                                    # Skip TVMaze lookup for movies
+                                    if item.type == "movie":
+                                        continue
+
+                                    tvmaze_api = di[TVMazeAPI]
+                                    # Get show title - for episodes, use the parent show's title
+                                    show_name = item.get_top_title()
+                                    if not show_name:
+                                        continue
+
+                                    # Skip if it's just an episode number
+                                    if show_name.lower().startswith("episode "):
+                                        continue
+
+                                    # For episodes, pass the season and episode numbers
+                                    season_number = None
+                                    episode_number = None
+                                    if item.type == "episode":
+                                        if isinstance(item, Episode):
+                                            season_number = item.parent.number if item.parent else None
+                                            episode_number = item.number
+
+                                    tvmaze_time = tvmaze_api.get_show_by_imdb(
+                                        item.imdb_id, 
+                                        show_name=show_name,
+                                        season_number=season_number,
+                                        episode_number=episode_number
+                                    )
+                                    if tvmaze_time:
+                                        logger.debug(f"TVMaze airtime for {item.log_string}: {tvmaze_time}")
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch airtime from TVMaze for {item.log_string}: {e}")
+                                
+                                # Use the earliest available time
+                                if trakt_time and tvmaze_time:
+                                    air_time = min(trakt_time, tvmaze_time)
+                                    logger.debug(f"Using earliest time between Trakt ({trakt_time}) and TVMaze ({tvmaze_time})")
+                                else:
+                                    air_time = trakt_time or tvmaze_time
+                                    if not air_time:
+                                        logger.debug(f"No airtime available from either Trakt or TVMaze for {item.log_string}")
+                                        continue  # Skip this item
+                                
+                                if not air_time:  # Add explicit check
+                                    logger.debug(f"No valid air time found for {item.log_string}")
                                     continue
-
-                                tvmaze_api = di[TVMazeAPI]
-                                # Get show title - for episodes, use the parent show's title
-                                show_name = item.get_top_title()
-                                if not show_name:
-                                    continue
-
-                                # Skip if it's just an episode number
-                                if show_name.lower().startswith("episode "):
-                                    continue
-
-                                # For episodes, pass the season and episode numbers
-                                season_number = None
-                                episode_number = None
-                                if item.type == "episode":
-                                    if isinstance(item, Episode):
-                                        season_number = item.parent.number if item.parent else None
-                                        episode_number = item.number
-
-                                tvmaze_time = tvmaze_api.get_show_by_imdb(
-                                    item.imdb_id, 
-                                    show_name=show_name,
-                                    season_number=season_number,
-                                    episode_number=episode_number
-                                )
-                                if tvmaze_time:
-                                    logger.debug(f"TVMaze airtime for {item.log_string}: {tvmaze_time}")
-                            except Exception as e:
-                                logger.error(f"Failed to fetch airtime from TVMaze for {item.log_string}: {e}")
-                            
-                            # Use the earliest available time
-                            if trakt_time and tvmaze_time:
-                                air_time = min(trakt_time, tvmaze_time)
-                                logger.debug(f"Using earliest time between Trakt ({trakt_time}) and TVMaze ({tvmaze_time})")
-                            else:
-                                air_time = trakt_time or tvmaze_time
-                                if not air_time:
-                                    logger.debug(f"No airtime available from either Trakt or TVMaze for {item.log_string}")
-                                    continue  # Skip this item
-                            
-                            if not air_time:  # Add explicit check
-                                logger.debug(f"No valid air time found for {item.log_string}")
-                                continue
-                            
-                            # Store the local time in the database
-                            item.aired_at = air_time
-                            session.merge(item)
-                            logger.debug(f"Updated airtime for {item.log_string} to {air_time}")
-                            
-                            # Calculate delayed release time
-                            delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
-                            delayed_time = air_time + timedelta(minutes=delay_minutes)
-                            
-                            # Format times for display (e.g., "8:00 PM")
-                            air_time_str = air_time.strftime("%-I:%M %p").lstrip('0')
-                            release_time_str = delayed_time.strftime("%-I:%M %p").lstrip('0')
-                            
-                            # Compare in local time
-                            if (air_time.year == current_time.year and 
-                                air_time.month == current_time.month and 
-                                air_time.day == current_time.day):
-                                logger.debug(f"Found today's item: {item.log_string}")
+                                
+                                # Store the local time in the database
+                                item.aired_at = air_time
+                                session.merge(item)
+                                logger.debug(f"Updated airtime for {item.log_string} to {air_time}")
+                                
+                                # Calculate delayed release time
+                                delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
+                                delayed_time = air_time + timedelta(minutes=delay_minutes)
+                                
+                                # Format times for display (e.g., "8:00 PM")
+                                air_time_str = air_time.strftime("%I:%M %p").lstrip('0')
+                                release_time_str = delayed_time.strftime("%I:%M %p").lstrip('0')
+                                
+                                # If it aired in the past (including delay), release it immediately
                                 if delayed_time <= current_time:
                                     logger.log("PROGRAM", f"- {item.log_string} was scheduled to release at {air_time_str}")
-                                else:
-                                    logger.log("PROGRAM", f"- {item.log_string} will release at {release_time_str} (after {delay_minutes}min delay)")
-                    except Exception as e:
-                        logger.error(f"Failed to fetch airtime for {item.log_string}: {e}")
-                        continue
-                
-                # Commit any airtime updates
-                session.commit()
-                
-                # Log today's schedule
-                logger.log("PROGRAM", "No items scheduled for release today. Next check in 24 hours.")
+                                    # Trigger immediate state update
+                                    previous_state, new_state = item.store_state()
+                                    if previous_state != new_state:
+                                        self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
+                                        logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
+                                    continue
+                                
+                                # For future items, only schedule if they air today
+                                if (air_time.year == current_time.year and 
+                                    air_time.month == current_time.month and 
+                                    air_time.day == current_time.day):
+                                    items_found_today = True
+                                    todays_releases.append((item.log_string, release_time_str))
+                                    logger.debug(f"Found today's item: {item.log_string}")
+                                    logger.log("PROGRAM", f"- {item.log_string} will release at {release_time_str} (included {delay_minutes}min delay)")
+                                    # Add to scheduled releases if not already there
+                                    if item.id not in self.scheduled_releases:
+                                        self.scheduled_releases[item.id] = delayed_time
+                        except Exception as e:
+                            logger.error(f"Failed to fetch airtime for {item.log_string}: {e}")
+                            continue
 
-                # Update items that have already aired
-                counter = 0
-                for item, aired_at in items:
-                    try:
-                        previous_state, new_state = item.store_state()
-                        if previous_state != new_state:
-                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
-                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
-                            counter += 1
-                        session.merge(item)
-                        session.commit()
-                    except Exception as e:
-                        logger.error(f"Failed to update state for item with ID {item.id}: {e}")
+                    # Commit any airtime updates
+                    session.commit()
 
-                if counter > 0:
-                    logger.debug(f"Updated state for {counter} items.")
-                    
-            except Exception as e:
-                logger.error(f"Error in _update_ongoing: {str(e)}")
+                    # Log summary of today's releases
+                    if todays_releases:
+                        logger.log("PROGRAM", "\nToday's releases:")
+                        for item_name, release_time in sorted(todays_releases, key=lambda x: x[1]):
+                            logger.log("PROGRAM", f"  • {item_name} at {release_time}")
+                    else:
+                        logger.log("PROGRAM", "\nNo releases scheduled for today")
+
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Database error in _update_ongoing: {e}")
+                    raise
+        except Exception as e:
+            logger.error(f"Error in _update_ongoing: {e}")
 
     def _update_item_state(self, item_id: str) -> None:
         """Update the state of a single item."""
@@ -383,6 +390,7 @@ class Program(threading.Thread):
                     session.merge(item)
                     session.commit()
             except Exception as e:
+                session.rollback()
                 logger.error(f"Failed to update scheduled state for item with ID {item_id}: {e}")
             finally:
                 # Remove from scheduled releases after processing
@@ -390,27 +398,19 @@ class Program(threading.Thread):
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
-        # Schedule the ongoing state update function
-        self.scheduler.add_job(
-            self._update_ongoing,
-            'interval',
-            hours=24,
-            id="update_ongoing",
-            replace_existing=True
-        )
-        
-        # Schedule midnight update
-        current_time = datetime.now()
+        # Schedule the ongoing state update function to run at midnight
+        current_time = datetime.now().astimezone()
         midnight = (current_time + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        logger.debug(f"Scheduling next midnight update at: {midnight}")
+        logger.debug(f"Scheduling next midnight update at: {midnight.strftime('%Y-%m-%d %H:%M:%S %z')}")
         
         self.scheduler.add_job(
             self._update_ongoing,
             'cron',
             hour=0,
             minute=0,
-            id="midnight_update",
-            replace_existing=True
+            id="update_ongoing",
+            replace_existing=True,
+            misfire_grace_time=3600  # Allow up to 1 hour delay if system is busy
         )
         
         # Run update_ongoing immediately on startup
