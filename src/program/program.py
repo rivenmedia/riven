@@ -402,12 +402,22 @@ class Program(threading.Thread):
                         release_time_str = delayed_time.strftime("%I:%M %p").lstrip('0')
                         logger.log("PROGRAM", f"Scheduling {item.log_string} for release at {release_time_str}")
                         self.scheduled_releases[item.id] = delayed_time
+                        
+                        # Schedule a one-time job at the release time
+                        self.scheduler.add_job(
+                            self._process_release,
+                            'date',
+                            run_date=delayed_time,
+                            args=[item.id, item.log_string],
+                            id=f"release_{item.id}",
+                            replace_existing=True
+                        )
                     # If it should have been released already, release it now
                     elif delayed_time <= current_time:
                         previous_state, new_state = item.store_state()
                         if previous_state != new_state:
                             self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
-                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
+                            logger.log("RELEASE", f"{item.log_string} has been released!")
 
                 session.merge(item)
                 session.commit()
@@ -418,6 +428,28 @@ class Program(threading.Thread):
                 # Remove from scheduled releases after processing
                 if item_id in self.scheduled_releases and self.scheduled_releases[item_id] <= current_time:
                     del self.scheduled_releases[item_id]
+
+    def _process_release(self, item_id: str, log_string: str) -> None:
+        """Process a scheduled release at its designated time."""
+        try:
+            with db.Session() as session:
+                item = session.execute(
+                    select(MediaItem).where(MediaItem.id == item_id)
+                ).scalar_one()
+                
+                if item:
+                    previous_state, new_state = item.store_state()
+                    if previous_state != new_state:
+                        self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+                        release_time = datetime.now().astimezone().strftime("%I:%M %p").lstrip('0')
+                        logger.log("RELEASE", f"🎬 Released at {release_time}: {log_string}")
+                    session.merge(item)
+                    session.commit()
+                
+                # Clean up the scheduled release
+                self.scheduled_releases.pop(item_id, None)
+        except Exception as e:
+            logger.error(f"Failed to process scheduled release for {log_string}: {e}")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
