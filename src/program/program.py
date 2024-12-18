@@ -2,6 +2,7 @@ import linecache
 import os
 import threading
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from queue import Empty
@@ -63,8 +64,17 @@ class Program(threading.Thread):
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
         self.scheduled_releases = {}  # Track scheduled releases
-        self.scheduler = BackgroundScheduler()  # Initialize the scheduler
+        
+        # Configure scheduler with timezone awareness
+        self.scheduler = BackgroundScheduler(
+            timezone=datetime.now().astimezone().tzinfo,  # Use system timezone
+        )
+        
+        # Disable noisy debug logs from APScheduler
+        logging.getLogger('apscheduler').setLevel(logging.WARNING)
+        
         self.scheduler.start()  # Start the scheduler
+        
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic()-50
@@ -218,26 +228,19 @@ class Program(threading.Thread):
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
         try:
-            # Get current time with timezone info
             current_time = datetime.now().astimezone()
-            logger.debug(f"Current time: {current_time.strftime('%I:%M %p').lstrip('0')}")
-            
-            logger.log("PROGRAM", "Checking for today's releases...")
+            logger.log("PROGRAM", "Checking for upcoming releases...")
             trakt_api = di[TraktAPI]
 
             # Clear old scheduled releases
-            new_scheduled_releases = {}
-            for k, v in self.scheduled_releases.items():
-                if v > current_time:
-                    new_scheduled_releases[k] = v
-            self.scheduled_releases = new_scheduled_releases
+            self.scheduled_releases = {k: v for k, v in self.scheduled_releases.items() if v > current_time}
 
-            items_found_today = False  # Track if we found any items for today
-            todays_releases = []  # Track items and their release times
+            # Track items by show to optimize API calls
+            checked_shows = set()
+            upcoming_releases = []
 
             with db.Session() as session:
                 try:
-                    # Get items that are either ongoing or unreleased
                     items = session.execute(
                         select(MediaItem, MediaItem.aired_at)
                         .where(MediaItem.type.in_(["movie", "episode"]))
@@ -245,134 +248,126 @@ class Program(threading.Thread):
                     ).unique().all()
 
                     for item, aired_at in items:
-                        if not aired_at:
-                            continue
-                        
                         try:
-                            if item.imdb_id:
-                                trakt_time = None
-                                tvmaze_time = None
-                                air_time = None  # Initialize air_time here
-                                
-                                # Get Trakt time
-                                try:
-                                    trakt_item = trakt_api.create_item_from_imdb_id(item.imdb_id, type=item.type)
-                                    if trakt_item and trakt_item.aired_at:
-                                        # Convert Trakt time to local time
-                                        trakt_time = trakt_item.aired_at
-                                        if trakt_time.tzinfo is None:
-                                            trakt_time = trakt_time.replace(tzinfo=ZoneInfo("UTC"))
-                                        trakt_time = trakt_time.astimezone(current_time.tzinfo)
-                                        logger.debug(f"Trakt airtime for {item.log_string}: {trakt_time}")
-                                        
-                                        # Store network info if available
-                                        if hasattr(trakt_item, "network"):
-                                            item.network = trakt_item.network
-                                except Exception as e:
-                                    logger.error(f"Failed to fetch airtime from Trakt for {item.log_string}: {e}")
-                                
-                                # Get TVMaze time (already in local time)
-                                try:
-                                    # Skip TVMaze lookup for movies
-                                    if item.type == "movie":
-                                        continue
+                            # Skip if no IMDB ID
+                            if not item.imdb_id:
+                                continue
 
-                                    tvmaze_api = di[TVMazeAPI]
-                                    # Get show title - for episodes, use the parent show's title
-                                    show_name = item.get_top_title()
-                                    if not show_name:
-                                        continue
-
-                                    # Skip if it's just an episode number
-                                    if show_name.lower().startswith("episode "):
-                                        continue
-
-                                    # For episodes, pass the season and episode numbers
-                                    season_number = None
-                                    episode_number = None
-                                    if item.type == "episode":
-                                        if isinstance(item, Episode):
-                                            season_number = item.parent.number if item.parent else None
-                                            episode_number = item.number
-
-                                    tvmaze_time = tvmaze_api.get_show_by_imdb(
-                                        item.imdb_id, 
-                                        show_name=show_name,
-                                        season_number=season_number,
-                                        episode_number=episode_number
-                                    )
-                                    if tvmaze_time:
-                                        logger.debug(f"TVMaze airtime for {item.log_string}: {tvmaze_time}")
-                                except Exception as e:
-                                    logger.error(f"Failed to fetch airtime from TVMaze for {item.log_string}: {e}")
-                                
-                                # Use the earliest available time
-                                if trakt_time and tvmaze_time:
-                                    air_time = min(trakt_time, tvmaze_time)
-                                    logger.debug(f"Using earliest time between Trakt ({trakt_time}) and TVMaze ({tvmaze_time})")
-                                else:
-                                    air_time = trakt_time or tvmaze_time
-                                    if not air_time:
-                                        logger.debug(f"No airtime available from either Trakt or TVMaze for {item.log_string}")
-                                        continue  # Skip this item
-                                
-                                if not air_time:  # Add explicit check
-                                    logger.debug(f"No valid air time found for {item.log_string}")
+                            # For episodes, check if we already found a future episode for this show
+                            if item.type == "episode":
+                                show_id = item.parent.parent.id if item.parent and item.parent.parent else None
+                                if show_id in checked_shows:
                                     continue
-                                
-                                # Store the local time in the database
-                                item.aired_at = air_time
-                                session.merge(item)
-                                logger.debug(f"Updated airtime for {item.log_string} to {air_time}")
-                                
-                                # Calculate delayed release time
-                                delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
-                                delayed_time = air_time + timedelta(minutes=delay_minutes)
-                                
-                                # Format times for display (e.g., "8:00 PM")
-                                air_time_str = air_time.strftime("%I:%M %p").lstrip('0')
-                                release_time_str = delayed_time.strftime("%I:%M %p").lstrip('0')
-                                
-                                # If it aired in the past (including delay), release it immediately
-                                if delayed_time <= current_time:
-                                    logger.log("PROGRAM", f"- {item.log_string} was scheduled to release at {air_time_str}")
-                                    # Trigger immediate state update
+                            
+                            trakt_time = None
+                            tvmaze_time = None
+                            
+                            # Get Trakt time
+                            try:
+                                trakt_item = trakt_api.create_item_from_imdb_id(item.imdb_id, type=item.type)
+                                if trakt_item and trakt_item.aired_at:
+                                    trakt_time = trakt_item.aired_at
+                                    if trakt_time.tzinfo is None:
+                                        trakt_time = trakt_time.replace(tzinfo=ZoneInfo("UTC"))
+                                    trakt_time = trakt_time.astimezone(current_time.tzinfo)
+                                    
+                                    if hasattr(trakt_item, "network"):
+                                        item.network = trakt_item.network
+                            except Exception as e:
+                                logger.error(f"Failed to fetch Trakt time for {item.log_string}: {e}")
+                            
+                            # Get TVMaze time for episodes only
+                            if item.type == "episode":
+                                try:
+                                    tvmaze_api = di[TVMazeAPI]
+                                    show_name = item.get_top_title()
+                                    if show_name and not show_name.lower().startswith("episode "):
+                                        season_number = item.parent.number if isinstance(item, Episode) and item.parent else None
+                                        episode_number = item.number if isinstance(item, Episode) else None
+                                        
+                                        tvmaze_time = tvmaze_api.get_show_by_imdb(
+                                            item.imdb_id, 
+                                            show_name=show_name,
+                                            season_number=season_number,
+                                            episode_number=episode_number
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch TVMaze time for {item.log_string}: {e}")
+                            
+                            # Use earliest available time
+                            times = [t for t in [trakt_time, tvmaze_time] if t is not None]
+                            if not times:
+                                continue
+                            air_time = min(times)
+                            if not air_time:
+                                continue
+
+                            # Store the air time
+                            item.aired_at = air_time
+                            session.merge(item)
+                            
+                            # Calculate release time with delay
+                            delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
+                            release_time = air_time + timedelta(minutes=delay_minutes)
+                            
+                            # Skip if already released
+                            if release_time <= current_time:
+                                if item.last_state in [States.Ongoing, States.Unreleased]:
                                     previous_state, new_state = item.store_state()
                                     if previous_state != new_state:
-                                        self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
-                                        logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
-                                    continue
+                                        self.em.add_event(Event("StateTransition", item_id=item.id))
+                                        logger.log("RELEASE", f"🎬 Released (late): {item.log_string}")
+                                continue
+                            
+                            # Check if releasing in next 24 hours
+                            time_until_release = release_time - current_time
+                            if time_until_release <= timedelta(hours=24):
+                                release_time_str = release_time.strftime("%I:%M %p").lstrip('0')
+                                upcoming_releases.append((item.log_string, release_time_str))
                                 
-                                # For future items, only schedule if they air today
-                                if (air_time.year == current_time.year and 
-                                    air_time.month == current_time.month and 
-                                    air_time.day == current_time.day):
-                                    items_found_today = True
-                                    todays_releases.append((item.log_string, release_time_str))
-                                    logger.debug(f"Found today's item: {item.log_string}")
-                                    logger.log("PROGRAM", f"- {item.log_string} will release at {release_time_str} (included {delay_minutes}min delay)")
-                                    # Add to scheduled releases if not already there
-                                    if item.id not in self.scheduled_releases:
-                                        self.scheduled_releases[item.id] = delayed_time
+                                # Schedule the release
+                                self.scheduled_releases[item.id] = release_time
+                                job_id = f"release_{item.id}"
+                                
+                                try:
+                                    if self.scheduler.get_job(job_id):
+                                        self.scheduler.remove_job(job_id)
+                                    
+                                    self.scheduler.add_job(
+                                        self._process_release,
+                                        'date',
+                                        run_date=release_time,
+                                        args=[item.id, item.log_string],
+                                        id=job_id,
+                                        name=f"Release {item.log_string}"
+                                    )
+                                    logger.log("PROGRAM", f"📅 Scheduled: {item.log_string} at {release_time_str}")
+                                except Exception as e:
+                                    logger.error(f"Failed to schedule release for {item.log_string}: {e}")
+                            
+                            # If this episode isn't releasing soon, skip rest of the season
+                            if item.type == "episode":
+                                checked_shows.add(show_id)
+                            
                         except Exception as e:
-                            logger.error(f"Failed to fetch airtime for {item.log_string}: {e}")
+                            logger.error(f"Failed to process {item.log_string}: {e}")
                             continue
 
-                    # Commit any airtime updates
                     session.commit()
 
-                    # Log summary of today's releases
-                    if todays_releases:
-                        logger.log("PROGRAM", "\nToday's releases:")
-                        for item_name, release_time in sorted(todays_releases, key=lambda x: x[1]):
+                    # Log summary of scheduled releases
+                    if upcoming_releases:
+                        logger.log("PROGRAM", "\n📅 Scheduled releases:")
+                        for item_name, release_time in sorted(upcoming_releases, key=lambda x: x[1]):
                             logger.log("PROGRAM", f"  • {item_name} at {release_time}")
                     else:
-                        logger.log("PROGRAM", "\nNo releases scheduled for today")
+                        logger.log("PROGRAM", "No upcoming releases found")
 
                 except Exception as e:
                     session.rollback()
                     logger.error(f"Database error in _update_ongoing: {e}")
                     raise
+
         except Exception as e:
             logger.error(f"Error in _update_ongoing: {e}")
 
@@ -382,7 +377,7 @@ class Program(threading.Thread):
             try:
                 item = session.execute(
                     select(MediaItem).where(MediaItem.id == item_id)
-                ).scalar_one()
+                ).unique().scalar_one_or_none()
 
                 if not item:
                     logger.error(f"Item {item_id} not found")
@@ -394,30 +389,47 @@ class Program(threading.Thread):
                     delay_minutes = settings_manager.settings.content.trakt.release_delay_minutes
                     delayed_time = item.aired_at + timedelta(minutes=delay_minutes)
                     
-                    # If it's a future release for today, schedule it
-                    if (delayed_time > current_time and
+                    # Check if it's for today (regardless of time)
+                    is_today = (
                         item.aired_at.year == current_time.year and
                         item.aired_at.month == current_time.month and
-                        item.aired_at.day == current_time.day):
+                        item.aired_at.day == current_time.day
+                    )
+                    
+                    if is_today:
                         release_time_str = delayed_time.strftime("%I:%M %p").lstrip('0')
-                        logger.log("PROGRAM", f"Scheduling {item.log_string} for release at {release_time_str}")
-                        self.scheduled_releases[item.id] = delayed_time
-                        
-                        # Schedule a one-time job at the release time
-                        self.scheduler.add_job(
-                            self._process_release,
-                            'date',
-                            run_date=delayed_time,
-                            args=[item.id, item.log_string],
-                            id=f"release_{item.id}",
-                            replace_existing=True
-                        )
-                    # If it should have been released already, release it now
-                    elif delayed_time <= current_time:
-                        previous_state, new_state = item.store_state()
-                        if previous_state != new_state:
-                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item.id))
-                            logger.log("RELEASE", f"{item.log_string} has been released!")
+                        # If it's in the future, schedule it
+                        if delayed_time > current_time:
+                            # Only schedule if item is still unreleased
+                            if item.last_state in [States.Ongoing, States.Unreleased]:
+                                logger.log("PROGRAM", f"Scheduling {item.log_string} for release at {release_time_str}")
+                                self.scheduled_releases[item.id] = delayed_time
+                                
+                                # Schedule a one-time job at the release time
+                                job_id = f"release_{item.id}"
+                                try:
+                                    # Remove any existing job first
+                                    if self.scheduler.get_job(job_id):
+                                        self.scheduler.remove_job(job_id)
+                                    
+                                    # Add the new job
+                                    self.scheduler.add_job(
+                                        self._process_release,
+                                        'date',
+                                        run_date=delayed_time,
+                                        args=[item.id, item.log_string],
+                                        id=job_id,
+                                        name=f"Release {item.log_string}"
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to schedule release job for {item.log_string}: {e}")
+                        # If it's in the past (for today), release it now
+                        else:
+                            logger.log("PROGRAM", f"Releasing {item.log_string} now (scheduled for {release_time_str})")
+                            previous_state, new_state = item.store_state()
+                            if previous_state != new_state:
+                                self.em.add_event(Event("StateTransition", item_id=item.id))
+                                logger.log("RELEASE", f"🎬 Released (late): {item.log_string}")
 
                 session.merge(item)
                 session.commit()
@@ -435,16 +447,20 @@ class Program(threading.Thread):
             with db.Session() as session:
                 item = session.execute(
                     select(MediaItem).where(MediaItem.id == item_id)
-                ).scalar_one()
+                ).unique().scalar_one_or_none()
                 
                 if item:
-                    previous_state, new_state = item.store_state()
-                    if previous_state != new_state:
-                        self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                        release_time = datetime.now().astimezone().strftime("%I:%M %p").lstrip('0')
-                        logger.log("RELEASE", f"🎬 Released at {release_time}: {log_string}")
-                    session.merge(item)
-                    session.commit()
+                    # Only process if item is still unreleased
+                    if item.last_state in [States.Ongoing, States.Unreleased]:
+                        previous_state, new_state = item.store_state()
+                        if previous_state != new_state:
+                            self.em.add_event(Event("StateTransition", item_id=item_id))
+                            release_time = datetime.now().astimezone().strftime("%I:%M %p").lstrip('0')
+                            logger.log("RELEASE", f"🎬 Released at {release_time}: {log_string}")
+                            session.merge(item)
+                            session.commit()
+                else:
+                    logger.error(f"Item {item_id} not found during scheduled release")
                 
                 # Clean up the scheduled release
                 self.scheduled_releases.pop(item_id, None)
@@ -456,7 +472,6 @@ class Program(threading.Thread):
         # Schedule the ongoing state update function to run at midnight
         current_time = datetime.now().astimezone()
         midnight = (current_time + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        logger.debug(f"Scheduling next midnight update at: {midnight.strftime('%Y-%m-%d %H:%M:%S %z')}")
         
         self.scheduler.add_job(
             self._update_ongoing,
@@ -464,8 +479,7 @@ class Program(threading.Thread):
             hour=0,
             minute=0,
             id="update_ongoing",
-            replace_existing=True,
-            misfire_grace_time=3600  # Allow up to 1 hour delay if system is busy
+            replace_existing=True
         )
         
         # Run update_ongoing immediately on startup
@@ -493,10 +507,9 @@ class Program(threading.Thread):
                 id=f"{func.__name__}",
                 max_instances=config.get("max_instances", 1),
                 replace_existing=True,
-                next_run_time=datetime.now(),
-                misfire_grace_time=30
+                next_run_time=datetime.now()
             )
-            logger.debug(f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
+            logger.log("PROGRAM", f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
@@ -518,31 +531,31 @@ class Program(threading.Thread):
                 next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
                 coalesce=False,
             )
-            logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+            logger.log("PROGRAM", f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         import psutil
         process = psutil.Process(os.getpid())
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
 
-        logger.debug("Top %s lines" % limit)
+        logger.log("PROGRAM", "Top %s lines" % limit)
         for index, stat in enumerate(top_stats[:limit], 1):
             frame = stat.traceback[0]
             # replace "/path/to/module/file.py" with "module/file.py"
             filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-            logger.debug("#%s: %s:%s: %.1f KiB"
+            logger.log("PROGRAM", "#%s: %s:%s: %.1f KiB"
                 % (index, filename, frame.lineno, stat.size / 1024))
             line = linecache.getline(frame.filename, frame.lineno).strip()
             if line:
-                logger.debug("    %s" % line)
+                logger.log("PROGRAM", "    %s" % line)
 
         other = top_stats[limit:]
         if other:
             size = sum(stat.size for stat in other)
-            logger.debug("%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
+            logger.log("PROGRAM", "%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
         total = sum(stat.size for stat in top_stats)
-        logger.debug("Total allocated size: %.1f MiB" % (total / (1024 * 1024)))
-        logger.debug(f"Process memory: {process.memory_info().rss / (1024 * 1024):.2f} MiB")
+        logger.log("PROGRAM", "Total allocated size: %.1f MiB" % (total / (1024 * 1024)))
+        logger.log("PROGRAM", f"Process memory: {process.memory_info().rss / (1024 * 1024):.2f} MiB")
 
     def dump_tracemalloc(self):
         if time.monotonic() - self.malloc_time > 60:
@@ -589,16 +602,12 @@ class Program(threading.Thread):
                     self.em.add_event_to_running(event)
                     self.em.submit_job(next_service, self, event)
 
-    def stop(self):
-        if not self.initialized:
-            return
-
-        if hasattr(self, "executors"):
-            for executor in self.executors:
-                if not executor["_executor"]._shutdown:
-                    executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler") and self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
+    def stop(self) -> None:
+        """Stop the program."""
+        self.running = False
+        # Shutdown scheduler properly
+        if self.scheduler.running:
+            self.scheduler.shutdown()
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
