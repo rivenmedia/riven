@@ -316,7 +316,7 @@ class Program(threading.Thread):
                                     previous_state, new_state = item.store_state()
                                     if previous_state != new_state:
                                         self.em.add_event(Event("StateTransition", item_id=item.id))
-                                        logger.log("RELEASE", f"🎬 Released (late): {item.log_string}")
+                                        logger.log("🎬 RELEASE", f" Released (late): {item.log_string}")
                                 continue
                             
                             # Check if releasing in next 24 hours
