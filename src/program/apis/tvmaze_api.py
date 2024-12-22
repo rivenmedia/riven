@@ -99,12 +99,13 @@ class TVMazeAPI:
             if not episodes:
                 return None
             
-            # Find the next episode that hasn't aired yet
-            current_time = datetime.now()
+            # Find all unreleased episodes and the next episode
+            current_time = datetime.now().astimezone()  # Make sure current_time has timezone info
+            unreleased_episodes = []
             next_episode = None
             target_episode_time = None
             
-            for episode in episodes:
+            for episode in sorted(episodes, key=lambda x: (getattr(x, 'season', 0), getattr(x, 'number', 0))):
                 try:
                     if not episode.airstamp:
                         continue
@@ -159,11 +160,17 @@ class TVMazeAPI:
                                 else:
                                     logger.debug(f"Found S{season_number}E{episode_number} airing at {air_time}")
                                 target_episode_time = air_time
-                                break  # No need to continue looking
                     
-                    # If we're looking for next episode and this one is in the future
-                    elif air_time > current_time:
-                        # If we haven't found any future episode yet, or this one airs sooner
+                    # Add all unreleased episodes to our list
+                    if air_time > current_time:
+                        ep_info = {
+                            'air_time': air_time,
+                            'season': getattr(episode, 'season', 0),
+                            'episode': getattr(episode, 'number', 0),
+                            'name': getattr(episode, 'name', '')
+                        }
+                        unreleased_episodes.append(ep_info)
+                        # Track next episode separately
                         if not next_episode or air_time < next_episode:
                             next_episode = air_time
                 
@@ -171,10 +178,17 @@ class TVMazeAPI:
                     logger.error(f"Failed to process episode {getattr(episode, 'number', '?')}: {e}")
                     continue
             
-            # Return target episode time if we found one, otherwise return next episode
+            # Return target episode time if we found one
             if target_episode_time is not None:
                 return target_episode_time
             
+            # Log all unreleased episodes in sequence
+            if unreleased_episodes:
+                unreleased_episodes.sort(key=lambda x: (x['season'], x['episode']))
+                for ep in unreleased_episodes:
+                    logger.debug(f"Unreleased: S{ep['season']}E{ep['episode']} '{ep['name']}' airs at {ep['air_time']}")
+            
+            # Return next episode air time
             if next_episode:
                 logger.debug(f"Next episode airs at {next_episode}")
             return next_episode

@@ -252,12 +252,6 @@ class Program(threading.Thread):
                             # Skip if no IMDB ID
                             if not item.imdb_id:
                                 continue
-
-                            # For episodes, check if we already found a future episode for this show
-                            if item.type == "episode":
-                                show_id = item.parent.parent.id if item.parent and item.parent.parent else None
-                                if show_id in checked_shows:
-                                    continue
                             
                             trakt_time = None
                             tvmaze_time = None
@@ -316,7 +310,7 @@ class Program(threading.Thread):
                                     previous_state, new_state = item.store_state()
                                     if previous_state != new_state:
                                         self.em.add_event(Event("StateTransition", item_id=item.id))
-                                        logger.log("🎬 RELEASE", f" Released (late): {item.log_string}")
+                                        logger.log("RELEASE", f"🎬 Released (late): {item.log_string}")
                                 continue
                             
                             # Check if releasing in next 24 hours
@@ -346,8 +340,8 @@ class Program(threading.Thread):
                                     logger.error(f"Failed to schedule release for {item.log_string}: {e}")
                             
                             # If this episode isn't releasing soon, skip rest of the season
-                            if item.type == "episode":
-                                checked_shows.add(show_id)
+                            # if item.type == "episode":
+                            #     checked_shows.add(show_id)
                             
                         except Exception as e:
                             logger.error(f"Failed to process {item.log_string}: {e}")
