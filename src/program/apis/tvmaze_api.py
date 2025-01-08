@@ -152,8 +152,8 @@ class TVMazeAPI:
                     
                     # Check if this is the specific episode we want
                     if season_number is not None and episode_number is not None:
-                        if hasattr(episode, 'number') and hasattr(episode, 'season'):
-                            if episode.season == season_number and episode.number == episode_number:
+                        if (hasattr(episode, 'number') and hasattr(episode, 'season') and
+                            episode.season == season_number and episode.number == episode_number):
                                 # Found our target episode
                                 if hasattr(episode, 'name'):
                                     logger.debug(f"Found S{season_number}E{episode_number} '{episode.name}' airing at {air_time}")
