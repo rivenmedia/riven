@@ -50,11 +50,6 @@ class AllDebridModel(Observable):
     api_key: str = ""
 
 
-class TorboxModel(Observable):
-    enabled: bool = False
-    api_key: str = ""
-
-
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
     movie_filesize_mb_min: int = 0  # MB
@@ -64,7 +59,6 @@ class DownloadersModel(Observable):
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
-    torbox: TorboxModel = TorboxModel()
 
 
 # Symlink Service
@@ -260,12 +254,6 @@ class ProwlarrConfig(Observable):
     limiter_seconds: int = 60
 
 
-class TorBoxScraperConfig(Observable):
-    enabled: bool = False
-    api_key: str = ""
-    timeout: int = 30
-
-
 class ScraperModel(Observable):
     after_2: float = 2
     after_5: int = 6
@@ -278,7 +266,6 @@ class ScraperModel(Observable):
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
-    torbox_scraper: TorBoxScraperConfig = TorBoxScraperConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()
     comet: CometConfig = CometConfig()
@@ -296,9 +283,6 @@ class RTNSettingsModel(SettingsModel, Observable):
 
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
-
-class LoggingModel(Observable):
-    ...
 
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
