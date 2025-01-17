@@ -71,16 +71,6 @@ async def generate_apikey() -> MessageResponse:
     return { "message": new_key}
 
 
-@router.get("/torbox", operation_id="torbox")
-async def get_torbox_user():
-    api_key = settings_manager.settings.downloaders.torbox.api_key
-    headers = {"Authorization": f"Bearer {api_key}"}
-    response = requests.get(
-        "https://api.torbox.app/v1/api/user/me", headers=headers, timeout=10
-    )
-    return response.json()
-
-
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
     data = {}
