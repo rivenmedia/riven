@@ -13,7 +13,6 @@ from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.shared import _parse_results
-from program.services.scrapers.torbox import TorBoxScraper
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
@@ -28,7 +27,6 @@ class Scraping:
             Torrentio: Torrentio(),
             Knightcrawler: Knightcrawler(),
             Orionoid: Orionoid(),
-            TorBoxScraper: TorBoxScraper(),
             Mediafusion: Mediafusion(),
             Comet: Comet()
         }

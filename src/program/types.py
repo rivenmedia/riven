@@ -10,12 +10,11 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
-from program.services.downloaders import (  # AllDebridDownloader,
+from program.services.downloaders import (
     RealDebridDownloader,
-    TorBoxDownloader,
+    # AllDebridDownloader,
 )
 
-# TorBoxDownloader,
 from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
     Comet,
@@ -24,7 +23,6 @@ from program.services.scrapers import (
     Mediafusion,
     Orionoid,
     Scraping,
-    TorBoxScraper,
     Torrentio,
     Zilean,
 )
@@ -32,11 +30,10 @@ from program.services.updaters import Updater
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, TorBoxScraper, Zilean, Comet]
+Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Zilean, Comet]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[
     RealDebridDownloader,
-    TorBoxDownloader,
     # AllDebridDownloader
 ]
 

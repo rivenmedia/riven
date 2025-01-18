@@ -15,11 +15,9 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.services.downloaders.shared import parse_filename
-from program.settings.manager import settings_manager
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
-from .torbox import TorBoxDownloader
 
 
 class Downloader:
@@ -28,7 +26,6 @@ class Downloader:
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            TorBoxDownloader: TorBoxDownloader(),
             AllDebridDownloader: AllDebridDownloader()
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
