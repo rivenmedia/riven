@@ -12,6 +12,7 @@ assignees: ''
 - [ ] I have checked the [existing issues](https://github.com/rivenmedia/riven/issues) and confirmed this is not a duplicate
 - [ ] I am running the latest version of Riven
 - [ ] I have read the [documentation](https://github.com/rivenmedia/riven/blob/main/README.md)
+- [ ] I have checked in [Discord channel](https://discord.com/invite/rivenmedia) for a solution
 
 ## Environment
 - **Riven Version**: <!-- e.g., 1.2.3 -->
