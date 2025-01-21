@@ -141,7 +141,7 @@ class Mediafusion:
         response = self.request_handler.execute(
             HttpMethod.GET, f"{url}.json", timeout=self.timeout
         )
-        if not response.is_ok or len(response.data.streams) <= 0:
+        if not response.is_ok or len(response.data.streams) == 0:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
@@ -156,6 +156,13 @@ class Mediafusion:
                 raise RateLimitExceeded(
                     f"Mediafusion rate-limit exceeded for item: {item.log_string}"
                 )
+
+            if not all(hasattr(stream, "infoHash") for stream in response.data.streams):
+                # If no streams are found with an infohash, and there is only one stream,
+                # Then the streams were filtered due to MF settings, or the adult filter on MF.
+                logger.debug(f"Streams were found but were filtered due to your MediaFusion settings.")
+                return torrents
+
             description_split = stream.description.replace("📂 ", "")
             raw_title = description_split.split("\n")[0]
             if scrape_type == "series":
