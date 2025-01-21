@@ -32,10 +32,6 @@ old_settings_data = {
             "proxy_enabled": False,
             "proxy_url": "https://no_proxy.com"
         },
-        "torbox": {
-            "enabled": False,
-            "api_key": ""
-        }
     },
 }
 
