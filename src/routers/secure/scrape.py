@@ -309,7 +309,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
         download_type = "cached"
 
     try:
-        downloader.select_files(session.torrent_id, files.model_dump())
+        downloader.select_files(session.torrent_id, [int(file_id) for file_id in files.root.keys()])
         session.selected_files = files.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
