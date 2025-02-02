@@ -71,13 +71,14 @@ class TraktAPI:
             try:
                 response = self.request_handler.execute(HttpMethod.GET, url, params={**params, "page": page})
                 if response.is_ok:
-                    data = response.data
+                    data = response.data if isinstance(response.data, list) else [response.data]
                     if not data:
                         break
                     all_data.extend(data)
                     if "X-Pagination-Page-Count" not in response.response.headers:
                         break
                     if params.get("limit") and len(all_data) >= params["limit"]:
+                        all_data = all_data[:params["limit"]]
                         break
                     page += 1
                 elif response.status_code == 429:
