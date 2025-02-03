@@ -55,8 +55,8 @@ class ListrrAPI:
                     url = f"api/List/{content_type}/{list_id}/ReleaseDate/Descending/{page}"
                     response = self.request_handler.execute(HttpMethod.GET, url)
                     data = response.data
-                    total_pages = getattr(data, "pages", 1)
-                    for item in getattr(data, "items", []):
+                    total_pages = data.pages if hasattr(data, "pages") else 1
+                    for item in data.items if hasattr(data, "items") else []:
 
                         try:
                             imdb_id = item.imDbId or (
