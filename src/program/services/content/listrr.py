@@ -64,6 +64,6 @@ class Listrr:
             return
 
         imdb_ids = movie_items + show_items
-        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.api.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
+        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
         logger.info(f"Fetched {len(listrr_items)} items from Listrr")
         yield listrr_items
