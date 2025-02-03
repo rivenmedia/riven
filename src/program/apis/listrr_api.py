@@ -57,13 +57,24 @@ class ListrrAPI:
                     data = response.data
                     total_pages = getattr(data, "pages", 1)
                     for item in getattr(data, "items", []):
-                        imdb_id = getattr(item,"imDbId")
-                        if imdb_id:
+
+                        try:
+                            imdb_id = item.imDbId or (
+                                self.trakt_api.get_imdbid_from_tmdb(item.tmDbId) 
+                                if content_type == "Movies" and item.tmDbId 
+                                else None
+                            )
+
+                            if not imdb_id:
+                                continue
+                            if imdb_id in unique_ids:
+                                logger.warning(f"Skipping duplicate item {imdb_id}")
+                                continue
+
                             unique_ids.add(imdb_id)
-                        elif content_type == "Movies" and getattr(item, "tmDbId"):
-                            imdb_id = self.trakt_api.get_imdbid_from_tmdb(getattr(item, "tmDbId"))
-                            if imdb_id:
-                                unique_ids.add(imdb_id)
+                        except AttributeError:
+                            logger.warning(f"Skipping item {item} as it does not have an IMDb ID or TMDb ID")
+                            continue
                 except HTTPError as e:
                     if e.response.status_code in [400, 404, 429, 500]:
                         break
