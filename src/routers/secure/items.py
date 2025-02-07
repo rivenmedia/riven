@@ -411,7 +411,7 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
     }
 
 @router.post(
-    "{item_id}/streams/{stream_id}/unblacklist"
+    "/{item_id}/streams/{stream_id}/unblacklist"
 )
 async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
