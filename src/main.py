@@ -7,6 +7,8 @@ import traceback
 
 import uvicorn
 from dotenv import load_dotenv
+load_dotenv() # import required here to support RIVEN_SETTINGS_FILENAME
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -18,9 +20,6 @@ from program import Program
 from program.settings.models import get_version
 from program.utils.cli import handle_args
 from routers import app_router
-
-load_dotenv()
-
 
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

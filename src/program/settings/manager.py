@@ -13,12 +13,13 @@ class SettingsManager:
 
     def __init__(self):
         self.observers = []
-        self.filename = "settings.json"
+        self.filename = os.environ.get("RIVEN_SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
 
         Observable.set_notify_observers(self.notify_observers)
 
         if not self.settings_file.exists():
+            logger.info(f"Settings filename: {self.filename}")
             self.settings = AppModel()
             self.settings = AppModel.model_validate(
                 self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
