@@ -30,7 +30,6 @@ class Torrentio:
         self.request_handler = ScraperRequestHandler(session)
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None
-        logger.info(f"Proxy URL: {self.proxies}")
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
