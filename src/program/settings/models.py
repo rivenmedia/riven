@@ -187,6 +187,7 @@ class TorrentioConfig(Observable):
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
     ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    proxy_url: str = ""
 
 
 class KnightcrawlerConfig(Observable):

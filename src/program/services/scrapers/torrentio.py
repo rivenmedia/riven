@@ -29,6 +29,7 @@ class Torrentio:
         session = create_service_session(rate_limit_params=rate_limit_params)
         self.request_handler = ScraperRequestHandler(session)
         self.headers = {"User-Agent": "Mozilla/5.0"}
+        self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None
         self.initialized: bool = self.validate()
         if not self.initialized:
             return
@@ -46,7 +47,7 @@ class Torrentio:
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=10, headers=self.headers)
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=10, headers=self.headers, proxies=self.proxies)
             if response.is_ok:
                 return True
         except Exception as e:
@@ -74,7 +75,7 @@ class Torrentio:
         if identifier:
             url += identifier
 
-        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout, headers=self.headers)
+        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout, headers=self.headers, proxies=self.proxies)
         if not response.is_ok or not hasattr(response.data, 'streams') or not response.data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
