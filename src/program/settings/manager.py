@@ -13,7 +13,7 @@ class SettingsManager:
 
     def __init__(self):
         self.observers = []
-        self.filename = os.environ.get("RIVEN_SETTINGS_FILENAME", "settings.json")
+        self.filename = os.environ.get("SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
 
         Observable.set_notify_observers(self.notify_observers)
@@ -65,7 +65,7 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
+                    if os.environ.get("FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
             self.save()

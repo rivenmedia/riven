@@ -29,7 +29,7 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=America/New_York
-      - RIVEN_FORCE_ENV=true
+      - FORCE_ENV=true
       - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
     healthcheck:
       test: curl -s http://localhost:8080 >/dev/null || exit 1
