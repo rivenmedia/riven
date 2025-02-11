@@ -65,7 +65,7 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    if os.environ.get("FORCE_ENV", "false").lower() == "true":
+                    if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
             self.settings = AppModel.model_validate(settings_dict)
             self.save()

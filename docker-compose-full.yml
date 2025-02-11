@@ -39,7 +39,7 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
-      - FORCE_ENV=true # forces the use of env vars to be always used!
+      - RIVEN_FORCE_ENV=true # forces the use of env vars to be always used!
       - RIVEN_SYMLINK_RCLONE_PATH=/mnt/zurg/__all__ # Set this to your rclone's mount `__all__` dir if using Zurg
       - RIVEN_SYMLINK_LIBRARY_PATH=/mnt/library # This is the path that symlinks will be placed in
       - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
