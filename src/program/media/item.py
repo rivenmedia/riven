@@ -11,7 +11,7 @@ from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
-from program.managers.sse_manager import sse_manager
+from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
 
@@ -147,7 +147,7 @@ class MediaItem(db.Model):
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
         if previous_state and previous_state != new_state:
-            sse_manager.publish_event("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
+            websocket_manager.publish_event("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
         self.last_state = new_state
         return (previous_state, new_state)
 
