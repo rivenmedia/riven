@@ -19,14 +19,16 @@ class WebSocketLogHandler(logging.Handler):
 logger.add(WebSocket())
 
 
-@router.websocket("/")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+@router.websocket("/{topic}")
+async def websocket_endpoint(websocket: WebSocket, topic: str):
+    await manager.connect(websocket, topic)
+    logger.info(f"Client connected to topic: {topic}")
     try:
         while True:
             data = await websocket.receive_text()
             parsed_data = json.loads(data)
-            print(parsed_data)
+            logger.debug(parsed_data)
 
     except WebSocketDisconnect:
+        logger.info(f"Client disconnected from topic: {topic}")
         manager.disconnect(websocket)

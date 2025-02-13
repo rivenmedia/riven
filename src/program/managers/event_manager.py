@@ -76,7 +76,7 @@ class EventManager:
             result = future.result()
             if future in self._futures:
                 self._futures.remove(future)
-            websocket_manager.publish_event("event_update", self.get_event_updates())
+            websocket_manager.publish("event_update", self.get_event_updates())
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
@@ -184,7 +184,7 @@ class EventManager:
         if event:
             future.event = event
         self._futures.append(future)
-        websocket_manager.publish_event("event_update", self.get_event_updates())
+        websocket_manager.publish("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
 
     # For debugging purposes we can monitor the execution time of the service. (comment out above and uncomment below)
@@ -273,7 +273,7 @@ class EventManager:
     #     if event:
     #         future.event = event
     #     self._futures.append(future)
-    #     websocket_manager.publish_event("event_update", self.get_event_updates())
+    #     sse_manager.publish("event_update", self.get_event_updates())
     #     future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):

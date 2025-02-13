@@ -147,7 +147,7 @@ class MediaItem(db.Model):
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
         if previous_state and previous_state != new_state:
-            websocket_manager.publish_event("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
+            websocket_manager.publish("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
         self.last_state = new_state
         return (previous_state, new_state)
 
