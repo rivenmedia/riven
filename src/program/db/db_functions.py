@@ -139,14 +139,14 @@ def get_items_from_filter(
 
     if filter.has_file is not None:
         if filter.has_file:
-            stmt = stmt.where(MediaItem.file != None)
+            stmt = stmt.where(MediaItem.file is None)
         else:
-            stmt = stmt.where(MediaItem.file == None)
+            stmt = stmt.where(MediaItem.file is not None)
     if filter.has_folder is not None:
         if filter.has_folder:
-            stmt = stmt.where(MediaItem.folder != None)
+            stmt = stmt.where(MediaItem.folder is not None)
         else:
-            stmt = stmt.where(MediaItem.folder == None)
+            stmt = stmt.where(MediaItem.folder is None)
     if filter.filepath:
         stmt = stmt.where(MediaItem.file == filter.filepath)
     if filter.folder:
