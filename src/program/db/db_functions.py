@@ -257,7 +257,7 @@ def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: i
             _session.expunge(item)
         return item
 
-def delete_media_item(item: "MediaItem") -> bool:
+def delete_media_item(item: "MediaItem"):
     """Delete a MediaItem and all its associated relationships."""
     with db.Session() as session:
         item = session.merge(item)
@@ -267,7 +267,6 @@ def delete_media_item(item: "MediaItem") -> bool:
 def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
     from sqlalchemy.exc import IntegrityError
-
     from program.media.item import Episode, MediaItem, Movie, Season, Show
 
     if not media_item_id:
@@ -317,23 +316,19 @@ def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
             session.rollback()
             return False
 
-def delete_seasons_and_episodes(session: Session, season_ids: list[str], batch_size: int = 30) -> bool:
+def delete_seasons_and_episodes(session: Session, season_ids: list[str], batch_size: int = 30):
     """Delete seasons and episodes of a show in batches, committing after each batch."""
     from program.media.item import Episode, Season
     from program.media.stream import StreamBlacklistRelation, StreamRelation
     from program.media.subtitle import Subtitle
 
     for season_id in season_ids:
-        # Load the season object
         season = session.query(Season).get(season_id)
-
-        # Bulk delete related streams and subtitles
         session.execute(delete(StreamRelation).where(StreamRelation.parent_id == season_id))
         session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == season_id))
         session.execute(delete(Subtitle).where(Subtitle.parent_id == season_id))
-        session.commit()  # Commit after bulk deletion
+        session.commit()
 
-        # Delete episodes in batches for each season
         while True:
             episode_ids = session.execute(
                 select(Episode.id).where(Episode.parent_id == season_id).limit(batch_size)
@@ -343,36 +338,30 @@ def delete_seasons_and_episodes(session: Session, season_ids: list[str], batch_s
                 break
 
             session.execute(delete(Episode).where(Episode.id.in_(episode_ids)))
-            session.commit()  # Commit after each batch of episodes
+            session.commit()
 
-        session.delete(season)  # Delete the season itself
-        session.commit()  # Commit after deleting the season
+        session.delete(season)
+        session.commit()
 
-def reset_media_item(item: "MediaItem") -> bool:
+def reset_media_item(item: "MediaItem"):
     """Reset a MediaItem."""
     with db.Session() as session:
         item = session.merge(item)
         item.reset()
         session.commit()
 
-def reset_streams(item: "MediaItem") -> bool:
+def reset_streams(item: "MediaItem"):
     """Reset streams associated with a MediaItem."""
     with db.Session() as session:
-
-        session.execute(
-            delete(StreamRelation).where(StreamRelation.parent_id == item.id)
-        )
-
-        session.execute(
-            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item.id)
-        )
+        session.execute(delete(StreamRelation).where(StreamRelation.parent_id == item.id))
+        session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item.id))
         session.commit()
 
-def clear_streams(item: "MediaItem") -> bool:
+def clear_streams(item: "MediaItem"):
     """Clear all streams for a media item."""
     reset_streams(item)
 
-def clear_streams_by_id(media_item_id: str) -> bool:
+def clear_streams_by_id(media_item_id: str):
     """Clear all streams for a media item by the MediaItem id."""
     with db.Session() as session:
         session.execute(
