@@ -7,8 +7,6 @@ import traceback
 
 import uvicorn
 from dotenv import load_dotenv
-load_dotenv() # import required here to support SETTINGS_FILENAME
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -16,10 +14,14 @@ from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+# ruff: noqa: E402
+load_dotenv()  # import required here to support SETTINGS_FILENAME
+
 from program import Program
 from program.settings.models import get_version
 from program.utils.cli import handle_args
 from routers import app_router
+
 
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -37,6 +39,7 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             )
         return response
 
+
 args = handle_args()
 
 app = FastAPI(
@@ -50,12 +53,14 @@ app = FastAPI(
     },
 )
 
+
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
     return get_scalar_api_reference(
         openapi_url=app.openapi_url,
         title=app.title,
     )
+
 
 app.program = Program()
 app.add_middleware(LoguruMiddleware)
@@ -68,6 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(app_router)
+
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -89,10 +95,12 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
+
 def signal_handler(signum, frame):
-    logger.log("PROGRAM","Exiting Gracefully.")
+    logger.log("PROGRAM", "Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
