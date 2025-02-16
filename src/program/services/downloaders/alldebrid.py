@@ -1,14 +1,14 @@
 import time
 from datetime import datetime
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import List, Optional
 
 from loguru import logger
 from requests import Session
 from requests.exceptions import ConnectTimeout
 
 from program.services.downloaders.models import (
-    VIDEO_EXTENSIONS,
     DebridFile,
+    InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
 )
@@ -154,6 +154,8 @@ class AllDebridDownloader(DownloaderBase):
 
                 if processed_files:
                     return_value = TorrentContainer(infohash=infohash, files=processed_files)
+        except InvalidDebridFileException as e:
+            logger.debug(f"{infohash}: {e}")
         except Exception as e:
             logger.error(f"Failed to get instant availability: {e}")
         finally:

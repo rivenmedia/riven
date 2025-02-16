@@ -8,8 +8,9 @@ from pydantic import BaseModel
 from requests import Session
 
 from program.services.downloaders.models import (
-    VIDEO_EXTENSIONS,
+    VALID_VIDEO_EXTENSIONS,
     DebridFile,
+    InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
 )
@@ -142,6 +143,8 @@ class RealDebridDownloader(DownloaderBase):
             container = self._process_torrent(torrent_id, infohash, item_type)
             if container:
                 valid_container = container
+        except InvalidDebridFileException as e:
+            logger.debug(f"{infohash}: {e}")
         except Exception as e:
             logger.error(f"Failed to get instant availability for {infohash}: {e}")
         finally:
@@ -157,7 +160,7 @@ class RealDebridDownloader(DownloaderBase):
         if torrent_info.status == "waiting_files_selection":
             video_file_ids = [
                 file_id for file_id, file_info in torrent_info.files.items()
-                if file_info["filename"].endswith(tuple(ext.lower() for ext in VIDEO_EXTENSIONS))
+                if file_info["filename"].endswith(tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS))
             ]
 
             if not video_file_ids:

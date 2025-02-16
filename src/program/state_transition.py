@@ -18,7 +18,11 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
     no_further_processing: ProcessedEvent = (None, [])
     items_to_submit = []
 
-#TODO - Reindex non-released badly indexed items here
+    if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
+        logger.debug(f"Skipping {existing_item.log_string}: Item is {existing_item.last_state.name}. Manual intervention required.")
+        return no_further_processing
+
+    #TODO - Reindex non-released badly indexed items here
     if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
         next_service = TraktIndexer
         logger.debug(f"Submitting {content_item.log_string if content_item else existing_item.log_string} to trakt indexer")

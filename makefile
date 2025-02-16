@@ -9,6 +9,9 @@ else
     DATA_PATH := $(PWD)/data
 endif
 
+BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+COMMIT_HASH := $(shell git rev-parse --short HEAD)
+
 help:
 	@echo "Riven Local Development Environment"
 	@echo "-------------------------------------------------------------------------"
@@ -70,15 +73,20 @@ build: setup-builder
 
 # Build and push multi-architecture release image
 push: setup-builder
-	@echo "Building and pushing image to Docker Hub..."
+	@echo "Building and pushing release image to Docker Hub..."
 	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:latest --push .
-	@echo "Image pushed to Docker Hub"
+	@echo "Image 'spoked/riven:latest' pushed to Docker Hub"
 
 # Build and push multi-architecture dev image
 push-dev: setup-builder
-	@echo "Building and pushing image to Docker Hub..."
+	@echo "Building and pushing dev image to Docker Hub..."
 	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:dev --push .
-	@echo "Image pushed to Docker Hub"
+	@echo "Image 'spoked/riven:dev' pushed to Docker Hub"
+
+push-branch: setup-builder
+	@echo "Building and pushing branch '${BRANCH_NAME}' image to Docker Hub..."
+	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:${BRANCH_NAME} --push .
+	@echo "Image 'spoked/riven:${BRANCH_NAME}' pushed to Docker Hub"
 
 tidy:
 	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "riven" {print $3}') -f
@@ -93,7 +101,6 @@ clean:
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
 
 hard_reset: clean
-	@rm -rf data/alembic/
 	@poetry run python src/main.py --hard_reset_db
 
 install:

@@ -3,7 +3,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, List, Optional
 
 from loguru import logger
 from PTT import parse_title
@@ -235,8 +235,11 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
         failed = False
 
         with db.Session() as session:
-            items = get_items_from_filepath(session, symlink_path)
+            items: Optional[List[Movie | Episode]] = get_items_from_filepath(session, symlink_path)
             if not items:
+                # This needs to be improved later.
+                # One edge case: The episode has a file already associated with it, but we found another file in rclone for the same episode.
+                # We should probably parse the filename and check if the episode already has a file associated with it and clean up if needed.
                 logger.log("NOT_FOUND", f"Could not find item in database for path: {symlink_path}")
                 return
 
@@ -253,6 +256,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
                         item.update_folder = correct_path
                         item.store_state()
                         session.merge(item)
+                        session.commit()
                         logger.log("FILES", f"Retargeted broken symlink for {item.log_string} with correct path: {correct_path}")
                 except Exception as e:
                     logger.error(f"Failed to fix {item.log_string} with path: {correct_path}: {str(e)}")
@@ -264,11 +268,9 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
                     item.reset()
                     item.store_state()
                     session.merge(item)
+                    session.commit()
                 missing_files += 1
-                logger.log("NOT_FOUND", f"Could not find file {filename} in rclone_path")
-
-            session.commit()
-            logger.log("FILES", "Saved items to the database.")
+                logger.log("FILES", f"Resetting {item.log_string} due to missing file in rclone_path: {filename}")
 
             if failed:
                 logger.warning("Failed to retarget some broken symlinks, recommended action: reset database.")
@@ -293,10 +295,10 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
         logger.log("FILES", f"No files found in rclone_path: {rclone_path}. Aborting fix_broken_symlinks.")
         return
 
-    logger.log("FILES", f"Built file map for {rclone_path}")
+    logger.debug(f"Built file map for {rclone_path}")
 
     top_level_dirs = [os.path.join(library_path, d) for d in os.listdir(library_path) if os.path.isdir(os.path.join(library_path, d))]
-    logger.log("FILES", f"Found top-level directories: {top_level_dirs}")
+    logger.debug(f"Found top-level directories: {top_level_dirs}")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_directory, directory, file_map) for directory in top_level_dirs]
@@ -311,43 +313,46 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
     logger.log("FILES", f"Finished processing and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
     logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
 
-def get_items_from_filepath(session: Session, filepath: str) -> list["Movie"] | list["Episode"]:
-    """Get items that match the imdb_id or season and episode from a file in library_path"""
-    from program.media.item import Episode, Movie, Season, Show
+def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
+    """Get an item by its filepath."""
+    from program.db.db_functions import get_items_from_filter, ItemFilter
+
     imdb_id_match = imdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
 
     if not imdb_id_match:
-        logger.log("NOT_FOUND", f"Path missing imdb_id: {filepath}")
+        logger.debug(f"File path missing imdb_id: {filepath}")
         return []
 
     imdb_id = imdb_id_match.group()
     season_number = int(season_number_match.group(1)) if season_number_match else None
     episode_number = int(episode_number_match.group(1)) if episode_number_match else None
 
-    with session:
-        items = []
+    def get_by_symlink_path(session: Session, filepath: str) -> list["MediaItem"]:
         if season_number and episode_number:
-            episode_numbers = [int(num) for num in re.findall(r"e(\d+)", filepath, re.IGNORECASE)]
-            for ep_num in episode_numbers:
-                query = (
-                    session.query(Episode)
-                    .join(Season, Episode.parent_id == Season.imdb_id)
-                    .join(Show, Season.parent_id == Show.imdb_id)
-                    .filter(Show.imdb_id == imdb_id, Season.number == season_number, Episode.number == ep_num)
-                )
-                episode_item = query.with_entities(Episode).first()
-                if episode_item:
-                    items.append(episode_item)
+            filter = ItemFilter(symlink_path=filepath, type=["episode"])
         else:
-            query = session.query(Movie).filter_by(imdb_id=imdb_id)
-            movie_item = query.first()
-            if movie_item:
-                items.append(movie_item)
+            filter = ItemFilter(symlink_path=filepath, type=["movie"])
+        return get_items_from_filter(session, filter)
+
+    def get_by_direct_lookup(session: Session, imdb_id: str, season_number: int, episode_number: int) -> list["MediaItem"]:
+        if season_number and episode_number:
+            filter = ItemFilter(imdb_id=imdb_id, season_number=season_number, episode_number=episode_number, type=["episode"])
+        else:
+            filter = ItemFilter(imdb_id=imdb_id, type=["movie"])
+        return get_items_from_filter(session, filter)
+
+    with session:
+        symlink_path_items = get_by_symlink_path(session, filepath)
+        if not symlink_path_items:
+            items = get_by_direct_lookup(session, imdb_id, season_number, episode_number)
+        else:
+            items = symlink_path_items
 
         if len(items) > 1:
-            logger.log("FILES", f"Found multiple items in database for path: {filepath}")
             for item in items:
+                # This should never happen, but just in case
                 logger.log("FILES", f"Found (multiple) {item.log_string} from filepath: {filepath}")
+
         return items

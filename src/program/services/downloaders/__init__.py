@@ -7,6 +7,7 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.services.downloaders.models import (
     DebridFile,
+    InvalidDebridFileException,
     DownloadedTorrent,
     NoMatchingFilesException,
     NotCachedException,
@@ -42,13 +43,21 @@ class Downloader:
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
-        if item.active_stream:
+        if item.is_parent_blocked():
+            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has a blocked parent, or is a blocked item")
+            yield item
+
+        if item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
+            yield item
+
+        if not item.streams:
+            logger.debug(f"No streams available for {item.log_string} ({item.id})")
             yield item
 
         download_success = False
         for stream in item.streams:
-            container = self.validate_stream(stream, item)
+            container: Optional[TorrentContainer] = self.validate_stream(stream, item)
             if not container:
                 logger.debug(f"Stream {stream.infohash} is not cached or valid.")
                 continue
@@ -60,11 +69,12 @@ class Downloader:
                     download_success = True
                     break
                 else:
-                    raise NoMatchingFilesException(f"No valid files found")
+                    raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
             except Exception as e:
                 logger.debug(f"Stream {stream.infohash} failed: {e}")
                 if 'download_result' in locals() and download_result.id:
                     self.service.delete_torrent(download_result.id)
+                    logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
                 item.blacklist_stream(stream)
 
         if not download_success:
@@ -83,12 +93,16 @@ class Downloader:
 
         valid_files = []
         for file in container.files or []:
-            debrid_file = DebridFile.create(
-                filename=file.filename,
-                filesize_bytes=file.filesize,
-                filetype=item.type,
-                file_id=file.file_id
-            )
+            try:
+                debrid_file = DebridFile.create(
+                    filename=file.filename,
+                    filesize_bytes=file.filesize,
+                    filetype=item.type,
+                    file_id=file.file_id
+                )
+            except InvalidDebridFileException as e:
+                logger.debug(f"{stream.infohash}: {e}")
+                continue
             if debrid_file:
                 valid_files.append(debrid_file)
 
@@ -109,25 +123,35 @@ class Downloader:
             file_data: ParsedFileData = parse_filename(file.filename)
             if self.match_file_to_item(item, file_data, file, download_result):
                 found = True
-                break
 
         return found
 
     def match_file_to_item(self, item: MediaItem, file_data: ParsedFileData, file: DebridFile, download_result: DownloadedTorrent) -> bool:
         """Check if the file matches the item and update attributes."""
         found = False
+
         if item.type == "movie" and file_data.item_type == "movie":
             self._update_attributes(item, file, download_result)
             return True
 
         if item.type in ("show", "season", "episode"):
-            if not (file_data.season and file_data.episodes):
+            if not file_data.episodes:
                 return False
 
             show: Show = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
-            season: Season = next((season for season in show.seasons if season.number == file_data.season), None)
+            season_number = file_data.season if file_data.season is not None else 1  # Assuming season 1 if not specified
+            season: Season = next((season for season in show.seasons if season.number == season_number), None)
+            if season is None:
+                # These messages can get way too spammy.
+                # logger.debug(f"Season {season_number} not found in show {show.log_string}, unable to match files to season children. Metadata may be incorrect for show.")
+                return False
+
             for file_episode in file_data.episodes:
                 episode: Episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
+                if episode is None:
+                    # logger.debug(f"Episode {file_episode} from file does not match any episode in {season.log_string}. Metadata may be incorrect for season.")
+                    return False
+
                 if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
                     self._update_attributes(episode, file, download_result)
                     found = True
