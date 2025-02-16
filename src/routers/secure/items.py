@@ -469,9 +469,9 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
                     logger.error(f"Failed to pause {media_item.log_string}: {str(e)}")
                     continue
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-    return {"message": f"Successfully paused items.", "ids": ids}
+    return {"message": "Successfully paused items.", "ids": ids}
 
 @router.post(
     "/unpause",
