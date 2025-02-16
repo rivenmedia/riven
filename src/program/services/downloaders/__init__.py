@@ -73,8 +73,11 @@ class Downloader:
             except Exception as e:
                 logger.debug(f"Stream {stream.infohash} failed: {e}")
                 if 'download_result' in locals() and download_result.id:
-                    self.service.delete_torrent(download_result.id)
-                    logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
+                    try:
+                        self.service.delete_torrent(download_result.id)
+                        logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
+                    except Exception as e:
+                        logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service: {e}")
                 item.blacklist_stream(stream)
 
         if not download_success:

@@ -72,9 +72,9 @@ class Scraping:
                 logger.debug(f"No new streams added for {item.log_string}")
 
                 item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
-                if item.failed_attempts >= self.max_failed_attempts:
+                if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
                     item.store_state(States.Failed)
-                    logger.warning(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
+                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
                 else:
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
 

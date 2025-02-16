@@ -220,7 +220,6 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
     operation_id="get_item",
 )
 async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
-    logger.debug(f"Getting item with id {id}")
     with db.Session() as session:
         try:
             query = select(MediaItem)
