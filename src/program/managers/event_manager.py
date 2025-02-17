@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from program.db import db_functions
 from program.db.db import db
-from program.managers.sse_manager import sse_manager
+from program.managers.websocket_manager import manager as websocket_manager
 from program.types import Event
 from program.media.item import MediaItem
 
@@ -76,7 +76,7 @@ class EventManager:
             result = future.result()
             if future in self._futures:
                 self._futures.remove(future)
-            sse_manager.publish_event("event_update", self.get_event_updates())
+            websocket_manager.publish("event_update", self.get_event_updates())
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
@@ -203,7 +203,7 @@ class EventManager:
         if event:
             future.event = event
         self._futures.append(future)
-        sse_manager.publish_event("event_update", self.get_event_updates())
+        websocket_manager.publish("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
 
     # For debugging purposes we can monitor the execution time of the service. (comment out above and uncomment below)
@@ -292,7 +292,7 @@ class EventManager:
     #     if event:
     #         future.event = event
     #     self._futures.append(future)
-    #     sse_manager.publish_event("event_update", self.get_event_updates())
+    #     sse_manager.publish("event_update", self.get_event_updates())
     #     future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):
