@@ -40,10 +40,11 @@ class ConnectionManager:
                         self.background_tasks.remove(task)
                         break
 
-    async def publish(self, topic: str, message: Any):
+    def publish(self, topic: str, message: Any):
         """Publish a message to a specific topic"""
         if topic not in self.message_queues:
-            self.message_queues[topic] = asyncio.Queue()
+            return # There are no connections for this topic
+            #self.message_queues[topic] = asyncio.Queue()
         
         # Format the message with timestamp
         formatted_message = {
@@ -51,7 +52,10 @@ class ConnectionManager:
             "data": message
         }
         
-        await self.message_queues[topic].put(formatted_message)
+        try:
+            self.message_queues[topic].put_nowait(formatted_message)
+        except asyncio.QueueFull:
+            print(f"Message queue full for topic {topic}")
 
     async def _broadcast_messages(self, topic: str):
         """Background task to broadcast messages for a specific topic"""
