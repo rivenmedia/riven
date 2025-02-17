@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, Annotated
 
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Security, status, Query
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from program.settings.manager import settings_manager
@@ -17,6 +17,15 @@ def resolve_api_key(
     bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth)
 ):
     if not (header or bearer):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+
+def resolve_ws_api_key(
+    api_key: Annotated[str | None, Query()] = None
+):
+    if not (api_key and api_key == settings_manager.settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials"

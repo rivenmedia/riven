@@ -1,7 +1,7 @@
 from fastapi import Depends, Request
 from fastapi.routing import APIRouter
 
-from auth import resolve_api_key
+from auth import resolve_api_key, resolve_ws_api_key
 from program.settings.manager import settings_manager
 from routers.models.shared import RootResponse
 from routers.secure.default import router as default_router
@@ -27,5 +27,5 @@ app_router.include_router(items_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(scrape_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(settings_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(webhooks_router, dependencies=[Depends(resolve_api_key)])
-app_router.include_router(ws_router)
+app_router.include_router(ws_router, dependencies=[Depends(resolve_ws_api_key)])
 app_router.include_router(stream_router, dependencies=[Depends(resolve_api_key)])
