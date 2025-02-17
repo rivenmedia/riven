@@ -218,11 +218,66 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
     return broken_symlinks
 
 def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
-    """Find and fix all broken symlinks in the library path using files from the rclone path."""
+    """
+    Fix and retarget broken symlinks in the media library using files from the specified rclone path.
+    
+    This function scans through top-level directories within the given library path to locate broken symlinks.
+    It then constructs a mapping of valid filenames from the rclone path and attempts to retarget each broken
+    symlink to the correct file if available. For each broken symlink, associated media items are retrieved
+    from the database. If a corresponding valid file is found in the rclone file map, the symlink is replaced
+    with a new one pointing to the correct path, and the media item's attributes (such as file name, folder,
+    and symlink-related flags) are updated in the database. If no valid file is found, the symlink is removed
+    and the media items are reset for future processing.
+    
+    The operation is performed concurrently using a thread pool with a maximum number of worker threads,
+    specified by the `max_workers` parameter. Detailed logs are produced throughout the process, including
+    the number of broken symlinks found, actions taken on each, and a summary of processing time and any
+    items reset due to missing files in the rclone path.
+    
+    Parameters:
+        library_path (str): The path to the media library directory containing symlinked files.
+        rclone_path (str): The source directory path containing valid files to retarget broken symlinks.
+        max_workers (int, optional): Maximum number of threads to use for concurrently processing
+            directories. Defaults to 4.
+    
+    Returns:
+        None
+    
+    Side Effects:
+        - Modifies symlink files in the filesystem.
+        - Updates media item records in the database.
+        - Logs details of processing, including successes, failures, and runtime statistics.
+    """
     missing_files = 0
 
     def check_and_fix_symlink(symlink_path, file_map):
-        """Check and fix a single symlink."""
+        """
+        Attempts to fix a broken symlink by retargeting it to the correct file path and updating
+        the associated media item(s) in the database.
+        
+        This function checks if the given symlink points to a valid target. It retrieves the
+        filename from the symlink's target and looks up the correct full path in the provided
+        file_map. If a correct file path is found, the symlink is removed and recreated to point
+        to this path, and the corresponding media item(s) in the database have their attributes
+        (updated file name, folder, symlink status, etc.) refreshed and committed. If no correct
+        file path is found, the function removes the symlink, resets the state of the associated
+        media item(s), increments a nonlocal counter (missing_files), and logs the reset action.
+        
+        Parameters:
+            symlink_path (str or tuple): The path of the symlink to be checked and fixed. If a tuple
+                is provided, the first element is used as the symlink path.
+            file_map (dict[str, str]): A mapping from filenames to their correct full file paths.
+        
+        Side Effects:
+            - Modifies the filesystem by removing and recreating symlinks.
+            - Updates media item entries in the database.
+            - Increments the nonlocal variable 'missing_files' when a file is missing.
+            - Logs various actions and errors during processing.
+        
+        Raises:
+            Any exceptions from file operations or database transactions that are not caught
+            within the function may propagate to the caller.
+        """
         nonlocal missing_files
 
         if isinstance(symlink_path, tuple):
@@ -314,7 +369,31 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
     logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
 
 def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
-    """Get an item by its filepath."""
+    """
+    Retrieve media items from the database corresponding to the provided file path.
+    
+    This function extracts the IMDb identifier from the file path using regular expressions and, if available,
+    optionally extracts season and episode numbers to distinguish between movies and episodes. It then attempts to
+    retrieve matching media items using two strategies:
+      1. Lookup based on the symlink path.
+      2. Direct lookup using the IMDb ID along with season and episode information.
+    
+    If the IMDb identifier is not found in the file path, a debug message is logged and an empty list is returned.
+    If multiple matching items are found (an unexpected scenario), a log entry is created for debugging purposes.
+    
+    Parameters:
+        session (Session): An active database session used to query media items.
+        filepath (str): The file system path of the media file from which to extract identification information.
+    
+    Returns:
+        List[MediaItem]: A list of media items (e.g., movies or episodes) that match the filters derived from the file path.
+        Returns an empty list if no valid IMDb identifier is found or if no matching items exist.
+    
+    Examples:
+        >>> items = get_items_from_filepath(session, "/media/movies/tt1234567.mp4")
+        >>> if items:
+        ...     print("Found media item:", items[0])
+    """
     from program.db.db_functions import get_items_from_filter, ItemFilter
 
     imdb_id_match = imdbid_pattern.search(filepath)
@@ -330,6 +409,27 @@ def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
     episode_number = int(episode_number_match.group(1)) if episode_number_match else None
 
     def get_by_symlink_path(session: Session, filepath: str) -> list["MediaItem"]:
+        """
+        Retrieve MediaItem objects based on the provided symlink path.
+        
+        This function constructs an ItemFilter using the given symlink path and determines
+        the media item type based on the availability of season and episode context.
+        If both 'season_number' and 'episode_number' evaluate to True in the surrounding scope,
+        the filter is configured to retrieve episode items; otherwise, it retrieves movie items.
+        The resulting filter is then used to fetch the items from the database via get_items_from_filter.
+        
+        Parameters:
+            session (Session): The active database session for executing the query.
+            filepath (str): The symlink file path to use as a filter criterion.
+        
+        Returns:
+            list[MediaItem]: A list of MediaItem instances matching the filter criteria.
+        
+        Note:
+            The decision on filtering for episodes or movies depends on the external variables
+            'season_number' and 'episode_number'. Ensure these variables are defined in the current
+            scope before invoking this function.
+        """
         if season_number and episode_number:
             filter = ItemFilter(symlink_path=filepath, type=["episode"])
         else:
@@ -337,6 +437,20 @@ def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
         return get_items_from_filter(session, filter)
 
     def get_by_direct_lookup(session: Session, imdb_id: str, season_number: int, episode_number: int) -> list["MediaItem"]:
+        """
+        Return a list of media items based on a direct lookup using IMDb ID and, optionally, season and episode numbers.
+        
+        This function constructs an item filter for querying the media database. If both season_number and episode_number are provided (and evaluate as truthy), the filter is set up to retrieve an episode (with type set to ["episode"]). Otherwise, the filter targets movies (with type set to ["movie"]). The resulting filter is then used with the provided session to obtain matching media items via get_items_from_filter.
+        
+        Parameters:
+            session (Session): The database session to use for performing the query.
+            imdb_id (str): The IMDb identifier for the media item.
+            season_number (int): The season number of the media item. Must be truthy for an episode lookup.
+            episode_number (int): The episode number of the media item. Must be truthy for an episode lookup.
+        
+        Returns:
+            List[MediaItem]: A list of media items that satisfy the lookup criteria.
+        """
         if season_number and episode_number:
             filter = ItemFilter(imdb_id=imdb_id, season_number=season_number, episode_number=episode_number, type=["episode"])
         else:

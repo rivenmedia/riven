@@ -98,10 +98,16 @@ class EventManager:
 
     def add_event_to_queue(self, event: Event, log_message=True):
         """
-        Adds an event to the queue.
-
-        Args:
+        Adds an event to the queue with validation based on its associated MediaItem.
+        
+        This method acquires a mutex lock to ensure thread-safe modifications to the internal queue. If the event includes an item ID, it performs a database query—loading only the necessary columns—to retrieve the corresponding MediaItem. If an exception occurs during the query, an error is logged and the event is not queued. Similarly, if no item is found (and the event lacks a content item) or if the retrieved item is blocked, the event will not be added to the queue. Otherwise, the event is appended to the queue and, if enabled, a debug log message is recorded.
+        
+        Parameters:
             event (Event): The event to add to the queue.
+            log_message (bool, optional): If True, logs a debug message upon successfully queuing the event. Defaults to True.
+        
+        Returns:
+            None
         """
         with self.mutex:
             if event.item_id:
@@ -297,11 +303,19 @@ class EventManager:
 
     def cancel_job(self, item_id: str, suppress_logs=False):
         """
-        Cancels a job associated with the given item.
-
-        Args:
-            item_id (int): The event item whose job needs to be canceled.
-            suppress_logs (bool): If True, suppresses debug logging for this operation.
+        Cancels the job associated with the given event item and its related items.
+        
+        This method retrieves the primary and related identifiers for the specified event item using a database session.
+        It then iterates over all active futures, and if a future is associated with the given item (or any of its related
+        items), the corresponding job is removed from the queues and cancelled (if not already completed or cancelled).
+        Any exceptions occurring during cancellation are caught and logged unless logging is suppressed via the suppress_logs flag.
+        
+        Parameters:
+            item_id (str): The identifier of the event item whose job, along with those of its related items, should be cancelled.
+            suppress_logs (bool, optional): If True, suppresses error logging during the cancellation process. Defaults to False.
+        
+        Returns:
+            None
         """
         with db.Session() as session:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
@@ -331,13 +345,25 @@ class EventManager:
 
     def next(self) -> Event:
         """
-        Get the next event in the queue with an optional timeout.
-
+        Retrieves and returns the next event from the queue that is scheduled to run.
+        
+        This method checks the event queue for events that are due based on their scheduled
+        `run_at` timestamp. It sorts the queued events in ascending order of their `run_at` times
+        and, if the earliest event's run time has arrived or passed, removes and returns that event.
+        If the queue is empty or if no event is ready to run (i.e. the scheduled time for the earliest
+        event is in the future), an `Empty` exception is raised.
+        
+        Note:
+            - This method acquires a mutex lock to ensure thread-safe operations while
+              sorting and modifying the event queue.
+            - Although implemented with a loop, the method performs a single check and immediately 
+              raises an exception if no event is ready.
+        
         Raises:
-            Empty: If the queue is empty.
-
+            Empty: If the event queue is empty or no event is scheduled to run at the current time.
+        
         Returns:
-            Event: The next event in the queue.
+            Event: The next event whose scheduled run time is due.
         """
         while True:
             if self._queued_events:
@@ -374,13 +400,23 @@ class EventManager:
 
     def add_event(self, event: Event) -> bool:
         """
-        Adds an event to the queue if it is not already present in the queue or running events.
-
-        Args:
-            event (Event): The event to add to the queue.
-
+        Adds an event to the queue if it is not already scheduled or currently running.
+        
+        This method performs several checks before adding the event:
+        1. It opens a database session and retrieves the primary item ID and any related item IDs (such as for shows with multiple seasons or episodes) associated with the event.
+        2. If a valid item ID is returned, the method checks whether the item or any of its related items are already in the queue or are running. If any are found, the event is not added.
+        3. If no valid item ID is returned, it assumes the event is tied to a content item and checks for the presence of an event with the same IMDB ID in both the queue and running events.
+        4. If no duplicate is detected, the event is added to the queue by invoking the add_event_to_queue method.
+        
+        Parameters:
+            event (Event): The event to be added, containing information about the media item and its content.
+        
         Returns:
-            bool: True if the event was added to the queue, False if it was already present.
+            bool: True if the event was successfully added to the queue; False if the event (or a related event) is already present in the queue or running.
+            
+        Side Effects:
+            - Establishes a database session to retrieve item identifiers.
+            - Logs debug messages when skipping events that are already queued or running.
         """
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
@@ -410,10 +446,18 @@ class EventManager:
 
     def add_item(self, item, service: str = "Manual") -> bool:
         """
-        Adds an item to the queue as an event.
-
-        Args:
-            item (MediaItem): The item to add to the queue as an event.
+        Adds a media item to the event queue if it is not already present in the database.
+        
+        This method verifies that no existing record with the same IMDb ID is found by querying the database.
+        If the media item is new, it creates a new event with the specified service name and the media item as its content,
+        and attempts to add the event to the queue. A debug log is recorded upon successful addition.
+        
+        Parameters:
+            item (MediaItem): The media item to be added as an event.
+            service (str, optional): The name of the service associated with the event. Defaults to "Manual".
+        
+        Returns:
+            bool: True if the event was successfully added to the queue, or False otherwise.
         """
         # For now lets just support imdb_ids...
         if not db_functions.get_item_by_external_id(imdb_id=item.imdb_id):
@@ -423,10 +467,12 @@ class EventManager:
 
     def get_event_updates(self) -> Dict[str, List[str]]:
         """
-        Get the event updates for the SSE manager.
-
+        Retrieve event updates for the SSE manager.
+        
+        This method scans the list of futures for those that contain an `event` attribute and extracts the associated events. It then categorizes these events under a predefined set of event types—"Scraping", "Downloader", "Symlinker", "Updater", and "PostProcessing"—by comparing the name of the service that emitted the event (obtained via `event.emitted_by.__name__`). If a match is found, the event's `item_id` is appended to the corresponding list in the output dictionary.
+        
         Returns:
-            Dict[str, List[str]]: A dictionary with the event types as keys and a list of item IDs as values.
+            Dict[str, List[str]]: A dictionary where each key is one of the predefined event types and the corresponding value is a list of item IDs for events emitted by that service.
         """
         events = [future.event for future in self._futures if hasattr(future, "event")]
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]

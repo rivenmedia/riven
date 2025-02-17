@@ -188,7 +188,19 @@ class Program(threading.Thread):
         self.initialized = True
 
     def _retry_library(self) -> None:
-        """Retry items that failed to download."""
+        """
+        Retries the download process for eligible media items.
+        
+        This method queries the database for media items of type "movie" or "show" whose last state is not one of the terminal or non-retry states
+        (Completed, Unreleased, Paused, or Failed). If such items exist, it logs the number of items to be retried and adds a retry event for each
+        item to the event manager, which will handle the subsequent download attempts.
+        
+        Raises:
+            Exception: Propagates any exceptions raised during database session operations or query execution.
+            
+        Note:
+            This method is intended to be invoked periodically to ensure that eligible media items continue to be processed for download.
+        """
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem.id))

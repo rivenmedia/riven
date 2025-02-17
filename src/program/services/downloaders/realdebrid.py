@@ -132,8 +132,25 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for multiple infohashes.
-        Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
+        Checks the instant availability of a torrent by adding it, processing its details to select valid video files, and subsequently deleting it.
+        
+        Due to the removal of native instant availability support by Real-Debrid, this method performs a makeshift availability check by:
+          1. Adding the torrent using its infohash.
+          2. Processing the torrent to filter and select valid files based on the provided item type.
+          3. Deleting the torrent regardless of the outcome to ensure resource cleanup.
+        
+        Parameters:
+            infohash (str): The unique identifier (infohash) of the torrent.
+            item_type (str): The type or category of the torrent, used to determine appropriate file selection.
+        
+        Returns:
+            Optional[TorrentContainer]: A container with valid torrent and file information if available; returns None if no valid files are found or an error occurs.
+        
+        Notes:
+            - Exceptions are handled internally:
+                * Logs a debug message if an InvalidDebridFileException occurs.
+                * Logs an error message for any other exceptions.
+            - This method always attempts to delete the torrent to avoid leaving unused entries.
         """
         valid_container: Optional[TorrentContainer] = None
         torrent_id = None
@@ -154,7 +171,29 @@ class RealDebridDownloader(DownloaderBase):
         return valid_container
 
     def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
-        """Process a single torrent and return a TorrentContainer if valid."""
+        """
+        Processes a single torrent and returns a TorrentContainer containing valid video files, or None if no valid files are found.
+        
+        This method first retrieves the torrent's details using get_torrent_info. If the torrent's status is "waiting_files_selection", it filters
+        the torrent's files to identify those whose filenames end with any of the valid video extensions defined by VALID_VIDEO_EXTENSIONS (case insensitive).
+        If no such video files are found, the method logs a debug message and returns None. Otherwise, it selects the identified video files by calling
+        select_files, refreshes the torrent information, and ensures that the torrent status is "downloaded" (cached). If the torrent is not cached or if
+        there are no files, the method returns None.
+        
+        If valid files are present, each file is processed using DebridFile.create to construct a file object, and the method returns a TorrentContainer
+        with the provided infohash and a list of these processed files.
+        
+        Parameters:
+            torrent_id (str): The unique identifier of the torrent.
+            infohash (str): The unique hash representing the torrent's info.
+            item_type (str): A string indicating the type of the item, used when creating file objects.
+        
+        Returns:
+            Optional[TorrentContainer]: A TorrentContainer with the infohash and a list of valid video files if available; otherwise, None.
+        
+        Raises:
+            Any exceptions raised by get_torrent_info or select_files are propagated.
+        """
         torrent_info = self.get_torrent_info(torrent_id)
         
         if torrent_info.status == "waiting_files_selection":

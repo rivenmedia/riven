@@ -85,7 +85,29 @@ class Symlinker:
         return True
 
     def run(self, item: Union[Movie, Show, Season, Episode]):
-        """Check if the media item exists and create a symlink if it does"""
+        """
+        Run the symlink creation process for a media item and yield the updated item or retry information.
+        
+        This generator function processes the given media item (which can be a Movie, Show, Season, or Episode) to determine whether symlink creation is required. It performs the following steps:
+        1. Retrieves items that may need to be updated via the `_get_items_to_update` method.
+        2. If no items are found, logs a debug message and yields the original item.
+        3. If the items are not ready for submission (as determined by `_should_submit`):
+           - If the item has already undergone 6 symlink attempts, it soft-resets the item by blacklisting the active stream and resetting its state, then yields the item.
+           - Otherwise, it computes the next attempt time using `_calculate_next_attempt`, increments the symlink attempt counter, and yields a tuple containing the item and the scheduled retry time.
+        4. If the items are ready for submission, it attempts to create symlinks by invoking the `_symlink` method for each item. Any exceptions encountered during symlink creation are caught and logged.
+        5. Finally, the function yields the original media item.
+        
+        Parameters:
+            item (Union[Movie, Show, Season, Episode]): The media item to process for symlink creation.
+        
+        Yields:
+            Union[Movie, Show, Season, Episode] or Tuple[Union[Movie, Show, Season, Episode], datetime]:
+                - The media item itself if no further action is taken or after successful symlink creation.
+                - A tuple (item, next_attempt) if a retry is scheduled for symlink creation.
+        
+        Exceptions:
+            All exceptions during the symlink creation process are caught and logged, preventing the function from terminating abruptly.
+        """
         items = self._get_items_to_update(item)
         if not items:
             # No items to update, so we yield the item and move on.

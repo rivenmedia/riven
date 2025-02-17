@@ -21,6 +21,23 @@ from program.settings.manager import settings_manager
 
 class Scraping:
     def __init__(self):
+        """
+        Initialize a Scraping instance with configuration settings and scraping services.
+        
+        This constructor loads scraping-related settings from the settings manager, sets the maximum allowed
+        failed scraping attempts, and instantiates both IMDb-based and keyword-based scraping services. The
+        combined services are stored in the `services` attribute. The instance is marked as initialized based
+        on the result of the `validate()` method; if validation fails, the initialization process exits early.
+        
+        Attributes:
+            key (str): Identifier for the scraping process.
+            initialized (bool): Indicates whether any scraping service was successfully initialized.
+            settings: Configuration settings for scraping.
+            max_failed_attempts (int): Maximum number of consecutive failed scraping attempts before marking an item as failed.
+            imdb_services (dict): Dictionary mapping IMDb-based scraping service classes to their instances.
+            keyword_services (dict): Dictionary mapping keyword-based scraping service classes to their instances.
+            services (dict): Combined dictionary of both IMDb-based and keyword-based scraping service instances.
+        """
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
@@ -49,7 +66,21 @@ class Scraping:
         return any(service.initialized for service in self.services.values())
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Scrape an item."""
+        """
+        Run the scraping process for a media item and yield the updated item.
+        
+        This method checks whether scraping should proceed based on the media item's state and other conditions. If the item's state is Paused, the item is immediately yielded without further processing. Otherwise, the method verifies eligibility with `can_we_scrape` and, if allowed, invokes the `scrape` method to retrieve streaming sources. New streams that are not already present in the item's collection or its blacklist are added; successful scraping resets the failed attempts counter, while absence of new streams increments the failed attempts count. If the number of failed attempts reaches the configured maximum, the item's state is updated to Failed. Finally, the method updates the item's scraping metadata before yielding the modified item.
+        
+        Parameters:
+            item (MediaItem): The media item to be scraped, which should include attributes such as state, failed_attempts, scraped_times, streams, and blacklisted_streams.
+        
+        Yields:
+            MediaItem: The updated media item reflecting new streams, state changes, and updated scrape timestamps and attempt counts.
+        
+        Notes:
+            - Detailed logging is performed at each step for debugging purposes.
+            - This method integrates error handling by managing the failed attempts counter and marking the item as Failed when necessary.
+        """
         if item.state == States.Paused:
             logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
             yield item
@@ -86,7 +117,23 @@ class Scraping:
         yield item
 
     def scrape(self, item: MediaItem, log = True) -> Dict[str, Stream]:
-        """Scrape an item."""
+        """
+        Scrapes streaming information for the given media item using available scraping services.
+        
+        This method spawns a separate thread for each initialized service (selected based on whether the media item has an IMDb ID) to concurrently gather scraping results. Each service's output is verified to be a dictionary, and any infohash keys are normalized to lowercase before being merged into a shared results dictionary. After all services have completed, duplicate results are filtered out, and the aggregated results are parsed into a sorted dictionary of Stream objects. Detailed debug logging is provided if enabled, including information on duplicate removals and the top scraped streams.
+        
+        Parameters:
+            item (MediaItem): The media item to scrape for streaming information.
+            log (bool, optional): If True, enables detailed debug logging of the scraping process. Defaults to True.
+        
+        Returns:
+            Dict[str, Stream]: A dictionary mapping normalized infohash strings to their corresponding Stream objects.
+        
+        Side Effects:
+            - Initiates multiple threads to run scraping services concurrently.
+            - Updates shared results using a thread-safe mechanism.
+            - Logs errors if a service returns invalid results and debug details if logging is enabled.
+        """
         threads: List[threading.Thread] = []
         results: Dict[str, str] = {}
         total_results = 0
@@ -142,7 +189,17 @@ class Scraping:
 
     @classmethod
     def can_we_scrape(cls, item: MediaItem) -> bool:
-        """Check if we can scrape an item."""
+        """
+        Determine whether a MediaItem is eligible to be scraped.
+        
+        This method verifies that the media item has been released and satisfies additional submission criteria as determined by the class's `should_submit` method. If the item is not released, a debug message is logged and the method returns False.
+        
+        Parameters:
+            item (MediaItem): The media item to evaluate for scraping eligibility.
+        
+        Returns:
+            bool: True if the item is eligible for scraping, otherwise False.
+        """
         if not item.is_released:
             logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
             return False
@@ -152,7 +209,25 @@ class Scraping:
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
-        """Check if an item should be submitted for scraping."""
+        """
+        Determine whether a media item is eligible to be submitted for scraping based on its current state and history.
+        
+        This function checks multiple criteria to decide if a new scraping attempt should be performed for the given media item. The eligibility is determined by the following conditions:
+        - The item must be released.
+        - The item must not already have an active stream, which could indicate it is being processed in another session.
+        - The item must not be blocked either directly or by its parent.
+        - A sufficient time interval must have elapsed since the last scraping attempt. The default interval is 30 minutes, which may be extended based on the number of previous scraping attempts:
+          - Between 2 and 5 previous attempts, the interval is set according to settings.after_2 (in hours).
+          - Between 5 and 10 previous attempts, the interval is set according to settings.after_5 (in hours).
+          - More than 10 previous attempts, the interval is set according to settings.after_10 (in hours).
+        - The number of failed scraping attempts must be less than the maximum allowed as defined in settings.max_failed_attempts.
+        
+        Parameters:
+            item (MediaItem): The media item to evaluate. It must have attributes such as is_released, active_stream, scraped_times, scraped_at, and failed_attempts, along with a method is_parent_blocked().
+        
+        Returns:
+            bool: True if the item meets all criteria and is eligible for scraping; False otherwise.
+        """
         settings = settings_manager.settings.scraping
         scrape_time = 30 * 60  # 30 minutes by default
 

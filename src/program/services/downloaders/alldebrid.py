@@ -120,8 +120,28 @@ class AllDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for a single infohash
-        Required by DownloaderBase
+        Retrieve instant availability for a torrent given its infohash.
+        
+        This method attempts to add a torrent using the provided infohash and waits briefly for processing. 
+        It then retrieves torrent information to check whether the torrent status is "Ready". If ready, the 
+        method fetches associated file entries (which may include nested directory structures) and processes 
+        them recursively into DebridFile objects. If valid files are found, it returns a TorrentContainer 
+        object containing the infohash and a list of these processed files.
+        
+        Parameters:
+            infohash (str): The unique identifier for the torrent.
+            item_type (str): The type to assign to each file (e.g., "video", "audio").
+        
+        Returns:
+            Optional[TorrentContainer]: A TorrentContainer with the torrent's infohash and processed files if 
+            successful; otherwise, None.
+        
+        Exceptions:
+            Catches and logs InvalidDebridFileException with a debug message for issues related to invalid 
+            Debrid files, as well as a general Exception for any other errors encountered during processing.
+        
+        Side Effects:
+            Deletes the added torrent (if any) after processing, regardless of success or failure.
         """
         torrent_id = None
         return_value = None

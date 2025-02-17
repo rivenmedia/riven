@@ -220,6 +220,27 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
     operation_id="get_item",
 )
 async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
+    """
+        Retrieve a media item using its internal ID or TMDB ID.
+    
+        This asynchronous function queries the database for a media item based on the
+        provided identifier. When the `use_tmdb_id` flag is set to True, the function
+        searches using the TMDB ID; otherwise, it searches using the internal media item ID.
+        The function then returns an extended dictionary representation of the media item,
+        excluding stream data.
+    
+        Parameters:
+            _ (Request): The HTTP request object (unused).
+            id (str): The identifier of the media item.
+            use_tmdb_id (Optional[bool]): If True, treats the provided id as a TMDB ID.
+                                          Defaults to False.
+    
+        Returns:
+            dict: An extended dictionary representation of the found media item.
+    
+        Raises:
+            HTTPException: If no media item is found corresponding to the given identifier.
+        """
     with db.Session() as session:
         try:
             query = select(MediaItem)
@@ -414,6 +435,28 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
     "{item_id}/streams/{stream_id}/unblacklist"
 )
 async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
+    """
+    Unblacklist a stream for a specific media item.
+    
+    This asynchronous function retrieves the media item by its identifier and checks
+    its blacklisted streams for a matching stream identifier. If the media item or the
+    specified stream is not found, it raises an HTTP 404 error. Otherwise, it proceeds
+    to remove the stream from the blacklist using the corresponding database utility
+    function and returns a confirmation message.
+    
+    Parameters:
+        _ (Request): The HTTP request object (unused).
+        item_id (str): The identifier of the media item.
+        stream_id (int): The identifier of the stream to be unblacklisted.
+        db (Session, optional): The database session dependency for executing queries.
+    
+    Returns:
+        dict: A dictionary containing a success message, e.g.,
+              {"message": "Unblacklisted stream <stream_id> for item <item_id>"}.
+    
+    Raises:
+        HTTPException: If the media item or the stream is not found, with a 404 status code.
+    """
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -445,7 +488,32 @@ class PauseResponse(BaseModel):
     operation_id="pause_items",
 )
 async def pause_items(request: Request, ids: str) -> PauseResponse:
-    """Pause items and their children from being processed"""
+    """
+    Pause media items and their associated child items from further processing.
+    
+    This asynchronous function validates and processes a comma-separated list of media item IDs,
+    pausing each media item and its related items. For each item, it:
+      - Validates IDs using `handle_ids`, raising an HTTP 400 error if no valid IDs are provided.
+      - Retrieves the media items using `db_functions.get_items_by_ids(ids)`.
+      - Fetches both the primary and related IDs via `db_functions.get_item_ids`.
+      - Cancels any scheduled jobs and removes each ID from processing queues.
+      - If the media item's last state is not in [Paused, Failed, Completed], updates its state to Paused,
+        persists the change in the database, and commits the transaction.
+      - Logs successes and errors throughout the process while continuing to process remaining items.
+    
+    Parameters:
+        request (Request): The FastAPI Request object providing access to application-specific resources,
+                           including the event manager for job cancellation and queue management.
+        ids (str): A comma-separated string of media item IDs to be paused.
+    
+    Returns:
+        PauseResponse: A dictionary containing:
+            - "message" (str): A confirmation message.
+            - "ids" (List[str]): The list of media item IDs that were processed.
+    
+    Raises:
+        HTTPException: If the input IDs are invalid (e.g., empty), an HTTP 400 error is raised.
+    """
     ids = handle_ids(ids)
     try:
         with db.Session() as session:
@@ -479,7 +547,28 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
     operation_id="unpause_items",
 )
 async def unpause_items(request: Request, ids: str) -> PauseResponse:
-    """Unpause items and their children to resume processing"""
+    """
+    Unpause media items to allow them to resume processing.
+    
+    This endpoint processes a comma-separated string of media item IDs. For each media item, if its current state is "Paused", the state is cleared (set to None) to allow the item to be retried. The updated state is merged into the database session and committed. An event ("RetryItem") is then added to the application's event manager to trigger reprocessing. Items that are not in the paused state are skipped with a debug log message.
+    
+    Parameters:
+        request (Request): The incoming FastAPI request object, which provides access to the application context and event manager.
+        ids (str): A comma-separated string of media item identifiers. A 400 HTTP exception is raised if no valid IDs are provided.
+    
+    Returns:
+        PauseResponse: A dictionary containing a success message and the list of processed IDs:
+            - message (str): Indicates the successful unpausing of items.
+            - ids (List[str]): The list of media item IDs that were processed.
+    
+    Raises:
+        HTTPException: If the provided IDs are empty or invalid, a 400 error is raised.
+    
+    Side Effects:
+        - Updates media item states in the database and commits these changes.
+        - Triggers an event for each successfully unpaused item.
+        - Logs informational, debug, and error messages during processing.
+    """
     ids = handle_ids(ids)
     try:
         with db.Session() as session:

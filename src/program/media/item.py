@@ -183,6 +183,24 @@ class MediaItem(db.Model):
         return self._determine_state()
 
     def _determine_state(self):
+        """
+        Determines the current processing state of the media item based on its attributes and prior state.
+        
+        This private method evaluates several conditions in a predefined order to establish the media item's state:
+        - Returns States.Paused if the last recorded state is Paused.
+        - Returns States.Failed if the last recorded state is Failed.
+        - Returns States.Completed if the media item has a key or if its update_folder attribute equals "updated".
+        - Returns States.Symlinked if the media item is marked as symlinked.
+        - Returns States.Downloaded if both file and folder attributes are present.
+        - Returns States.Scraped if the media item has been scraped (as determined by the is_scraped() method).
+        - Returns States.Indexed if the media item has a title and is released.
+        - Returns States.Unreleased if only a title is present.
+        - Returns States.Requested if an IMDb ID is provided and the item was requested.
+        - Returns States.Unknown if none of the above conditions are met.
+        
+        Returns:
+            States: The derived state of the media item.
+        """
         if self.last_state == States.Paused:
             return States.Paused
         if self.last_state == States.Failed:
@@ -204,7 +222,31 @@ class MediaItem(db.Model):
         return States.Unknown
 
     def copy_other_media_attr(self, other):
-        """Copy attributes from another media item."""
+        """
+        Copies media-related attributes from another media item to this instance.
+        
+        This method updates the current instance with a set of predefined attributes from the
+        provided `other` media item. It attempts to retrieve each attribute from `other` and assigns a
+        default value if the attribute is not present:
+          - title: defaults to None
+          - tvdb_id: defaults to None
+          - tmdb_id: defaults to None
+          - network: defaults to None
+          - country: defaults to None
+          - language: defaults to None
+          - aired_at: defaults to None
+          - genres: defaults to an empty list
+          - is_anime: defaults to False
+          - overseerr_id: defaults to None
+        
+        Parameters:
+            other (object): A media item instance from which to copy attributes. It should ideally have
+                            the attributes corresponding to media details, though missing attributes will
+                            adopt their default values.
+        
+        Returns:
+            None
+        """
         self.title = getattr(other, "title", None)
         self.tvdb_id = getattr(other, "tvdb_id", None)
         self.tmdb_id = getattr(other, "tmdb_id", None)
@@ -217,7 +259,16 @@ class MediaItem(db.Model):
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self) -> bool:
-        """Check if the item has been scraped."""
+        """
+        Check if the media item has been scraped successfully.
+        
+        This method determines if the item has been scraped by verifying that it has one or more associated streams and that at least one of these streams is not in the blacklisted set.
+        It first retrieves the active session and refreshes the "blacklisted_streams" attribute to ensure up-to-date data. If the item has streams and at least one of them is not blacklisted, it returns True.
+        Any errors during the session refresh are caught, logged, and result in the method returning False.
+        
+        Returns:
+            bool: True if the item has valid (non-blacklisted) streams, otherwise False.
+        """
         session = object_session(self)
         if session and session.is_active:
             try:
@@ -228,7 +279,33 @@ class MediaItem(db.Model):
         return False
 
     def to_dict(self):
-        """Convert item to dictionary (API response)"""
+        """
+        Convert the media item to a dictionary representation for API responses.
+        
+        This method serializes the MediaItem instance into a dictionary with key metadata, ensuring that all
+        attributes are appropriately formatted. Conditional attributes (like IMDb, TVDB, TMDB IDs, genres, and
+        IMDb link) are included only if they exist on the instance. Timestamps and dates are converted to strings
+        to ensure a consistent output format.
+        
+        Returns:
+            dict: A dictionary containing:
+                - "id" (str): String representation of the unique identifier.
+                - "title" (str): The title of the media item.
+                - "type" (str): The class name of the media item.
+                - "imdb_id" (str or None): IMDb identifier if available.
+                - "tvdb_id" (str or None): TVDB identifier if available.
+                - "tmdb_id" (str or None): TMDB identifier if available.
+                - "state" (str): Name of the current state.
+                - "imdb_link" (str or None): Link to the IMDb page if available.
+                - "aired_at" (str): Air date of the media item.
+                - "genres" (list or None): Genres associated with the media item if available.
+                - "is_anime" (bool): True if the media item is classified as anime, otherwise False.
+                - "guid" (str): Globally unique identifier.
+                - "requested_at" (str): Timestamp when the media item was requested.
+                - "requested_by" (str): Identifier for the requester.
+                - "scraped_at" (str): Timestamp when the media item was scraped.
+                - "scraped_times" (int): Number of times scraping has been attempted.
+        """
         return {
             "id": str(self.id),
             "title": self.title,
@@ -362,7 +439,20 @@ class MediaItem(db.Model):
             self.store_state(States.Requested)
 
     def _reset(self):
-        """Reset item attributes for rescraping."""
+        """
+        Reset the media item's attributes to prepare for a re-scraping process.
+        
+        This method performs the following actions:
+        - If a symlink path is set and exists, it removes the symlink and clears the associated attribute.
+        - Attempts to remove all associated subtitle files. Any exceptions during subtitle removal are caught and logged as warnings.
+        - Clears file-related attributes: 'file', 'folder', and 'alternative_folder'.
+        - Resets stream data by calling the 'reset_streams' function and clearing the 'active_stream' attribute.
+        - Resets additional flags and timestamps including 'symlinked', 'symlinked_at', 'update_folder', 'scraped_at', 'symlinked_times', 'scraped_times', and 'failed_attempts'.
+        - Logs a debug message indicating that the item has been reset.
+        
+        Returns:
+            None
+        """
         if self.symlink_path:
             if Path(self.symlink_path).exists():
                 Path(self.symlink_path).unlink()
@@ -398,14 +488,27 @@ class MediaItem(db.Model):
 
     @property
     def collection(self):
+        """
+        Retrieve the collection identifier for the media item.
+        
+        If the item has a parent, this method returns the parent's collection identifier; otherwise, it returns the item's own id.
+        
+        Returns:
+            The collection identifier, which is either the parent's collection attribute or the item's id.
+        """
         return self.parent.collection if self.parent else self.id
 
     def is_parent_blocked(self) -> bool:
         """
-        Check if any parent is paused.
-
-        A paused item blocks all processing of itself and its children,
-        typically set by user action from the frontend.
+        Determine if this media item or any of its parent items is currently paused.
+        
+        This method checks if the current item's last state is set to paused, which blocks processing
+        for the item and its descendants. If the current item is not paused, the method attempts to
+        refresh and retrieve its parent from the associated SQLAlchemy session. If a parent exists,
+        the method recursively checks whether any ancestor is paused.
+        
+        Returns:
+            bool: True if this item or any of its parent items is paused, otherwise False.
         """
         if self.last_state == States.Paused:
             return True
@@ -419,11 +522,15 @@ class MediaItem(db.Model):
 
     def get_blocking_parent(self) -> Optional["MediaItem"]:
         """
-        Get the parent that is paused and blocking this item (if any).
-
+        Recursively retrieves the closest parent media item that is in a Paused state.
+        
+        This method checks if the current media item is paused. If so, it is considered blocking and returned immediately.
+        If the current item is not paused, the method attempts to refresh and access its parent from the active SQLAlchemy session,
+        then recursively calls get_blocking_parent on the parent to determine if an ancestor is blocking. If no paused parent is found,
+        the method returns None.
+        
         Returns:
-            MediaItem | None: The parent in a Paused state,
-                            or None if no parent is paused.
+            Optional[MediaItem]: The nearest parent media item with a Paused state, or None if no such parent exists.
         """
         if self.last_state == States.Paused:
             return self
@@ -486,6 +593,26 @@ class Show(MediaItem):
         return None
 
     def _determine_state(self):
+        """
+        Determine the overall state of the media item based on the states of its associated seasons.
+        
+        This private method evaluates the state of each season in the `seasons` list and returns
+        an aggregated state for the media item according to the following rules (evaluated in order):
+        
+            - If all seasons are marked as `States.Completed`, return `States.Completed`.
+            - If any season is marked as `States.Ongoing` or `States.Unreleased`, return `States.Ongoing`.
+            - If any season is marked as either `States.Completed` or `States.PartiallyCompleted`, return `States.PartiallyCompleted`.
+            - If all seasons are marked as `States.Symlinked`, return `States.Symlinked`.
+            - If all seasons are marked as `States.Downloaded`, return `States.Downloaded`.
+            - If the media item is scraped (as determined by the `is_scraped()` method), return `States.Scraped`.
+            - If any season is marked as `States.Indexed`, return `States.Indexed`.
+            - If all seasons are not released (i.e., `season.is_released` is False), return `States.Unreleased`.
+            - If any season is marked as `States.Requested`, return `States.Requested`.
+            - If none of these conditions are met, return `States.Unknown`.
+        
+        Returns:
+            A member of the `States` enumeration representing the overall state of the media item.
+        """
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
         if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
@@ -594,6 +721,26 @@ class Season(MediaItem):
             self.is_anime = self.parent.is_anime
 
     def _determine_state(self):
+        """
+        Determines and returns the overall state of the media item based on the states of its episodes.
+        
+        The state is evaluated in the following order:
+        1. If there is at least one episode and **all** episodes are in the Completed state, returns Completed.
+        2. If there is at least one episode in the Unreleased state but not all episodes are Unreleased, returns Ongoing.
+        3. If any episode is in the Completed state (when not all are Completed), returns PartiallyCompleted.
+        4. If **all** episodes are in the Symlinked state, returns Symlinked.
+        5. If **all** episodes have both file and folder attributes set, returns Downloaded.
+        6. If the media item has been scraped (as determined by `is_scraped()`), returns Scraped.
+        7. If any episode is in the Indexed state, returns Indexed.
+        8. If any episode is in the Unreleased state (and the previous Unreleased check did not apply), returns Unreleased.
+        9. If any episode is in the Requested state, returns Requested.
+        10. If none of the above conditions are met, returns Unknown.
+        
+        If there are no episodes, the method returns Unreleased.
+        
+        Returns:
+            States: The overall state determined from the episodes.
+        """
         if len(self.episodes) > 0:
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed

@@ -13,7 +13,38 @@ from program.types import ProcessedEvent, Service
 
 
 def process_event(emitted_by: Service, existing_item: MediaItem | None = None, content_item: MediaItem | None = None) -> ProcessedEvent:
-    """Process an event and return the updated item, next service and items to submit."""
+    """
+    Process a media event based on the current state of a MediaItem.
+    
+    This function processes an incoming event and determines the next service to invoke along with
+    a list of MediaItems for submission. It inspects the state of an optional existing media item as well
+    as an optional new content item. Depending on the state of the media item, it may:
+      - Skip further processing if the item is in a Paused or Failed state (logging the condition for manual intervention).
+      - Submit an item to the TraktIndexer if a new content item is provided or if the item is in a Requested state.
+      - Recurse into nested media structures (seasons of a show or episodes of a season) when the item is PartiallyCompleted or Ongoing.
+      - Transition to Scraping if the item is Indexed, with additional checks using Scraping.should_submit.
+      - Transition to Downloader, Symlinker, or Updater based on whether the item is Scraped, Downloaded, or Symlinked, respectively.
+      - Handle items in a Completed state by sending notifications (unless retried manually) and conditionally queueing for post-processing.
+    
+    Parameters:
+        emitted_by (Service): The service that emitted the event or initiated processing.
+        existing_item (MediaItem or None): The current media item whose state determines the processing flow.
+            May include nested items (seasons or episodes) for recursive processing.
+        content_item (MediaItem or None): An optional new media item representing updated or additional content.
+            Its presence may trigger specific processing such as reindexing via TraktIndexer.
+    
+    Returns:
+        ProcessedEvent: A tuple containing:
+            - next_service (Service or None): The next service to be invoked for further processing.
+            - items_to_submit (list[MediaItem]): A list of media items that should be submitted for processing.
+    
+    Side Effects:
+        Logs debug messages detailing state transitions and processing decisions.
+    
+    Note:
+        The function employs recursion to handle nested structures and does not raise exceptions explicitly.
+        It returns (None, []) to indicate that no further processing is required when applicable.
+    """
     next_service: Service = None
     no_further_processing: ProcessedEvent = (None, [])
     items_to_submit = []

@@ -47,7 +47,23 @@ class Mediafusion:
         logger.success("Mediafusion initialized!")
 
     def validate(self) -> bool:
-        """Validate the Mediafusion settings."""
+        """
+        Validate the Mediafusion settings and service endpoints.
+        
+        This method performs comprehensive validation for the Mediafusion scraper configuration. It checks that:
+        - Scraping is enabled.
+        - A valid URL is provided.
+        - The timeout is a positive integer.
+        - The ratelimit setting is a boolean value.
+        
+        After these initial checks, it builds a payload and sends a POST request to the "/encrypt-user-data" endpoint to encrypt user data. If the encryption is successful, the resulting encrypted string is stored in the instance. Finally, it sends a GET request to the "/manifest.json" endpoint to verify that the Mediafusion service is operational.
+        
+        Returns:
+            bool: True if all validations pass and the service endpoints respond as expected; False otherwise.
+        
+        Side Effects:
+            Logs error messages if any configuration issues or HTTP request failures occur.
+        """
         if not self.settings.enabled:
             return False
         if not self.settings.url:
@@ -103,8 +119,28 @@ class Mediafusion:
             return False
 
     def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the mediafusion site for the given media items
-        and update the object with scraped streams"""
+        """
+        Run the scraping process for a given media item.
+        
+        This method attempts to scrape the Mediafusion site for the specified media item by delegating the task to the 'scrape' method. It returns a dictionary of torrent stream URLs if the scraping is successful. In cases where the media item is not provided or an error occurs during the scrape, it logs the error and returns an empty dictionary.
+        
+        Parameters:
+            item (MediaItem): The media item object containing the necessary identifiers (such as a unique ID and IMDb ID) for scraping.
+        
+        Returns:
+            Dict[str, str]: A dictionary mapping stream identifiers (e.g., quality or resolution keys) to their corresponding URLs. Returns an empty dictionary if scraping fails.
+        
+        Exceptions:
+            All exceptions are caught and logged:
+                - RateLimitExceeded: Logged at debug level when the request rate limit is exceeded.
+                - ConnectTimeout: Logged as a warning if a connection timeout occurs.
+                - ReadTimeout: Logged as a warning if the server response times out.
+                - RequestException: Logged as an error for general request-related issues.
+                - Exception: Catches and logs any other unforeseen errors.
+            
+        Note:
+            This method handles all exceptions internally and does not propagate them to the caller.
+        """
         if not item:
             return {}
 
@@ -123,7 +159,26 @@ class Mediafusion:
         return {}
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
-        """Wrapper for `Mediafusion` scrape method"""
+        """
+        Scrape and filter stream data for a given MediaItem using the Mediafusion service.
+        
+        This method constructs a URL using the media item's identifier, scrape type, and IMDb ID, then sends an HTTP GET request to retrieve JSON-formatted stream data. It processes the response as follows:
+        - If the response is unsuccessful or contains no streams, an event is logged and an empty dictionary is returned.
+        - For each stream in the response:
+          - If the stream’s title indicates a rate limit has been exceeded, a RateLimitExceeded exception is raised.
+          - If any stream in the response lacks the 'infoHash' attribute, a debug message is logged (after processing the stream’s description) and an empty dictionary is returned.
+          - Otherwise, a raw title is extracted from the stream's description (with special handling when the scrape type is "series") and, if the stream's info hash is valid and not already processed, it is added to the torrents dictionary.
+        - Finally, the method logs the number of valid streams found and returns the dictionary mapping each stream’s info hash to its corresponding title.
+        
+        Parameters:
+            item (MediaItem): The media item to scrape; this item should include the attributes required for URL construction and logging.
+        
+        Returns:
+            Dict[str, str]: A dictionary where keys are stream info hash strings and values are the corresponding display titles.
+        
+        Raises:
+            RateLimitExceeded: If any stream's title indicates that the Mediafusion rate limit has been exceeded.
+        """
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
         url = f"{self.settings.url}/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"

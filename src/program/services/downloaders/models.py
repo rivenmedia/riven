@@ -57,7 +57,28 @@ class DebridFile(BaseModel):
         file_id: Optional[int] = None,
         limit_filesize: bool = True
     ) -> Optional["DebridFile"]:
-        """Factory method to validate and create a DebridFile"""
+        """
+        Factory method to validate and create a DebridFile instance.
+        
+        This method validates the provided file attributes and constructs a DebridFile object if valid.
+        It checks that the filename does not indicate a sample file, that the file has a permitted video extension,
+        and, if filesize restrictions are enabled, that the file size falls within the allowed range based
+        on the file type ("movie" uses FILESIZE_MOVIE_CONSTRAINT, while "show", "season", or "episode" use FILESIZE_EPISODE_CONSTRAINT).
+        
+        Parameters:
+            filename (str): The name of the file to evaluate.
+            filesize_bytes (int): The size of the file in bytes.
+            filetype (Literal["movie", "show", "season", "episode"]): The type of the file which determines the applicable file size constraints.
+            file_id (Optional[int], optional): An optional identifier for the file. Defaults to None.
+            limit_filesize (bool, optional): Flag indicating whether to enforce file size validation. Defaults to True.
+        
+        Returns:
+            DebridFile: A new DebridFile instance with the validated attributes.
+        
+        Raises:
+            InvalidDebridFileException: If the filename indicates a sample file, the file extension is not among the valid video extensions,
+                or the file size is outside the allowed range for the specified file type.
+        """
         filename_lower = filename.lower()
 
         if "sample" in filename_lower:
@@ -117,36 +138,69 @@ class TorrentInfo(BaseModel):
 
     @property
     def size_mb(self) -> float:
-        """Convert bytes to megabytes"""
+        """
+        Convert and return the torrent size in megabytes.
+        
+        This method converts the torrent's size from bytes to megabytes by dividing the `bytes` attribute by 1,000,000.
+        If `bytes` is zero or not provided, the method returns 0.
+        
+        Returns:
+            float: The torrent size in megabytes.
+        """
         return self.bytes / 1_000_000 if self.bytes else 0
 
     @property
     def cached(self) -> bool:
-        """Check if the torrent is cached"""
+        """
+        Determine whether the torrent is cached.
+        
+        This method checks if the torrent is considered cached by verifying the presence of files.
+        A torrent is deemed cached if its file collection is non-empty.
+        
+        Returns:
+            bool: True if there is at least one file present; False otherwise.
+        """
         return len(self.files) > 0
 
     @property
     def file_ids(self) -> List[int]:
-        """Get the file ids of the cached files"""
+        """
+        Retrieve a list of file IDs for all cached files.
+        
+        This method iterates over the instance's `files` collection and extracts the `file_id` from each file object that has a valid (truthy) value. It filters out files that do not have a valid `file_id`.
+        
+        Returns:
+            List[int]: A list of file IDs corresponding to the cached files.
+        """
         return [file.file_id for file in self.files if file.file_id]
 
     @property
     def filemap(self) -> Dict[int, Dict[int, DebridFile]]:
-        """Return a dictionary of files by season and episode
+        """
+        Organize files into a nested dictionary by season and episode.
         
-        Example:
-        {
-            0: {  # Movie if no season or episode
-                1: DebridFile(filename="path/to/movie.mkv")
-            },
-            1: {  # Season 1
-                1: DebridFile(filename="path/to/s01e01.mkv"),  # Episode 1
-                2: DebridFile(filename="path/to/s01e02.mkv")   # Episode 2
-            },
-            2: {  # Season 2
-                1: DebridFile(filename="path/to/s02e01.mkv")   # Episode 1
-            }
-        }
+        This method iterates over the files in self.files and groups them according to their 'season' and 'episode' attributes:
+          - If both 'season' and 'episode' are present, the file is added to a nested dictionary under the corresponding season (outer key) and episode (inner key).
+          - If a file has an episode but no season, it is assumed to belong to season 1 and is assigned directly to key 1.
+          - If neither season nor episode is provided, the file is assumed to be a movie and is assigned to key 0.
+        
+        Returns:
+          dict: A dictionary where keys represent season numbers and values are either dictionaries mapping episode numbers to DebridFile objects or, when season/episode data is incomplete, direct DebridFile instances. For example:
+              {
+                  0: {  # Movie (no season or episode information)
+                      1: DebridFile(filename="path/to/movie.mkv")
+                  },
+                  1: {  # Season 1
+                      1: DebridFile(filename="path/to/s01e01.mkv"),  # Episode 1
+                      2: DebridFile(filename="path/to/s01e02.mkv")     # Episode 2
+                  },
+                  2: {  # Season 2
+                      1: DebridFile(filename="path/to/s02e01.mkv")     # Episode 1
+                  }
+              }
+        
+        Note:
+          The structure of the returned dictionary may vary if a file’s season or episode attribute is missing.
         """
         filemap = {}
         for file in self.files:

@@ -20,6 +20,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
+    """
+    Perform upgrade migration by adding a 'Paused' state to the existing 'states' enum type and a 'failed_attempts' column to the 'MediaItem' table if they are not already present.
+    
+    This function executes the following steps:
+    1. Executes an SQL command to add the enum value 'Paused' to the 'states' type, ensuring it exists.
+    2. Retrieves the list of existing columns in the 'MediaItem' table using SQLAlchemy's Inspector.
+    3. Checks for the existence of the 'failed_attempts' column and adds it as an Integer column (nullable and with a server default of 0) if it is absent.
+    
+    Any exceptions raised during the execution of these operations will propagate to the caller.
+    """
     op.execute("ALTER TYPE states ADD VALUE IF NOT EXISTS 'Paused'")
 
     conn = op.get_bind()
@@ -36,6 +46,18 @@ def upgrade():
 
 
 def downgrade():
+    """
+    Reverts the migration changes applied in the upgrade function.
+    
+    This function inspects the "MediaItem" table and drops the "failed_attempts" column if it exists,
+    thereby reversing the schema changes introduced in the upgrade. It establishes a database connection,
+    retrieves the current columns of "MediaItem", and conditionally removes "failed_attempts".
+    
+    Note:
+        - The function contains commented-out code that outlines how to remove values from the "states" enum
+          type. Due to PostgreSQL limitations (which do not allow direct removal of enum values), this logic
+          is provided as a reference and is not executed.
+    """
     conn = op.get_bind()
     inspector = Inspector.from_engine(conn)
     columns = [col['name'] for col in inspector.get_columns('MediaItem')]

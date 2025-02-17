@@ -102,7 +102,22 @@ def setup_logger(level):
     ])
 
 def log_cleaner():
-    """Remove old log files based on retention settings, leaving the most recent one."""
+    """
+        Clean up old log files in the logs directory based on retention settings.
+    
+        This function scans the logs directory (located at data_dir_path/logs) for files matching
+        the pattern 'riven-*.log'. It sorts these files by modification time and removes any log file
+        (except for the most recent one) that is older than 8 hours. If one or more files are deleted,
+        a log entry with the "COMPLETED" level is made. Any exceptions encountered during this
+        process are caught and logged as errors.
+    
+        Notes:
+            - The most recent log file is always retained, regardless of its age.
+            - File age is determined by comparing the current time with the file's last modification time.
+    
+        Returns:
+            None
+        """
     cleaned = False
     try:
         logs_dir_path = data_dir_path / "logs"

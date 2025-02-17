@@ -41,6 +41,36 @@ class Downloader:
         return True
 
     def run(self, item: MediaItem):
+        """
+        Executes the download process for a given media item by iterating over its available streams.
+        
+        This generator function first checks conditions under which no download should be attempted:
+        - If the item's parent is blocked (using item.is_parent_blocked()), it logs a debug message and immediately yields the item.
+        - If the item already has an active stream or its last_state indicates it has been downloaded (i.e., one of Completed, Symlinked, or Downloaded), it logs this status and yields the item.
+        - If no streams are available for the item, a debug message is logged and the item is yielded.
+        
+        If streams are available, the function processes each stream by:
+        - Validating the stream via the validate_stream() method. If validation fails (i.e., no valid torrent container is returned), the function logs a debug message and moves to the next stream.
+        - For a valid stream, attempting to download the cached stream with download_cached_stream(), and then updating the item's attributes with update_item_attributes().
+          - If the update is successful, a success message is logged and the download process is stopped.
+          - If update_item_attributes() does not confirm the download (e.g., no matching valid files are found), a NoMatchingFilesException is raised internally.
+        - Handling any exceptions by logging the error, attempting to delete any created torrent using the service's delete_torrent(), and blacklisting the problematic stream with item.blacklist_stream().
+        
+        Finally, if none of the streams result in a successful download, the function logs a failure message and yields the item.
+        
+        Parameters:
+            item (MediaItem): The media item to be processed for download. It should contain attributes such as streams, active_stream, last_state, and log_string that guide the download logic.
+        
+        Yields:
+            MediaItem: The original or updated media item, reflecting any changes from a successful download attempt or remaining unchanged if no stream was successfully processed.
+        
+        Raises:
+            No exceptions are propagated externally; all exceptions during the download attempt are caught and handled within the function.
+        
+        Example:
+            >>> for processed_item in downloader.run(media_item):
+            ...     process(processed_item)
+        """
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         if item.is_parent_blocked():
@@ -87,7 +117,16 @@ class Downloader:
 
     def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
         """
-        Validate a single stream by ensuring its files match the item's requirements.
+        Validate a media stream for a given media item.
+        
+        This method checks if the stream's torrent container is instantly available for the item's type and then validates each file within the container. If a valid container is not found, or if none of the files pass validation (due to issues such as an InvalidDebridFileException), the stream is blacklisted from the media item and the method returns None. If valid files are found, the container's file list is updated to include only these files and the container is returned.
+        
+        Parameters:
+            stream (Stream): A stream object containing the infohash and associated file metadata.
+            item (MediaItem): The media item for which the stream is being validated. The item may have its stream blacklisted if validation fails.
+        
+        Returns:
+            Optional[TorrentContainer]: The torrent container with validated files if available; otherwise, None.
         """
         container = self.get_instant_availability(stream.infohash, item.type)
         if not container:
@@ -117,7 +156,26 @@ class Downloader:
         return None
 
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
-        """Update the item attributes with the downloaded files and active stream."""
+        """
+        Update the attributes of the given media item based on the downloaded torrent result.
+        
+        This method verifies that the download result contains a valid container. If no container is found,
+        a NotCachedException is raised. It then iterates over each file in the container, parses the filename
+        to extract file details, and uses the match_file_to_item method to determine if the file corresponds to
+        the media item. If any file matches, the media item attributes are updated accordingly.
+        
+        Parameters:
+            item (MediaItem): The media item whose attributes are to be updated.
+            download_result (DownloadedTorrent): The result object containing the download information and files,
+                                                   including the container from which files are extracted.
+        
+        Returns:
+            bool: True if at least one file in the container matches the media item and updates its attributes;
+                  False otherwise.
+        
+        Raises:
+            NotCachedException: If the download_result does not contain a valid container.
+        """
         if not download_result.container:
             raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
 
@@ -130,7 +188,20 @@ class Downloader:
         return found
 
     def match_file_to_item(self, item: MediaItem, file_data: ParsedFileData, file: DebridFile, download_result: DownloadedTorrent) -> bool:
-        """Check if the file matches the item and update attributes."""
+        """
+        Matches a debrid file to a media item and updates the item or episode attributes if a valid match is found.
+        
+        This method verifies whether the provided debrid file, based on its parsed metadata, corresponds to the given media item. For movies, a match is successful when both the media item and the parsed file data indicate a "movie" type. For TV shows or episodic content (i.e., items with types "show", "season", or "episode"), the function checks if the file data includes episode numbers. It then determines the correct season (assuming season 1 if not specified) and iterates through the episode numbers to locate matching episodes within that season. If a matching episode is found and its state is not one of completed, symlinked, or downloaded states, the method will update the episode’s attributes using an internal attribute update function.
+        
+        Parameters:
+            item (MediaItem): The media item to match, which may represent a movie, show, season, or episode.
+            file_data (ParsedFileData): The parsed metadata extracted from the debrid file, including the item type, season number, and a list of episode numbers.
+            file (DebridFile): The debrid file associated with the download.
+            download_result (DownloadedTorrent): The result of the download attempt, used to update item attributes if matched.
+        
+        Returns:
+            bool: True if the debrid file matches the media item and the attributes are successfully updated; otherwise, False.
+        """
         found = False
 
         if item.type == "movie" and file_data.item_type == "movie":

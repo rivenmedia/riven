@@ -50,7 +50,37 @@ def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
 
 
 def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = True) -> Dict[str, Stream]:
-    """Parse the results from the scrapers into Torrent objects."""
+    """
+    Parse scraper results into validated torrent streams.
+    
+    This function processes a dictionary of raw torrent results from scrapers and attempts to rank and filter them into
+    valid Torrent objects wrapped as Stream objects. It performs several checks based on the media item's type (e.g.,
+    movie, show, season, or episode), including verifying country codes, year ranges, and season/episode numbers. The
+    function also logs processing details and debug messages (if enabled via the global `parse_debug` flag) to provide
+    insight when torrents are skipped due to mismatches or parsing errors.
+    
+    Process:
+        - Initializes sets for valid Torrent objects and processed infohashes to avoid duplication.
+        - Logs the number of results being processed.
+        - For media items like shows, seasons, or episodes, determines the needed seasons using `_get_needed_seasons`.
+        - Iterates through each result, ranking the torrent using `rtn.rank` and applying type-specific validation:
+            * For movies, checks that the torrent's year is within one year of the item's aired year.
+            * For shows, ensures the torrent contains an adequate number of seasons.
+            * For seasons, confirms the torrent includes at least one of the needed season numbers.
+            * For episodes, validates that the torrent contains the correct episode (and season) information.
+        - Catches and logs exceptions (such as unparseable torrents or GarbageTorrent errors) when debug logging is enabled.
+        - If valid torrents are found, they are sorted using `sort_torrents` with the specified bucket limit, wrapped in
+          Stream objects, and returned as a dictionary keyed by their infohash. Otherwise, an empty dictionary is returned.
+    
+    Parameters:
+        item (MediaItem): The media item for which the torrent results are being parsed and validated.
+        results (Dict[str, str]): A dictionary mapping torrent infohashes to raw torrent title strings.
+        log_msg (bool, optional): If True, debug logging is enabled for parse errors and skipped torrents; defaults to True.
+    
+    Returns:
+        Dict[str, Stream]: A dictionary where each key is a torrent's infohash and the value is a Stream object
+        encapsulating a validated Torrent. Returns an empty dictionary if no valid torrents are found.
+    """
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
     correct_title: str = item.get_top_title()
