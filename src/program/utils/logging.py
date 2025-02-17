@@ -102,11 +102,12 @@ def setup_logger(level):
     ])
 
 def log_cleaner():
-    """Remove old log files based on retention settings."""
+    """Remove old log files based on retention settings, leaving the most recent one."""
     cleaned = False
     try:
         logs_dir_path = data_dir_path / "logs"
-        for log_file in logs_dir_path.glob("riven-*.log"):
+        log_files = sorted(logs_dir_path.glob("riven-*.log"), key=lambda x: x.stat().st_mtime)
+        for log_file in log_files[:-1]:
             # remove files older than 8 hours
             if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 8:
                 log_file.unlink()

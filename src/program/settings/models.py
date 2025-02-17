@@ -52,10 +52,10 @@ class AllDebridModel(Observable):
 
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
-    movie_filesize_mb_min: int = 0  # MB
-    movie_filesize_mb_max: int = -1  # MB (-1 is no limit)
-    episode_filesize_mb_min: int = 0  # MB
-    episode_filesize_mb_max: int = -1  # MB (-1 is no limit)
+    movie_filesize_mb_min: int = 700
+    movie_filesize_mb_max: int = -1 # -1 is no limit
+    episode_filesize_mb_min: int = 100
+    episode_filesize_mb_max: int = -1 # -1 is no limit
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
@@ -262,6 +262,7 @@ class ScraperModel(Observable):
     parse_debug: bool = False
     enable_aliases: bool = True
     bucket_limit: int = Field(default=5, ge=0, le=20)
+    max_failed_attempts: int = Field(default=0, ge=0, le=10)
     torrentio: TorrentioConfig = TorrentioConfig()
     knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()

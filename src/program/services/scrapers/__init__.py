@@ -6,6 +6,7 @@ from loguru import logger
 
 from program.media.item import MediaItem
 from program.media.stream import Stream
+from program.media.state import States
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.knightcrawler import Knightcrawler
@@ -23,6 +24,7 @@ class Scraping:
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
+        self.max_failed_attempts = settings_manager.settings.scraping.max_failed_attempts
         self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
             Torrentio: Torrentio(),
             Knightcrawler: Knightcrawler(),
@@ -48,16 +50,38 @@ class Scraping:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape an item."""
+        if item.state == States.Paused:
+            logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
+            yield item
+
+        logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
-            for stream in sorted_streams.values():
-                if stream not in item.streams:
-                    item.streams.append(stream)
+            new_streams = [
+                stream for stream in sorted_streams.values()
+                if stream not in item.streams
+                and stream not in item.blacklisted_streams
+            ]
+
+            if new_streams:
+                item.streams.extend(new_streams)
+                item.failed_attempts = 0  # Reset failed attempts on success
+                logger.debug(f"Added {len(new_streams)} new streams to {item.log_string}")
+            else:
+                logger.debug(f"No new streams added for {item.log_string}")
+
+                item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
+                if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
+                    item.store_state(States.Failed)
+                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
+                else:
+                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+
+                logger.log("NOT_FOUND", f"Scraping returned no good results for {item.log_string}")
+
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
-
-        if not item.get("streams", []):
-            logger.log("NOT_FOUND", f"Scraping returned no good results for {item.log_string}")
 
         yield item
 
@@ -107,15 +131,10 @@ class Scraping:
             sorted_streams = _parse_results(item, results, log)
 
         if sorted_streams and (log and settings_manager.settings.debug):
-            item_type = item.type.title()
-            top_results = list(sorted_streams.values())[:10]
-            for sorted_tor in top_results:
-                item_info = f"[{item_type}]"
-                if item.type == "season":
-                    item_info = f"[{item_type} {item.number}]"
-                elif item.type == "episode":
-                    item_info = f"[{item_type} {item.parent.number}:{item.number}]"
-                logger.debug(f"{item_info} Parsed '{sorted_tor.parsed_title}' with rank {sorted_tor.rank} ({sorted_tor.infohash}): '{sorted_tor.raw_title}'")
+            top_results: List[Stream] = list(sorted_streams.values())[:10]
+            logger.debug(f"Displaying top {len(top_results)} results for {item.log_string}")
+            for stream in top_results:
+                logger.debug(f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})")
         else:
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
 
@@ -128,7 +147,6 @@ class Scraping:
             logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
             return False
         if not cls.should_submit(item):
-            logger.debug(f"Cannot scrape {item.log_string}: Item has been scraped recently, backing off")
             return False
         return True
 
@@ -136,7 +154,17 @@ class Scraping:
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
         settings = settings_manager.settings.scraping
-        scrape_time = 5 * 60  # 5 minutes by default
+        scrape_time = 30 * 60  # 30 minutes by default
+
+        if not item.is_released:
+            logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
+            return False
+        if item.active_stream:
+            logger.debug(f"Cannot scrape {item.log_string}: Item was already downloaded by another session")
+            return False
+        if item.is_parent_blocked():
+            logger.debug(f"Cannot scrape {item.log_string}: Item is blocked or blocked by a parent item")
+            return False
 
         if item.scraped_times >= 2 and item.scraped_times <= 5:
             scrape_time = settings.after_2 * 60 * 60
@@ -145,7 +173,13 @@ class Scraping:
         elif item.scraped_times > 10:
             scrape_time = settings.after_10 * 60 * 60
 
-        return (
-            not item.scraped_at
-            or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
-        )
+        is_scrapeable = not item.scraped_at or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
+        if not is_scrapeable:
+            logger.debug(f"Cannot scrape {item.log_string}: Item has been scraped recently, backing off")
+            return False
+
+        if settings.max_failed_attempts > 0 and item.failed_attempts >= settings.max_failed_attempts:
+            logger.debug(f"Cannot scrape {item.log_string}: Item has failed too many times. Failed attempts: {item.failed_attempts}/{settings.max_failed_attempts}")
+            return False
+
+        return True

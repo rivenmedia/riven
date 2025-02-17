@@ -62,19 +62,13 @@ class Mediafusion:
 
         payload = {
             "selected_resolutions": [
-                "4k",
-                "2160p",
-                "1440p",
-                "1080p",
-                "720p",
-                "480p",
-                None,
+                "4k", "2160p", "1440p",
+                "1080p", "720p", "480p", None
             ],
             "max_streams_per_resolution": 100,
             "live_search_streams": True,
             "show_full_torrent_name": True,
-            "torrent_sorting_priority": [],  # disable sort order, but this doesnt matter as we sort later
-            "language_sorting": [],
+            "torrent_sorting_priority": [],  # Disable sort order. This doesnt matter as we sort later.
             "nudity_filter": ["Disable"],
             "certification_filter": ["Disable"],
         }
@@ -119,9 +113,7 @@ class Mediafusion:
         except RateLimitExceeded:
             logger.debug(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
         except ConnectTimeout:
-            logger.warning(
-                f"Mediafusion connection timeout for item: {item.log_string}"
-            )
+            logger.warning(f"Mediafusion connection timeout for item: {item.log_string}")
         except ReadTimeout:
             logger.warning(f"Mediafusion read timeout for item: {item.log_string}")
         except RequestException as e:
@@ -138,29 +130,21 @@ class Mediafusion:
         if identifier:
             url += identifier
 
-        response = self.request_handler.execute(
-            HttpMethod.GET, f"{url}.json", timeout=self.timeout
-        )
+        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout)
         if not response.is_ok or len(response.data.streams) == 0:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: Dict[str, str] = {}
-
         for stream in response.data.streams:
-            if (
-                not hasattr(stream, "description")
-                and hasattr(stream, "title")
-                and "rate-limit exceeded" in stream.title
-            ):
-                raise RateLimitExceeded(
-                    f"Mediafusion rate-limit exceeded for item: {item.log_string}"
-                )
+            if hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
+                raise RateLimitExceeded(f"Mediafusion rate-limit exceeded for item: {item.log_string}")
 
             if not all(hasattr(stream, "infoHash") for stream in response.data.streams):
-                # If no streams are found with an infohash, and there is only one stream,
-                # Then the streams were filtered due to MF settings, or the adult filter on MF.
-                logger.debug(f"Streams were found but were filtered due to your MediaFusion settings.")
+                logger.debug("Streams were found but were filtered due to your MediaFusion settings.")
+                filtered_message = stream.description.replace("🚫 Streams Found\n⚙️ Filtered by your configuration preferences\n", "")
+                filtered_message = filtered_message.replace("\n", ". ").replace(" ⚙️", "").replace("🚫", "")
+                logger.debug(filtered_message)
                 return torrents
 
             description_split = stream.description.replace("📂 ", "")
@@ -172,9 +156,7 @@ class Mediafusion:
                 torrents[info_hash] = raw_title
 
         if torrents:
-            logger.log(
-                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
-            )
+            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 

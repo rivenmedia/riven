@@ -87,6 +87,13 @@ class Symlinker:
     def run(self, item: Union[Movie, Show, Season, Episode]):
         """Check if the media item exists and create a symlink if it does"""
         items = self._get_items_to_update(item)
+        if not items:
+            # No items to update, so we yield the item and move on.
+            # The root cause was fixed elsewhere, but just so that it doesnt
+            # happen in the future, we check for this.
+            logger.debug(f"No items to symlink for {item.log_string}")
+            yield item
+
         if not self._should_submit(items):
             if item.symlinked_times == 6:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")

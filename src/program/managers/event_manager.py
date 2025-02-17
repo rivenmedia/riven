@@ -1,8 +1,7 @@
 import os
-import sys
 import threading
-import time
 import traceback
+import sqlalchemy.orm
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
@@ -16,6 +15,7 @@ from program.db import db_functions
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
 from program.types import Event
+from program.media.item import MediaItem
 
 
 class EventUpdate(BaseModel):
@@ -104,6 +104,25 @@ class EventManager:
             event (Event): The event to add to the queue.
         """
         with self.mutex:
+            if event.item_id:
+                with db.Session() as session:
+                    try:
+                        # Query just the columns we need, avoiding relationship loading entirely
+                        item = session.query(MediaItem).filter_by(id=event.item_id).options(
+                            sqlalchemy.orm.load_only(MediaItem.id, MediaItem.last_state)
+                        ).one_or_none()
+                    except Exception as e:
+                        logger.error(f"Error getting item from database: {e}")
+                        return
+
+                    if not item and not event.content_item:
+                        logger.error(f"No item found from event: {event.log_message}")
+                        return
+
+                    if item.is_parent_blocked():
+                        logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
+                        return
+
             self._queued_events.append(event)
             if log_message:
                 logger.debug(f"Added {event.log_message} to the queue.")
@@ -310,7 +329,7 @@ class EventManager:
 
         logger.debug(f"Canceled jobs for Item ID {item_id} and its children.")
 
-    def next(self):
+    def next(self) -> Event:
         """
         Get the next event in the queue with an optional timeout.
 
@@ -329,7 +348,7 @@ class EventManager:
                         return event
             raise Empty
 
-    def _id_in_queue(self, _id):
+    def _id_in_queue(self, _id: str) -> bool:
         """
         Checks if an item with the given ID is in the queue.
 
@@ -341,7 +360,7 @@ class EventManager:
         """
         return any(event.item_id == _id for event in self._queued_events)
 
-    def _id_in_running_events(self, _id):
+    def _id_in_running_events(self, _id: str) -> bool:
         """
         Checks if an item with the given ID is in the running events.
 
@@ -353,7 +372,7 @@ class EventManager:
         """
         return any(event.item_id == _id for event in self._running_events)
 
-    def add_event(self, event: Event):
+    def add_event(self, event: Event) -> bool:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
@@ -382,16 +401,14 @@ class EventManager:
             if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._queued_events):
                 logger.debug(f"Content Item with IMDB ID {imdb_id} is already in queue, skipping.")
                 return False
-            if any(
-                event.content_item and event.content_item.imdb_id == imdb_id for event in self._running_events
-            ):
+            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._running_events):
                 logger.debug(f"Content Item with IMDB ID {imdb_id} is already running, skipping.")
                 return False
 
         self.add_event_to_queue(event)
         return True
 
-    def add_item(self, item, service="Manual"):
+    def add_item(self, item, service: str = "Manual") -> bool:
         """
         Adds an item to the queue as an event.
 
@@ -405,6 +422,12 @@ class EventManager:
 
 
     def get_event_updates(self) -> Dict[str, List[str]]:
+        """
+        Get the event updates for the SSE manager.
+
+        Returns:
+            Dict[str, List[str]]: A dictionary with the event types as keys and a list of item IDs as values.
+        """
         events = [future.event for future in self._futures if hasattr(future, "event")]
         event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
 

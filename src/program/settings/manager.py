@@ -13,7 +13,7 @@ class SettingsManager:
 
     def __init__(self):
         self.observers = []
-        self.filename = os.environ.get("RIVEN_SETTINGS_FILENAME", "settings.json")
+        self.filename = os.environ.get("SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
 
         Observable.set_notify_observers(self.notify_observers)

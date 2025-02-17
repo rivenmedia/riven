@@ -19,7 +19,7 @@ from program.services.indexers.trakt import TraktIndexer
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
-from program.services.downloaders.models import TorrentContainer, TorrentInfo
+from program.services.downloaders.models import TorrentContainer, TorrentInfo, DebridFile
 
 
 class Stream(BaseModel):
@@ -53,12 +53,7 @@ class UpdateAttributesResponse(BaseModel):
 class SessionResponse(BaseModel):
     message: str
 
-class ContainerFile(BaseModel):
-    """Individual file entry in a container"""
-    filename: str
-    filesize: Optional[int] = None
-
-ContainerMap: TypeAlias = Dict[str, ContainerFile]
+ContainerMap: TypeAlias = Dict[str, DebridFile]
 
 class Container(RootModel[ContainerMap]):
     """
@@ -78,7 +73,7 @@ class Container(RootModel[ContainerMap]):
     """
     root: ContainerMap
 
-SeasonEpisodeMap: TypeAlias = Dict[int, Dict[int, ContainerFile]]
+SeasonEpisodeMap: TypeAlias = Dict[int, Dict[int, DebridFile]]
 
 class ShowFileData(RootModel[SeasonEpisodeMap]):
     """
@@ -116,15 +111,18 @@ class ScrapingSessionManager:
         self.downloader: Optional[Downloader] = None
 
     def set_downloader(self, downloader: Downloader):
+        """Set the downloader for the session manager"""
         self.downloader = downloader
 
     def create_session(self, item_id: str, magnet: str) -> ScrapingSession:
+        """Create a new scraping session"""
         session_id = str(uuid4())
         session = ScrapingSession(session_id, item_id, magnet)
         self.sessions[session_id] = session
         return session
 
     def get_session(self, session_id: str) -> Optional[ScrapingSession]:
+        """Get a scraping session by ID"""
         session = self.sessions.get(session_id)
         if not session:
             return None
@@ -136,6 +134,7 @@ class ScrapingSessionManager:
         return session
 
     def update_session(self, session_id: str, **kwargs) -> Optional[ScrapingSession]:
+        """Update a scraping session"""
         session = self.get_session(session_id)
         if not session:
             return None
@@ -147,6 +146,7 @@ class ScrapingSessionManager:
         return session
 
     def abort_session(self, session_id: str):
+        """Abort a scraping session"""
         session = self.sessions.pop(session_id, None)
         if session and session.torrent_id and self.downloader:
             try:
@@ -158,6 +158,7 @@ class ScrapingSessionManager:
             logger.debug(f"Aborted session {session_id} for item {session.item_id}")
 
     def complete_session(self, session_id: str):
+        """Complete a scraping session"""
         session = self.get_session(session_id)
         if not session:
             return
@@ -166,6 +167,7 @@ class ScrapingSessionManager:
         self.sessions.pop(session_id)
 
     def cleanup_expired(self, background_tasks: BackgroundTasks):
+        """Cleanup expired scraping sessions"""
         current_time = datetime.now()
         expired = [
             session_id for session_id, session in self.sessions.items()
@@ -189,7 +191,7 @@ def initialize_downloader(downloader: Downloader):
     operation_id="scrape_item"
 )
 def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
-
+    """Get streams for an item"""
     if id.startswith("tt"):
         imdb_id = id
         item_id = None
@@ -230,7 +232,11 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
         "streams": streams
     }
 
-@router.post("/scrape/start_session")
+@router.post(
+    "/scrape/start_session",
+    summary="Start a manual scraping session",
+    operation_id="start_manual_session"
+)
 async def start_manual_session(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -300,7 +306,7 @@ async def start_manual_session(
     summary="Select files for torrent id, for this to be instant it requires files to be one of /manual/instant_availability response containers",
     operation_id="manual_select"
 )
-def manual_select_files(request: Request, session_id, files: Container) -> SelectFilesResponse:
+def manual_select_files(request: Request, session_id: str, files: Container) -> SelectFilesResponse:
     downloader: Downloader = request.app.program.services.get(Downloader)
     session = session_manager.get_session(session_id)
     if not session:
@@ -314,7 +320,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
         download_type = "cached"
 
     try:
-        downloader.select_files(session.torrent_id, files.model_dump())
+        downloader.select_files(session.torrent_id, [int(file_id) for file_id in files.root.keys()])
         session.selected_files = files.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -329,7 +335,7 @@ def manual_select_files(request: Request, session_id, files: Container) -> Selec
     summary="Match container files to item",
     operation_id="manual_update_attributes"
 )
-async def manual_update_attributes(request: Request, session_id, data: Union[ContainerFile, ShowFileData]) -> UpdateAttributesResponse:
+async def manual_update_attributes(request: Request, session_id, data: Union[DebridFile, ShowFileData]) -> UpdateAttributesResponse:
     session = session_manager.get_session(session_id)
     log_string = None
     if not session:

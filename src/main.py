@@ -7,7 +7,7 @@ import traceback
 
 import uvicorn
 from dotenv import load_dotenv
-load_dotenv() # import required here to support RIVEN_SETTINGS_FILENAME
+load_dotenv() # import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
