@@ -192,7 +192,7 @@ class Program(threading.Thread):
         with db.Session() as session:
             count = session.execute(
                 select(func.count(MediaItem.id))
-                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
                 .where(MediaItem.type.in_(["movie", "show"]))
             ).scalar_one()
 
@@ -203,7 +203,7 @@ class Program(threading.Thread):
 
             items_query = (
                 select(MediaItem.id)
-                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased]))
+                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
                 .where(MediaItem.type.in_(["movie", "show"]))
                 .order_by(MediaItem.requested_at.desc())
             )

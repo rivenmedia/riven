@@ -1,6 +1,5 @@
 """MediaItem class"""
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Self
 
@@ -60,6 +59,7 @@ class MediaItem(db.Model):
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
+    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -183,6 +183,10 @@ class MediaItem(db.Model):
         return self._determine_state()
 
     def _determine_state(self):
+        if self.last_state == States.Paused:
+            return States.Paused
+        if self.last_state == States.Failed:
+            return States.Failed
         if self.key or self.update_folder == "updated":
             return States.Completed
         elif self.symlinked:
@@ -212,14 +216,15 @@ class MediaItem(db.Model):
         self.is_anime = getattr(other, "is_anime", False)
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
-    def is_scraped(self):
+    def is_scraped(self) -> bool:
+        """Check if the item has been scraped."""
         session = object_session(self)
         if session and session.is_active:
             try:
                 session.refresh(self, attribute_names=["blacklisted_streams"])
                 return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
-            except (sqlalchemy.exc.InvalidRequestError, sqlalchemy.orm.exc.DetachedInstanceError):
-                return False
+            except Exception as e:
+                logger.exception(f"Error in is_scraped() for {self.log_string}: {str(e)}")
         return False
 
     def to_dict(self):
@@ -381,9 +386,9 @@ class MediaItem(db.Model):
         self.set("symlinked_at", None)
         self.set("update_folder", None)
         self.set("scraped_at", None)
-
         self.set("symlinked_times", 0)
         self.set("scraped_times", 0)
+        self.set("failed_attempts", 0)
 
         logger.debug(f"Item {self.log_string} has been reset")
 
@@ -394,6 +399,41 @@ class MediaItem(db.Model):
     @property
     def collection(self):
         return self.parent.collection if self.parent else self.id
+
+    def is_parent_blocked(self) -> bool:
+        """
+        Check if any parent is paused.
+
+        A paused item blocks all processing of itself and its children,
+        typically set by user action from the frontend.
+        """
+        if self.last_state == States.Paused:
+            return True
+            
+        session = object_session(self)
+        if session and hasattr(self, "parent"):
+            session.refresh(self, ["parent"])
+            if self.parent:
+                return self.parent.is_parent_blocked()
+        return False
+
+    def get_blocking_parent(self) -> Optional["MediaItem"]:
+        """
+        Get the parent that is paused and blocking this item (if any).
+
+        Returns:
+            MediaItem | None: The parent in a Paused state,
+                            or None if no parent is paused.
+        """
+        if self.last_state == States.Paused:
+            return self
+            
+        session = object_session(self)
+        if session and hasattr(self, "parent"):
+            session.refresh(self, ["parent"])
+            if self.parent:
+                return self.parent.get_blocking_parent()
+        return None
 
 
 class Movie(MediaItem):
@@ -455,15 +495,14 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
+        if all(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
+        if all(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
-
         if all(not season.is_released for season in self.seasons):
             return States.Unreleased
         if any(season.state == States.Requested for season in self.seasons):
@@ -563,9 +602,9 @@ class Season(MediaItem):
                     return States.Ongoing
             if any(episode.state == States.Completed for episode in self.episodes):
                 return States.PartiallyCompleted
-            if any(episode.state == States.Symlinked for episode in self.episodes):
+            if all(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
-            if any(episode.file and episode.folder for episode in self.episodes):
+            if all(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped

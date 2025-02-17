@@ -20,6 +20,7 @@ from program.utils.request import (
 
 bucket_limit = settings_manager.settings.scraping.bucket_limit or 5
 enable_aliases = settings_manager.settings.scraping.enable_aliases
+parse_debug = settings_manager.settings.scraping.parse_debug
 ranking_settings = settings_manager.settings.ranking
 ranking_model = models.get(ranking_settings.profile)
 rtn = RTN(ranking_settings, ranking_model)
@@ -72,10 +73,9 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 aliases=item.get_aliases() if enable_aliases else {}  # in some cases we want to disable aliases
             )
 
-
             if torrent.data.country and not item.is_anime:
                 if _get_item_country(item) != torrent.data.country:
-                    if settings_manager.settings.scraping.parse_debug:
+                    if parse_debug:
                         logger.debug(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
                     continue
 
@@ -90,6 +90,9 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 # Ex: [2018, 2019, 2020] for a 2019 movie
                 if _check_item_year(item, torrent.data):
                     torrents.add(torrent)
+                else:
+                    if parse_debug:
+                        logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
 
             elif item.type == "show":
                 if torrent.data.seasons and not torrent.data.episodes:
@@ -97,11 +100,17 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     # shows according to uploaders
                     if len(torrent.data.seasons) >= (len(needed_seasons) - 1):
                         torrents.add(torrent)
+                    else:
+                        if parse_debug:
+                            logger.debug(f"Skipping torrent for incorrect number of seasons with {item.log_string}: {raw_title}")
 
             elif item.type == "season":
                 # If the torrent has the needed seasons and no episodes, we can add it
                 if any(season in torrent.data.seasons for season in needed_seasons) and not torrent.data.episodes:
                     torrents.add(torrent)
+                else:
+                    if parse_debug:
+                        logger.debug(f"Skipping torrent for incorrect season with {item.log_string}: {raw_title}")
 
             elif item.type == "episode":
                 # If the torrent has the season and episode numbers, we can add it
@@ -117,6 +126,9 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     for season in needed_seasons
                 ) and not torrent.data.episodes:
                     torrents.add(torrent)
+                else:
+                    if parse_debug:
+                        logger.debug(f"Skipping torrent for incorrect episode with {item.log_string}: {raw_title}")
 
             processed_infohashes.add(infohash)
 
@@ -124,12 +136,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             # The only stuff I've seen that show up here is titles with a date.
             # Dates can be sometimes parsed incorrectly by Arrow library,
             # so we'll just ignore them.
-            if settings_manager.settings.scraping.parse_debug and log_msg:
-                logger.debug(f"Skipping torrent: '{raw_title}' - {e}")
+            if parse_debug and log_msg:
+                logger.debug(f"Skipping unparseable torrent: '{raw_title}' - {e}")
             continue
         except GarbageTorrent as e:
-            if settings_manager.settings.scraping.parse_debug and log_msg:
-                logger.debug(e)
+            if parse_debug and log_msg:
+                logger.debug(f"GarbageTorrent: '{raw_title}' - {e}")
             continue
 
     if torrents:

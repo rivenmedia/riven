@@ -13,3 +13,4 @@ class States(Enum):
     Completed = "Completed"
     PartiallyCompleted = "PartiallyCompleted"
     Failed = "Failed"
+    Paused = "Paused"
