@@ -227,7 +227,7 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
                 query = query.where(MediaItem.tmdb_id == id)
             else:
                 query = query.where(MediaItem.id == id)
-            item = session.execute(query).unique().scalar_one_or_none()
+            item = session.execute(query).unique().scalar_one()
         except NoResultFound:
             raise HTTPException(status_code=404, detail="Item not found")
         return item.to_extended_dict(with_streams=False)
