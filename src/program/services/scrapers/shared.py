@@ -96,13 +96,15 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
 
             elif item.type == "show":
                 if torrent.data.seasons and not torrent.data.episodes:
-                    # We subtract one because Trakt doesn't always index 
-                    # shows according to uploaders
-                    if len(torrent.data.seasons) >= (len(needed_seasons) - 1):
+                    # Check if torrent has most of the seasons we need
+                    missing_seasons = [season for season in needed_seasons if season not in torrent.data.seasons]
+                    if len(missing_seasons) <= 1:  # Allow at most 1 missing season because Trakt doesn't always index shows according to uploaders
                         torrents.add(torrent)
+                        if parse_debug and missing_seasons:
+                            logger.debug(f"Added torrent despite missing season {missing_seasons[0]} for {item.log_string}: {raw_title}")
                     else:
                         if parse_debug:
-                            logger.debug(f"Skipping torrent for incorrect number of seasons with {item.log_string}: {raw_title}")
+                            logger.debug(f"Skipping torrent missing seasons {missing_seasons} for {item.log_string}: {raw_title}")
 
             elif item.type == "season":
                 # If the torrent has the needed seasons and no episodes, we can add it
