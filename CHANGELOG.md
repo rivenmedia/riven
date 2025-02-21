@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.21.0](https://github.com/rivenmedia/riven/compare/v0.20.1...v0.21.0) (2025-02-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* Torbox Removal ([#971](https://github.com/rivenmedia/riven/issues/971))
+
+### Features
+
+* Add 6th retry attempt to symlinker ([#926](https://github.com/rivenmedia/riven/issues/926)) ([6d43d7f](https://github.com/rivenmedia/riven/commit/6d43d7f34bacb82ad8e2cca08f6ab15c6b3a2e2c))
+* add extended websocket support ([#1007](https://github.com/rivenmedia/riven/issues/1007)) ([16ac0e4](https://github.com/rivenmedia/riven/commit/16ac0e482b3f64edca4f02e9bd224c90c9c255ec))
+* add pause and failed states. fixed mediafusion. added more logging to parsing. ([#977](https://github.com/rivenmedia/riven/issues/977)) ([2dc1498](https://github.com/rivenmedia/riven/commit/2dc14984dc467d5c800fc7060cf97163441e5d90))
+* add proxy_url to torrentio ([#994](https://github.com/rivenmedia/riven/issues/994)) ([d1ad6fd](https://github.com/rivenmedia/riven/commit/d1ad6fdab429ac24ddf8d309e33a5696e88bd9ac))
+* add RIVEN_SETTINGS_FILENAME env ([#993](https://github.com/rivenmedia/riven/issues/993)) ([2eb98ca](https://github.com/rivenmedia/riven/commit/2eb98cad97190650fddd8cfb54ff4353641312f2))
+
+
+### Bug Fixes
+
+* add alldebrid as option in mediafusion ([42829a2](https://github.com/rivenmedia/riven/commit/42829a2e245169443187ca581bf2dce190f1c7c9))
+* add strong typed response to scrape api endpoint ([44f047e](https://github.com/rivenmedia/riven/commit/44f047e7e00c58628fa0669f1630b80f8bbe936e))
+* api manual scraping fixes. wip ([7fb50f8](https://github.com/rivenmedia/riven/commit/7fb50f856d2395d2cbdc977a35e0a5ae152eecc0))
+* correct route formatting for unblacklist_stream endpoint ([4b64e0f](https://github.com/rivenmedia/riven/commit/4b64e0f1ae405504f72bac5984bb6d280bea78a9))
+* enable conditional caching for Trakt API session ([#978](https://github.com/rivenmedia/riven/issues/978)) ([6b295f6](https://github.com/rivenmedia/riven/commit/6b295f6e4d2696dbaf13b121bd635c7df6287821))
+* fixed alldebrid instantavail file processing ([#916](https://github.com/rivenmedia/riven/issues/916)) ([d2a6b5b](https://github.com/rivenmedia/riven/commit/d2a6b5bbf0e2c83e3f6f4899e8a367af72d05ae7))
+* listrr response being treated as a dict ([#979](https://github.com/rivenmedia/riven/issues/979)) ([d42fb35](https://github.com/rivenmedia/riven/commit/d42fb35d873428f8e0e3bdf27e03b978f3ffc8a4))
+* manual scraping updated for downloader rework ([346b352](https://github.com/rivenmedia/riven/commit/346b352c3c6dfcf857b04d65a396ce06e1d70263))
+* no streams found or filtered streams from adult content throws e… ([#976](https://github.com/rivenmedia/riven/issues/976)) ([a18a66c](https://github.com/rivenmedia/riven/commit/a18a66ce8747bd1d81e119acbc320f30d03a8557))
+* no streams found or filtered streams from adult content throws error ([a18a66c](https://github.com/rivenmedia/riven/commit/a18a66ce8747bd1d81e119acbc320f30d03a8557))
+* remove catalog configuration from Mediafusion settings and scraper ([#919](https://github.com/rivenmedia/riven/issues/919)) ([fc7ed05](https://github.com/rivenmedia/riven/commit/fc7ed053dbd9c39df869c61a147bfbf8890a6503))
+* resolve trakt data fetch error ([#987](https://github.com/rivenmedia/riven/issues/987)) ([ffc630e](https://github.com/rivenmedia/riven/commit/ffc630e9a198cb1d6eff178f35624de63c2d85ea))
+* Torbox Removal ([#971](https://github.com/rivenmedia/riven/issues/971)) ([5d49499](https://github.com/rivenmedia/riven/commit/5d49499ddfc2582945048f1444a3d3445bb58cef))
+* update .env names and fix SKIP_TRAKT_CACHE ([#1001](https://github.com/rivenmedia/riven/issues/1001)) ([3504754](https://github.com/rivenmedia/riven/commit/3504754f40b9dbeb923bd160ff1148707846ebd9))
+* update ListrrAPI validate method to use correct path ([#906](https://github.com/rivenmedia/riven/issues/906)) ([7659a37](https://github.com/rivenmedia/riven/commit/7659a37d30704b46107b6441e7a40f386ec82101))
+* updated sample handling for allowed video files ([8a5e849](https://github.com/rivenmedia/riven/commit/8a5e849aca371c28c418270bdbb863770389f2b7))
+
+
+### Miscellaneous Chores
+
+* release 0.21.0 ([c9cc836](https://github.com/rivenmedia/riven/commit/c9cc836b5033396175e960ee8f93ab78bfc8e453))
+
 ## [0.20.1](https://github.com/rivenmedia/riven/compare/v0.20.0...v0.20.1) (2024-11-27)
 
 
