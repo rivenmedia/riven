@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.1](https://github.com/rivenmedia/riven/compare/v0.21.0...v0.21.1) (2025-02-21)
+
+
+### Bug Fixes
+
+* correct cache usage logic in TraktAPI ([6405dd6](https://github.com/rivenmedia/riven/commit/6405dd6b88e725af03e3a9d4a4737f03164a4017))
+* ensure item retrieval returns a valid result in get_item function ([2523993](https://github.com/rivenmedia/riven/commit/25239939a5916f6d3d3fd3018ce58be3033f9b9d))
+
 ## [0.21.0](https://github.com/rivenmedia/riven/compare/v0.20.1...v0.21.0) (2025-02-20)
 
 
