@@ -106,6 +106,10 @@ hard_reset: clean
 install:
 	@poetry install --with dev
 
+update:
+	@poetry cache clear PyPI --all
+	@poetry update
+
 # Run the application
 run:
 	@poetry run python src/main.py

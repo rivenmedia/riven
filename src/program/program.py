@@ -247,18 +247,18 @@ class Program(threading.Thread):
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._update_ongoing: {"interval": 60 * 60 * 24},
+            self._update_ongoing: {"interval": 60 * 60 * 4},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
         if settings_manager.settings.symlink.repair_symlinks:
-            # scheduled_functions[fix_broken_symlinks] = {
-            #     "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
-            #     "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
-            # }
-            logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
+            scheduled_functions[fix_broken_symlinks] = {
+                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
+                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
+            }
+            # logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(

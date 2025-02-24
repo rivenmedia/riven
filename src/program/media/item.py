@@ -183,10 +183,6 @@ class MediaItem(db.Model):
         return self._determine_state()
 
     def _determine_state(self):
-        if self.last_state == States.Paused:
-            return States.Paused
-        if self.last_state == States.Failed:
-            return States.Failed
         if self.key or self.update_folder == "updated":
             return States.Completed
         elif self.symlinked:
@@ -201,6 +197,10 @@ class MediaItem(db.Model):
             return States.Unreleased
         elif self.imdb_id and self.requested_by:
             return States.Requested
+        if self.last_state == States.Paused:
+            return States.Paused
+        if self.last_state == States.Failed:
+            return States.Failed
         return States.Unknown
 
     def copy_other_media_attr(self, other):
@@ -507,6 +507,10 @@ class Show(MediaItem):
             return States.Unreleased
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
+        if all(season.state == States.Paused for season in self.seasons):
+            return States.Paused
+        if all(season.state == States.Failed for season in self.seasons):
+            return States.Failed
         return States.Unknown
 
     def store_state(self, given_state: States =None) -> None:
@@ -614,6 +618,10 @@ class Season(MediaItem):
                 return States.Unreleased
             if any(episode.state == States.Requested for episode in self.episodes):
                 return States.Requested
+            if all(episode.state == States.Paused for episode in self.episodes):
+                return States.Paused
+            if all(episode.state == States.Failed for episode in self.episodes):
+                return States.Failed
             return States.Unknown
         else:
             return States.Unreleased

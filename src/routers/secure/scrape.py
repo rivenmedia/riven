@@ -40,7 +40,7 @@ class StartSessionResponse(BaseModel):
     session_id: str
     torrent_id: str
     torrent_info: TorrentInfo
-    containers: Optional[List[TorrentContainer]]
+    containers: Optional[TorrentContainer]
     expires_at: str
 
 class SelectFilesResponse(BaseModel):
