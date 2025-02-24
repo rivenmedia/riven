@@ -25,7 +25,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
     #TODO - Reindex non-released badly indexed items here
     if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
         next_service = TraktIndexer
-        logger.debug(f"Submitting {content_item.log_string if content_item else existing_item.log_string} to trakt indexer")
+        logger.debug(f"Submitting {content_item.imdb_id if content_item else existing_item.log_string} to Trakt indexer")
         return next_service, [content_item or existing_item]
 
     elif existing_item is not None and existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:

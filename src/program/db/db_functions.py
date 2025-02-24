@@ -504,7 +504,7 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
             if event.content_item:
                 indexed_item = next(fn(event.content_item), None)
                 if indexed_item is None:
-                    logger.debug(f"Unable to index {event.content_item.log_string}")
+                    logger.debug(f"Unable to index {event.content_item.log_string if event.content_item.log_string is not None else event.content_item.imdb_id}")
                     return None
                 indexed_item.store_state()
                 session.add(indexed_item)

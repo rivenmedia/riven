@@ -43,12 +43,12 @@ class Downloader:
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
-        if item.is_parent_blocked():
-            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has a blocked parent, or is a blocked item")
-            yield item
-
         if item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
+            yield item
+
+        if item.is_parent_blocked():
+            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has a blocked parent, or is a blocked item")
             yield item
 
         if not item.streams:
@@ -96,6 +96,10 @@ class Downloader:
 
         valid_files = []
         for file in container.files or []:
+            if isinstance(file, DebridFile):
+                valid_files.append(file)
+                continue
+
             try:
                 debrid_file = DebridFile.create(
                     filename=file.filename,
@@ -103,11 +107,12 @@ class Downloader:
                     filetype=item.type,
                     file_id=file.file_id
                 )
+
+                if isinstance(debrid_file, DebridFile):
+                    valid_files.append(debrid_file)
             except InvalidDebridFileException as e:
                 logger.debug(f"{stream.infohash}: {e}")
                 continue
-            if debrid_file:
-                valid_files.append(debrid_file)
 
         if valid_files:
             container.files = valid_files

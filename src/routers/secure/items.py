@@ -221,17 +221,25 @@ async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
 )
 async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
     with db.Session() as session:
+        query = select(MediaItem)
+        if use_tmdb_id:
+            query = query.where(MediaItem.tmdb_id == id)
+        else:
+            query = query.where(MediaItem.id == id)
         try:
-            query = select(MediaItem)
-            if use_tmdb_id:
-                query = query.where(MediaItem.tmdb_id == id)
-            else:
-                query = query.where(MediaItem.id == id)
             item = session.execute(query).unique().scalar_one_or_none()
+            if item:
+                return item.to_extended_dict(with_streams=False)
+            raise NoResultFound
         except NoResultFound:
+            if use_tmdb_id:
+                logger.debug(f"Item with TMDB ID {id} not found in database")
+            else:
+                logger.debug(f"Item with ID {id} not found in database")
             raise HTTPException(status_code=404, detail="Item not found")
-        return item.to_extended_dict(with_streams=False)
-
+        except Exception as e:
+            logger.error(f"Error fetching item with ID {id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.get(
     "/{imdb_ids}",
@@ -271,8 +279,14 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
         for media_item in db_functions.get_items_by_ids(ids):
             try:
                 request.app.program.em.cancel_job(media_item.id)
+                active_hash = media_item.active_stream.get("infohash", None)
+                active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
                 db_functions.clear_streams(media_item)
                 db_functions.reset_media_item(media_item)
+                if active_stream:
+                    # lets blacklist the active stream so it doesnt get used again
+                    db_functions.blacklist_stream(media_item, active_stream)
+                    logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
             except ValueError as e:
                 logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
                 continue
