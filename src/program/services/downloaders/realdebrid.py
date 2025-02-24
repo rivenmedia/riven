@@ -172,8 +172,7 @@ class RealDebridDownloader(DownloaderBase):
             self.select_files(torrent_id, video_file_ids)
             torrent_info = self.get_torrent_info(torrent_id)
 
-            if torrent_info.status != "downloaded": # queued -> downloading -> downloaded
-                # magnet_error, magnet_conversion, waiting_files_selection, queued, downloading, downloaded, error, virus, compressing, uploading, dead
+            if torrent_info.status != "downloaded":
                 logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached.")
                 return None
 
