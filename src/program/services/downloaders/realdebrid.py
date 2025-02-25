@@ -132,7 +132,7 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for multiple infohashes.
+        Get instant availability for a single infohash.
         Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
         """
         container: Optional[TorrentContainer] = None
@@ -154,6 +154,13 @@ class RealDebridDownloader(DownloaderBase):
     def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """Process a single torrent and return a TorrentContainer if valid."""
         torrent_info = self.get_torrent_info(torrent_id)
+        if not torrent_info:
+            logger.debug(f"No torrent info found for {torrent_id} with infohash {infohash}")
+            return None
+
+        if not torrent_info.files:
+            logger.debug(f"No files found in torrent {torrent_id} with infohash {infohash}")
+            return None
 
         if torrent_info.status in ("magnet_error", "error", "virus", "dead"):
             logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
@@ -176,10 +183,6 @@ class RealDebridDownloader(DownloaderBase):
                 logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached.")
                 return None
 
-        if not torrent_info.files:
-            logger.debug(f"No files found after selecting files in torrent {torrent_id} with infohash {infohash}")
-            return None
-
         torrent_files = []
         for file_id, file_info in torrent_info.files.items():
             try:
@@ -197,7 +200,7 @@ class RealDebridDownloader(DownloaderBase):
                 continue
 
         if not torrent_files:
-            logger.debug(f"No valid files found after in torrent {torrent_id} with infohash {infohash}")
+            logger.debug(f"No valid files found after validating files in torrent {torrent_id} with infohash {infohash}")
             return None
 
         return TorrentContainer(infohash=infohash, files=torrent_files)

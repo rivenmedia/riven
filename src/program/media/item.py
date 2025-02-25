@@ -183,6 +183,10 @@ class MediaItem(db.Model):
         return self._determine_state()
 
     def _determine_state(self):
+        if self.last_state == States.Paused:
+            return States.Paused
+        if self.last_state == States.Failed:
+            return States.Failed
         if self.key or self.update_folder == "updated":
             return States.Completed
         elif self.symlinked:
@@ -197,10 +201,6 @@ class MediaItem(db.Model):
             return States.Unreleased
         elif self.imdb_id and self.requested_by:
             return States.Requested
-        if self.last_state == States.Paused:
-            return States.Paused
-        if self.last_state == States.Failed:
-            return States.Failed
         return States.Unknown
 
     def copy_other_media_attr(self, other):
@@ -486,6 +486,10 @@ class Show(MediaItem):
         return None
 
     def _determine_state(self):
+        if all(season.state == States.Paused for season in self.seasons):
+            return States.Paused
+        if all(season.state == States.Failed for season in self.seasons):
+            return States.Failed
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
         if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
@@ -507,10 +511,6 @@ class Show(MediaItem):
             return States.Unreleased
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
-        if all(season.state == States.Paused for season in self.seasons):
-            return States.Paused
-        if all(season.state == States.Failed for season in self.seasons):
-            return States.Failed
         return States.Unknown
 
     def store_state(self, given_state: States =None) -> None:
@@ -599,6 +599,10 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
+            if all(episode.state == States.Paused for episode in self.episodes):
+                return States.Paused
+            if all(episode.state == States.Failed for episode in self.episodes):
+                return States.Failed
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
             if any(episode.state == States.Unreleased for episode in self.episodes):
@@ -618,10 +622,6 @@ class Season(MediaItem):
                 return States.Unreleased
             if any(episode.state == States.Requested for episode in self.episodes):
                 return States.Requested
-            if all(episode.state == States.Paused for episode in self.episodes):
-                return States.Paused
-            if all(episode.state == States.Failed for episode in self.episodes):
-                return States.Failed
             return States.Unknown
         else:
             return States.Unreleased
