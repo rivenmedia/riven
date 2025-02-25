@@ -486,6 +486,10 @@ class Show(MediaItem):
         return None
 
     def _determine_state(self):
+        if all(season.state == States.Paused for season in self.seasons):
+            return States.Paused
+        if all(season.state == States.Failed for season in self.seasons):
+            return States.Failed
         if all(season.state == States.Completed for season in self.seasons):
             return States.Completed
         if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
@@ -595,6 +599,10 @@ class Season(MediaItem):
 
     def _determine_state(self):
         if len(self.episodes) > 0:
+            if all(episode.state == States.Paused for episode in self.episodes):
+                return States.Paused
+            if all(episode.state == States.Failed for episode in self.episodes):
+                return States.Failed
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
             if any(episode.state == States.Unreleased for episode in self.episodes):

@@ -8,6 +8,7 @@ from program.db.db_functions import clear_streams
 from program.media.item import MediaItem, Movie, Show
 from program.media.state import States
 from program.services.post_processing.subliminal import Subliminal
+# from program.services.post_processing.ffmpeg import VideoValidator
 from program.settings.manager import settings_manager
 from program.utils.notifications import notify_on_complete
 
@@ -18,16 +19,19 @@ class PostProcessing:
         self.initialized = False
         self.settings = settings_manager.settings.post_processing
         self.services = {
-            Subliminal: Subliminal()
+            Subliminal: Subliminal(),
+            # VideoValidator: VideoValidator()
         }
         self.initialized = True
 
     def run(self, item: MediaItem):
-        if Subliminal.should_submit(item):
-            self.services[Subliminal].run(item)
+        for service in self.services.values():
+            if service.initialized and service.should_submit(item):
+                service.run(item)
         if item.last_state == States.Completed:
             clear_streams(item)
         yield item
+
 
 def notify(item: MediaItem):
     show = None

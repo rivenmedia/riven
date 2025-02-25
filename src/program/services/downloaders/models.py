@@ -77,6 +77,14 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
+    def to_dict(self) -> Dict[str, Union[int, str]]:
+        """Convert the DebridFile to a dictionary"""
+        return {
+            "filename": self.filename,
+            "filesize": self.filesize,
+            "file_id": self.file_id
+        }
+
 
 class ParsedFileData(BaseModel):
     """Represents a parsed file from a filename"""
@@ -99,6 +107,13 @@ class TorrentContainer(BaseModel):
     def file_ids(self) -> List[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
+
+    def to_dict(self) -> Dict[str, Union[str, Dict]]:
+        """Convert the TorrentContainer to a dictionary including the infohash"""
+        return {
+            "infohash": self.infohash,
+            "files": {file.file_id: file.to_dict() for file in self.files if file}
+        }
 
 
 class TorrentInfo(BaseModel):

@@ -58,7 +58,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
     logger.log("SCRAPER", f"Processing {len(results)} results for {item.log_string}")
 
     if item.type in ["show", "season", "episode"]:
-        needed_seasons: list[int] = _get_needed_seasons(item)
+        needed_seasons: list[int] = _get_needed_seasons(item) or []
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
@@ -102,7 +102,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                         torrents.add(torrent)
                     else:
                         if parse_debug:
-                            logger.debug(f"Skipping torrent for incorrect number of seasons with {item.log_string}: {raw_title}")
+                            logger.debug(f"Skipping show pack torrent '{raw_title}' for {item.log_string} due to insufficient seasons. Required: {len(needed_seasons)}, Found: {len(torrent.data.seasons)}")
 
             elif item.type == "season":
                 # If the torrent has the needed seasons and no episodes, we can add it

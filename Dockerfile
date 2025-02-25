@@ -38,6 +38,7 @@ RUN apk add --no-cache \
     rclone \
     unzip \
     gcc \
+    ffmpeg \
     musl-dev \
     libffi-dev \
     python3-dev \
