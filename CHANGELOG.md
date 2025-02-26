@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/rivenmedia/riven/compare/v0.21.1...v0.21.2) (2025-02-26)
+
+
+### Bug Fixes
+
+* reverted postprocessing to patch subliminal issue ([ebc7fc9](https://github.com/rivenmedia/riven/commit/ebc7fc970cea37480db51ece2c670056c2da5239))
+
 ## [0.21.1](https://github.com/rivenmedia/riven/compare/v0.21.0...v0.21.1) (2025-02-25)
 
 
