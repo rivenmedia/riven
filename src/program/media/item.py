@@ -1,7 +1,7 @@
 """MediaItem class"""
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Self
+from typing import Dict, List, Optional, Self
 
 import sqlalchemy
 from loguru import logger
@@ -22,9 +22,12 @@ class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
     id: Mapped[str] = mapped_column(sqlalchemy.String, primary_key=True)
+    trakt_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    anilist_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    mal_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
@@ -465,6 +468,7 @@ class Show(MediaItem):
     __tablename__ = "Show"
     id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(back_populates="parent", foreign_keys="Season.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Season.number")
+    alt_season_mapping: Mapped[Dict[int, int]] = mapped_column(sqlalchemy.JSON, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -579,6 +583,7 @@ class Season(MediaItem):
     parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Show.id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
     episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Episode.number")
+    alt_episode_mapping: Mapped[Dict[int, int]] = mapped_column(sqlalchemy.JSON, nullable=True)
     __mapper_args__ = {
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
