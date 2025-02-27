@@ -1574,13 +1574,13 @@ files = [
 
 [[package]]
 name = "parsett"
-version = "1.5.2"
+version = "1.5.4"
 description = "Parsett - Torrent Parser with Adult Content Detection"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "parsett-1.5.2-py3-none-any.whl", hash = "sha256:f6a05272dd1916db5b6ccc34e80d0e6d294e46b0d2a185d129e61a8463a5ce19"},
-    {file = "parsett-1.5.2.tar.gz", hash = "sha256:8e1d5a6bdc252ed327e0abe66bbb519cd7d3c11c8068236b0b1d8ed68e51ba20"},
+    {file = "parsett-1.5.4-py3-none-any.whl", hash = "sha256:a3d5484b112bcc221f4d50172bcffb5a47c6e7d1b3f9d265ca8e75dc5f54e9dd"},
+    {file = "parsett-1.5.4.tar.gz", hash = "sha256:62785a7777bf5b7a331951aa4933f78279ede74378fbe4b525278961f480e873"},
 ]
 
 [package.dependencies]
@@ -2704,13 +2704,13 @@ files = [
 
 [[package]]
 name = "setuptools"
-version = "75.8.1"
+version = "75.8.2"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "setuptools-75.8.1-py3-none-any.whl", hash = "sha256:3bc32c0b84c643299ca94e77f834730f126efd621de0cc1de64119e0e17dab1f"},
-    {file = "setuptools-75.8.1.tar.gz", hash = "sha256:65fb779a8f28895242923582eadca2337285f0891c2c9e160754df917c3d2530"},
+    {file = "setuptools-75.8.2-py3-none-any.whl", hash = "sha256:558e47c15f1811c1fa7adbd0096669bf76c1d3f433f58324df69f3f5ecac4e8f"},
+    {file = "setuptools-75.8.2.tar.gz", hash = "sha256:4880473a969e5f23f2a2be3646b2dfd84af9028716d398e46192f84bc36900d2"},
 ]
 
 [package.extras]

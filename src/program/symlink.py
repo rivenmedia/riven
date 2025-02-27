@@ -106,8 +106,15 @@ class Symlinker:
             yield (item, next_attempt)
         try:
             for _item in items:
-                self._symlink(_item)
-            logger.log("SYMLINKER", f"Symlinks created for {item.log_string}")
+                symlinked = False
+                if self._symlink(_item):
+                    symlinked = True
+                if symlinked:
+                    logger.log("SYMLINKER", f"Symlinks created for {_item.log_string}")
+                else:
+                    logger.log("SYMLINKER", f"No symlinks created for {_item.log_string}")
+                    _item.blacklist_active_stream()
+                    _item.reset()
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
         yield item
@@ -154,7 +161,7 @@ class Symlinker:
 
         source = _get_item_path(item)
         if not source:
-            logger.error(f"Could not find path for {item.log_string}, cannot create symlink.")
+            logger.error(f"Could not find path for {item.log_string} in rclone path, cannot create symlink.")
             return False
 
         filename = self._determine_file_name(item)

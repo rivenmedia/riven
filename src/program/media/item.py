@@ -22,12 +22,9 @@ class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
     id: Mapped[str] = mapped_column(sqlalchemy.String, primary_key=True)
-    trakt_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    anilist_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    mal_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
@@ -468,7 +465,6 @@ class Show(MediaItem):
     __tablename__ = "Show"
     id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(back_populates="parent", foreign_keys="Season.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Season.number")
-    alt_season_mapping: Mapped[Dict[int, int]] = mapped_column(sqlalchemy.JSON, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -503,9 +499,9 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if all(season.state == States.Symlinked for season in self.seasons):
+        if any(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if all(season.state == States.Downloaded for season in self.seasons):
+        if any(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
@@ -583,7 +579,6 @@ class Season(MediaItem):
     parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Show.id"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
     episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Episode.number")
-    alt_episode_mapping: Mapped[Dict[int, int]] = mapped_column(sqlalchemy.JSON, nullable=True)
     __mapper_args__ = {
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
@@ -615,9 +610,9 @@ class Season(MediaItem):
                     return States.Ongoing
             if any(episode.state == States.Completed for episode in self.episodes):
                 return States.PartiallyCompleted
-            if all(episode.state == States.Symlinked for episode in self.episodes):
+            if any(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
-            if all(episode.file and episode.folder for episode in self.episodes):
+            if any(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
@@ -682,6 +677,10 @@ class Season(MediaItem):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     def get_top_title(self) -> str:
+        """Get the top title of the season."""
+        session = object_session(self)
+        if session:
+            session.refresh(self, ["parent"])
         return self.parent.title
 
 
