@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.4](https://github.com/rivenmedia/riven/compare/v0.21.3...v0.21.4) (2025-02-28)
+
+
+### Bug Fixes
+
+* frontend missing buttons. updated PTT. ([31b29f7](https://github.com/rivenmedia/riven/commit/31b29f7114f4ea6944332c2670afc8c0816d9da1))
+
 ## [0.21.3](https://github.com/rivenmedia/riven/compare/v0.21.2...v0.21.3) (2025-02-28)
 
 
