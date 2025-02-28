@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.3](https://github.com/rivenmedia/riven/compare/v0.21.2...v0.21.3) (2025-02-28)
+
+
+### Bug Fixes
+
+* multiple logging improvements and various other fixes ([#1015](https://github.com/rivenmedia/riven/issues/1015)) ([5185dbd](https://github.com/rivenmedia/riven/commit/5185dbd8ab62953c55aba2e958d098b828d56174))
+
 ## [0.21.2](https://github.com/rivenmedia/riven/compare/v0.21.1...v0.21.2) (2025-02-26)
 
 
