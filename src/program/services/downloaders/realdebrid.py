@@ -5,7 +5,7 @@ from typing import List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
-from requests import Session
+from requests import HTTPError, Session
 
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
@@ -144,7 +144,17 @@ class RealDebridDownloader(DownloaderBase):
         except InvalidDebridFileException as e:
             logger.debug(f"{infohash}: {e}")
         except Exception as e:
-            logger.error(f"Failed to get instant availability for {infohash}: {e}")
+            if len(e.args) > 0:
+                if " 503 " in e.args[0] or "Infringing" in e.args[0]:
+                    logger.debug(f"Failed to get instant availability for {infohash}: [503] Infringing Torrent or Service Unavailable")
+                elif " 429 " in e.args[0] or "Rate Limit Exceeded" in e.args[0]:
+                    logger.debug(f"Failed to get instant availability for {infohash}: [429] Rate Limit Exceeded")
+                elif " 404 " in e.args[0] or "Torrent Not Found" in e.args[0]:
+                    logger.debug(f"Failed to get instant availability for {infohash}: [404] Torrent Not Found or Service Unavailable")
+                elif " 400 " in e.args[0] or "Torrent file is not valid" in e.args[0]:
+                    logger.debug(f"Failed to get instant availability for {infohash}: [400] Torrent file is not valid")
+            else:
+                logger.error(f"Failed to get instant availability for {infohash}: {e}")
         finally:
             if torrent_id is not None:
                 self.delete_torrent(torrent_id)
@@ -216,8 +226,23 @@ class RealDebridDownloader(DownloaderBase):
             )
             return response["id"]
         except Exception as e:
-            logger.error(f"Failed to add torrent {infohash}: {e}")
-            raise
+            if len(e.args) > 0:
+                if " 503 " in e.args[0]:
+                    logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
+                    raise RealDebridError("Infringing Torrent or Service Unavailable")
+                elif " 429 " in e.args[0]:
+                    logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
+                    raise RealDebridError("Rate Limit Exceeded")
+                elif " 404 " in e.args[0]:
+                    logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
+                    raise RealDebridError("Torrent Not Found or Service Unavailable")
+                elif " 400 " in e.args[0]:
+                    logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
+                    raise RealDebridError("Torrent file is not valid")
+            else:
+                logger.debug(f"Failed to add torrent {infohash}: {e}")
+            
+            raise RealDebridError(f"Failed to add torrent {infohash}: {e}")
 
     def select_files(self, torrent_id: str, ids: List[int] = None) -> None:
         """Select files from a torrent"""

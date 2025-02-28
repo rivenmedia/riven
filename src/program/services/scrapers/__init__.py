@@ -146,6 +146,9 @@ class Scraping:
         if not item.is_released:
             logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
             return False
+        if item.active_stream:
+            logger.debug(f"Cannot scrape {item.log_string}: Item was already downloaded by another session")
+            return False    
         if not cls.should_submit(item):
             return False
         return True
@@ -158,9 +161,6 @@ class Scraping:
 
         if not item.is_released:
             logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
-            return False
-        if item.active_stream:
-            logger.debug(f"Cannot scrape {item.log_string}: Item was already downloaded by another session")
             return False
         if item.is_parent_blocked():
             logger.debug(f"Cannot scrape {item.log_string}: Item is blocked or blocked by a parent item")

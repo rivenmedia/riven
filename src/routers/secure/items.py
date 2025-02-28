@@ -223,7 +223,7 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
     with db.Session() as session:
         query = select(MediaItem)
         if use_tmdb_id:
-            query = query.where(MediaItem.tmdb_id == id)
+            query = query.where(MediaItem.id == id).where(MediaItem.type.in_(["movie", "show"]))
         else:
             query = query.where(MediaItem.id == id)
         try:
@@ -238,7 +238,14 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
                 logger.debug(f"Item with ID {id} not found in database")
             raise HTTPException(status_code=404, detail="Item not found")
         except Exception as e:
-            logger.error(f"Error fetching item with ID {id}: {str(e)}")
+            if "Multiple rows were found when one or none was required" in str(e):
+                duplicate_ids = set()
+                items = session.execute(query).unique().scalars().all()
+                for item in items:
+                    duplicate_ids.add(item.id)
+                logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+            else:
+                logger.error(f"Error fetching item with ID {id}: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.get(

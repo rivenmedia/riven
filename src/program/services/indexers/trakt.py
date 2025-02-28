@@ -120,8 +120,3 @@ class TraktIndexer:
                     if episode_item:
                         season_item.add_episode(episode_item)
                 show.add_season(season_item)
-
-
-
-
-

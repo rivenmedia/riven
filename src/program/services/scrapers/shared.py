@@ -54,11 +54,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
     correct_title: str = item.get_top_title()
+    needed_seasons: list[int] = []
 
     logger.log("SCRAPER", f"Processing {len(results)} results for {item.log_string}")
 
     if item.type in ["show", "season", "episode"]:
-        needed_seasons: list[int] = _get_needed_seasons(item) or []
+        needed_seasons = _get_needed_seasons(item)
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
@@ -103,14 +104,33 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     else:
                         if parse_debug:
                             logger.debug(f"Skipping show pack torrent '{raw_title}' for {item.log_string} due to insufficient seasons. Required: {len(needed_seasons)}, Found: {len(torrent.data.seasons)}")
+                elif not torrent.data.seasons and not torrent.data.episodes:
+                    # keep torrents that have no seasons or episodes
+                    torrents.add(torrent)
+                elif not torrent.data.seasons and len(torrent.data.episodes) >= 12 and len(needed_seasons) == 1:
+                    # keep torrents that have no seasons but at least 12 episodes
+                    # and the item is a show with only one season
+                    torrents.add(torrent)
+                elif torrent.data.seasons and torrent.data.episodes:
+                    # skip torrents that have both seasons and episodes
+                    if parse_debug:
+                        logger.debug(f"Skipping torrent with season(s) and episode(s) for {item.log_string}, wanted show pack: {raw_title}")
+                elif not torrent.data.seasons and torrent.data.episodes:
+                    # skip torrents that have episodes but no seasons
+                    if parse_debug:
+                        logger.debug(f"Skipping torrent with episodes but no seasons for {item.log_string}, wanted show pack: {raw_title}")
 
             elif item.type == "season":
-                # If the torrent has the needed seasons and no episodes, we can add it
-                if any(season in torrent.data.seasons for season in needed_seasons) and not torrent.data.episodes:
+                if not torrent.data.episodes and any(season in torrent.data.seasons for season in needed_seasons):
+                    # If the torrent has the needed seasons and no episodes, we can add it
+                    torrents.add(torrent)
+                elif not torrent.data.seasons and len(torrent.data.episodes) >= 12 and len(needed_seasons) == 1:
+                    # keep torrents that have no seasons but at least 12 episodes
+                    # and the item is a show with only one season. These are typically season 1 packs.
                     torrents.add(torrent)
                 else:
                     if parse_debug:
-                        logger.debug(f"Skipping torrent for incorrect season with {item.log_string}: {raw_title}")
+                        logger.debug(f"Skipping torrent for incorrect season with {item.log_string}, wanted season pack: {raw_title}")
 
             elif item.type == "episode":
                 # If the torrent has the season and episode numbers, we can add it
@@ -138,10 +158,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             # so we'll just ignore them.
             if parse_debug and log_msg:
                 logger.debug(f"Skipping unparseable torrent: '{raw_title}' - {e}")
+            processed_infohashes.add(infohash)
             continue
         except GarbageTorrent as e:
             if parse_debug and log_msg:
                 logger.debug(f"GarbageTorrent: '{raw_title}' - {e}")
+            processed_infohashes.add(infohash)
             continue
 
     if torrents:

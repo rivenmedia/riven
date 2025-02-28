@@ -1,7 +1,7 @@
 """MediaItem class"""
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Self
+from typing import Dict, List, Optional, Self
 
 import sqlalchemy
 from loguru import logger
@@ -499,9 +499,9 @@ class Show(MediaItem):
             for season in self.seasons
         ):
             return States.PartiallyCompleted
-        if all(season.state == States.Symlinked for season in self.seasons):
+        if any(season.state == States.Symlinked for season in self.seasons):
             return States.Symlinked
-        if all(season.state == States.Downloaded for season in self.seasons):
+        if any(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
@@ -610,9 +610,9 @@ class Season(MediaItem):
                     return States.Ongoing
             if any(episode.state == States.Completed for episode in self.episodes):
                 return States.PartiallyCompleted
-            if all(episode.state == States.Symlinked for episode in self.episodes):
+            if any(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
-            if all(episode.file and episode.folder for episode in self.episodes):
+            if any(episode.file and episode.folder for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
@@ -677,6 +677,10 @@ class Season(MediaItem):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     def get_top_title(self) -> str:
+        """Get the top title of the season."""
+        session = object_session(self)
+        if session:
+            session.refresh(self, ["parent"])
         return self.parent.title
 
 
