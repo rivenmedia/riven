@@ -223,7 +223,7 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
     with db.Session() as session:
         query = select(MediaItem)
         if use_tmdb_id:
-            query = query.where(MediaItem.id == id).where(MediaItem.type.in_(["movie", "show"]))
+            query = query.where(MediaItem.tmdb_id == id).where(MediaItem.type.in_(["movie", "show"]))
         else:
             query = query.where(MediaItem.id == id)
         try:

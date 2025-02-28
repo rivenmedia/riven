@@ -1574,13 +1574,13 @@ files = [
 
 [[package]]
 name = "parsett"
-version = "1.5.4"
+version = "1.5.5"
 description = "Parsett - Torrent Parser with Adult Content Detection"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "parsett-1.5.4-py3-none-any.whl", hash = "sha256:a3d5484b112bcc221f4d50172bcffb5a47c6e7d1b3f9d265ca8e75dc5f54e9dd"},
-    {file = "parsett-1.5.4.tar.gz", hash = "sha256:62785a7777bf5b7a331951aa4933f78279ede74378fbe4b525278961f480e873"},
+    {file = "parsett-1.5.5-py3-none-any.whl", hash = "sha256:88660d67c5baba03c5986a8a518bbeb73f2617a98807c293dffb2ac3892f585e"},
+    {file = "parsett-1.5.5.tar.gz", hash = "sha256:33a11a055ca0da1ec52872afc636f2849a2a33fa30ea4961ee426c3c75855a3a"},
 ]
 
 [package.dependencies]
@@ -1981,13 +1981,13 @@ docs = ["furo (>=2022.3.4,<2023.0.0)", "myst-parser (>=0.17)", "sphinx (>=4.3.0,
 
 [[package]]
 name = "pyright"
-version = "1.1.394"
+version = "1.1.395"
 description = "Command line wrapper for pyright"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyright-1.1.394-py3-none-any.whl", hash = "sha256:5f74cce0a795a295fb768759bbeeec62561215dea657edcaab48a932b031ddbb"},
-    {file = "pyright-1.1.394.tar.gz", hash = "sha256:56f2a3ab88c5214a451eb71d8f2792b7700434f841ea219119ade7f42ca93608"},
+    {file = "pyright-1.1.395-py3-none-any.whl", hash = "sha256:f9bc726870e740c6c77c94657734d90563a3e9765bb523b39f5860198ed75eef"},
+    {file = "pyright-1.1.395.tar.gz", hash = "sha256:53703169068c160bfb41e1b44ba3e2512492869c26cfad927e1268cb3fbb1b1c"},
 ]
 
 [package.dependencies]
