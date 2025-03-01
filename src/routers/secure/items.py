@@ -455,6 +455,31 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
         "message": f"Unblacklisted stream {stream_id} for item {item_id}",
     }
 
+@router.post(
+    "/{item_id}/streams/reset",
+    summary="Reset Media Item Streams",
+    description="Reset all streams for a media item",
+    operation_id="reset_item_streams",
+)
+async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
+    item: MediaItem = (
+        db.execute(
+            select(MediaItem)
+            .where(MediaItem.id == item_id)
+        )
+        .unique()
+        .scalar_one_or_none()
+    )
+
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    db_functions.clear_streams(item)
+
+    return {
+        "message": f"Successfully reset streams for item {item_id}",
+    }
+
 class PauseResponse(BaseModel):
     message: str
     ids: list[str]

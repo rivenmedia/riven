@@ -69,7 +69,10 @@ class EventManager:
         """
 
         if future.cancelled():
-            logger.debug(f"Future for {future} was cancelled.")
+            if hasattr(future, "event") and future.event:
+                logger.debug(f"Future for {future.event.log_message} was cancelled.")
+            else:
+                logger.debug(f"Future for {future} was cancelled.")
             return  # Skip processing if the future was cancelled
 
         try:
