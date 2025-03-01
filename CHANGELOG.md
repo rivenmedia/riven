@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.5](https://github.com/rivenmedia/riven/compare/v0.21.4...v0.21.5) (2025-03-01)
+
+
+### Bug Fixes
+
+* added reset streams endpoint ([0f22105](https://github.com/rivenmedia/riven/commit/0f221058d9689c8ddc44fd68a257bf66315f454e))
+
 ## [0.21.4](https://github.com/rivenmedia/riven/compare/v0.21.3...v0.21.4) (2025-02-28)
 
 
