@@ -223,8 +223,9 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
             )
         streams: Dict[str, Stream] = scraper.scrape(item)
         for stream in streams.values():
-            container = downloader.get_instant_availability(stream.infohash, item.type)
-            stream.is_cached = bool(container and container.cached)
+            # container = downloader.get_instant_availability(stream.infohash, item.type)
+            # stream.is_cached = bool(container and container.cached)
+            stream.is_cached = False
         log_string = item.log_string
 
     return {
@@ -279,12 +280,16 @@ async def start_manual_session(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    container = downloader.get_instant_availability(info_hash, item.type)
+
+    if not container or not container.cached:
+        raise HTTPException(status_code=400, detail="Torrent is not cached, please try another stream")
+
     session = session_manager.create_session(item_id or imdb_id, info_hash)
 
     try:
         torrent_id: str = downloader.add_torrent(info_hash)
         torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
-        container: Optional[TorrentContainer] = downloader.get_instant_availability(info_hash, item.type)
         session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
     except Exception as e:
         background_tasks.add_task(session_manager.abort_session, session.id)
@@ -295,7 +300,7 @@ async def start_manual_session(
         "session_id": session.id,
         "torrent_id": torrent_id,
         "torrent_info": torrent_info,
-        "containers": [container] if container else None,
+        "containers": container,
         "expires_at": session.expires_at.isoformat()
     }
 
