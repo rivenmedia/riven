@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.21.5](https://github.com/rivenmedia/riven/compare/v0.21.4...v0.21.5) (2025-03-07)
+
+
+### Bug Fixes
+
+* added reset streams endpoint ([0f22105](https://github.com/rivenmedia/riven/commit/0f221058d9689c8ddc44fd68a257bf66315f454e))
+* update instance availability logic for the scrape endpoint ([#1023](https://github.com/rivenmedia/riven/issues/1023)) ([486bbff](https://github.com/rivenmedia/riven/commit/486bbfffdfbb5f3afc3196af56019c8eee681655))
+* update instance availibility logic for the scrape endpoint ([486bbff](https://github.com/rivenmedia/riven/commit/486bbfffdfbb5f3afc3196af56019c8eee681655))
+
 ## [0.21.4](https://github.com/rivenmedia/riven/compare/v0.21.3...v0.21.4) (2025-02-28)
 
 
