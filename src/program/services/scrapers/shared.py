@@ -57,27 +57,37 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             )
 
             if torrent.data.country and not item.is_anime:
+                # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
                 if _get_item_country(item) != torrent.data.country:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
                     continue
 
             if torrent.data.year and not _check_item_year(item, torrent.data):
+                # If year is present, then check to make sure it's correct
                 if scraping_settings.parse_debug:
                     logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
                 continue
 
             if item.is_anime and scraping_settings.dubbed_anime_only:
+                # If anime and user wants dubbed only, then check to make sure it's dubbed
                 if not torrent.data.dubbed:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
                     continue
 
             if item.type == "show":
-                # if there are episodes, then check to make sure there are at least 12 or more
-                if torrent.data.episodes and len(torrent.data.episodes) >= 12:
+                # if there are episodes, then check to make sure theres multiple
+                if torrent.data.episodes and not len(torrent.data.episodes) > 1:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping show torrent with too few episodes for {item.log_string}: {raw_title}")
+                    continue
+
+            if item.type == "season":
+                # We want a season pack, so if episodes are present, make sure theres multiple
+                if torrent.data.episodes and not len(torrent.data.episodes) > 1:
+                    if scraping_settings.parse_debug:
+                        logger.debug(f"Skipping season torrent with too few episodes for {item.log_string}: {raw_title}")
                     continue
 
             torrents.add(torrent)
