@@ -1,10 +1,10 @@
 ﻿import os
 import re
+import pytz
 from datetime import datetime
 from types import SimpleNamespace
 from typing import List, Optional, Union
 from urllib.parse import urlencode
-
 from requests import RequestException, Session
 
 from program import MediaItem
@@ -362,8 +362,23 @@ class TraktAPI:
 
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
         """Get the formatted aired date from the data."""
+        date = None
         if item_type in ["show", "season", "episode"] and (first_aired := getattr(data, "first_aired", None)):
-            return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
+            date = datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
+            if os.getenv('TZ'):
+                try:
+                    date = date.astimezone(pytz.timezone(os.getenv('TZ')))
+                except pytz.UnknownTimeZoneError:
+                    logger.error(f"Unknown timezone {os.getenv('TZ')}")
+                except Exception as e:
+                    logger.error(f"Failed to convert date {date} to timezone {os.getenv('TZ')}: {e}")
         if item_type == "movie" and (released := getattr(data, "released", None)):
-            return datetime.strptime(released, "%Y-%m-%d")
-        return None
+            date = datetime.strptime(released, "%Y-%m-%d")
+            if os.getenv('TZ'):
+                try:
+                    date = date.astimezone(pytz.timezone(os.getenv('TZ')))
+                except pytz.UnknownTimeZoneError:
+                    logger.error(f"Unknown timezone {os.getenv('TZ')}")
+                except Exception as e:
+                    logger.error(f"Failed to convert date {date} to timezone {os.getenv('TZ')}: {e}")
+        return date

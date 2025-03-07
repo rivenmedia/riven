@@ -315,8 +315,6 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
 
 def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
     """Get an item by its filepath."""
-    from program.db.db_functions import get_items_from_filter, ItemFilter
-
     imdb_id_match = imdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
@@ -331,17 +329,17 @@ def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
 
     def get_by_symlink_path(session: Session, filepath: str) -> list["MediaItem"]:
         if season_number and episode_number:
-            filter = ItemFilter(symlink_path=filepath, type=["episode"])
+            query = session.query(MediaItem).filter(MediaItem.symlink_path == filepath, MediaItem.type == "episode")
         else:
-            filter = ItemFilter(symlink_path=filepath, type=["movie"])
-        return get_items_from_filter(session, filter)
+            query = session.query(MediaItem).filter(MediaItem.symlink_path == filepath, MediaItem.type == "movie")
+        return query.all()
 
     def get_by_direct_lookup(session: Session, imdb_id: str, season_number: int, episode_number: int) -> list["MediaItem"]:
         if season_number and episode_number:
-            filter = ItemFilter(imdb_id=imdb_id, season_number=season_number, episode_number=episode_number, type=["episode"])
+            query = session.query(MediaItem).filter(MediaItem.imdb_id == imdb_id, MediaItem.season_number == season_number, MediaItem.episode_number == episode_number, MediaItem.type == "episode")
         else:
-            filter = ItemFilter(imdb_id=imdb_id, type=["movie"])
-        return get_items_from_filter(session, filter)
+            query = session.query(MediaItem).filter(MediaItem.imdb_id == imdb_id, MediaItem.type == "movie")
+        return query.all()
 
     with session:
         symlink_path_items = get_by_symlink_path(session, filepath)

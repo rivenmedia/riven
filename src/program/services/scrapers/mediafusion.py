@@ -61,10 +61,10 @@ class Mediafusion:
             return False
 
         payload = {
-            "selected_resolutions": [
-                "4k", "2160p", "1440p",
-                "1080p", "720p", "480p", None
-            ],
+            # "selected_resolutions": [
+            #     "4k", "2160p", "1440p",
+            #     "1080p", "720p", "480p", None
+            # ],
             "max_streams_per_resolution": 100,
             "live_search_streams": True,
             "show_full_torrent_name": True,
@@ -150,7 +150,10 @@ class Mediafusion:
             description_split = stream.description.replace("📂 ", "")
             raw_title = description_split.split("\n")[0]
             if scrape_type == "series":
-                raw_title = raw_title.split("/")[0]
+                if item.type == "episode":
+                    raw_title = raw_title.split(" ┈➤ ")[-1].strip()
+                else:
+                    raw_title = raw_title.split(" ┈➤ ")[0].strip()
             info_hash = stream.infoHash
             if info_hash and info_hash not in torrents:
                 torrents[info_hash] = raw_title

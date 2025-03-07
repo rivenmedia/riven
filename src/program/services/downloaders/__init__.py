@@ -43,7 +43,7 @@ class Downloader:
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
-        if item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
+        if item.file or item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
             yield item
 
@@ -126,15 +126,33 @@ class Downloader:
         if not download_result.container:
             raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
 
+        episode_cap: int = None
+        show: Optional[Show] = None
+        if item.type in ("show", "season", "episode"):
+            show: Optional[Show] = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
+            method_1 = sum(len(season.episodes) for season in show.seasons)
+            method_2 = show.seasons[-1].episodes[-1].number
+            episode_cap = max([method_1, method_2])
+
         found = False
         for file in download_result.container.files:
             file_data: ParsedFileData = parse_filename(file.filename)
-            if self.match_file_to_item(item, file_data, file, download_result):
+            if item.type in ("show", "season", "episode"):
+                if not file_data.episodes:
+                    continue
+            if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap):
                 found = True
 
         return found
 
-    def match_file_to_item(self, item: MediaItem, file_data: ParsedFileData, file: DebridFile, download_result: DownloadedTorrent) -> bool:
+    def match_file_to_item(self,
+            item: MediaItem,
+            file_data: ParsedFileData,
+            file: DebridFile,
+            download_result: DownloadedTorrent,
+            show: Optional[Show] = None,
+            episode_cap: int = None
+        ) -> bool:
         """Check if the file matches the item and update attributes."""
         found = False
 
@@ -143,25 +161,25 @@ class Downloader:
             return True
 
         if item.type in ("show", "season", "episode"):
-            if not file_data.episodes:
-                return False
-
-            show: Show = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
-            season_number = file_data.season if file_data.season is not None else 1  # Assuming season 1 if not specified
-            season: Season = next((season for season in show.seasons if season.number == season_number), None)
-            if season is None:
-                # These messages can get way too spammy.
-                # logger.debug(f"Season {season_number} not found in show {show.log_string}, unable to match files to season children. Metadata may be incorrect for show.")
-                return False
-
+            season_number = file_data.season
             for file_episode in file_data.episodes:
-                episode: Episode = next((episode for episode in season.episodes if episode.number == file_episode), None)
+                if episode_cap and file_episode > episode_cap:
+                    # This is a sanity check to ensure the episode number is not greater than the total number of episodes in the show.
+                    # If it is, we skip the episode as it is likely a mistake.
+                    logger.debug(f"Invalid episode number {file_episode} for {show.log_string}. Skipping '{file.filename}'")
+                    continue
+
+                episode: Episode = show.get_episode(file_episode, season_number)
                 if episode is None:
-                    # logger.debug(f"Episode {file_episode} from file does not match any episode in {season.log_string}. Metadata may be incorrect for season.")
-                    return False
+                    logger.debug(f"Episode {file_episode} from file does not match any episode in {show.log_string}. Metadata may be incorrect or wrong torrent for show.")
+                    continue
+
+                if episode.file:
+                    continue
 
                 if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
                     self._update_attributes(episode, file, download_result)
+                    logger.debug(f"Matched episode {episode.log_string} to file {file.filename}")
                     found = True
 
         return found

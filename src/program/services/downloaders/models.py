@@ -1,3 +1,4 @@
+import regex
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Union
 
@@ -10,6 +11,8 @@ ALLOWED_VIDEO_EXTENSIONS = [
     "mp4", "mkv", "avi", "mov", "wmv", "flv",
     "m4v", "webm", "mpg","mpeg", "m2ts", "ts",
 ]
+
+ANIME_SPECIALS_PATTERN: regex.Pattern = regex.compile(r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?)\b", regex.IGNORECASE)
 
 VIDEO_EXTENSIONS: list[str] = settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
 VALID_VIDEO_EXTENSIONS = [ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS]
@@ -51,6 +54,7 @@ class DebridFile(BaseModel):
     @classmethod
     def create(
         cls,
+        path: str,
         filename: str,
         filesize_bytes: int,
         filetype: Literal["movie", "show", "season", "episode"],
@@ -65,6 +69,9 @@ class DebridFile(BaseModel):
 
         if not any(filename_lower.endswith(ext) for ext in VALID_VIDEO_EXTENSIONS):
             raise InvalidDebridFileException(f"Skipping non-video file: '{filename}'")
+
+        if ANIME_SPECIALS_PATTERN.search(path):
+            raise InvalidDebridFileException(f"Skipping anime special: '{path}'")
 
         if limit_filesize:
             filesize_mb = filesize_bytes / 1_000_000
@@ -144,41 +151,6 @@ class TorrentInfo(BaseModel):
     def file_ids(self) -> List[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id]
-
-    @property
-    def filemap(self) -> Dict[int, Dict[int, DebridFile]]:
-        """Return a dictionary of files by season and episode
-        
-        Example:
-        {
-            0: {  # Movie if no season or episode
-                1: DebridFile(filename="path/to/movie.mkv")
-            },
-            1: {  # Season 1
-                1: DebridFile(filename="path/to/s01e01.mkv"),  # Episode 1
-                2: DebridFile(filename="path/to/s01e02.mkv")   # Episode 2
-            },
-            2: {  # Season 2
-                1: DebridFile(filename="path/to/s02e01.mkv")   # Episode 1
-            }
-        }
-        """
-        filemap = {}
-        for file in self.files:
-            if file.season and file.episode:
-                # if both season and episode are present,
-                # we add the file to the season and episode
-                if file.season not in filemap:
-                    filemap[file.season] = {}
-                filemap[file.season][file.episode] = file
-            elif not file.season and file.episode:
-                # if no season but episode is present,
-                # this probably only has one season, or its anime.
-                filemap[1] = file
-            else:
-                # if no season, we assume it's a movie
-                filemap[0] = file
-        return filemap
 
 
 class DownloadedTorrent(BaseModel):

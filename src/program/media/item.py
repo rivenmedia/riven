@@ -1,11 +1,11 @@
 """MediaItem class"""
+from PTT import parse_title
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Self
+from typing import List, Optional, Self
 
 import sqlalchemy
 from loguru import logger
-from RTN import parse
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
@@ -392,6 +392,21 @@ class MediaItem(db.Model):
 
         logger.debug(f"Item {self.log_string} has been reset")
 
+    def soft_reset(self):
+        """Soft reset item attributes."""
+        if self.symlink_path:
+            if Path(self.symlink_path).exists():
+                Path(self.symlink_path).unlink()
+            self.set("symlink_path", None)
+        self.blacklist_active_stream()
+        self.set("file", None)
+        self.set("folder", None)
+        self.set("alternative_folder", None)
+        self.set("active_stream", {})
+        self.set("symlinked", False)
+        self.set("symlinked_at", None)
+        self.set("symlinked_times", 0)
+
     @property
     def log_string(self):
         return self.title or self.id
@@ -571,6 +586,26 @@ class Show(MediaItem):
             for episode in season.episodes:
                 propagate(episode, self)
 
+    def get_episode(self, episode_number: int, season_number: int = None) -> Optional["Episode"]:
+        """Get the absolute episode number based on season and episode."""
+        if not episode_number or episode_number == 0:
+            return None
+
+        if season_number is not None:
+            season = next((s for s in self.seasons if s.number == season_number), None)
+            if season:
+                episode = next((e for e in season.episodes if e.number == episode_number), None)
+                if episode:
+                    return episode
+
+        episode_count = 0
+        for season in self.seasons:
+            for episode in season.episodes:
+                episode_count += 1
+                if episode_count == episode_number:
+                    return episode
+
+        return None
 
 class Season(MediaItem):
     """Season class"""
@@ -720,7 +755,7 @@ class Episode(MediaItem):
         if not self.file or not isinstance(self.file, str):
             raise ValueError("The file attribute must be a non-empty string.")
         # return list of episodes
-        return parse(self.file).episodes
+        return parse_title(self.file)["episodes"]
 
     @property
     def log_string(self):

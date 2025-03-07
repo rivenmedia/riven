@@ -108,7 +108,7 @@ class PlexUpdater:
         if updated:
             if isinstance(item, (Show, Season)):
                 if len(updated_episodes) == len(items_to_update):
-                    logger.log("PLEX", f"Updated section {section_name} with all episodes for {item.log_string}")
+                    logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
                 else:
                     updated_episodes_log = ", ".join([str(ep.number) for ep in updated_episodes])
                     logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
