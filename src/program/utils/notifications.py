@@ -15,11 +15,12 @@ on_item_type: List[str] = settings.on_item_type
 riven_logo: Path = root_dir / "assets" / "riven-light.png"
 
 
-try:
-    for service_url in settings.service_urls:
+for service_url in settings.service_urls:
+    try:
         ntfy.add(service_url)
-except Exception as e:
-    logger.debug(f"Failed to add service URL {service_url}: {e}")
+    except Exception as e:
+        logger.debug(f"Failed to add service URL {service_url}: {e}")
+        continue
 
 
 def notification(title: str, body: str) -> None:
