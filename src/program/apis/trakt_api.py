@@ -1,6 +1,5 @@
 ﻿import os
 import re
-import pytz
 from datetime import datetime
 from types import SimpleNamespace
 from typing import List, Optional, Union
@@ -51,7 +50,7 @@ class TraktAPI:
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         trakt_cache = get_cache_params("trakt", 86400)
-        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "false"
+        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "true"
         session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=trakt_cache)
         self.headers = {
             "Content-type": "application/json",
@@ -362,23 +361,8 @@ class TraktAPI:
 
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
         """Get the formatted aired date from the data."""
-        date = None
         if item_type in ["show", "season", "episode"] and (first_aired := getattr(data, "first_aired", None)):
-            date = datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
-            if os.getenv('TZ'):
-                try:
-                    date = date.astimezone(pytz.timezone(os.getenv('TZ')))
-                except pytz.UnknownTimeZoneError:
-                    logger.error(f"Unknown timezone {os.getenv('TZ')}")
-                except Exception as e:
-                    logger.error(f"Failed to convert date {date} to timezone {os.getenv('TZ')}: {e}")
+            return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
         if item_type == "movie" and (released := getattr(data, "released", None)):
-            date = datetime.strptime(released, "%Y-%m-%d")
-            if os.getenv('TZ'):
-                try:
-                    date = date.astimezone(pytz.timezone(os.getenv('TZ')))
-                except pytz.UnknownTimeZoneError:
-                    logger.error(f"Unknown timezone {os.getenv('TZ')}")
-                except Exception as e:
-                    logger.error(f"Failed to convert date {date} to timezone {os.getenv('TZ')}: {e}")
-        return date
+            return datetime.strptime(released, "%Y-%m-%d")
+        return None
