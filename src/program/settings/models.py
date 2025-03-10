@@ -257,12 +257,13 @@ class ProwlarrConfig(Observable):
 
 class ScraperModel(Observable):
     after_2: float = 2
-    after_5: int = 6
-    after_10: int = 24
+    after_5: float = 6
+    after_10: float = 24
     parse_debug: bool = False
     enable_aliases: bool = True
     bucket_limit: int = Field(default=5, ge=0, le=20)
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
+    dubbed_anime_only: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
     knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()

@@ -1,202 +1,23 @@
-from dataclasses import dataclass
-from datetime import datetime
 import os
 import shutil
-from threading import Event
-from typing import TYPE_CHECKING, List, Optional, Union
+import alembic
 
 from loguru import logger
+from threading import Event
+from typing import TYPE_CHECKING, Optional
 from sqlalchemy import delete, insert, inspect, or_, select, text
-from sqlalchemy.orm import Session, selectinload, aliased
-
-import alembic
+from sqlalchemy.orm import Session, selectinload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils import root_dir
-from program.media.state import States
 
 from .db import db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
-
-@dataclass
-class ItemFilter:
-    """Filter configuration for MediaItem queries in the database."""
-    id: Optional[Union[str, List[str]]] = None
-    type: Optional[Union[str, List[str]]] = None
-    imdb_id: Optional[str] = None
-    tvdb_id: Optional[str] = None
-    tmdb_id: Optional[str] = None
-    title: Optional[str] = None
-
-    states: Optional[List[States]] = None
-    is_released: Optional[bool] = None
-    is_anime: Optional[bool] = None
-    is_symlinked: Optional[bool] = None
-    is_scraped: Optional[bool] = None
-
-    requested_after: Optional[datetime] = None
-    requested_before: Optional[datetime] = None
-    aired_after: Optional[datetime] = None
-    aired_before: Optional[datetime] = None
-    scraped_after: Optional[datetime] = None
-    scraped_before: Optional[datetime] = None
-
-    year: Optional[Union[int, List[int]]] = None
-    country: Optional[str] = None
-    language: Optional[str] = None
-    requested_by: Optional[str] = None
-
-    has_file: Optional[bool] = None
-    has_folder: Optional[bool] = None
-    has_symlink: Optional[bool] = None
-    filepath: Optional[str] = None
-    folder: Optional[str] = None
-    symlink_path: Optional[str] = None
-
-    season_number: Optional[int] = None
-    episode_number: Optional[int] = None
-
-    failed_attempts: Optional[int] = None
-    scraped_times: Optional[int] = None
-    symlinked_times: Optional[int] = None
-
-    load_streams: bool = False
-    load_blacklisted_streams: bool = False
-    load_subtitles: bool = False
-    load_children: bool = True
-    
-    def __post_init__(self):
-        # Convert single values to lists where appropriate
-        if self.type is None:
-            self.type = ["movie", "show"]
-        if isinstance(self.type, str):
-            self.type = [self.type]
-        if isinstance(self.id, str):
-            self.id = [self.id]
-        if isinstance(self.year, int):
-            self.year = [self.year]
-
-def get_items_from_filter(
-    session: Session = None,
-    filter: ItemFilter = None,
-    limit: int = None,
-) -> List["MediaItem"]:
-    """Get MediaItems based on filter criteria."""
-    from program.media.item import Episode, MediaItem, Season, Show
-    
-    _session = session if session else db.Session()
-    stmt = _session.query(MediaItem)
-
-    if filter.id:
-        stmt = stmt.where(MediaItem.id.in_(filter.id))
-    else:
-        if filter.season_number and not filter.episode_number:
-            stmt = stmt.where(MediaItem.type == "season")
-        elif filter.season_number and filter.episode_number:
-            stmt = stmt.where(MediaItem.type == "episode")
-        else:
-            stmt = stmt.where(MediaItem.type.in_(filter.type))
-    if filter.tvdb_id:
-        stmt = stmt.where(MediaItem.tvdb_id == filter.tvdb_id)
-    if filter.tmdb_id:
-        stmt = stmt.where(MediaItem.tmdb_id == filter.tmdb_id)
-    if filter.title:
-        stmt = stmt.where(MediaItem.title.ilike(f"%{filter.title}%"))
-
-    if filter.states:
-        stmt = stmt.where(MediaItem.last_state.in_(filter.states))
-    if filter.is_anime is not None:
-        stmt = stmt.where(MediaItem.is_anime == filter.is_anime)
-    if filter.is_symlinked is not None:
-        stmt = stmt.where(MediaItem.symlinked == filter.is_symlinked)
-
-    if filter.requested_after:
-        stmt = stmt.where(MediaItem.requested_at >= filter.requested_after)
-    if filter.requested_before:
-        stmt = stmt.where(MediaItem.requested_at <= filter.requested_before)
-    if filter.aired_after:
-        stmt = stmt.where(MediaItem.aired_at >= filter.aired_after)
-    if filter.aired_before:
-        stmt = stmt.where(MediaItem.aired_at <= filter.aired_before)
-    if filter.scraped_after:
-        stmt = stmt.where(MediaItem.scraped_at >= filter.scraped_after)
-    if filter.scraped_before:
-        stmt = stmt.where(MediaItem.scraped_at <= filter.scraped_before)
-
-    if filter.year:
-        stmt = stmt.where(MediaItem.year.in_(filter.year))
-    if filter.country:
-        stmt = stmt.where(MediaItem.country == filter.country)
-    if filter.language:
-        stmt = stmt.where(MediaItem.language == filter.language)
-    if filter.requested_by:
-        stmt = stmt.where(MediaItem.requested_by == filter.requested_by)
-
-    if filter.has_file is not None:
-        if filter.has_file:
-            stmt = stmt.where(MediaItem.file is None)
-        else:
-            stmt = stmt.where(MediaItem.file is not None)
-    if filter.has_folder is not None:
-        if filter.has_folder:
-            stmt = stmt.where(MediaItem.folder is not None)
-        else:
-            stmt = stmt.where(MediaItem.folder is None)
-    if filter.filepath:
-        stmt = stmt.where(MediaItem.file == filter.filepath)
-    if filter.folder:
-        stmt = stmt.where(MediaItem.folder == filter.folder)
-    if filter.symlink_path:
-        stmt = stmt.where(MediaItem.symlink_path == filter.symlink_path)
-
-    if filter.failed_attempts is not None:
-        stmt = stmt.where(MediaItem.failed_attempts == filter.failed_attempts)
-    if filter.scraped_times is not None:
-        stmt = stmt.where(MediaItem.scraped_times == filter.scraped_times)
-    if filter.symlinked_times is not None:
-        stmt = stmt.where(MediaItem.symlinked_times == filter.symlinked_times)
-
-    if filter.season_number is not None:
-        season_alias = aliased(Season)
-        stmt = (
-            stmt.join(season_alias, Season.id == Episode.parent_id)
-            .where(season_alias.number == filter.season_number)
-        )
-    
-    if filter.episode_number is not None:
-        stmt = stmt.where(Episode.number == filter.episode_number)
-
-    options = []
-    if filter.load_streams:
-        options.extend([
-            selectinload(MediaItem.streams),
-        ])
-    if filter.load_blacklisted_streams:
-        options.extend([
-            selectinload(MediaItem.blacklisted_streams),
-        ])
-    if filter.load_subtitles:
-        options.extend([
-            selectinload(MediaItem.subtitles),
-        ])
-    if filter.load_children:
-        options.extend([
-            selectinload(Show.seasons)
-            .selectinload(Season.episodes)
-        ])
-    
-    if options:
-        stmt = stmt.options(*options)
-    
-    with _session:
-        if limit:
-            stmt = stmt.limit(limit)
-        return _session.execute(stmt).unique().scalars().all()
 
 def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session = None) -> "MediaItem":
     """Get a MediaItem by its ID."""

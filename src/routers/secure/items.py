@@ -232,10 +232,6 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
                 return item.to_extended_dict(with_streams=False)
             raise NoResultFound
         except NoResultFound:
-            if use_tmdb_id:
-                logger.debug(f"Item with TMDB ID {id} not found in database")
-            else:
-                logger.debug(f"Item with ID {id} not found in database")
             raise HTTPException(status_code=404, detail="Item not found")
         except Exception as e:
             if "Multiple rows were found when one or none was required" in str(e):
@@ -350,9 +346,11 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     ids: list[str] = handle_ids(ids)
     try:
         media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
-        if not media_items:
+        if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
             return HTTPException(status_code=404, detail="Item(s) not found")
         for item in media_items:
+            if not item or not isinstance(item, MediaItem):
+                continue
             logger.debug(f"Removing item with ID {item.id}")
             request.app.program.em.cancel_job(item.id)
             await asyncio.sleep(0.2)  # Ensure cancellation is processed

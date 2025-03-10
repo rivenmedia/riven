@@ -19,7 +19,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
     items_to_submit = []
 
     if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
-        logger.debug(f"Skipping {existing_item.log_string}: Item is {existing_item.last_state.name}. Manual intervention required.")
+        # logger.debug(f"Skipping {existing_item.log_string}: Item is {existing_item.last_state.name}. Manual intervention required.")
         return no_further_processing
 
     #TODO - Reindex non-released badly indexed items here
@@ -45,9 +45,9 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         if emitted_by != Scraping and Scraping.should_submit(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":
-            items_to_submit = [s for s in existing_item.seasons if s.last_state != States.Completed and Scraping.should_submit(s)]
+            items_to_submit = [s for s in existing_item.seasons if s.last_state in [States.Indexed, States.PartiallyCompleted, States.Unknown] and Scraping.should_submit(s)]
         elif existing_item.type == "season":
-            items_to_submit = [e for e in existing_item.episodes if e.last_state != States.Completed and Scraping.should_submit(e)]
+            items_to_submit = [e for e in existing_item.episodes if e.last_state in [States.Indexed, States.Unknown] and Scraping.should_submit(e)]
 
     elif existing_item is not None and existing_item.last_state == States.Scraped:
         next_service = Downloader
@@ -78,7 +78,6 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
                 if not items_to_submit:
                     return no_further_processing
         else:
-
             return no_further_processing
 
     # if items_to_submit and next_service:

@@ -4,7 +4,6 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import List, Optional, Union
 from urllib.parse import urlencode
-
 from requests import RequestException, Session
 
 from program import MediaItem
@@ -51,7 +50,7 @@ class TraktAPI:
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         trakt_cache = get_cache_params("trakt", 86400)
-        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "false"
+        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "true"
         session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=trakt_cache)
         self.headers = {
             "Content-type": "application/json",

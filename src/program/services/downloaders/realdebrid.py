@@ -157,7 +157,10 @@ class RealDebridDownloader(DownloaderBase):
                 logger.error(f"Failed to get instant availability for {infohash}: {e}")
         finally:
             if torrent_id is not None:
-                self.delete_torrent(torrent_id)
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception as e:
+                    logger.error(f"Failed to delete torrent {torrent_id}: {e}")
 
         return container
 
@@ -197,6 +200,7 @@ class RealDebridDownloader(DownloaderBase):
         for file_id, file_info in torrent_info.files.items():
             try:
                 debrid_file = DebridFile.create(
+                    path=file_info["path"],
                     filename=file_info["filename"],
                     filesize_bytes=file_info["bytes"],
                     filetype=item_type,
@@ -262,7 +266,14 @@ class RealDebridDownloader(DownloaderBase):
         """Get information about a torrent"""
         try:
             data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
-            files = {file["id"]: {"filename": file["path"].split("/")[-1], "bytes": file["bytes"], "selected": file["selected"]} for file in data["files"]}
+            files = {
+                file["id"]: {
+                    "path": file["path"], # we're gonna need this to weed out the junk files
+                    "filename": file["path"].split("/")[-1],
+                    "bytes": file["bytes"],
+                    "selected": file["selected"]
+                } for file in data["files"]
+            }
             return TorrentInfo(
                 id=data["id"],
                 name=data["filename"],

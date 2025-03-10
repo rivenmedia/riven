@@ -88,22 +88,22 @@ class Symlinker:
         """Check if the media item exists and create a symlink if it does"""
         items = self._get_items_to_update(item)
         if not items:
-            # No items to update, so we yield the item and move on.
-            # The root cause was fixed elsewhere, but just so that it doesnt
-            # happen in the future, we check for this.
             logger.debug(f"No items to symlink for {item.log_string}")
             yield item
 
         if not self._should_submit(items):
             if item.symlinked_times == 6:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
-                item.blacklist_active_stream()
-                item.reset()
+                for _item in items:
+                    if not _item.symlinked:
+                        _item.soft_reset()
+                logger.debug(f"Item {item.log_string} has been soft reset")
                 yield item
             next_attempt = self._calculate_next_attempt(item)
             logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")
             item.symlinked_times += 1
             yield (item, next_attempt)
+
         try:
             for _item in items:
                 symlinked = False
@@ -111,12 +111,13 @@ class Symlinker:
                     symlinked = True
                 if symlinked:
                     logger.log("SYMLINKER", f"Symlinks created for {_item.log_string}")
-                else:
+                if not symlinked:
                     logger.log("SYMLINKER", f"No symlinks created for {_item.log_string}")
-                    _item.blacklist_active_stream()
-                    _item.reset()
+                    _item.soft_reset()
+                    logger.debug(f"Item {_item.log_string} has been soft reset")
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
+
         yield item
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
@@ -134,20 +135,13 @@ class Symlinker:
             return True
 
     def _get_items_to_update(self, item: Union[Movie, Show, Season, Episode]) -> List[Union[Movie, Episode]]:
-        items = []
-        if item.type in ["episode", "movie"]:
-            items.append(item)
-            item.set("folder", item.folder)
+        if item.type in ["movie", "episode"]:
+            return [item]
         elif item.type == "show":
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if episode.state == States.Downloaded:
-                        items.append(episode)
+            return [episode for season in item.seasons for episode in season.episodes if episode.state == States.Downloaded]
         elif item.type == "season":
-            for episode in item.episodes:
-                if episode.state == States.Downloaded:
-                    items.append(episode)
-        return items
+            return [episode for episode in item.episodes if episode.state == States.Downloaded]
+        return []
 
     def symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
@@ -254,13 +248,16 @@ class Symlinker:
             showyear = item.parent.aired_at.year
             filename = f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
         elif isinstance(item, Episode):
-            episode_string = ""
-            episode_number: List[int] = item.get_file_episodes()
-            if episode_number and item.number in episode_number:
-                if len(episode_number) > 1:
-                    episode_string = f"e{str(episode_number[0]).zfill(2)}-e{str(episode_number[-1]).zfill(2)}"
-                else:
-                    episode_string = f"e{str(item.number).zfill(2)}"
+            episodes_from_file = item.get_file_episodes()
+            if len(episodes_from_file) > 1:
+                # Use item.number as the starting point and calculate the last episode number.
+                # Due to the introduction of standard/absolute episode numbering in scraping and downloading processes,
+                # it is no longer possible to assume that the episode numbers in the file align with those in the item.
+                first_episode_number = item.number
+                last_episode_number = first_episode_number + len(episodes_from_file) - 1
+                episode_string = f"e{str(first_episode_number).zfill(2)}-e{str(last_episode_number).zfill(2)}"
+            else:
+                episode_string = f"e{str(item.number).zfill(2)}"
             if episode_string != "":
                 showname = item.parent.parent.title
                 showyear = item.parent.parent.aired_at.year
