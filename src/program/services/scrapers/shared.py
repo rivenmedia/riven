@@ -1,4 +1,6 @@
 """Shared functions for scrapers."""
+import hashlib
+from bencodepy import decode, encode
 from typing import Dict, Optional, Set, Type
 
 from loguru import logger
@@ -9,6 +11,7 @@ from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from program.utils.request import (
+    create_service_session,
     BaseRequestHandler,
     HttpMethod,
     ResponseObject,
@@ -137,3 +140,14 @@ def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
     else:
         return None, None, None
     return identifier, scrape_type, imdb_id
+
+def _get_infohash_from_torrent_url(url: str) -> str:
+    """Extract the infohash from a torrent URL."""
+    session = create_service_session()
+    with session.get(url, stream=True) as r:
+        r.raise_for_status()
+        torrent_data = r.content
+        torrent_dict = decode(torrent_data)
+        info = torrent_dict[b'info']
+        infohash = hashlib.sha1(encode(info)).hexdigest()
+    return infohash

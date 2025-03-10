@@ -394,10 +394,6 @@ class MediaItem(db.Model):
 
     def soft_reset(self):
         """Soft reset item attributes."""
-        if self.symlink_path:
-            if Path(self.symlink_path).exists():
-                Path(self.symlink_path).unlink()
-            self.set("symlink_path", None)
         self.blacklist_active_stream()
         self.set("file", None)
         self.set("folder", None)

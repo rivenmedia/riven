@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.services.scrapers.shared import ScraperRequestHandler
+from program.services.scrapers.shared import ScraperRequestHandler, _get_infohash_from_torrent_url
 from program.settings.manager import settings_manager
 from program.utils.request import (
     HttpMethod,
@@ -278,7 +278,7 @@ class Prowlarr:
             result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
         len_data = len(data)
         if infohashes_found is False and len_data > 0:
-            logger.warning(f"{self.key} Tracker {indexer_title} may never return infohashes, consider disabling: {len_data} items found, None contain infohash.")
+            logger.warning(f"{self.key.title()} tracker '{indexer_title}' may never return infohashes, consider disabling: {len_data} items found, None contain infohash.")
         return result_list
 
     def _log_indexers(self) -> None:

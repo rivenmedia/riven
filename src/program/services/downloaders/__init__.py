@@ -131,7 +131,11 @@ class Downloader:
         if item.type in ("show", "season", "episode"):
             show: Optional[Show] = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
             method_1 = sum(len(season.episodes) for season in show.seasons)
-            method_2 = show.seasons[-1].episodes[-1].number
+            try:
+                method_2 = show.seasons[-1].episodes[-1].number
+            except IndexError:
+                # happens if theres a new season with no episodes yet
+                method_2 = show.seasons[-2].episodes[-1].number
             episode_cap = max([method_1, method_2])
 
         found = False

@@ -88,9 +88,6 @@ class Symlinker:
         """Check if the media item exists and create a symlink if it does"""
         items = self._get_items_to_update(item)
         if not items:
-            # No items to update, so we yield the item and move on.
-            # The root cause was fixed elsewhere, but just so that it doesnt
-            # happen in the future, we check for this.
             logger.debug(f"No items to symlink for {item.log_string}")
             yield item
 
@@ -100,7 +97,6 @@ class Symlinker:
                 for _item in items:
                     if not _item.symlinked:
                         _item.soft_reset()
-                item.soft_reset()
                 logger.debug(f"Item {item.log_string} has been soft reset")
                 yield item
             next_attempt = self._calculate_next_attempt(item)
@@ -118,6 +114,7 @@ class Symlinker:
                 if not symlinked:
                     logger.log("SYMLINKER", f"No symlinks created for {_item.log_string}")
                     _item.soft_reset()
+                    logger.debug(f"Item {_item.log_string} has been soft reset")
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
@@ -138,20 +135,13 @@ class Symlinker:
             return True
 
     def _get_items_to_update(self, item: Union[Movie, Show, Season, Episode]) -> List[Union[Movie, Episode]]:
-        items = []
-        if item.type in ["episode", "movie"]:
-            items.append(item)
-            item.set("folder", item.folder)
+        if item.type in ["movie", "episode"]:
+            return [item]
         elif item.type == "show":
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if episode.state == States.Downloaded:
-                        items.append(episode)
+            return [episode for season in item.seasons for episode in season.episodes if episode.state == States.Downloaded]
         elif item.type == "season":
-            for episode in item.episodes:
-                if episode.state == States.Downloaded:
-                    items.append(episode)
-        return items
+            return [episode for episode in item.episodes if episode.state == States.Downloaded]
+        return []
 
     def symlink(self, item: Union[Movie, Episode]) -> bool:
         """Create a symlink for the given media item if it does not already exist."""
