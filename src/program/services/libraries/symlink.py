@@ -315,6 +315,8 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
 
 def get_items_from_filepath(session: Session, filepath: str) -> "MediaItem":
     """Get an item by its filepath."""
+    from program.media.item import MediaItem
+
     imdb_id_match = imdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
