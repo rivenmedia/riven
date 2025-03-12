@@ -94,10 +94,7 @@ class Symlinker:
         if not self._should_submit(items):
             if item.symlinked_times == 6:
                 logger.debug(f"Soft resetting {item.log_string} because required files were not found")
-                for _item in items:
-                    if not _item.symlinked:
-                        _item.soft_reset()
-                logger.debug(f"Item {item.log_string} has been soft reset")
+                item.soft_reset()
                 yield item
             next_attempt = self._calculate_next_attempt(item)
             logger.debug(f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")

@@ -291,19 +291,18 @@ def get_item_ids(session: Session, item_id: str) -> tuple[str, list[str]]:
 
     return item_id, related_ids
 
-def get_item_by_symlink_path(filepath: str, session: Session = None) -> Optional["MediaItem"]:
-    """Get a MediaItem by its symlink path."""
+def get_item_by_symlink_path(filepath: str, session: Session = None) -> list["MediaItem"]:
+    """Get a list of MediaItems by their symlink path."""
     from program.media.item import MediaItem
-
     _session = session if session else db.Session()
 
     with _session:
-        item = _session.execute(
+        items = _session.execute(
             select(MediaItem).where(MediaItem.symlink_path == filepath)
-        ).scalar_one_or_none()
-        if item:
+        ).unique().scalars().all()
+        for item in items:
             _session.expunge(item)
-        return item
+        return items
 
 def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = None, episode_number: Optional[int] = None, session: Session = None) -> list["MediaItem"]:
     """Get a MediaItem by its IMDb ID and optionally season and episode numbers."""

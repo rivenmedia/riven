@@ -59,7 +59,6 @@ class Downloader:
         for stream in item.streams:
             container: Optional[TorrentContainer] = self.validate_stream(stream, item)
             if not container:
-                logger.debug(f"Stream {stream.infohash} is not cached or valid.")
                 continue
 
             try:
@@ -91,6 +90,7 @@ class Downloader:
         """
         container = self.get_instant_availability(stream.infohash, item.type)
         if not container:
+            logger.debug(f"Stream {stream.infohash} is not cached or valid.")
             item.blacklist_stream(stream)
             return None
 

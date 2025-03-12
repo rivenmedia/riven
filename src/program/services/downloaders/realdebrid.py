@@ -5,7 +5,7 @@ from typing import List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
-from requests import HTTPError, Session
+from requests import Session
 
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
@@ -171,12 +171,10 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(f"No torrent info found for {torrent_id} with infohash {infohash}")
             return None
 
+        torrent_files = []
+
         if not torrent_info.files:
             logger.debug(f"No files found in torrent {torrent_id} with infohash {infohash}")
-            return None
-
-        if torrent_info.status in ("magnet_error", "error", "virus", "dead"):
-            logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
             return None
 
         if torrent_info.status == "waiting_files_selection":
@@ -192,32 +190,40 @@ class RealDebridDownloader(DownloaderBase):
             self.select_files(torrent_id, video_file_ids)
             torrent_info = self.get_torrent_info(torrent_id)
 
-            if torrent_info.status != "downloaded":
-                logger.debug(f"Torrent {torrent_id} with infohash {infohash} is not cached.")
+        if torrent_info.status == "downloaded":
+            for file_id, file_info in torrent_info.files.items():
+                try:
+                    debrid_file = DebridFile.create(
+                        path=file_info["path"],
+                        filename=file_info["filename"],
+                        filesize_bytes=file_info["bytes"],
+                        filetype=item_type,
+                        file_id=file_id
+                    )
+
+                    if isinstance(debrid_file, DebridFile):
+                        torrent_files.append(debrid_file)
+                except InvalidDebridFileException as e:
+                    logger.debug(f"{infohash}: {e}")
+                    continue
+
+            if not torrent_files:
+                logger.debug(f"No valid files found after validating files in torrent {torrent_id} with infohash {infohash}")
                 return None
 
-        torrent_files = []
-        for file_id, file_info in torrent_info.files.items():
-            try:
-                debrid_file = DebridFile.create(
-                    path=file_info["path"],
-                    filename=file_info["filename"],
-                    filesize_bytes=file_info["bytes"],
-                    filetype=item_type,
-                    file_id=file_id
-                )
+            return TorrentContainer(infohash=infohash, files=torrent_files)
 
-                if isinstance(debrid_file, DebridFile):
-                    torrent_files.append(debrid_file)
-            except InvalidDebridFileException as e:
-                logger.debug(f"{infohash}: {e}")
-                continue
-
-        if not torrent_files:
-            logger.debug(f"No valid files found after validating files in torrent {torrent_id} with infohash {infohash}")
+        if torrent_info.status in ("downloading", "queued"):
+            # TODO: add support for downloading torrents
+            logger.debug(f"Skipping torrent {torrent_id} with infohash {infohash} because it is downloading. Torrent status on Real-Debrid: {torrent_info.status}")
             return None
 
-        return TorrentContainer(infohash=infohash, files=torrent_files)
+        # if torrent_info.status in ("magnet_error", "error", "virus", "dead", "compressing", "uploading"):
+        #     logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
+        #     return None
+
+        logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
+        return None
 
     def add_torrent(self, infohash: str) -> str:
         """Add a torrent by infohash"""

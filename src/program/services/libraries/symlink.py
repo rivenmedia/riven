@@ -217,7 +217,7 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
                     broken_symlinks.append((full_path, target))
     return broken_symlinks
 
-def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
+def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_directory: Optional[str] = None):
     """Find and fix all broken symlinks in the library path using files from the rclone path."""
     missing_files = 0
 
@@ -301,10 +301,13 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4):
 
     logger.debug(f"Built file map for {rclone_path}")
 
-    # library_path + ["shows", "movies", "anime_shows", "anime_movies"]
-    valid_dirs = ["shows", "movies", "anime_shows", "anime_movies"]
-    library_paths = [os.path.join(library_path, d) for d in valid_dirs if os.path.isdir(os.path.join(library_path, d))]
-    logger.debug(f"Found top-level directories: {library_paths}")
+    if specific_directory:
+        library_paths = [specific_directory]
+        logger.debug(f"Found specific directory: {library_paths}")
+    else:
+        valid_dirs = ["shows", "movies", "anime_shows", "anime_movies"]
+        library_paths = [os.path.join(library_path, d) for d in valid_dirs if os.path.isdir(os.path.join(library_path, d))]
+        logger.debug(f"Found top-level directories: {library_paths}")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_directory, directory, file_map) for directory in library_paths]
@@ -337,9 +340,7 @@ def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"
 
     with session:
         items = get_item_by_symlink_path(filepath, session)
-        if items:
-            items = [items]
-        else:
+        if not items:
             items = get_item_by_imdb_and_episode(imdb_id, season_number, episode_number, session)
 
         if items and len(items) > 1:

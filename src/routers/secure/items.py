@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import os
 from typing import Literal, Optional
 
 import Levenshtein
@@ -17,6 +18,8 @@ from program.media.state import States
 from program.services.content import Overseerr
 from program.symlink import Symlinker
 from program.types import Event
+from program.services.libraries.symlink import fix_broken_symlinks
+from program.settings.manager import settings_manager
 
 from ..models.shared import MessageResponse
 
@@ -368,6 +371,30 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
             for item_id, previous_state, new_state in updated_items
         ]
     }
+
+class RepairSymlinksResponse(BaseModel):
+    message: str
+
+@router.post(
+    "/repair_symlinks",
+    summary="Repair Broken Symlinks",
+    description="Repair broken symlinks in the library. Optionally, provide a directory path to only scan that directory.",
+    operation_id="repair_symlinks",
+)
+async def repair_symlinks(request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
+    library_path = settings_manager.settings.symlink.library_path
+    rclone_path = settings_manager.settings.symlink.rclone_path
+
+    if directory:
+        specific_directory = os.path.join(library_path, directory)
+        if not os.path.isdir(specific_directory):
+            raise HTTPException(status_code=400, detail=f"Directory {specific_directory} does not exist.")
+    else:
+        specific_directory = None
+
+    fix_broken_symlinks(library_path, rclone_path, specific_directory=specific_directory)
+
+    return {"message": "Symlink repair process completed."}
 
 
 class RemoveResponse(BaseModel):
