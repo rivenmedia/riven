@@ -343,8 +343,4 @@ def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"
         if not items:
             items = get_item_by_imdb_and_episode(imdb_id, season_number, episode_number, session)
 
-        if items and len(items) > 1:
-            for item in items:
-                logger.log("FILES", f"Found (multiple) {item.log_string} from filepath: {filepath}")
-
         return items

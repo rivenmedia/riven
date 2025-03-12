@@ -79,18 +79,11 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                         logger.debug(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
                     continue
 
-            if item.type == "show":
+            if item.type in ("show", "season"):
                 # if there are episodes, then check to make sure theres multiple
-                if torrent.data.episodes and not len(torrent.data.episodes) > 1:
+                if torrent.data.episodes and not len(torrent.data.episodes) > 7:
                     if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping show torrent with too few episodes for {item.log_string}: {raw_title}")
-                    continue
-
-            if item.type == "season":
-                # We want a season pack, so if episodes are present, make sure theres multiple
-                if torrent.data.episodes and not len(torrent.data.episodes) > 1:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping season torrent with too few episodes for {item.log_string}: {raw_title}")
+                        logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
                     continue
 
             torrents.add(torrent)
