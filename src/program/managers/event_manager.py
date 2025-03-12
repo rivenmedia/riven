@@ -33,8 +33,6 @@ class EventManager:
         self._futures: list[Future] = []
         self._queued_events: list[Event] = []
         self._running_events: list[Event] = []
-        self._canceled_futures: list[Future] = []
-        self._content_queue: list[Event] = []
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls) -> ThreadPoolExecutor:
@@ -131,11 +129,23 @@ class EventManager:
                 logger.debug(f"Added {event.log_message} to the queue.")
 
     def remove_event_from_queue(self, event: Event):
+        """
+        Removes an event from the queue.
+
+        Args:
+            event (Event): The event to remove from the queue.
+        """
         with self.mutex:
             self._queued_events.remove(event)
             logger.debug(f"Removed {event.log_message} from the queue.")
 
     def remove_event_from_running(self, event: Event):
+        """
+        Removes an event from the running events.
+
+        Args:
+            event (Event): The event to remove from the running events.
+        """
         with self.mutex:
             if event in self._running_events:
                 self._running_events.remove(event)
@@ -221,27 +231,24 @@ class EventManager:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
+            future_map = {}
             for future in self._futures:
-                future_item_id = None
-                future_related_ids = []
-
                 if hasattr(future, "event") and hasattr(future.event, "item_id"):
-                    future_item = future.event.item_id
-                    future_item_id, future_related_ids = db_functions.get_item_ids(session, future_item)
+                    future_item_id = future.event.item_id
+                    future_map.setdefault(future_item_id, []).append(future)
 
-                if future_item_id in ids_to_cancel or any(rid in ids_to_cancel for rid in future_related_ids):
-                    self.remove_id_from_queues(future_item)
-                    if not future.done() and not future.cancelled():
-                        try:
-                            future.cancellation_event.set()
-                            future.cancel()
-                            self._canceled_futures.append(future)
-                        except Exception as e:
-                            if not suppress_logs:
-                                logger.error(f"Error cancelling future for {future_item.log_string}: {str(e)}")
-
-
-        logger.debug(f"Canceled jobs for Item ID {item_id} and its children.")
+            for fid in ids_to_cancel:
+                if fid in future_map:
+                    for future in future_map[fid]:
+                        self.remove_id_from_queues(fid)
+                        if not future.done() and not future.cancelled():
+                            try:
+                                future.cancellation_event.set()
+                                future.cancel()
+                                logger.debug(f"Canceled job for Item ID {fid}")
+                            except Exception as e:
+                                if not suppress_logs:
+                                    logger.error(f"Error cancelling future for {fid}: {str(e)}")
 
     def next(self) -> Event:
         """

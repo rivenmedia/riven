@@ -159,11 +159,28 @@ class MediaItem(db.Model):
         return stream in self.blacklisted_streams
 
     def blacklist_active_stream(self):
-        stream = next((stream for stream in self.streams if stream.infohash == self.active_stream.get("infohash", None)), None)
-        if stream:
-            self.blacklist_stream(stream)
-        else:
+        if not self.active_stream:
             logger.debug(f"No active stream for {self.log_string}, will not blacklist")
+            return
+
+        def find_and_blacklist_stream(streams):
+            stream = next((s for s in streams if s.infohash == self.active_stream.get("infohash")), None)
+            if stream:
+                self.blacklist_stream(stream)
+                logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
+                return True
+            return False
+
+        if find_and_blacklist_stream(self.streams):
+            return
+
+        if self.type == "episode":
+            if self.parent and find_and_blacklist_stream(self.parent.streams):
+                return
+            if self.parent and self.parent.parent and find_and_blacklist_stream(self.parent.parent.streams):
+                return
+
+        logger.debug(f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist")
 
     def blacklist_stream(self, stream: Stream):
         value = blacklist_stream(self, stream)
@@ -224,7 +241,7 @@ class MediaItem(db.Model):
                 session.refresh(self, attribute_names=["blacklisted_streams"])
                 return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
             except Exception as e:
-                logger.exception(f"Error in is_scraped() for {self.log_string}: {str(e)}")
+                logger.error(f"Error refreshing item streams for {self.log_string}: {str(e)}")
         return False
 
     def to_dict(self):

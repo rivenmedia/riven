@@ -1,10 +1,8 @@
 import time
 from datetime import datetime
-from enum import Enum
 from typing import List, Optional, Union
 
 from loguru import logger
-from pydantic import BaseModel
 from requests import Session
 
 from program.services.downloaders.models import (
@@ -25,32 +23,6 @@ from program.utils.request import (
 
 from .shared import DownloaderBase, premium_days_left
 
-
-class RDTorrentStatus(str, Enum):
-    """Real-Debrid torrent status enumeration"""
-    MAGNET_ERROR = "magnet_error"
-    MAGNET_CONVERSION = "magnet_conversion"
-    WAITING_FILES = "waiting_files_selection"
-    DOWNLOADING = "downloading"
-    DOWNLOADED = "downloaded"
-    ERROR = "error"
-    SEEDING = "seeding"
-    DEAD = "dead"
-    UPLOADING = "uploading"
-    COMPRESSING = "compressing"
-
-class RDTorrent(BaseModel):
-    """Real-Debrid torrent model"""
-    id: str
-    hash: str
-    filename: str
-    bytes: int
-    status: RDTorrentStatus
-    added: datetime
-    links: List[str]
-    ended: Optional[datetime] = None
-    speed: Optional[int] = None
-    seeders: Optional[int] = None
 
 class RealDebridError(Exception):
     """Base exception for Real-Debrid related errors"""
