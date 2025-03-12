@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.21.5](https://github.com/rivenmedia/riven/compare/v0.21.4...v0.21.5) (2025-03-12)
+
+
+### Bug Fixes
+
+* added reset streams endpoint ([0f22105](https://github.com/rivenmedia/riven/commit/0f221058d9689c8ddc44fd68a257bf66315f454e))
+* fixed blacklist loop on symlink failure. improved scrape on non anime show packs. ([4f29e97](https://github.com/rivenmedia/riven/commit/4f29e9797ddd45f208a902b004fd781d3eb028d8))
+* fixed rd downloading issue. added symlink repair api endpoint. ([0354889](https://github.com/rivenmedia/riven/commit/0354889b9f5db7b64ac5e252437ef0d88f669939))
+* fixed symlink repair. added update_ongoing and retry_library as api endpoints. ([b7c3c97](https://github.com/rivenmedia/riven/commit/b7c3c970ba7ae583c1fe71d7f45fbfca81be178c))
+* increased episode check on show/season packs from 1 to 7 ([fb24ab4](https://github.com/rivenmedia/riven/commit/fb24ab4bd58c5551cd0abf3bc8f8eefbfe2766a9))
+* revert trakt cache checking in api ([5778217](https://github.com/rivenmedia/riven/commit/5778217f370bf1c30bb5a07b1f2bf9d48194d528))
+* symlink repair error due to missing import ([c01bbff](https://github.com/rivenmedia/riven/commit/c01bbffcb9e7f1381f09070b3efab87e125b6cc7))
+* update instance availability logic for the scrape endpoint ([#1023](https://github.com/rivenmedia/riven/issues/1023)) ([486bbff](https://github.com/rivenmedia/riven/commit/486bbfffdfbb5f3afc3196af56019c8eee681655))
+* update instance availibility logic for the scrape endpoint ([486bbff](https://github.com/rivenmedia/riven/commit/486bbfffdfbb5f3afc3196af56019c8eee681655))
+* various fixes. improved scraping and downloading. ([#1024](https://github.com/rivenmedia/riven/issues/1024)) ([ba57f75](https://github.com/rivenmedia/riven/commit/ba57f75bee691e25cd37bd78e918703fd75094ae))
+
 ## [0.21.4](https://github.com/rivenmedia/riven/compare/v0.21.3...v0.21.4) (2025-02-28)
 
 
