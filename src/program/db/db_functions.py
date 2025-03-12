@@ -5,13 +5,14 @@ import alembic
 from loguru import logger
 from threading import Event
 from typing import TYPE_CHECKING, Optional
-from sqlalchemy import delete, insert, inspect, or_, select, text
+from sqlalchemy import delete, func, insert, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils import root_dir
+from program.media.state import States
 
 from .db import db
 
@@ -289,6 +290,106 @@ def get_item_ids(session: Session, item_id: str) -> tuple[str, list[str]]:
         related_ids.extend(episode_ids)
 
     return item_id, related_ids
+
+def get_item_by_symlink_path(filepath: str, session: Session = None) -> Optional["MediaItem"]:
+    """Get a MediaItem by its symlink path."""
+    from program.media.item import MediaItem
+
+    _session = session if session else db.Session()
+
+    with _session:
+        item = _session.execute(
+            select(MediaItem).where(MediaItem.symlink_path == filepath)
+        ).scalar_one_or_none()
+        if item:
+            _session.expunge(item)
+        return item
+
+def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = None, episode_number: Optional[int] = None, session: Session = None) -> list["MediaItem"]:
+    """Get a MediaItem by its IMDb ID and optionally season and episode numbers."""
+    from program.media.item import Episode, Movie, Season, Show
+
+    _session = session if session else db.Session()
+
+    with _session:
+        if season_number is not None and episode_number is not None:
+            # Look for an episode
+            items = _session.execute(
+                select(Episode).options(
+                    selectinload(Episode.parent).selectinload(Season.parent)
+                ).where(
+                    Episode.parent.has(Season.parent.has(Show.imdb_id == imdb_id)),
+                    Episode.parent.has(Season.number == season_number),
+                    Episode.number == episode_number
+                )
+            ).scalars().all()
+        else:
+            # Look for a movie
+            items = _session.execute(
+                select(Movie).where(Movie.imdb_id == imdb_id)
+            ).scalars().all()
+
+        for item in items:
+            _session.expunge(item)
+        return items
+
+def retry_library(session) -> list[str]:
+    """Retry items that failed to download."""
+    from program.media.item import MediaItem
+    session = session if session else db.Session()
+
+    count = session.execute(
+        select(func.count(MediaItem.id))
+        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
+        .where(MediaItem.type.in_(["movie", "show"]))
+    ).scalar_one()
+
+    if count == 0:
+        return []
+
+    logger.log("PROGRAM", f"Starting retry process for {count} items.")
+
+    items_query = (
+        select(MediaItem.id)
+        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
+        .where(MediaItem.type.in_(["movie", "show"]))
+        .order_by(MediaItem.requested_at.desc())
+    )
+
+    result = session.execute(items_query)
+    return [item_id for item_id in result.scalars()]
+
+def update_ongoing(session) -> list[tuple[str, str, str]]:
+    """Update state for ongoing and unreleased items."""
+    from program.media.item import MediaItem
+    session = session if session else db.Session()
+
+    item_ids = session.execute(
+        select(MediaItem.id)
+        .where(MediaItem.type.in_(["movie", "episode"]))
+        .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
+    ).scalars().all()
+
+    if not item_ids:
+        logger.debug("No ongoing or unreleased items to update.")
+        return []
+
+    logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
+
+    updated_items = []
+    for item_id in item_ids:
+        try:
+            item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
+            if item:
+                previous_state, new_state = item.store_state()
+                if previous_state != new_state:
+                    updated_items.append((item_id, previous_state.name, new_state.name))
+                    session.merge(item)
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update state for item with ID {item_id}: {e}")
+
+    return updated_items
 
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
     """Run a thread with a MediaItem."""

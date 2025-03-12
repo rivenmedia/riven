@@ -331,6 +331,45 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     return {"message": f"Retried items with ids {ids}", "ids": ids}
 
 
+@router.post(
+    "/retry_library",
+    summary="Retry Library Items",
+    description="Retry items in the library that failed to download",
+    operation_id="retry_library_items",
+)
+async def retry_library_items(request: Request) -> RetryResponse:
+    with db.Session() as session:
+        item_ids = db_functions.retry_library(session)
+        for item_id in item_ids:
+            request.app.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+    return {"message": f"Retried {len(item_ids)} items", "ids": item_ids}
+
+
+class UpdateOngoingResponse(BaseModel):
+    message: str
+    updated_items: list[dict]
+
+
+@router.post(
+    "/update_ongoing",
+    summary="Update Ongoing Items",
+    description="Update state for ongoing and unreleased items",
+    operation_id="update_ongoing_items",
+)
+async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
+    with db.Session() as session:
+        updated_items = db_functions.update_ongoing(session)
+        for item_id, previous_state, new_state in updated_items:
+            request.app.program.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+    return {
+        "message": f"Updated {len(updated_items)} items",
+        "updated_items": [
+            {"item_id": item_id, "previous_state": previous_state, "new_state": new_state}
+            for item_id, previous_state, new_state in updated_items
+        ]
+    }
+
+
 class RemoveResponse(BaseModel):
     message: str
     ids: list[str]

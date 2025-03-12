@@ -190,59 +190,17 @@ class Program(threading.Thread):
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
         with db.Session() as session:
-            count = session.execute(
-                select(func.count(MediaItem.id))
-                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
-                .where(MediaItem.type.in_(["movie", "show"]))
-            ).scalar_one()
-
-            if count == 0:
-                return
-
-            logger.log("PROGRAM", f"Starting retry process for {count} items.")
-
-            items_query = (
-                select(MediaItem.id)
-                .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
-                .where(MediaItem.type.in_(["movie", "show"]))
-                .order_by(MediaItem.requested_at.desc())
-            )
-
-            result = session.execute(items_query)
-            for item_id in result.scalars():
+            item_ids = db_functions.retry_library(session)
+            for item_id in item_ids:
                 self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
-            item_ids = session.execute(
-                select(MediaItem.id)
-                .where(MediaItem.type.in_(["movie", "episode"]))
-                .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-            ).scalars().all()
-
-            if not item_ids:
-                logger.debug("No ongoing or unreleased items to update.")
-                return
-
-            logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
-
-            counter = 0
-            for item_id in item_ids:
-                try:
-                    item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
-                    if item:
-                        previous_state, new_state = item.store_state()
-                        if previous_state != new_state:
-                            self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                            logger.debug(f"Updated state for {item.log_string} ({item.id}) from {previous_state.name} to {new_state.name}")
-                            counter += 1
-                        session.merge(item)
-                        session.commit()
-                except Exception as e:
-                    logger.error(f"Failed to update state for item with ID {item_id}: {e}")
-
-            logger.debug(f"Found {counter} items with updated state.")
+            updated_items = db_functions.update_ongoing(session)
+            for item_id, previous_state, new_state in updated_items:
+                self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+                logger.debug(f"Updated state for item {item_id} from {previous_state} to {new_state}")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
