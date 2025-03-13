@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.6](https://github.com/rivenmedia/riven/compare/v0.21.5...v0.21.6) (2025-03-13)
+
+
+### Bug Fixes
+
+* improved episode handling on manual scraping ([#1025](https://github.com/rivenmedia/riven/issues/1025)) ([a949d94](https://github.com/rivenmedia/riven/commit/a949d94eed3af6308915c01596861da3b9782fcc))
+
 ## [0.21.5](https://github.com/rivenmedia/riven/compare/v0.21.4...v0.21.5) (2025-03-12)
 
 
