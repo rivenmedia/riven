@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.7](https://github.com/rivenmedia/riven/compare/v0.21.6...v0.21.7) (2025-03-13)
+
+
+### Bug Fixes
+
+* reorder stream addition to item on manual scrape ([7c351cf](https://github.com/rivenmedia/riven/commit/7c351cfd1770767dc112000fb7f4a397ce26000c))
+
 ## [0.21.6](https://github.com/rivenmedia/riven/compare/v0.21.5...v0.21.6) (2025-03-13)
 
 
