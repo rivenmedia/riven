@@ -8,11 +8,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
+from RTN.exceptions import GarbageTorrent
 from sqlalchemy import select
 
 from program.db import db_functions
 from program.db.db import db
-from program.media.item import Episode, MediaItem
+from program.media.item import MediaItem, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
@@ -361,38 +362,33 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        item_ids_to_submit = []
+        item_ids_to_submit = set()
 
-        if item.type == "movie":
+        def update_item(item: MediaItem, data: DebridFile):
             request.app.program.em.cancel_job(item.id)
             item.reset()
             item.file = data.filename
             item.folder = data.filename
             item.alternative_folder = session.torrent_info.alternative_filename
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
-            torrent = rtn.rank(session.magnet, session.magnet)
+            item_ids_to_submit.add(item.id)
+
+        if item.type == "movie":
+            torrent = rtn.rank(session.torrent_info.name, session.magnet)
             item.streams.append(ItemStream(torrent))
-            item_ids_to_submit.append(item.id)
+            update_item(item, data)
+
         else:
-            request.app.program.em.cancel_job(item.id)
-            await asyncio.sleep(0.2)
-            for season in item.seasons:
-                request.app.program.em.cancel_job(season.id)
-                await asyncio.sleep(0.2)
-            for season, episodes in data.root.items():
-                for episode, episode_data in episodes.items():
-                    item_episode: Episode = next((_episode for _season in item.seasons if _season.number == season for _episode in _season.episodes if _episode.number == episode), None)
-                    if item_episode:
-                        request.app.program.em.cancel_job(item_episode.id)
-                        await asyncio.sleep(0.2)
-                        item_episode.reset()
-                        item_episode.file = episode_data.filename
-                        item_episode.folder = episode_data.filename
-                        item_episode.alternative_folder = session.torrent_info.alternative_filename
-                        item_episode.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
-                        torrent = rtn.rank(session.magnet, session.magnet)
-                        item_episode.streams.append(ItemStream(torrent))
-                        item_ids_to_submit.append(item_episode.id)
+            for season_number, episodes in data.root.items():
+                for episode_number, episode_data in episodes.items():
+                    if (episode := item.get_episode(episode_number, season_number)):
+                        torrent = rtn.rank(session.torrent_info.name, session.magnet)
+                        episode.streams.append(ItemStream(torrent))
+                        update_item(episode, episode_data)
+                    else:
+                        logger.error(f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}")
+                        continue
+
         item.store_state()
         log_string = item.log_string
         db_session.merge(item)
