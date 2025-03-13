@@ -372,17 +372,17 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
             item_ids_to_submit.add(item.id)
 
         if item.type == "movie":
+            update_item(item, data)
             torrent = rtn.rank(session.torrent_info.name, session.magnet)
             item.streams.append(ItemStream(torrent))
-            update_item(item, data)
 
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
                     if (episode := item.get_episode(episode_number, season_number)):
+                        update_item(episode, episode_data)
                         torrent = rtn.rank(session.torrent_info.name, session.magnet)
                         episode.streams.append(ItemStream(torrent))
-                        update_item(episode, episode_data)
                     else:
                         logger.error(f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}")
                         continue
