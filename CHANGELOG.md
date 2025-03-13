@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.8](https://github.com/rivenmedia/riven/compare/v0.21.7...v0.21.8) (2025-03-13)
+
+
+### Bug Fixes
+
+* fixed season and episode manual scrape session handling ([59f1e75](https://github.com/rivenmedia/riven/commit/59f1e751f87f912bfd2fc87c647bdf2f7fd54ee7))
+
 ## [0.21.7](https://github.com/rivenmedia/riven/compare/v0.21.6...v0.21.7) (2025-03-13)
 
 
