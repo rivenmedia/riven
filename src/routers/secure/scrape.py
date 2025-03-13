@@ -360,31 +360,42 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
+        item = db_session.merge(item)
         item_ids_to_submit = set()
 
-        def update_item(item: MediaItem, data: DebridFile):
+        def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
             request.app.program.em.cancel_job(item.id)
             item.reset()
             item.file = data.filename
             item.folder = data.filename
             item.alternative_folder = session.torrent_info.alternative_filename
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
+            torrent = rtn.rank(session.torrent_info.name, session.magnet)
+            item.streams.append(ItemStream(torrent))
             item_ids_to_submit.add(item.id)
 
         if item.type == "movie":
-            update_item(item, data)
-            torrent = rtn.rank(session.torrent_info.name, session.magnet)
-            item.streams.append(ItemStream(torrent))
+            update_item(item, data, session)
 
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
-                    if (episode := item.get_episode(episode_number, season_number)):
-                        update_item(episode, episode_data)
-                        torrent = rtn.rank(session.torrent_info.name, session.magnet)
-                        episode.streams.append(ItemStream(torrent))
+                    if item.type == "show":
+                        if (episode := item.get_episode(episode_number, season_number)):
+                            update_item(episode, episode_data, session)
+                        else:
+                            logger.error(f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}")
+                            continue
+                    elif item.type == "season":
+                        if (episode := item.parent.get_episode(episode_number, season_number)):
+                            update_item(episode, episode_data, session)
+                        else:
+                            logger.error(f"Failed to find season {season_number} for {item.log_string}")
+                            continue
+                    elif item.type == "episode":
+                        update_item(item, episode_data, session)
                     else:
-                        logger.error(f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}")
+                        logger.error(f"Failed to find item type for {item.log_string}")
                         continue
 
         item.store_state()
