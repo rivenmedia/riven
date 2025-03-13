@@ -1,19 +1,17 @@
-import asyncio
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List, Literal, Optional, TypeAlias, Union
+from typing import Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
-from RTN.exceptions import GarbageTorrent
 from sqlalchemy import select
 
 from program.db import db_functions
 from program.db.db import db
-from program.media.item import MediaItem, Show
+from program.media.item import MediaItem
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.indexers.trakt import TraktIndexer
