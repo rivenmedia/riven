@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.9](https://github.com/rivenmedia/riven/compare/v0.21.8...v0.21.9) (2025-03-13)
+
+
+### Bug Fixes
+
+* improve episode validation on manual scrape ([1f866d6](https://github.com/rivenmedia/riven/commit/1f866d62b82383b240c8f7adb149c3e6ff17ae86))
+
 ## [0.21.8](https://github.com/rivenmedia/riven/compare/v0.21.7...v0.21.8) (2025-03-13)
 
 
