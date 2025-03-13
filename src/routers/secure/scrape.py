@@ -393,7 +393,10 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                             logger.error(f"Failed to find season {season_number} for {item.log_string}")
                             continue
                     elif item.type == "episode":
+                        if season_number != item.parent.number and episode_number != item.number:
+                            continue
                         update_item(item, episode_data, session)
+                        break
                     else:
                         logger.error(f"Failed to find item type for {item.log_string}")
                         continue
