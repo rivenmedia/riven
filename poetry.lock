@@ -1644,14 +1644,14 @@ files = [
 
 [[package]]
 name = "parsett"
-version = "1.5.9"
+version = "1.6.2"
 description = "Parsett - Torrent Parser with Adult Content Detection"
 optional = false
 python-versions = "<4.0,>=3.11"
 groups = ["main"]
 files = [
-    {file = "parsett-1.5.9-py3-none-any.whl", hash = "sha256:38fd08460160d580ad4d740816fd1b6d7613108250cc8f3b5d9fa4fb4da7f162"},
-    {file = "parsett-1.5.9.tar.gz", hash = "sha256:05ea6a5c6fffab6262ab076797ffef42eefa92d7c4adb532ec560d2f3a1c6c49"},
+    {file = "parsett-1.6.2-py3-none-any.whl", hash = "sha256:e6b913f9ceca93540a7ecd75771a9837a3b4fb17b2451ddc948c629f1f619e65"},
+    {file = "parsett-1.6.2.tar.gz", hash = "sha256:8cd1266c51367f400d54b2c9674bd9258ee565e680739ca7cd238ef1101fd045"},
 ]
 
 [package.dependencies]

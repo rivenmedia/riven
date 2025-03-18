@@ -29,7 +29,7 @@ class Stream(BaseModel):
     parsed_data: ParsedData
     rank: int
     lev_ratio: float
-    is_cached: bool
+    is_cached: bool = False
 
 class ScrapeItemResponse(BaseModel):
     message: str
@@ -225,8 +225,6 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
             raise HTTPException(status_code=404, detail="Item not found")
 
         streams: Dict[str, Stream] = scraper.scrape(item)
-        for stream in streams.values():
-             stream.is_cached = False
         log_string = item.log_string
 
     return {
