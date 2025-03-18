@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.12](https://github.com/rivenmedia/riven/compare/v0.21.11...v0.21.12) (2025-03-18)
+
+
+### Bug Fixes
+
+* add cache status on manual scrape (revert) ([26b85d8](https://github.com/rivenmedia/riven/commit/26b85d862aab7109bc8eaf9e3cccaa1e76109c80))
+
 ## [0.21.11](https://github.com/rivenmedia/riven/compare/v0.21.10...v0.21.11) (2025-03-18)
 
 
