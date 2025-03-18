@@ -186,6 +186,9 @@ class Downloader:
                     logger.debug(f"Matched episode {episode.log_string} to file {file.filename}")
                     found = True
 
+        if found and item.type in ("show", "season"):
+            item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
+
         return found
 
     def download_cached_stream(self, stream: Stream, container: TorrentContainer) -> DownloadedTorrent:

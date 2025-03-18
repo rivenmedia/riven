@@ -193,6 +193,8 @@ class Program(threading.Thread):
             item_ids = db_functions.retry_library(session)
             for item_id in item_ids:
                 self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+            if item_ids:
+                logger.log("PROGRAM", f"Retried {len(item_ids)} incomplete items")
 
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
@@ -201,6 +203,8 @@ class Program(threading.Thread):
             for item_id, previous_state, new_state in updated_items:
                 self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
                 logger.debug(f"Updated state for item {item_id} from {previous_state} to {new_state}")
+            if updated_items:
+                logger.log("PROGRAM", f"Updated {len(updated_items)} items with a new state")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""

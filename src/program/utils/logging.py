@@ -46,7 +46,7 @@ def setup_logger(level):
         "FILES": (45, "FFFFE0", "🗃️ "),
         "ITEM": (46, "92a1cf", "🗃️ "),
         "DISCOVERY": (47, "e56c49", "🔍"),
-        "API": (47, "006989", "👾"),
+        "API": (10, "006989", "👾"),
         "PLEX": (47, "DAD3BE", "📽️ "),
         "LOCAL": (48, "DAD3BE", "📽️ "),
         "JELLYFIN": (48, "DAD3BE", "📽️ "),
@@ -113,7 +113,7 @@ def log_cleaner():
                 log_file.unlink()
                 cleaned = True
         if cleaned:
-            logger.log("COMPLETED", "Cleaned up old logs that were older than 8 hours.")
+            logger.debug("Cleaned up old logs that were older than 8 hours.")
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
 

@@ -44,7 +44,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
     # we should remove keys from aliases if we are excluding the language
     aliases = {k: v for k, v in aliases.items() if k not in ranking_settings.languages.exclude}
 
-    logger.log("SCRAPER", f"Processing {len(results)} results for {item.log_string}")
+    logger.debug(f"Processing {len(results)} results for {item.log_string}")
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
@@ -101,12 +101,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             continue
 
     if torrents:
-        logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+        logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
         torrents = sort_torrents(torrents, bucket_limit=scraping_settings.bucket_limit)
         torrents_dict = {}
         for torrent in torrents.values():
             torrents_dict[torrent.infohash.lower()] = Stream(torrent)
-        logger.log("SCRAPER", f"Kept {len(torrents_dict)} streams for {item.log_string} after processing bucket limit")
+        logger.debug(f"Kept {len(torrents_dict)} streams for {item.log_string} after processing bucket limit")
         return torrents_dict
 
     return {}

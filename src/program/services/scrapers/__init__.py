@@ -68,9 +68,9 @@ class Scraping:
             if new_streams:
                 item.streams.extend(new_streams)
                 item.failed_attempts = 0  # Reset failed attempts on success
-                logger.debug(f"Added {len(new_streams)} new streams to {item.log_string}")
+                logger.log("SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}")
             else:
-                logger.debug(f"No new streams added for {item.log_string}")
+                logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
                 item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
                 if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
@@ -78,8 +78,6 @@ class Scraping:
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
                 else:
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
-
-                logger.log("NOT_FOUND", f"Scraping returned no good results for {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
@@ -155,11 +153,9 @@ class Scraping:
 
         is_scrapeable = not item.scraped_at or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
         if not is_scrapeable:
-            logger.debug(f"Cannot scrape {item.log_string}: Item has been scraped recently, backing off")
             return False
 
         if settings.max_failed_attempts > 0 and item.failed_attempts >= settings.max_failed_attempts:
-            logger.debug(f"Cannot scrape {item.log_string}: Item has failed too many times. Failed attempts: {item.failed_attempts}/{settings.max_failed_attempts}")
             return False
 
         return True

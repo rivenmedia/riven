@@ -235,7 +235,6 @@ class RealDebridDownloader(DownloaderBase):
                 f"torrents/selectFiles/{torrent_id}",
                 data={"files": selection}
             )
-            time.sleep(1)
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
