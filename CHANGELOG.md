@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.11](https://github.com/rivenmedia/riven/compare/v0.21.10...v0.21.11) (2025-03-18)
+
+
+### Bug Fixes
+
+* fixed duplicate imdb endpoint. better handling of indexing bad items during scraping ([f6595fc](https://github.com/rivenmedia/riven/commit/f6595fceb5a200beb5fe09d3a46f618e40666695))
+
 ## [0.21.10](https://github.com/rivenmedia/riven/compare/v0.21.9...v0.21.10) (2025-03-18)
 
 
