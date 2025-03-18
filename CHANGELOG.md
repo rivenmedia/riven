@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.10](https://github.com/rivenmedia/riven/compare/v0.21.9...v0.21.10) (2025-03-18)
+
+
+### Bug Fixes
+
+* fixed api endpoints. tidied logging. fixed show/season not black… ([#1036](https://github.com/rivenmedia/riven/issues/1036)) ([0b84cca](https://github.com/rivenmedia/riven/commit/0b84ccaa7ad09a1bb178c09e8c57847b72422577))
+
 ## [0.21.9](https://github.com/rivenmedia/riven/compare/v0.21.8...v0.21.9) (2025-03-13)
 
 
