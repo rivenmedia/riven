@@ -202,7 +202,6 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
     if services := request.app.program.services:
         indexer = services[TraktIndexer]
         scraper = services[Scraping]
-        downloader = services[Downloader]
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
@@ -221,11 +220,11 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
                 .unique()
                 .scalar_one_or_none()
             )
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
         streams: Dict[str, Stream] = scraper.scrape(item)
-        for stream in streams.values():
-            # container = downloader.get_instant_availability(stream.infohash, item.type)
-            # stream.is_cached = bool(container and container.cached)
-            stream.is_cached = False
         log_string = item.log_string
 
     return {
@@ -353,6 +352,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id) and not db_functions.get_item_by_id(session.item_id):
             prepared_item = MediaItem({"imdb_id": session.item_id})
             item = next(TraktIndexer().run(prepared_item))
+            if not item:
+                raise HTTPException(status_code=404, detail="Unable to index item")
             db_session.merge(item)
             db_session.commit()
         else:

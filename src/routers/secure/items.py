@@ -249,7 +249,7 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.get(
-    "/{imdb_ids}",
+    "/imdb/{imdb_ids}",
     summary="Retrieve Media Items By IMDb IDs",
     description="Fetch media items by IMDb IDs",
     operation_id="get_items_by_imdb_ids",
@@ -260,7 +260,7 @@ async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
         items = []
         for id in ids:
             item = (
-                session.execute(select(MediaItem).where(MediaItem.imdb_id == id))
+                session.execute(select(MediaItem).where(MediaItem.imdb_id == id).where(MediaItem.type.in_(["movie", "show"])))
                 .unique()
                 .scalar_one()
             )
