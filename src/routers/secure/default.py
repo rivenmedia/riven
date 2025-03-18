@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 
 from program.apis import TraktAPI
 from program.db.db import db
-from program.managers.event_manager import EventUpdate
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
@@ -173,14 +172,13 @@ async def get_stats(_: Request) -> StatsResponse:
             payload["incomplete_retries"] = incomplete_retries
             payload["states"] = states
 
-    return payload
+    return StatsResponse(**payload)
 
 class LogsResponse(BaseModel):
-    logs: str
-
+    logs: list[str]
 
 @router.get("/logs", operation_id="logs")
-async def get_logs() -> str:
+async def get_logs() -> LogsResponse:
     log_file_path = None
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
@@ -188,27 +186,31 @@ async def get_logs() -> str:
             break
 
     if not log_file_path:
-        return {"success": False, "message": "Log file handler not found"}
+        raise HTTPException(status_code=404, detail="Log file handler not found")
 
     try:
         with open(log_file_path, "r") as log_file:
-            log_contents = log_file.read()
-        return {"logs": log_contents}
+            log_contents = log_file.read().splitlines()  # Read the file and split into lines without newline characters
+        return LogsResponse(logs=log_contents)
     except Exception as e:
-        logger.error(f"Failed to read log file: {e}")
-        raise HTTPException(status_code=500, detail="Failed to read log file")
+        raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
 
+
+class EventResponse(BaseModel):
+    events: dict[str, list[str]]
 
 @router.get("/events", operation_id="events")
 async def get_events(
     request: Request,
-) -> dict[str, list[str]]:
+) -> EventResponse:
     events = request.app.program.em.get_event_updates()
-    return events
+    return EventResponse(events=events)
 
+class MountResponse(BaseModel):
+    files: dict[str, str]
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files() -> dict[str, str]:
+async def get_rclone_files() -> MountResponse:
     """Get all files in the rclone mount."""
     import os
 
@@ -224,7 +226,7 @@ async def get_rclone_files() -> dict[str, str]:
                     scan_dir(entry.path)
 
     scan_dir(rclone_dir)  # dict of `filename: filepath``
-    return file_map
+    return MountResponse(files=file_map)
 
 
 class UploadLogsResponse(BaseModel):

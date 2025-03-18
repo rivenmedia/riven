@@ -20,6 +20,7 @@ from program.symlink import Symlinker
 from program.types import Event
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
+from program.services.updaters import Updater
 
 from ..models.shared import MessageResponse
 
@@ -418,18 +419,13 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
             if not item or not isinstance(item, MediaItem):
                 continue
             logger.debug(f"Removing item with ID {item.id}")
-            request.app.program.em.cancel_job(item.id)
+            request.app.program.em.cancel_job(item.id)  # this will cancel the item and all its children
             await asyncio.sleep(0.2)  # Ensure cancellation is processed
             if item.type == "show":
                 for season in item.seasons:
                     for episode in season.episodes:
-                        request.app.program.em.cancel_job(episode.id)
-                        await asyncio.sleep(0.2)
                         db_functions.delete_media_item_by_id(episode.id)
-                    request.app.program.em.cancel_job(season.id)
-                    await asyncio.sleep(0.2)
                     db_functions.delete_media_item_by_id(season.id)
-
             db_functions.clear_streams_by_id(item.id)
 
             symlink_service = request.app.program.services.get(Symlinker)

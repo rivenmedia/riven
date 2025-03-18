@@ -6,7 +6,7 @@ from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 from requests import Session
 
-from program.media import Episode, Movie
+from program.media import Movie, Episode
 from program.settings.manager import settings_manager
 from program.utils.request import (
     BaseRequestHandler,
@@ -89,7 +89,6 @@ class PlexAPI:
                 logger.error(f"An unexpected error occurred while fetching Plex RSS feed from {rss_url}: {e}")
         return rss_items
 
-
     def get_items_from_watchlist(self) -> list[str]:
         """Fetch media from Plex watchlist"""
         items = self.account.watchlist()
@@ -108,7 +107,6 @@ class PlexAPI:
                 logger.error(f"An unexpected error occurred while fetching Plex watchlist item {item.title}: {e}")
         return watchlist_items
 
-
     def extract_imdb_ids(self, guids: list) -> str | None:
         """Helper method to extract IMDb IDs from guids"""
         for guid in guids:
@@ -118,10 +116,9 @@ class PlexAPI:
                     return imdb_id
         return None
 
-
     def update_section(self, section, item: Union[Movie, Episode]) -> bool:
         """Update the Plex section for the given item"""
-        if item.symlinked and item.get("update_folder") != "updated":
+        if item.update_folder and item.update_folder != "updated":
             update_folder = item.update_folder
             section.update(str(update_folder))
             return True

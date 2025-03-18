@@ -85,7 +85,7 @@ class TraktIndexer:
         item.indexed_at = datetime.now()
 
         if log_msg: # used for mapping symlinks to database, need to hide this log message
-            logger.debug(f"Indexed IMDb id ({in_item.imdb_id}) as {item.type.title()}: {item.log_string}")
+            logger.info(f"Indexed IMDb id ({in_item.imdb_id}) as {item.type.title()}: {item.log_string}")
         yield item
 
     @staticmethod
