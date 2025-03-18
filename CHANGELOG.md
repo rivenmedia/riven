@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.13](https://github.com/rivenmedia/riven/compare/v0.21.12...v0.21.13) (2025-03-18)
+
+
+### Bug Fixes
+
+* updated parsett to 1.6.2. made cached status false by default in api ([b9ae02e](https://github.com/rivenmedia/riven/commit/b9ae02e0cd9072691e1fd7eba8413fd54f359b85))
+
 ## [0.21.12](https://github.com/rivenmedia/riven/compare/v0.21.11...v0.21.12) (2025-03-18)
 
 
