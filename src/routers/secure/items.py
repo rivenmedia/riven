@@ -414,7 +414,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     try:
         media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
         if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
-            return HTTPException(status_code=404, detail="Item(s) not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
         for item in media_items:
             if not item or not isinstance(item, MediaItem):
                 continue
