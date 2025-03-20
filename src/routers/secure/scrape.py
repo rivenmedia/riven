@@ -413,7 +413,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
 
     return {"message": f"Updated given data to {log_string}"}
 
-@router.post("/scrape/abort_session/{session_id}")
+@router.post("/scrape/abort_session/{session_id}", summary="Abort a manual scraping session", operation_id="abort_manual_session")
 async def abort_manual_session(
     _: Request,
     background_tasks: BackgroundTasks,
