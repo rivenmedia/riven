@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.14](https://github.com/rivenmedia/riven/compare/v0.21.13...v0.21.14) (2025-03-20)
+
+
+### Bug Fixes
+
+* add summary and operation ID to abort manual scraping session endpoint ([28be3d7](https://github.com/rivenmedia/riven/commit/28be3d79f0ef3bd10b253afe94fc955900e647f5))
+* raise instead of return on remove api endpoint ([1fb4574](https://github.com/rivenmedia/riven/commit/1fb45746f39c4db2b8d029f285a5b9c7798935a6))
+
 ## [0.21.13](https://github.com/rivenmedia/riven/compare/v0.21.12...v0.21.13) (2025-03-18)
 
 
