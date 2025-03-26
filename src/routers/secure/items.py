@@ -592,7 +592,7 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
             for media_item in db_functions.get_items_by_ids(ids):
                 try:
                     if media_item.last_state == States.Paused:
-                        media_item.store_state(None) # recheck the last state
+                        media_item.store_state(States.Requested)
                         session.merge(media_item)
                         session.commit()
                         request.app.program.em.add_event(Event("RetryItem", media_item.id))

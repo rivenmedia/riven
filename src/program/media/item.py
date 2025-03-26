@@ -240,8 +240,8 @@ class MediaItem(db.Model):
             try:
                 session.refresh(self, attribute_names=["blacklisted_streams"])
                 return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
-            except Exception as e:
-                logger.error(f"Error refreshing item streams for {self.log_string}: {str(e)}")
+            except:
+                ...
         return False
 
     def to_dict(self):
@@ -541,7 +541,7 @@ class Show(MediaItem):
             return States.Requested
         return States.Unknown
 
-    def store_state(self, given_state: States =None) -> None:
+    def store_state(self, given_state: States = None) -> None:
         for season in self.seasons:
             season.store_state(given_state)
         super().store_state(given_state)

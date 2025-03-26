@@ -12,7 +12,7 @@ ALLOWED_VIDEO_EXTENSIONS = [
     "m4v", "webm", "mpg","mpeg", "m2ts", "ts",
 ]
 
-ANIME_SPECIALS_PATTERN: regex.Pattern = regex.compile(r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?)\b", regex.IGNORECASE)
+ANIME_SPECIALS_PATTERN: regex.Pattern = regex.compile(r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?|SP\d+)\b", regex.IGNORECASE)
 
 VIDEO_EXTENSIONS: list[str] = settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
 VALID_VIDEO_EXTENSIONS = [ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS]
@@ -54,10 +54,10 @@ class DebridFile(BaseModel):
     @classmethod
     def create(
         cls,
-        path: str,
-        filename: str,
-        filesize_bytes: int,
-        filetype: Literal["movie", "show", "season", "episode"],
+        path: str = None,
+        filename: str = None,
+        filesize_bytes: int = None,
+        filetype: Literal["movie", "show", "season", "episode"] = None,
         file_id: Optional[int] = None,
         limit_filesize: bool = True
     ) -> Optional["DebridFile"]:
@@ -70,7 +70,7 @@ class DebridFile(BaseModel):
         if not any(filename_lower.endswith(ext) for ext in VALID_VIDEO_EXTENSIONS):
             raise InvalidDebridFileException(f"Skipping non-video file: '{filename}'")
 
-        if ANIME_SPECIALS_PATTERN.search(path):
+        if path and ANIME_SPECIALS_PATTERN.search(path):
             raise InvalidDebridFileException(f"Skipping anime special: '{path}'")
 
         if limit_filesize:
