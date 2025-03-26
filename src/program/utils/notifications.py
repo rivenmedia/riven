@@ -41,7 +41,8 @@ def _build_discord_notification(item: MediaItem) -> str:
     """Build a discord notification for the given item using markdown that lists the files completed."""
     notification_message = f"### [{item.type.title()}] **{item.log_string}** ({item.aired_at.year})\n"
     stream: Stream = next((stream for stream in item.streams if stream.infohash == item.active_stream.get("infohash")), None)
-    notification_message += f"- {stream.raw_title}\n"
+    if stream:
+        notification_message += f"- {stream.raw_title}\n"
     return notification_message
 
 def notify_on_complete(item: MediaItem) -> None:
