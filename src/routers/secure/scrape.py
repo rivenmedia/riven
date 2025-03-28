@@ -3,8 +3,9 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
+import hashlib
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
@@ -185,6 +186,63 @@ def initialize_downloader(downloader: Downloader):
     if not session_manager.downloader:
         session_manager.set_downloader(downloader)
 
+async def _process_infohash(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    item_id: str,
+    info_hash: str,
+    source_description: str = "manual"
+) -> StartSessionResponse:
+    """Common logic for processing an infohash from either a magnet link or a torrent file"""
+    # Identify item based on IMDb or database ID
+    if item_id.startswith("tt"):
+        imdb_id = item_id
+        item_id = None
+    else:
+        imdb_id = None
+        item_id = item_id
+
+    if services := request.app.program.services:
+        indexer = services[TraktIndexer]
+        downloader = services[Downloader]
+    else:
+        raise HTTPException(status_code=412, detail="Required services not initialized")
+
+    initialize_downloader(downloader)
+
+    if imdb_id:
+        prepared_item = MediaItem({"imdb_id": imdb_id})
+        item = next(indexer.run(prepared_item))
+    else:
+        item = db_functions.get_item_by_id(item_id)
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    container = downloader.get_instant_availability(info_hash, item.type)
+    if not container or not container.cached:
+        raise HTTPException(status_code=400, detail=f"Torrent is not cached, please try another {source_description}")
+
+    session = session_manager.create_session(item_id or imdb_id, info_hash)
+
+    try:
+        torrent_id: str = downloader.add_torrent(info_hash)
+        torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
+        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
+    except Exception as e:
+        background_tasks.add_task(session_manager.abort_session, session.id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    data = {
+        "message": f"Started manual scraping session from {source_description}",
+        "session_id": session.id,
+        "torrent_id": torrent_id,
+        "torrent_info": torrent_info,
+        "containers": container,
+        "expires_at": session.expires_at.isoformat()
+    }
+    return StartSessionResponse(**data)
+
 @router.get(
     "/scrape/{id}",
     summary="Get streams for an item",
@@ -254,56 +312,7 @@ async def start_manual_session(
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
-    # Identify item based on IMDb or database ID
-    if item_id.startswith("tt"):
-        imdb_id = item_id
-        item_id = None
-    else:
-        imdb_id = None
-        item_id = item_id
-
-    if services := request.app.program.services:
-        indexer = services[TraktIndexer]
-        downloader = services[Downloader]
-    else:
-        raise HTTPException(status_code=412, detail="Required services not initialized")
-
-    initialize_downloader(downloader)
-
-    if imdb_id:
-        prepared_item = MediaItem({"imdb_id": imdb_id})
-        item = next(indexer.run(prepared_item))
-    else:
-        item = db_functions.get_item_by_id(item_id)
-
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    container = downloader.get_instant_availability(info_hash, item.type)
-
-    if not container or not container.cached:
-        raise HTTPException(status_code=400, detail="Torrent is not cached, please try another stream")
-
-    session = session_manager.create_session(item_id or imdb_id, info_hash)
-
-    try:
-        torrent_id: str = downloader.add_torrent(info_hash)
-        torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
-        session_manager.update_session(session.id, torrent_id=torrent_id, torrent_info=torrent_info, containers=container)
-    except Exception as e:
-        background_tasks.add_task(session_manager.abort_session, session.id)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    data = {
-        "message": "Started manual scraping session",
-        "session_id": session.id,
-        "torrent_id": torrent_id,
-        "torrent_info": torrent_info,
-        "containers": container,
-        "expires_at": session.expires_at.isoformat()
-    }
-
-    return StartSessionResponse(**data)
+    return await _process_infohash(request, background_tasks, item_id, info_hash, "magnet link")
 
 @router.post(
     "/scrape/select_files/{session_id}",
@@ -442,3 +451,35 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
 
     session_manager.complete_session(session_id)
     return {"message": f"Completed session {session_id}"}
+
+@router.post(
+    "/scrape/upload_torrent",
+    summary="Upload a torrent file to start a manual scraping session",
+    operation_id="upload_torrent_file"
+)
+async def upload_torrent_file(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    item_id: str,
+    torrent_file: UploadFile = File(...),
+) -> StartSessionResponse:
+    session_manager.cleanup_expired(background_tasks)
+
+    # Validate the file is a .torrent file
+    if not torrent_file.filename.endswith('.torrent'):
+        raise HTTPException(status_code=400, detail="File must be a .torrent file")
+
+    # Read the torrent file content
+    torrent_content = await torrent_file.read()
+    
+    # Extract infohash from torrent file
+    try:
+        from bencodepy import decode, encode
+        torrent_dict = decode(torrent_content)
+        info = torrent_dict[b'info']
+        info_hash = hashlib.sha1(encode(info)).hexdigest()
+    except Exception as e:
+        logger.error(f"Failed to extract infohash from torrent file: {e}")
+        raise HTTPException(status_code=400, detail="Invalid torrent file format")
+
+    return await _process_infohash(request, background_tasks, item_id, info_hash, "uploaded torrent file")
