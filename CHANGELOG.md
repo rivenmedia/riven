@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.21.14](https://github.com/rivenmedia/riven/compare/v0.21.13...v0.21.14) (2025-03-28)
+
+
+### Bug Fixes
+
+* add summary and operation ID to abort manual scraping session endpoint ([28be3d7](https://github.com/rivenmedia/riven/commit/28be3d79f0ef3bd10b253afe94fc955900e647f5))
+* fixed resume button in frontend, notifications for shows, and alldebrid missing path attr bug ([7fa60f1](https://github.com/rivenmedia/riven/commit/7fa60f1588797c5b28a3ce573cff31347e9cd362))
+* jellyfin updating using wrong endpoint ([07e2b84](https://github.com/rivenmedia/riven/commit/07e2b8483acd48c1525030920d9f2b3c23a06766))
+* missing stream for completed item. ([11379dd](https://github.com/rivenmedia/riven/commit/11379dd6e863ce97139f64f422ac95f2b751f30a))
+* raise instead of return on remove api endpoint ([1fb4574](https://github.com/rivenmedia/riven/commit/1fb45746f39c4db2b8d029f285a5b9c7798935a6))
+* rewrite prowlarr ([b13a52f](https://github.com/rivenmedia/riven/commit/b13a52ff70b034bcb36d3dacdb9c78acd63fa6e3))
+* season attr bug in prowlarr ([f253cd4](https://github.com/rivenmedia/riven/commit/f253cd457f4777563437748877a0a8118859da23))
+* use temp request handler on fetching indexers ([343bc55](https://github.com/rivenmedia/riven/commit/343bc553439188aeaa2bbb3de136c5dd30487a76))
+
 ## [0.21.13](https://github.com/rivenmedia/riven/compare/v0.21.12...v0.21.13) (2025-03-18)
 
 
