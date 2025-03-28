@@ -63,10 +63,18 @@ class Prowlarr:
         }
         self.timeout = self.settings.timeout
         self.request_handler = None
+        self.indexer_handler = None
+        self.last_indexer_scan = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         logger.success("Prowlarr initialized!")
+
+    def _create_session(self, pool_connections: int = 1, pool_maxsize: int = 1) -> ScraperRequestHandler:
+        rate_limit_params = get_rate_limit_params(max_calls=1, period=self.settings.limiter_seconds) if self.settings.ratelimit else None
+        http_adapter = get_http_adapter(pool_connections=pool_connections, pool_maxsize=pool_maxsize)
+        session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
+        return ScraperRequestHandler(session)
 
     def validate(self) -> bool:
         """Validate Prowlarr settings."""
@@ -81,11 +89,9 @@ class Prowlarr:
                 if not isinstance(self.settings.ratelimit, bool):
                     logger.error("Prowlarr ratelimit must be a valid boolean.")
                     return False
-                rate_limit_params = get_rate_limit_params(max_calls=1, period=self.settings.limiter_seconds) if self.settings.ratelimit else None
-                http_adapter = get_http_adapter(pool_connections=4, pool_maxsize=4)
-                session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
-                self.request_handler = ScraperRequestHandler(session)
+                self.indexer_handler = self._create_session()
                 self.indexers = self.get_indexers()
+                self.request_handler = self._create_session(pool_connections=len(self.indexers), pool_maxsize=len(self.indexers))
                 if not self.indexers:
                     logger.error("No Prowlarr indexers configured.")
                     return False
@@ -100,8 +106,8 @@ class Prowlarr:
         return False
 
     def get_indexers(self) -> list[Indexer]:
-        statuses = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexerstatus", timeout=self.timeout, headers=self.headers)
-        response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexer", timeout=self.timeout, headers=self.headers)
+        statuses = self.indexer_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexerstatus", timeout=15, headers=self.headers)
+        response = self.indexer_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexer", timeout=15, headers=self.headers)
         data = response.data
         statuses = statuses.data
         indexers = []
@@ -344,5 +350,5 @@ class Prowlarr:
 
             streams[infohash.lower()] = title
 
-        logger.debug(f"[{indexer.name}] [{indexer.id}] Found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds")
+        logger.debug(f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds")
         return streams
