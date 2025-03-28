@@ -1,38 +1,52 @@
 """ Prowlarr scraper module """
 
-import json
+import concurrent.futures
 import queue
-import threading
 import time
-import xml.etree.ElementTree as ET
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
-import requests
+import regex
 from loguru import logger
 from pydantic import BaseModel
-from requests import HTTPError, ReadTimeout, RequestException, Timeout
+from requests import ReadTimeout, RequestException
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.services.scrapers.shared import ScraperRequestHandler, _get_infohash_from_torrent_url
 from program.settings.manager import settings_manager
 from program.utils.request import (
     HttpMethod,
     RateLimitExceeded,
-    create_service_session,
     get_http_adapter,
     get_rate_limit_params,
+    create_service_session
 )
 
 
-class ProwlarrIndexer(BaseModel):
-    """Indexer model for Prowlarr"""
-    title: Optional[str] = None
-    id: Optional[str] = None
-    link: Optional[str] = None
-    type: Optional[str] = None
-    language: Optional[str] = None
-    tv_search_capabilities: Optional[List[str]] = None
-    movie_search_capabilities: Optional[List[str]] = None
+class SearchParams(BaseModel):
+    search: list[str]
+    movie: list[str]
+    tv: list[str]
+
+class Category(BaseModel):
+    name: str
+    type: str
+    ids: list[int]
+
+class Capabilities(BaseModel):
+    supports_raw_search: bool
+    categories: list[Category]
+    search_params: SearchParams
+
+class Indexer(BaseModel):
+    id: int
+    name: str
+    enable: bool
+    protocol: str
+    capabilities: Capabilities
+
+ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
+INFOHASH_PATTERN = regex.compile(r"btih:([A-Fa-f0-9]{40})")
 
 
 class Prowlarr:
@@ -40,9 +54,13 @@ class Prowlarr:
 
     def __init__(self):
         self.key = "prowlarr"
-        self.api_key = None
-        self.indexers = None
         self.settings = settings_manager.settings.scraping.prowlarr
+        self.api_key = self.settings.api_key
+        self.indexers = []
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-Api-Key": self.api_key,
+        }
         self.timeout = self.settings.timeout
         self.request_handler = None
         self.initialized = self.validate()
@@ -63,16 +81,14 @@ class Prowlarr:
                 if not isinstance(self.settings.ratelimit, bool):
                     logger.error("Prowlarr ratelimit must be a valid boolean.")
                     return False
-                indexers = self._get_indexers()
-                if not indexers:
-                    logger.error("No Prowlarr indexers configured.")
-                    return False
-                self.indexers = indexers
-                rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers), period=self.settings.limiter_seconds) if self.settings.ratelimit else None
-                http_adapter = get_http_adapter(pool_connections=len(self.indexers), pool_maxsize=len(self.indexers))
+                rate_limit_params = get_rate_limit_params(max_calls=1, period=self.settings.limiter_seconds) if self.settings.ratelimit else None
+                http_adapter = get_http_adapter(pool_connections=4, pool_maxsize=4)
                 session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
                 self.request_handler = ScraperRequestHandler(session)
-                self._log_indexers()
+                self.indexers = self.get_indexers()
+                if not self.indexers:
+                    logger.error("No Prowlarr indexers configured.")
+                    return False
                 return True
             except ReadTimeout:
                 logger.error("Prowlarr request timed out. Check your indexers, they may be too slow to respond.")
@@ -82,6 +98,91 @@ class Prowlarr:
                 return False
         logger.warning("Prowlarr is not configured and will not be used.")
         return False
+
+    def get_indexers(self) -> list[Indexer]:
+        statuses = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexerstatus", timeout=self.timeout, headers=self.headers)
+        response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexer", timeout=self.timeout, headers=self.headers)
+        data = response.data
+        statuses = statuses.data
+        indexers = []
+        for indexer_data in data:
+            id = indexer_data.id
+            if statuses:
+                status = next((x for x in statuses if x.indexerId == id), None)
+                if status and status.disabledTill > datetime.now().isoformat():
+                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime('%Y-%m-%d %H:%M')
+                    logger.debug(f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping")
+                    continue
+
+            name = indexer_data.name
+            enable = indexer_data.enable
+            if not enable:
+                logger.debug(f"Indexer {name} is disabled, skipping")
+                continue
+
+            protocol = indexer_data.protocol
+            if protocol != "torrent":
+                logger.debug(f"Indexer {name} is not a torrent indexer, skipping")
+                continue
+
+            caps = []
+            for cap in indexer_data.capabilities.categories:
+                if "TV" in cap.name:
+                    category = next((x for x in caps if "TV" in x.name), None)
+                    if category:
+                        category.ids.append(cap.id)
+                    else:
+                        caps.append(Category(name="TV", type="tv", ids=[cap.id]))
+                elif "Movies" in cap.name:
+                    category = next((x for x in caps if "Movies" in x.name), None)
+                    if category:
+                        category.ids.append(cap.id)
+                    else:
+                        caps.append(Category(name="Movies", type="movie", ids=[cap.id]))
+                elif "Anime" in cap.name:
+                    category = next((x for x in caps if "Anime" in x.name), None)
+                    if category:
+                        category.ids.append(cap.id)
+                    else:
+                        caps.append(Category(name="Anime", type="anime", ids=[cap.id]))
+
+            if not caps:
+                logger.warning(f"No valid capabilities found for indexer {name}. Consider removing this indexer.")
+                continue
+
+            search_params = SearchParams(
+                search=list(set(indexer_data.capabilities.searchParams)),
+                movie=list(set(indexer_data.capabilities.movieSearchParams)),
+                tv=list(set(indexer_data.capabilities.tvSearchParams))
+            )
+
+            capabilities = Capabilities(
+                supports_raw_search=indexer_data.capabilities.supportsRawSearch,
+                categories=caps,
+                search_params=search_params
+            )
+
+            indexers.append(Indexer(
+                id=id,
+                name=name,
+                enable=enable,
+                protocol=protocol,
+                capabilities=capabilities
+            ))
+
+        self.last_indexer_scan = datetime.now()
+        return indexers
+
+    def _periodic_indexer_scan(self):
+        """scan indexers every 30 minutes"""
+        previous_count = len(self.indexers)
+        if self.last_indexer_scan is None or (datetime.now() - self.last_indexer_scan).total_seconds() > 1800:
+            self.indexers = self.get_indexers()
+            self.last_indexer_scan = datetime.now()
+            if len(self.indexers) != previous_count:
+                logger.info(f"Indexers count changed from {previous_count} to {len(self.indexers)}")
+                next_scan_time = self.last_indexer_scan + timedelta(seconds=1800)
+                logger.info(f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}")
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Prowlarr site for the given media items
@@ -100,191 +201,148 @@ class Prowlarr:
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item using Prowlarr indexers"""
-        results_queue = queue.Queue()
-        threads = [
-            threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
-            for indexer in self.indexers
-        ]
+        """Scrape a single item from all indexers at the same time, return a list of streams"""
+        self._periodic_indexer_scan()
 
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        torrents = {}
+        start_time = time.time()
 
-        results = []
-        while not results_queue.empty():
-            results.extend(results_queue.get())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.indexers)) as executor:
+            future_to_indexer = {
+                executor.submit(self.scrape_indexer, indexer, item): indexer
+                for indexer in self.indexers
+            }
 
-        torrents: Dict[str, str] = {}
-        for result in results:
-            if result[1] is None:
-                continue
-            torrents[result[1]] = result[0]
+            for future in future_to_indexer:
+                indexer = future_to_indexer[future]
+                try:
+                    result = future.result(timeout=self.timeout)
+                    torrents.update(result)
+                except concurrent.futures.TimeoutError:
+                    logger.debug(f"Timeout for indexer {indexer.name}, skipping.")
+                except Exception as e:
+                    logger.error(f"Error processing indexer {indexer.name}: {e}")
 
+        elapsed = time.time() - start_time
         if torrents:
             logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.debug(f"Total time taken: {elapsed:.2f} seconds")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
         return torrents
 
-    def _thread_target(self, item: MediaItem, indexer: ProwlarrIndexer, results_queue: queue.Queue):
-        try:
-            start_time = time.perf_counter()
-            result = self._search_indexer(item, indexer)
-            search_duration = time.perf_counter() - start_time
-        except TypeError as e:
-            logger.error(f"Invalid Type for {item.log_string}: {e}")
-            result = []
-            search_duration = 0
-        item_title = item.log_string # probably not needed, but since its concurrent, it's better to be safe
-        logger.debug(f"Scraped {item_title} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
-        results_queue.put(result)
+    def build_search_params(self, indexer: Indexer, item: MediaItem) -> dict:
+        """Build a search query for a single indexer."""
+        params = {}
+        item_title = item.get_top_title() if item.type in ("show", "season", "episode") else item.title
+        search_params = indexer.capabilities.search_params
 
-    def _search_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
-        """Search for the given item on the given indexer"""
-        if isinstance(item, Movie):
-            return self._search_movie_indexer(item, indexer)
-        elif isinstance(item, (Show, Season, Episode)):
-            return self._search_series_indexer(item, indexer)
-        else:
-            raise TypeError("Only Movie and Series is allowed!")
+        def set_query_and_type(query, search_type):
+            params["query"] = query
+            params["type"] = search_type
 
-    def _search_movie_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
-        """Search for movies on the given indexer"""
-        if indexer.movie_search_capabilities is None:
-            return []
-        params = {
-            "apikey": self.api_key,
-            "t": "movie",
-            "cat": "2000",
-            "q": item.title,
-        }
-        if indexer.movie_search_capabilities and "year" in indexer.movie_search_capabilities:
-            if hasattr(item.aired_at, "year") and item.aired_at.year: params["year"] = item.aired_at.year
-        if indexer.movie_search_capabilities and "imdbid" in indexer.movie_search_capabilities:
-            params["imdbid"] = item.imdb_id
-        url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
-        return self._fetch_results(url, params, indexer.title, "movie")
-
-    def _search_series_indexer(self, item: MediaItem, indexer: ProwlarrIndexer) -> List[Tuple[str, str]]:
-        """Search for series on the given indexer"""
-        if indexer.tv_search_capabilities is None:
-            return []
-        q, season, ep = self._get_series_search_params(item)
-
-        if not q:
-            logger.debug(f"No search query found for {item.log_string}")
-            return []
-
-        params = {
-            "apikey": self.api_key,
-            "t": "tvsearch",
-            "cat": "5000",
-            "q": q
-        }
-        if ep and indexer.tv_search_capabilities and "ep" in indexer.tv_search_capabilities: params["ep"] = ep 
-        if season and indexer.tv_search_capabilities and "season" in indexer.tv_search_capabilities: params["season"] = season
-        if indexer.tv_search_capabilities and "imdbid" in indexer.tv_search_capabilities:
-            params["imdbid"] = item.imdb_id if isinstance(item, [Episode, Show]) else item.parent.imdb_id
-
-        url = f"{self.settings.url}/api/v1/indexer/{indexer.id}/newznab"
-        return self._fetch_results(url, params, indexer.title, "series")
-
-    def _get_series_search_params(self, item: MediaItem) -> Tuple[str, int, Optional[int]]:
-        """Get search parameters for series"""
-        title = item.get_top_title()
-        if isinstance(item, Show):
-            return title, None, None
-        elif isinstance(item, Season):
-            return title, item.number, None
-        elif isinstance(item, Episode):
-            return title, item.parent.number, item.number
-        return title, None, None
-
-    def _get_indexers(self) -> List[ProwlarrIndexer]:
-        """Get the indexers from Prowlarr"""
-        url = f"{self.settings.url}/api/v1/indexer?apikey={self.api_key}"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return self._get_indexer_from_json(response.text)
-        except Exception as e:
-            logger.error(f"Exception while getting indexers from Prowlarr: {e}")
-            return []
-
-    def _get_indexer_from_json(self, json_content: str) -> list[ProwlarrIndexer]:
-        """Parse the indexers from the XML content"""
-        indexer_list = []
-        for indexer in json.loads(json_content):
-            has_movies = any(
-                category["name"] == "Movies"
-                for category in indexer["capabilities"]["categories"]
-            )
-            has_tv = any(
-                category["name"] == "TV"
-                for category in indexer["capabilities"]["categories"]
-            )
-            
-            indexer_list.append(
-                ProwlarrIndexer(
-                    title=indexer["name"],
-                    id=str(indexer["id"]),
-                    link=indexer["infoLink"],
-                    type=indexer["protocol"],
-                    language=indexer["language"],
-                    movie_search_capabilities=(
-                        list(indexer["capabilities"]["movieSearchParams"])
-                        if has_movies else None
-                    ),
-                    tv_search_capabilities=(
-                        list(indexer["capabilities"]["tvSearchParams"])
-                        if has_tv else None
-                    )
-                )
-            )
-
-        return indexer_list
-
-    def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
-        """Fetch results from the given indexer"""
-        try:
-            response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
-            return self._parse_xml(response.response.text, indexer_title)
-        except (HTTPError, ConnectionError, Timeout):
-            logger.debug(f"Indexer failed to fetch results for {search_type.title()} with indexer {indexer_title}")
-        except Exception as e:
-            if "Prowlarr.Common.IndexerException" in str(e):
-                logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
+        if item.type == "movie":
+            if "imdbId" in search_params.movie:
+                set_query_and_type(item.imdb_id, "movie-search")
+            if "q" in search_params.movie:
+                set_query_and_type(item_title, "movie-search")
+            elif "q" in search_params.search:
+                set_query_and_type(item_title, "search")
             else:
-                logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")
-        return []
+                raise ValueError(f"Indexer {indexer.name} does not support movie search")
 
-    def _parse_xml(self, xml_content: str, indexer_title: str) -> list[tuple[str, str]]:
-        """Parse the torrents from the XML content"""
-        xml_root = ET.fromstring(xml_content)
-        result_list = []
-        infohashes_found = False
-        data = xml_root.findall(".//item")
-        for item in data:
-            infoHash = item.find(
-                ".//torznab:attr[@name='infohash']",
-                namespaces={"torznab": "http://torznab.com/schemas/2015/feed"}
-            )
-            if infoHash is None or len(infoHash.attrib["value"]) != 40:
+        elif item.type == "show":
+            if "imdbId" in search_params.tv:
+                set_query_and_type(item.imdb_id, "tv-search")
+            elif "q" in search_params.tv:
+                set_query_and_type(item_title, "tv-search")
+            elif "q" in search_params.search:
+                set_query_and_type(item_title, "search")
+            else:
+                raise ValueError(f"Indexer {indexer.name} does not support show search")
+
+        elif item.type == "season":
+            if "q" in search_params.tv:
+                set_query_and_type(f"{item_title} S{item.season}", "tv-search")
+                if "season" in search_params.tv:
+                    params["season"] = item.season
+            elif "q" in search_params.search:
+                query = f"{item_title} S{item.number}"
+                set_query_and_type(query, "search")
+            else:
+                raise ValueError(f"Indexer {indexer.name} does not support season search")
+
+        elif item.type == "episode":
+            if "q" in search_params.tv:
+                if "ep" in search_params.tv:
+                    query = f"{item_title}"
+                    params["season"] = item.parent.number
+                    params["ep"] = item.number
+                else:
+                    query = f"{item.log_string}"
+                set_query_and_type(query, "tv-search")
+            elif "q" in search_params.search:
+                query = f"{item.log_string}"
+                set_query_and_type(query, "search")
+            else:
+                raise ValueError(f"Indexer {indexer.name} does not support episode search")
+
+        categories = {cat_id for category in indexer.capabilities.categories
+                      if category.type == item.type or (category.type == "anime" and item.is_anime)
+                      for cat_id in category.ids}
+
+        params["indexerIds"] = indexer.id
+        params["categories"] = list(categories)
+        params["limit"] = 1000
+        return params
+
+    def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
+        """scrape from a single indexer"""
+        if indexer.name in ANIME_ONLY_INDEXERS or "anime" in indexer.name.lower():
+            if not item.is_anime:
+                logger.debug(f"Indexer {indexer.name} is anime only, skipping")
+                return {}
+
+        try:
+            params = self.build_search_params(indexer, item)
+        except ValueError as e:
+            logger.error(f"Failed to build search params for {indexer.name}: {e}")
+            return {}
+
+        start_time = time.time()
+        response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/search", params=params, timeout=self.timeout, headers=self.headers)
+        if not response.is_ok:
+            message = response.data.message or "Unknown error"
+            logger.debug(f"Failed to scrape {indexer.name}: [{response.status_code}] {message}")
+            self.indexers.remove(indexer)
+            logger.debug(f"Removed indexer {indexer.name} from the list of usable indexers")
+            return {}
+
+        data = response.data
+        streams = {}
+        for torrent in data:
+            title = torrent.title
+            infohash = torrent.infoHash if hasattr(torrent, "infoHash") else None
+            guid = torrent.guid if hasattr(torrent, "guid") else None
+            if not infohash and not guid:
                 continue
-            infohashes_found = True
-            result_list.append((item.find(".//title").text, infoHash.attrib["value"]))
-        len_data = len(data)
-        if infohashes_found is False and len_data > 0:
-            logger.warning(f"{self.key.title()} tracker '{indexer_title}' may never return infohashes, consider disabling: {len_data} items found, None contain infohash.")
-        return result_list
+            if not infohash and guid and not guid.endswith(".torrent"):
+                infohash = INFOHASH_PATTERN.search(guid)
+                if infohash:
+                    infohash = infohash.group(1).lower()
+                else:
+                    continue
+            if not infohash and guid and guid.endswith(".torrent"):
+                try:
+                    infohash = _get_infohash_from_torrent_url(url=guid)
+                    if not infohash or not len(infohash) == 40:
+                        continue
+                    infohash = infohash.lower()
+                except Exception:
+                    continue
 
-    def _log_indexers(self) -> None:
-        """Log the indexers information"""
-        for indexer in self.indexers:
-            if not indexer.movie_search_capabilities:
-                logger.debug(f"Movie search not available for {indexer.title}")
-            if not indexer.tv_search_capabilities:
-                logger.debug(f"TV search not available for {indexer.title}")
+            streams[infohash.lower()] = title
+
+        logger.debug(f"[{indexer.name}] [{indexer.id}] Found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds")
+        return streams
