@@ -107,7 +107,8 @@ class Comet:
 
         torrents = {
             stream.infoHash: stream.description.split("\n")[0] 
-            for stream in response.data.streams if stream.infoHash
+            for stream in response.data.streams if hasattr(stream, "infoHash")
+            and stream.infoHash
         }
 
         if torrents:
