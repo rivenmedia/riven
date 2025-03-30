@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.15](https://github.com/rivenmedia/riven/compare/v0.21.14...v0.21.15) (2025-03-30)
+
+
+### Bug Fixes
+
+* get your shit together goldyy ([19522df](https://github.com/rivenmedia/riven/commit/19522df4b967aae144895043024a86d4785eb2eb))
+
 ## [0.21.14](https://github.com/rivenmedia/riven/compare/v0.21.13...v0.21.14) (2025-03-30)
 
 
