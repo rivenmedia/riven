@@ -270,7 +270,7 @@ class Prowlarr:
 
         elif item.type == "season":
             if "q" in search_params.tv:
-                set_query_and_type(f"{item_title} S{item.season}", "tv-search")
+                set_query_and_type(f"{item_title} S{item.number}", "tv-search")
                 if "season" in search_params.tv:
                     params["season"] = item.number
             elif "q" in search_params.search:
