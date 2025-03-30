@@ -200,14 +200,7 @@ class KnightcrawlerConfig(Observable):
 
 class CometConfig(Observable):
     enabled: bool = False
-    url: str = "http://localhost:8000"
-    indexers: List[str] = [
-        "bitsearch",
-        "eztv",
-        "thepiratebay",
-        "therarbg",
-        "yts"
-    ]
+    url: str = "https://comet.elfhosted.com"
     timeout: int = 30
     ratelimit: bool = True
 

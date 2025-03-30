@@ -28,15 +28,28 @@ class Comet:
     def __init__(self):
         self.key = "comet"
         self.settings = settings_manager.settings.scraping.comet
-        self.timeout = self.settings.timeout
+        self.timeout = self.settings.timeout or 15
         self.encoded_string = base64.b64encode(json.dumps({
-            "indexers": self.settings.indexers,
-            "maxResults": 0,
-            "resolutions": ["All"],
-            "languages": ["All"],
-            "debridService": "realdebrid",
-            "debridApiKey": settings_manager.settings.downloaders.real_debrid.api_key,
-            "debridStreamProxyPassword": ""
+            "maxResultsPerResolution": 0,
+            "maxSize": 0,
+            "cachedOnly": False,
+            "removeTrash": True,
+            "resultFormat": [
+                "title",
+                "metadata",
+                "size",
+                "languages"
+            ],
+            "debridService": "torrent",
+            "debridApiKey": "",
+            "debridStreamProxyPassword": "",
+            "languages": {
+                "required": [],
+                "exclude": [],
+                "preferred": []
+            },
+            "resolutions": {},
+            "options": {}
         }).encode("utf-8")).decode("utf-8")
         rate_limit_params = get_rate_limit_params(per_hour=300) if self.settings.ratelimit else None
         session = create_service_session(rate_limit_params=rate_limit_params)
@@ -53,9 +66,6 @@ class Comet:
         if not self.settings.url:
             logger.error("Comet URL is not configured and will not be used.")
             return False
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
-            logger.error("Comet timeout is not set or invalid.")
-            return False
         if not isinstance(self.settings.ratelimit, bool):
             logger.error("Comet ratelimit must be a valid boolean.")
             return False
@@ -71,9 +81,6 @@ class Comet:
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the comet site for the given media items
         and update the object with scraped streams"""
-        if not item or isinstance(item, Show):
-            return {}
-
         try:
             return self.scrape(item)
         except RateLimitExceeded:
@@ -98,21 +105,10 @@ class Comet:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: Dict[str, str] = {}
-        for stream in response.data.streams:
-            if stream.title == "Invalid Comet config.":
-                logger.error("Invalid Comet config.")
-                return {}
-
-            infohash_pattern = regex.compile(r"(?!.*playback\/)[a-zA-Z0-9]{40}")
-            infohash = infohash_pattern.search(stream.url).group()
-            title = stream.title.split("\n")[0]
-
-            if not infohash:
-                logger.warning(f"Comet infohash not found for title: {title}")
-                continue
-
-            torrents[infohash] = title
+        torrents = {
+            stream.infoHash: stream.description.split("\n")[0] 
+            for stream in response.data.streams if stream.infoHash
+        }
 
         if torrents:
             logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
