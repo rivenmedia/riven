@@ -1,6 +1,10 @@
 import json
+import hashlib
+from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
+from fastapi import UploadFile
 
 from program.services.downloaders import alldebrid
 from program.services.downloaders.alldebrid import (
