@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.16](https://github.com/rivenmedia/riven/compare/v0.21.15...v0.21.16) (2025-04-01)
+
+
+### Bug Fixes
+
+* add calendar and parse endpoints ([78445af](https://github.com/rivenmedia/riven/commit/78445af572152a0f45e68efedefd33b9b436fbf6))
+
 ## [0.21.15](https://github.com/rivenmedia/riven/compare/v0.21.14...v0.21.15) (2025-03-30)
 
 
