@@ -446,11 +446,19 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
 
 class ParseTorrentTitleResponse(BaseModel):
     message: str
-    data: dict[str, Any]
+    data: list[dict[str, Any]]
 
-@router.post("/parse", summary="Parse a torrent title", operation_id="parse_torrent_title")
-async def parse_torrent_title(request: Request, title: str) -> ParseTorrentTitleResponse:
-    if title:
-        return ParseTorrentTitleResponse(message="Parsed torrent title", data=parse_title(title))
+@router.post("/parse", summary="Parse an array of torrent titles", operation_id="parse_torrent_titles")
+async def parse_torrent_titles(request: Request, titles: list[str]) -> ParseTorrentTitleResponse:
+    parsed_titles = []
+    if titles:
+        for title in titles:
+            data = {}
+            data["raw_title"] = title
+            parsed_data = parse_title(title)
+            data = {**data, **parsed_data}
+            parsed_titles.append(data)
+        if parsed_titles:
+            return ParseTorrentTitleResponse(message="Parsed torrent titles", data=parsed_titles)
     else:
-        return ParseTorrentTitleResponse(message="No title provided", data={})
+        return ParseTorrentTitleResponse(message="No titles provided", data=[])
