@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.17](https://github.com/rivenmedia/riven/compare/v0.21.16...v0.21.17) (2025-04-01)
+
+
+### Bug Fixes
+
+* switch scrape endpoint to list input ([9ef5751](https://github.com/rivenmedia/riven/commit/9ef5751e3caa2022eeb0400de4ee80069e55abbd))
+
 ## [0.21.16](https://github.com/rivenmedia/riven/compare/v0.21.15...v0.21.16) (2025-04-01)
 
 
