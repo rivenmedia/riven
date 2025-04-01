@@ -1,9 +1,10 @@
 import asyncio
 import re
 from datetime import datetime, timedelta
-from typing import Dict, Literal, Optional, TypeAlias, Union
+from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
+from PTT import parse_title
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, RootModel
@@ -442,3 +443,14 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
 
     session_manager.complete_session(session_id)
     return {"message": f"Completed session {session_id}"}
+
+class ParseTorrentTitleResponse(BaseModel):
+    message: str
+    data: dict[str, Any]
+
+@router.post("/parse", summary="Parse a torrent title", operation_id="parse_torrent_title")
+async def parse_torrent_title(request: Request, title: str) -> ParseTorrentTitleResponse:
+    if title:
+        return ParseTorrentTitleResponse(message="Parsed torrent title", data=parse_title(title))
+    else:
+        return ParseTorrentTitleResponse(message="No title provided", data={})

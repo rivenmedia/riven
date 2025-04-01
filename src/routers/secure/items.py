@@ -20,7 +20,6 @@ from program.symlink import Symlinker
 from program.types import Event
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-from program.services.updaters import Updater
 
 from ..models.shared import MessageResponse
 

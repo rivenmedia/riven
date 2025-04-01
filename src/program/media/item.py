@@ -22,9 +22,11 @@ class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
     id: Mapped[str] = mapped_column(sqlalchemy.String, primary_key=True)
+    trakt_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
@@ -45,8 +47,6 @@ class MediaItem(db.Model):
     alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
-    title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-
     network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     country: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     language: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -109,6 +109,7 @@ class MediaItem(db.Model):
 
         # Media related
         self.title = item.get("title")
+        self.trakt_id = item.get("trakt_id")
         self.imdb_id =  item.get("imdb_id")
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
@@ -250,6 +251,7 @@ class MediaItem(db.Model):
             "id": str(self.id),
             "title": self.title,
             "type": self.__class__.__name__,
+            "trakt_id": self.trakt_id if hasattr(self, "trakt_id") else None,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,

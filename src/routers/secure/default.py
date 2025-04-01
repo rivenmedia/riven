@@ -13,6 +13,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
+from program.db import db_functions
 
 from ..models.shared import MessageResponse
 
@@ -266,3 +267,19 @@ async def upload_logs() -> UploadLogsResponse:
     except Exception as e:
         logger.error(f"Failed to read or upload log file: {e}")
         raise HTTPException(status_code=500, detail="Failed to read or upload log file")
+
+class CalendarResponse(BaseModel):
+    data: dict
+
+@router.get(
+    "/calendar",
+    summary="Fetch Calendar",
+    description="Fetch the calendar of all the items in the library",
+    operation_id="fetch_calendar",
+)
+async def fetch_calendar(_: Request) -> CalendarResponse:
+    """Fetch the calendar of all the items in the library"""
+    with db.Session() as session:
+        return CalendarResponse(
+            data=db_functions.create_calendar(session)
+        )

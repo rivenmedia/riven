@@ -5,6 +5,7 @@ import alembic
 from loguru import logger
 from threading import Event
 from typing import TYPE_CHECKING, Optional
+from datetime import datetime, timedelta
 from sqlalchemy import delete, func, insert, inspect, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -389,6 +390,37 @@ def update_ongoing(session) -> list[tuple[str, str, str]]:
             logger.error(f"Failed to update state for item with ID {item_id}: {e}")
 
     return updated_items
+
+def create_calendar(session: Session) -> dict:
+    """Create a calendar of all the items in the library."""
+    from program.media.item import MediaItem, Show, Season
+    session = session if session else db.Session()
+
+    results = session.execute(
+        select(MediaItem)
+        .options(selectinload(Show.seasons).selectinload(Season.episodes))
+        .where(MediaItem.type.in_(["movie", "episode"]))
+        .where(MediaItem.last_state != States.Completed)
+        .where(MediaItem.aired_at.is_not(None))
+        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=1))
+    ).unique().scalars().all()
+
+    calendar = {}
+    for item in results:
+        calendar[item.id] = {}
+        calendar[item.id]["trakt_id"] = item.trakt_id
+        calendar[item.id]["imdb_id"] = item.imdb_id
+        calendar[item.id]["tvdb_id"] = item.tvdb_id
+        calendar[item.id]["tmdb_id"] = item.tmdb_id
+        calendar[item.id]["aired_at"] = item.aired_at
+        if item.type == "episode":
+            calendar[item.id]["title"] = item.parent.parent.title
+            calendar[item.id]["season"] = item.parent.number
+            calendar[item.id]["episode"] = item.number
+        else:
+            calendar[item.id]["title"] = item.title
+
+    return calendar
 
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
     """Run a thread with a MediaItem."""
