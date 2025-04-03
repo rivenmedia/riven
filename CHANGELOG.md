@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.18](https://github.com/rivenmedia/riven/compare/v0.21.17...v0.21.18) (2025-04-03)
+
+
+### Bug Fixes
+
+* add ffprobe endpoint. fixed trakt id getattr on item. ([a1b23ad](https://github.com/rivenmedia/riven/commit/a1b23ad69338cf48c43f9ef4fa2a0121babd026c))
+
 ## [0.21.17](https://github.com/rivenmedia/riven/compare/v0.21.16...v0.21.17) (2025-04-01)
 
 
