@@ -65,7 +65,7 @@ class Torrentio:
             logger.exception(f"Torrentio exception thrown: {str(e)}")
         return {}
 
-    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Torrentio` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
         if not imdb_id:

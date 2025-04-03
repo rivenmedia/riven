@@ -256,11 +256,11 @@ class TraktAPI:
         genres = getattr(data, "genres", None) or show_genres
 
         item = {
-            "trakt_id": data.ids.trakt,
             "title": getattr(data, "title", None),
             "year": getattr(data, "year", None),
             "status": getattr(data, "status", None),
             "aired_at": formatted_aired_at,
+            "trakt_id": getattr(data.ids, "trakt", None),
             "imdb_id": getattr(data.ids, "imdb", None),
             "tvdb_id": getattr(data.ids, "tvdb", None),
             "tmdb_id": getattr(data.ids, "tmdb", None),

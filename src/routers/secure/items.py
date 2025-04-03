@@ -5,6 +5,7 @@ from typing import Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from RTN import parse_media_file
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
@@ -605,3 +606,43 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"message": f"Successfully unpaused items.", "ids": ids}
+
+
+class FfprobeResponse(BaseModel):
+    message: str
+    data: dict
+
+@router.post(
+    "/ffprobe",
+    summary="Parse Media File",
+    description="Parse a media file",
+    operation_id="ffprobe_media_files",
+)
+async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
+    """Parse all symlinks from item. Requires ffmpeg to be installed."""
+    item: MediaItem = db_functions.get_item_by_id(id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    data = {}
+    try:
+        if item.type in ("movie", "episode"):
+            if item.symlink_path:
+                data[item.id] = parse_media_file(item.symlink_path)
+
+        elif item.type == "show":
+            for season in item.seasons:
+                for episode in season.episodes:
+                    if episode.symlink_path:
+                        data[episode.id] = parse_media_file(episode.symlink_path)
+
+        elif item.type == "season":
+            for episode in item.episodes:
+                if episode.symlink_path:
+                    data[episode.id] = parse_media_file(episode.symlink_path)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    if data:
+        return FfprobeResponse(message=f"Successfully parsed media files for item {id}", data=data)
+    return FfprobeResponse(message=f"No media files found for item {id}", data={})
