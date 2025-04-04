@@ -70,14 +70,14 @@ We are constantly adding features and improvements as we go along and squashing 
 
 [ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (_hosting, security, updates, etc_) for your self-hosted apps.
 
-> [!IMPORTANT] > **ElfHosted ❤️ Riven 100%**
->
+> [!IMPORTANT]
+> **ElfHosted ❤️ Riven 100%**
 > [Riven](https://elfhosted.com/app/riven/) is an "Elf-icial" app in the [ElfHosted app catalogue](https://elfhosted.com/apps/) - A whopping :heart_eyes_cat::heart_eyes_cat: 100% :heart_eyes_cat::heart_eyes_cat: of your subscription goes directly to Riven developers, who can usually be found in the [#elf-riven](https://discord.com/channels/396055506072109067/1253110932062601276) channel in the [ElfHosted Discord Server](https://discord.elfhosted.com).
 
 Curious how it works? Here's an [explainer video](https://www.youtube.com/watch?v=ZHZAEhLuJqk)!
 
-> [!TIP] > **ElfHosted "Infinite Streaming" bundles**
->
+> [!TIP]
+> **ElfHosted "Infinite Streaming" bundles**
 > Riven is pre-packaged with Plex, Zurg, and symlinks, and ready-to-go, in these convenient bundles:
 >
 > -   [Starter Kit](https://store.elfhosted.com/product/plex-riven-infinite-streaming-starter-kit) (_quick and easy setup_)
