@@ -27,7 +27,6 @@ Services currently supported:
 | Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                           |
 | Scraping services | Comet, Jackett, Torrentio, Orionoid, Knightcrawler, Mediafusion, Prowlarr, Zilean |
 | Media servers     | Plex, Jellyfin, Emby                                                              |
-| ----------------- | --------------------------------------------------------------------------------- |
 
 and more to come!
 
