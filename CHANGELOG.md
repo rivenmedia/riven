@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.19](https://github.com/rivenmedia/riven/compare/v0.21.18...v0.21.19) (2025-04-10)
+
+
+### Bug Fixes
+
+* duplicate notifications being sent when using multiple service urls ([#1059](https://github.com/rivenmedia/riven/issues/1059)) ([5408d55](https://github.com/rivenmedia/riven/commit/5408d55a8c152e7ff0d61a00866b186059ab1eb4))
+
 ## [0.21.18](https://github.com/rivenmedia/riven/compare/v0.21.17...v0.21.18) (2025-04-03)
 
 
