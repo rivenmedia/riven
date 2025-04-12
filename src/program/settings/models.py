@@ -285,8 +285,7 @@ class DatabaseModel(Observable):
 
 class NotificationsModel(Observable):
     enabled: bool = False
-    title: str = "Riven completed something!"
-    on_item_type: List[str] = ["movie", "show", "season"]
+    on_item_type: List[str] = ["movie", "show", "season", "episode"]
     service_urls: List[str] = []
 
 class SubliminalConfig(Observable):

@@ -273,11 +273,10 @@ class TraktAPI:
         }
 
         item["is_anime"] = (
-            ("anime" in genres)
-            or ("animation" in genres and (item["country"] in ("jp", "kr") or item["language"] == "ja"))
-            if genres
-            else False
-        )
+            "anime" in genres
+            or (("animation" in genres or "donghua" in genres) # donghua is chinese anime
+            and (item["country"] != "us" or item["language"] != "en")) # american animation is cartoons, not anime
+        ) if genres else False
 
         match item_type:
             case "movie":
