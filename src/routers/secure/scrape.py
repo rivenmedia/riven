@@ -465,12 +465,25 @@ async def upload_torrent_file(
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
+    # Check file size limit (10MB is typically more than enough for torrent files)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    file_size = 0
+    content = bytearray()
+    
+    # Read the file in chunks to check size without loading all into memory
+    chunk = await torrent_file.read(8192)
+    while chunk:
+        file_size += len(chunk)
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large, maximum size is 10MB")
+        content.extend(chunk)
+        chunk = await torrent_file.read(8192)
+    
+    torrent_content = bytes(content)
+
     # Validate the file is a .torrent file
     if not torrent_file.filename.endswith('.torrent'):
         raise HTTPException(status_code=400, detail="File must be a .torrent file")
-
-    # Read the torrent file content
-    torrent_content = await torrent_file.read()
     
     # Extract infohash from torrent file
     try:
@@ -481,5 +494,5 @@ async def upload_torrent_file(
     except Exception as e:
         logger.error(f"Failed to extract infohash from torrent file: {e}")
         raise HTTPException(status_code=400, detail="Invalid torrent file format")
-
+    
     return await _process_infohash(request, background_tasks, item_id, info_hash, "uploaded torrent file")
