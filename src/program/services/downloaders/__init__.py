@@ -143,6 +143,13 @@ class Downloader:
             file_data: ParsedFileData = parse_filename(file.filename)
             if item.type in ("show", "season", "episode"):
                 if not file_data.episodes:
+                    logger.debug(f"Skipping '{file.filename}' as it has no episodes")
+                    continue
+                elif 0 in file_data.episodes and len(file_data.episodes) == 1:
+                    logger.debug(f"Skipping '{file.filename}' as it has an episode number of 0")
+                    continue
+                elif file_data.season == 0:
+                    logger.debug(f"Skipping '{file.filename}' as it has a season number of 0")
                     continue
             if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap):
                 found = True
