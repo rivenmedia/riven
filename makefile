@@ -110,6 +110,9 @@ update:
 	@poetry cache clear PyPI --all
 	@poetry update
 
+diff:
+	@git diff HEAD~1 HEAD
+
 # Run the application
 run:
 	@poetry run python src/main.py
