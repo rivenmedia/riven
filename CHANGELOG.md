@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.21.20](https://github.com/rivenmedia/riven/compare/v0.21.19...v0.21.20) (2025-04-26)
+
+
+### Bug Fixes
+
+* improve skipping special episodes/seasons ([2d3f927](https://github.com/rivenmedia/riven/commit/2d3f9274a5f4cea7bd6c8924363e6df306d8a977))
+* improved logging on retry_library and update_ongoing for clarity ([01554a5](https://github.com/rivenmedia/riven/commit/01554a5e3b93d1f8a02b7e5630e0e358ea8fb1e0))
+* notifications simplified. fixed anime type check on chinese and korean anime. ([7a98d75](https://github.com/rivenmedia/riven/commit/7a98d7512fe3416de7d8d940527a1459a1fdef4f))
+* update parsett from 1.6.7 to 1.6.11 (latest) ([e8e16cb](https://github.com/rivenmedia/riven/commit/e8e16cbeb415a867ef08eea047cda4d34cc885e7))
+
 ## [0.21.19](https://github.com/rivenmedia/riven/compare/v0.21.18...v0.21.19) (2025-04-10)
 
 
