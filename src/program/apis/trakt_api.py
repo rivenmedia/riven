@@ -364,7 +364,6 @@ class TraktAPI:
 
     def _is_anime(self, data: dict, genres: List[str]) -> bool:
         """Check if the item is an anime."""
-        # Early return if we don't have genres or it's a US production
         if not data.get("genres"):
             return False
 
@@ -374,14 +373,13 @@ class TraktAPI:
         if "animation" not in data.get("genres", []):
             return False
 
-        genres = [g.lower() for g in data["genres"]]
         if "anime" in genres:
             return True
 
         is_animation = "animation" in genres
-        is_japanese = data.get("country", "").lower() == "jp"
+        is_japanese = data.get("country", "") == "jp"
         is_donghua = "donghua" in genres
-        is_chinese = data.get("country", "").lower() in ["zh", "cn"]
-        is_korean = data.get("country", "").lower() == "kr"
+        is_chinese = data.get("country", "") in ["zh", "cn"]
+        is_korean = data.get("country", "") == "kr"
 
         return (is_animation and is_japanese) or (is_donghua or (is_animation and is_chinese)) or (is_animation and is_korean)
