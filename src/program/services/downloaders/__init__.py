@@ -19,6 +19,7 @@ from program.services.downloaders.shared import parse_filename
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
+from .torbox import TorBoxDownloader
 
 
 class Downloader:
@@ -27,7 +28,8 @@ class Downloader:
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            AllDebridDownloader: AllDebridDownloader()
+            AllDebridDownloader: AllDebridDownloader(),
+            TorBoxDownloader: TorBoxDownloader(),
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()

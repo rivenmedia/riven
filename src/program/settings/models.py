@@ -49,6 +49,9 @@ class AllDebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+class TorBoxModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
 
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
@@ -59,6 +62,7 @@ class DownloadersModel(Observable):
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
+    torbox: TorBoxModel = TorBoxModel()
 
 
 # Symlink Service
