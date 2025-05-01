@@ -64,14 +64,14 @@ def episode():
 
 
 class MockSettings:
-    def __init__(self, library_path, rclone_path):
+    def __init__(self, library_path, src_paths):
         self.force_refresh = False
         self.symlink = type(
             "symlink",
             (),
             {
                 "library_path": Path(library_path),
-                "rclone_path": Path(rclone_path),
+                "src_paths": [Path(src_paths)],
                 "separate_anime_dirs": True,
             },
         )
@@ -144,7 +144,8 @@ def test_symlink_movie(symlinker, movie, fs):
         assert Path(movie.symlink_path).readlink() == target
 
         # cleanup
-        shutil.rmtree(symlinker.rclone_path) and symlinker.rclone_path.mkdir()
+        for src_path in symlinker.src_paths:
+            shutil.rmtree(src_path) and src_path.mkdir()
         shutil.rmtree(
             symlinker.library_path_movies
         ) and symlinker.library_path_movies.mkdir()
@@ -152,14 +153,15 @@ def test_symlink_movie(symlinker, movie, fs):
     file = f"{movie.title}.mkv"
 
     movie.folder, movie.alternative_folder, movie.file = (movie.title, "other", file)
-    symlink_check(symlinker.rclone_path / movie.title / file)
-    symlink_check(symlinker.rclone_path / "other" / file)
-    symlink_check(symlinker.rclone_path / file / file)
-    symlink_check(symlinker.rclone_path / file)
+    src_path = symlinker.src_paths[0]
+    symlink_check(src_path / movie.title / file)
+    symlink_check(src_path / "other" / file)
+    symlink_check(src_path / file / file)
+    symlink_check(src_path / file)
 
     # files in the root
     movie.folder, movie.alternative_folder, movie.file = (None, None, file)
-    symlink_check(symlinker.rclone_path / file)
+    symlink_check(src_path / file)
 
 
 def test_symlink_episode(symlinker, episode, fs):
@@ -193,7 +195,8 @@ def test_symlink_episode(symlinker, episode, fs):
         assert Path(episode.symlink_path).readlink() == target
 
         # cleanup
-        shutil.rmtree(symlinker.rclone_path) and symlinker.rclone_path.mkdir()
+        for src_path in symlinker.src_paths:
+            shutil.rmtree(src_path) and src_path.mkdir()
         shutil.rmtree(
             symlinker.library_path_shows
         ) and symlinker.library_path_shows.mkdir()
@@ -206,17 +209,18 @@ def test_symlink_episode(symlinker, episode, fs):
         "other",
         file,
     )
-    # symlink_check(symlinker.rclone_path / episode.parent.parent.title / season_name / file) # Not supported
-    symlink_check(symlinker.rclone_path / episode.parent.parent.title / file)
-    # symlink_check(symlinker.rclone_path / "other" / file)
-    symlink_check(symlinker.rclone_path / file / file)
-    symlink_check(symlinker.rclone_path / file)
+    src_path = symlinker.src_paths[0]
+    # symlink_check(src_path / episode.parent.parent.title / season_name / file) # Not supported
+    symlink_check(src_path / episode.parent.parent.title / file)
+    # symlink_check(src_path / "other" / file)
+    symlink_check(src_path / file / file)
+    symlink_check(src_path / file)
 
     # Somewhat less common: Show Name - Season 01 / file
     name = str(episode.parent.parent.title + season_name)
     episode.folder, episode.alternative_folder, episode.file = (name, None, file)
-    symlink_check(symlinker.rclone_path / name / file)
+    symlink_check(src_path / name / file)
 
-    # Files in the rclone root
+    # Files in the source root
     episode.folder, episode.alternative_folder, episode.file = (None, None, file)
-    symlink_check(symlinker.rclone_path / file)
+    symlink_check(src_path / file)

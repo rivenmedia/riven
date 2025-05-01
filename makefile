@@ -1,5 +1,8 @@
 .PHONY: help install run start start-dev stop restart logs logs-dev shell build push push-dev clean format check lint sort test coverage pr-ready
 
+PUID ?= $(shell id -u)
+PGID ?= $(shell id -g)
+
 # Detect operating system
 ifeq ($(OS),Windows_NT)
     # For Windows
@@ -31,13 +34,17 @@ help:
 	@echo "-------------------------------------------------------------------------"
 # Docker related commands
 
-start: stop
-	@docker compose -f docker-compose.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose.yml logs -f
+start: stop .env
+	@docker compose -f docker-compose.yml --env-file .env up --build -d --force-recreate --remove-orphans
+	@docker compose -f docker-compose.yml --env-file .env logs -f
 
-start-dev: stop-dev
-	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose-dev.yml logs -f
+start-dev: stop-dev .env
+	@docker compose -f docker-compose-dev.yml --env-file .env up --build -d --force-recreate --remove-orphans
+	@docker compose -f docker-compose-dev.yml --env-file .env logs -f
+
+.env:
+	@echo "PUID=$(PUID)" > $@
+	@echo "PGID=$(PGID)" >> $@
 
 stop:
 	@docker compose -f docker-compose.yml down

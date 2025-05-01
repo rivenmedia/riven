@@ -65,7 +65,7 @@ class DownloadersModel(Observable):
 
 
 class SymlinkModel(Observable):
-    rclone_path: Path = Path()
+    src_paths: List[Path] = []
     library_path: Path = Path()
     separate_anime_dirs: bool = False
     repair_symlinks: bool = False

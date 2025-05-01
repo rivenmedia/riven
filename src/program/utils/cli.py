@@ -61,7 +61,7 @@ def handle_args():
         exit(0)
 
     if args.fix_symlinks:
-        fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
+        fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.src_paths)
         exit(0)
 
     return args

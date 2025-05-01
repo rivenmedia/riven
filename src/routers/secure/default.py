@@ -211,11 +211,11 @@ class MountResponse(BaseModel):
     files: dict[str, str]
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files() -> MountResponse:
-    """Get all files in the rclone mount."""
+async def get_source_files() -> MountResponse:
+    """Get all files in the source paths."""
     import os
 
-    rclone_dir = settings_manager.settings.symlink.rclone_path
+    src_paths = settings_manager.settings.symlink.src_paths
     file_map = {}
 
     def scan_dir(path):
@@ -226,7 +226,10 @@ async def get_rclone_files() -> MountResponse:
                 elif entry.is_dir():
                     scan_dir(entry.path)
 
-    scan_dir(rclone_dir)  # dict of `filename: filepath``
+    # Scan all source paths
+    for src_path in src_paths:
+        scan_dir(src_path)  # dict of `filename: filepath``
+    
     return MountResponse(files=file_map)
 
 

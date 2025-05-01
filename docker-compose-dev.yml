@@ -9,9 +9,9 @@ services:
     network_mode: host
     tty: true
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=UTC
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
       - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
       - RIVEN_FORCE_ENV=true
       - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db

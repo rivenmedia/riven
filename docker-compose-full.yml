@@ -5,7 +5,7 @@
 
 # Zurg & Rclone will have to be supplied as well and visible to Riven as well as Plex.
 # Rclone should be mounted to: /mnt/zurg (optional directory)
-# You will need to set the rclone_path in riven to use the `/mnt/zurg/__all__` dir though
+# You will need to set the src_paths in riven to use the `/mnt/zurg/__all__` dir though
 # so that Riven can see all the torrents from their parent directory.
 
 services:
@@ -39,7 +39,7 @@ services:
             - PGID=1000
             - TZ=Etc/UTC
             - RIVEN_FORCE_ENV=true # forces the use of env vars to be always used!
-            - RIVEN_SYMLINK_RCLONE_PATH=/mnt/zurg/__all__ # Set this to your rclone's mount `__all__` dir if using Zurg
+            - RIVEN_SYMLINK_SRC_PATHS='["/mnt/zurg/__all__"]' # Set this to your source directories (JSON array)
             - RIVEN_SYMLINK_LIBRARY_PATH=/mnt/library # This is the path that symlinks will be placed in
             - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
             - RIVEN_DOWNLOADERS_REAL_DEBRID_ENABLED=true

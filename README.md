@@ -135,13 +135,13 @@ poetry run python backend/main.py
 
 ### Symlinking settings
 
-`rclone_path` should point to your rclone mount that has your torrents on your host.
+`src_paths` should be a list of paths to directories that contain your media files.
 
-`library_path` should point to the location of the mount in plex container
+`library_path` should point to the location where symlinks will be created (this is the path you'll add to Plex/Jellyfin/Emby)
 
 ```json
     "symlink": {
-        "rclone_path": "/mnt/zurg",
+        "src_paths": ["/mnt/zurg", "/mnt/other_media"],
         "library_path": "/mnt/library"
     }
 ```
@@ -183,7 +183,7 @@ Ensure you have the following installed on your system:
 
     ```sh
     pip install poetry
-    poetry install
+    poetry install --no-root
     ```
 
 3. **Install Frontend Dependencies:**

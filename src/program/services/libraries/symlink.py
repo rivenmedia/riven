@@ -217,8 +217,8 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
                     broken_symlinks.append((full_path, target))
     return broken_symlinks
 
-def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_directory: Optional[str] = None):
-    """Find and fix all broken symlinks in the library path using files from the rclone path."""
+def fix_broken_symlinks(library_path, src_paths, max_workers=4, specific_directory: Optional[str] = None):
+    """Find and fix all broken symlinks in the library path using files from the source paths."""
     missing_files = 0
 
     def check_and_fix_symlink(symlink_path, file_map):
@@ -238,7 +238,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
             items: Optional[List[Movie | Episode]] = get_items_from_filepath(session, symlink_path)
             if not items:
                 # This needs to be improved later.
-                # One edge case: The episode has a file already associated with it, but we found another file in rclone for the same episode.
+                # One edge case: The episode has a file already associated with it, but we found another file in source paths for the same episode.
                 # We should probably parse the filename and check if the episode already has a file associated with it and clean up if needed.
                 logger.log("NOT_FOUND", f"Could not find item in database for path: {symlink_path}")
                 return
@@ -270,7 +270,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
                     session.merge(item)
                     session.commit()
                 missing_files += 1
-                logger.log("FILES", f"Resetting {item.log_string} due to missing file in rclone_path: {filename}")
+                logger.log("FILES", f"Resetting {item.log_string} due to missing file in source paths: {filename}")
 
             if failed:
                 logger.warning("Failed to retarget some broken symlinks, recommended action: reset database.")
@@ -292,14 +292,21 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
                 future.result()
 
     start_time = time.time()
-    logger.log("FILES", f"Finding and fixing broken symlinks in {library_path} using files from {rclone_path}")
-
-    file_map = build_file_map(rclone_path)
+    
+    # Create a combined file map from all source paths
+    file_map = {}
+    source_paths_str = ", ".join(str(path) for path in src_paths)
+    logger.log("FILES", f"Finding and fixing broken symlinks in {library_path} using files from {source_paths_str}")
+    
+    # Build a combined file map from all source paths
+    for src_path in src_paths:
+        path_file_map = build_file_map(src_path)
+        file_map.update(path_file_map)
+        logger.debug(f"Built file map for {src_path}")
+    
     if not file_map:
-        logger.log("FILES", f"No files found in rclone_path: {rclone_path}. Aborting fix_broken_symlinks.")
+        logger.log("FILES", f"No files found in any source path. Aborting fix_broken_symlinks.")
         return
-
-    logger.debug(f"Built file map for {rclone_path}")
 
     if specific_directory:
         library_paths = [specific_directory]
@@ -320,7 +327,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
     end_time = time.time()
     elapsed_time = end_time - start_time
     logger.log("FILES", f"Finished processing and retargeting broken symlinks. Time taken: {elapsed_time:.2f} seconds.")
-    logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing rclone files.")
+    logger.log("FILES", f"Reset {missing_files} items to be rescraped due to missing source files.")
 
 def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"]:
     """Get an item by its filepath."""

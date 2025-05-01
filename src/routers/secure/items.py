@@ -384,7 +384,7 @@ class RepairSymlinksResponse(BaseModel):
 )
 async def repair_symlinks(request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
     library_path = settings_manager.settings.symlink.library_path
-    rclone_path = settings_manager.settings.symlink.rclone_path
+    src_paths = settings_manager.settings.symlink.src_paths
 
     if directory:
         specific_directory = os.path.join(library_path, directory)
@@ -393,7 +393,7 @@ async def repair_symlinks(request: Request, directory: Optional[str] = None) -> 
     else:
         specific_directory = None
 
-    fix_broken_symlinks(library_path, rclone_path, specific_directory=specific_directory)
+    fix_broken_symlinks(library_path, src_paths, specific_directory=specific_directory)
 
     return {"message": "Symlink repair process completed."}
 

@@ -59,7 +59,7 @@ else
     USER_HOME="/home/$USERNAME"
     mkdir -p "$USER_HOME"
     chown -R "$PUID:$PGID" "$USER_HOME"
-    chown -R "$PUID:$PGID" /riven/data
+    chown -R "$PUID:$PGID" /riven
 fi
 
 umask 002

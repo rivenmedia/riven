@@ -19,38 +19,45 @@ class Symlinker:
     A class that represents a symlinker thread.
 
     Settings Attributes:
-        rclone_path (str): The absolute path of the rclone mount root directory.
-        library_path (str): The absolute path of the location we will create our symlinks that point to the rclone_path.
+        src_paths (list[Path]): List of absolute paths to source directories containing media files.
+        library_path (str): The absolute path of the location we will create our symlinks that point to the source paths.
     """
 
     def __init__(self):
         self.key = "symlink"
         self.settings = settings_manager.settings.symlink
-        self.rclone_path = self.settings.rclone_path
+        self.src_paths = self.settings.src_paths
         self.initialized = self.validate()
         if not self.initialized:
             return
-        logger.info(f"Rclone path symlinks are pointed to: {self.rclone_path}")
+        logger.info(f"Source paths for symlinks: {', '.join(str(path) for path in self.src_paths)}")
         logger.info(f"Symlinks will be placed in: {self.settings.library_path}")
         logger.success("Symlink initialized!")
 
     def validate(self):
         """Validate paths and create the initial folders."""
         library_path = self.settings.library_path
-        if not self.rclone_path or not library_path:
-            logger.error("rclone_path or library_path not provided.")
+        if not self.src_paths or not library_path:
+            logger.error("src_paths or library_path not provided.")
             return False
-        if self.rclone_path == Path(".") or library_path == Path("."):
-            logger.error("rclone_path or library_path is set to the current directory.")
+        if library_path == Path("."):
+            logger.error("library_path is set to the current directory.")
             return False
-        if not self.rclone_path.exists():
-            logger.error(f"rclone_path does not exist: {self.rclone_path}")
-            return False
+            
+        # Validate each source path
+        for src_path in self.src_paths:
+            if src_path == Path("."):
+                logger.error(f"Source path is set to the current directory: {src_path}")
+                return False
+            if not src_path.exists():
+                logger.error(f"Source path does not exist: {src_path}")
+                return False
+            if not src_path.is_absolute():
+                logger.error(f"Source path is not an absolute path: {src_path}")
+                return False
+                
         if not library_path.exists():
             logger.error(f"library_path does not exist: {library_path}")
-            return False
-        if not self.rclone_path.is_absolute():
-            logger.error(f"rclone_path is not an absolute path: {self.rclone_path}")
             return False
         if not library_path.is_absolute():
             logger.error(f"library_path is not an absolute path: {library_path}")
@@ -155,7 +162,7 @@ class Symlinker:
 
         source = _get_item_path(item)
         if not source:
-            logger.error(f"Could not find path for {item.log_string} in rclone path, cannot create symlink.")
+            logger.error(f"Could not find path for {item.log_string} in source paths, cannot create symlink.")
             return False
 
         filename = self._determine_file_name(item)
@@ -305,25 +312,29 @@ def _delete_symlink(item: Union[Movie, Show], item_path: Path) -> bool:
     return False
 
 def _get_item_path(item: Union[Movie, Episode]) -> Optional[Path]:
-    """Quickly check if the file exists in the rclone path."""
+    """Check if the file exists in any of the source paths."""
     if not item.file:
         return None
 
-    rclone_path = Path(settings_manager.settings.symlink.rclone_path)
+    src_paths = settings_manager.settings.symlink.src_paths
     possible_folders = [item.folder, item.file, item.alternative_folder]
     possible_folders_without_duplicates = list(set(possible_folders))
     if len(possible_folders_without_duplicates) == 1:
         new_possible_folder = Path(possible_folders_without_duplicates[0]).with_suffix("")
         possible_folders_without_duplicates.append(new_possible_folder)
 
-    for folder in possible_folders_without_duplicates:
-        if folder:
-            file_path = rclone_path / folder / item.file
-            if file_path.exists():
-                return file_path
-
-    # Not in a folder? Perhaps it's just sitting in the root.
-    file = rclone_path / item.file
-    if file.exists() and file.is_file():
-        return file
+    # Try each source path
+    for src_path in src_paths:
+        # Try each folder possibility
+        for folder in possible_folders_without_duplicates:
+            if folder:
+                file_path = src_path / folder / item.file
+                if file_path.exists():
+                    return file_path
+        
+        # Not in a folder? Perhaps it's just sitting in the root.
+        file = src_path / item.file
+        if file.exists() and file.is_file():
+            return file
+            
     return None

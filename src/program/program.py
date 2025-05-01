@@ -224,7 +224,7 @@ class Program(threading.Thread):
         if settings_manager.settings.symlink.repair_symlinks:
             scheduled_functions[fix_broken_symlinks] = {
                 "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
-                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
+                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.src_paths]
             }
             # logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
 
