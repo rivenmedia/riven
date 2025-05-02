@@ -214,7 +214,7 @@ class ZileanConfig(Observable):
 
 class MediafusionConfig(Observable):
     enabled: bool = False
-    url: str = "https://mediafusion.elfhosted.com"
+    url: str = "http://localhost:8000"
     timeout: int = 30
     ratelimit: bool = True
 
