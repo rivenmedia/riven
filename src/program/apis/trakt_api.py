@@ -272,7 +272,7 @@ class TraktAPI:
             "type": item_type,
         }
 
-        item["is_anime"] = self._is_anime(item, genres)
+        item["is_anime"] = self._is_anime(item)
 
         match item_type:
             case "movie":
@@ -362,24 +362,15 @@ class TraktAPI:
             return datetime.strptime(released, "%Y-%m-%d")
         return None
 
-    def _is_anime(self, data: dict, genres: List[str]) -> bool:
+    def _is_anime(self, item: dict) -> bool:
         """Check if the item is an anime."""
-        if not data.get("genres"):
+        if not item.get("genres") or item.get("country") == "us":
             return False
 
-        if data.get("country") == "us":
+        if not any(genre in item.get("genres", []) for genre in ["animation", "donghua", "anime"]):
             return False
 
-        if "animation" not in data.get("genres", []):
+        if item.get("country", "") not in ["jp", "kr", "cn", "hk"]:
             return False
 
-        if "anime" in genres:
-            return True
-
-        is_animation = "animation" in genres
-        is_japanese = data.get("country", "") == "jp"
-        is_donghua = "donghua" in genres
-        is_chinese = data.get("country", "") in ["zh", "cn"]
-        is_korean = data.get("country", "") == "kr"
-
-        return (is_animation and is_japanese) or (is_donghua or (is_animation and is_chinese)) or (is_animation and is_korean)
+        return True
