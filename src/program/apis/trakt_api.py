@@ -364,6 +364,10 @@ class TraktAPI:
 
     def _is_anime(self, item: dict) -> bool:
         """Check if the item is an anime."""
+        if item.type in ("season", "episode"):
+            # We get this from show item and copy it down to season and episode. No need to check again.
+            return False
+
         if not item.get("genres") or item.get("country") == "us":
             return False
 
