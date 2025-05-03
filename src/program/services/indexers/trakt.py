@@ -43,6 +43,7 @@ class TraktIndexer:
                             for episodeb in seasonb.episodes:
                                 if episodea.number == episodeb.number:  # Check if episodes match
                                     self.copy_attributes(episodea, episodeb)
+                                    episodeb.set("is_anime", is_anime)
                         seasonb.set("is_anime", is_anime)
             itemb.set("is_anime", is_anime)
         elif itemb.type == "movie":
