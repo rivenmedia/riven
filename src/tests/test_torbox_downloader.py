@@ -46,8 +46,7 @@ def downloader(instant, upload, status, status_all, delete):
     yield downloader
 
     # tear down mock
-    torbox.get = get
-
+    torbox.get = _get
 
 ## Downloader tests
 def test_process_hashes(downloader):
