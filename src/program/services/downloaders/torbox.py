@@ -105,36 +105,44 @@ class TorBoxDownloader(DownloaderBase):
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
         Get instant availability for a single infohash.
-        Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
         """
-        container: Optional[TorrentContainer] = None
-        torrent_id = None
-
         try:
-            torrent_id = self.add_torrent(infohash)
-            container = self._process_torrent(torrent_id, infohash, item_type)
-        except InvalidDebridFileException as e:
-            logger.debug(f"{infohash}: {e}")
-        except Exception as e:
-            if len(e.args) > 0:
-                if " 503 " in e.args[0] or "Infringing" in e.args[0]:
-                    logger.debug(f"Failed to get instant availability for {infohash}: [503] Infringing Torrent or Service Unavailable")
-                elif " 429 " in e.args[0] or "Rate Limit Exceeded" in e.args[0]:
-                    logger.debug(f"Failed to get instant availability for {infohash}: [429] Rate Limit Exceeded")
-                elif " 404 " in e.args[0] or "Torrent Not Found" in e.args[0]:
-                    logger.debug(f"Failed to get instant availability for {infohash}: [404] Torrent Not Found or Service Unavailable")
-                elif " 400 " in e.args[0] or "Torrent file is not valid" in e.args[0]:
-                    logger.debug(f"Failed to get instant availability for {infohash}: [400] Torrent file is not valid")
-            else:
-                logger.error(f"Failed to get instant availability for {infohash}: {e}")
-        finally:
-            if torrent_id is not None:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception as e:
-                    logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+            response = self.api.request_handler.execute(
+                HttpMethod.GET,
+                f"torrents/checkcached?hash={infohash}&format=object&list_files=true",
+            )
+            if not response:
+                logger.debug(f"Torrent {infohash} is not cached")
+                return None
+            
+            response_data = response.get(infohash, {})
+            if not response_data:
+                logger.debug(f"Torrent {infohash} is not cached")
+                return None
+            
 
-        return container
+            torrent_files = []
+            
+            files = response_data.get("files", [])
+            for file in files:
+                debrid_file = DebridFile.create(
+                    path=file["path"],
+                    filename=file["filename"],
+                    filesize_bytes=file["bytes"],
+                    filetype=item_type,
+                    file_id=file["id"]
+                )
+                if isinstance(debrid_file, DebridFile):
+                    torrent_files.append(debrid_file)
+
+            if not torrent_files:
+                logger.debug(f"No valid files found in cached torrent {infohash}")
+                return None
+            
+            return TorrentContainer(infohash=infohash, files=torrent_files)
+        except Exception as e:
+            logger.error(f"Failed to get instant availability for {infohash}: {e}")
+            return None
 
     def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """Process a single torrent and return a TorrentContainer if valid."""
