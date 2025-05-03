@@ -20,6 +20,7 @@ from program.utils.request import (
 )
 
 from .shared import DownloaderBase, premium_days_left
+from program.utils import get_version
 
 
 class TorBoxError(Exception):
@@ -46,7 +47,11 @@ class TorBoxAPI:
         rate_limit_params = get_rate_limit_params(per_minute=60)
         self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
-        self.session.headers.update({"User-Agent": "Riven/0.21.20 TorBox/1.0"})
+        try:
+            version = get_version()
+        except Exception:
+            version = "Unknown"
+        self.session.headers.update({"User-Agent": f"Riven/{version} TorBox/1.0"})
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
         self.request_handler = TorBoxRequestHandler(self.session, self.BASE_URL)
