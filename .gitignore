@@ -18,6 +18,7 @@ bin/
 .secrets*
 event.json
 *.patch
+config
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

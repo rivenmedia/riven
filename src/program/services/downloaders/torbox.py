@@ -1,4 +1,3 @@
-import time
 from datetime import datetime
 from typing import List, Optional, Union
 
@@ -6,7 +5,6 @@ from loguru import logger
 from requests import Session
 
 from program.services.downloaders.models import (
-    VALID_VIDEO_EXTENSIONS,
     DebridFile,
     InvalidDebridFileException,
     TorrentContainer,
@@ -37,11 +35,11 @@ class TorBoxRequestHandler(BaseRequestHandler):
             return {}
         if not response.data and not response.is_ok:
             raise TorBoxError("Invalid JSON response from TorBox")
-        return response.data
+        return response.data.get("data", response.data)
 
 class TorBoxAPI:
     """Handles TorBox API communication"""
-    BASE_URL = "https://api.torbox.app/v1/api/"
+    BASE_URL = "https://api.torbox.app/v1/api"
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
@@ -93,14 +91,15 @@ class TorBoxDownloader(DownloaderBase):
                 logger.error("Premium membership required")
                 return False
 
-            expiration = datetime.fromisoformat(
-                user_info["premium_expires_at"].replace("Z", "+00:00")
-            ).replace(tzinfo=datetime.timezone.utc)
+            expiration = datetime.strptime(user_info["premium_expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
             logger.info(premium_days_left(expiration))
             return True
         except Exception as e:
             logger.error(f"Failed to validate premium status: {e}")
             return False
+        
+    def select_files(self, torrent_id: str, _: List[str] = None) -> None:
+        pass
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
@@ -124,16 +123,20 @@ class TorBoxDownloader(DownloaderBase):
             torrent_files = []
             
             files = response_data.get("files", [])
-            for file in files:
-                debrid_file = DebridFile.create(
-                    path=file["path"],
-                    filename=file["filename"],
-                    filesize_bytes=file["bytes"],
-                    filetype=item_type,
-                    file_id=file["id"]
-                )
-                if isinstance(debrid_file, DebridFile):
-                    torrent_files.append(debrid_file)
+            for file_id, file in enumerate(files):
+                try:
+                    debrid_file = DebridFile.create(
+                        path=file["name"],
+                        filename=file["name"].split("/")[-1],
+                        filesize_bytes=file["size"],
+                        filetype=item_type,
+                        file_id=file_id
+                    )
+                    if isinstance(debrid_file, DebridFile):
+                        torrent_files.append(debrid_file)
+                except InvalidDebridFileException as e:
+                    logger.debug(f"{infohash}: {e}")
+                    continue
 
             if not torrent_files:
                 logger.debug(f"No valid files found in cached torrent {infohash}")
@@ -197,7 +200,7 @@ class TorBoxDownloader(DownloaderBase):
                 "torrents/createtorrent",
                 data={"magnet": magnet.lower()}
             )
-            return response["id"]
+            return str(response["torrent_id"]) # must be a string
         except Exception as e:
             if len(e.args) > 0:
                 if " 503 " in e.args[0]:
