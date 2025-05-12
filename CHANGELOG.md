@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/rivenmedia/riven/compare/v0.21.21...v0.22.0) (2025-05-12)
+
+
+### Features
+
+* Add TorBox downloader to Riven ([#1074](https://github.com/rivenmedia/riven/issues/1074)) ([9875109](https://github.com/rivenmedia/riven/commit/9875109e25c3c67cc3cdcd2cd450547dce365854))
+
 ## [0.21.21](https://github.com/rivenmedia/riven/compare/v0.21.20...v0.21.21) (2025-05-12)
 
 
