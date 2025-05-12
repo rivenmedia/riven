@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.21.21](https://github.com/rivenmedia/riven/compare/v0.21.20...v0.21.21) (2025-05-12)
+
+
+### Bug Fixes
+
+* anime fix for non-anime related content ([a19e09e](https://github.com/rivenmedia/riven/commit/a19e09e91ca3a31c39563f25e9d8cbc4eca98319))
+* copy attrs down to episode as well ([0372ad5](https://github.com/rivenmedia/riven/commit/0372ad5c6c35815d882a5f915d0f3fc3331aa403))
+* fixed bug on failing to lowercase during anime check ([9c0ea94](https://github.com/rivenmedia/riven/commit/9c0ea94fe928ffc68417a93eb5439a2c70b05b0c))
+* further improvements to validations ([f0f1a3b](https://github.com/rivenmedia/riven/commit/f0f1a3ba17129406dd0dc4ea4e008ddfc35183e9))
+* im going back to bed.. ([853586f](https://github.com/rivenmedia/riven/commit/853586f9c6181cfdae763bd6b19db3444499f31c))
+* restrict usage of comet from elfhosted instances ([77117db](https://github.com/rivenmedia/riven/commit/77117db99c2c8a78fc814aac4c42e57790744500))
+* restrict usage of mediafusion from elfhosted instances ([38fc68b](https://github.com/rivenmedia/riven/commit/38fc68bc3bebd6d38cf56d713a94c7013d3d6929))
+
 ## [0.21.20](https://github.com/rivenmedia/riven/compare/v0.21.19...v0.21.20) (2025-04-26)
 
 
