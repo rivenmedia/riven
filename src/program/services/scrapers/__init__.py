@@ -14,6 +14,7 @@ from program.services.scrapers.knightcrawler import Knightcrawler
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
+from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
@@ -36,7 +37,8 @@ class Scraping:
         self.keyword_services = {
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
-            Zilean: Zilean()
+            Zilean: Zilean(),
+            # Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,

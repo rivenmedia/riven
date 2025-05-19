@@ -87,6 +87,7 @@ class MediaItem(db.Model):
         if item is None:
             return
         self.id = self.__generate_composite_key(item)
+
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
         self.requested_id = item.get("requested_id")
@@ -110,7 +111,7 @@ class MediaItem(db.Model):
         # Media related
         self.title = item.get("title")
         self.trakt_id = item.get("trakt_id")
-        self.imdb_id =  item.get("imdb_id")
+        self.imdb_id = item.get("imdb_id")
         if self.imdb_id:
             self.imdb_link = f"https://www.imdb.com/title/{self.imdb_id}/"
         self.tvdb_id = item.get("tvdb_id")
@@ -137,11 +138,26 @@ class MediaItem(db.Model):
     @staticmethod
     def __generate_composite_key(item: dict) -> str | None:
         """Generate a composite key for the item."""
-        trakt_id = item.get("trakt_id", None)
-        if not trakt_id:
-            return None
         item_type = item.get("type", "unknown")
-        return f"{item_type}_{trakt_id}"
+
+        if item_type == "movie":
+            if tmdb_id := item.get("tmdb_id"):
+                return f"tmdb_movie_{tmdb_id}"
+
+        elif item_type in ["show", "season", "episode"]:
+            if tvdb_id := item.get("tvdb_id"):
+                return f"tvdb_{item_type}_{tvdb_id}"
+
+        # For generic media items, try to determine type
+        elif item_type == "mediaitem":
+            if item.get("seasons") or hasattr(item, "seasons"):
+                if tvdb_id := item.get("tvdb_id"):
+                    return f"tvdb_show_{tvdb_id}"
+            else:
+                if tmdb_id := item.get("tmdb_id"):
+                    return f"tmdb_movie_{tmdb_id}"
+
+        return None
 
     def store_state(self, given_state=None) -> tuple[States, States]:
         """Store the state of the item."""

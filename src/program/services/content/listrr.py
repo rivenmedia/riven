@@ -63,7 +63,22 @@ class Listrr:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
-        imdb_ids = movie_items + show_items
-        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
+        listrr_items = []
+        for imdb_id in movie_items:
+            if imdb_id.startswith("tt"):
+                listrr_items.append(MediaItem({
+                    "imdb_id": imdb_id, 
+                    "requested_by": self.key,
+                    "type": "movie"
+                }))
+
+        for imdb_id in show_items:
+            if imdb_id.startswith("tt"):
+                listrr_items.append(MediaItem({
+                    "imdb_id": imdb_id, 
+                    "requested_by": self.key,
+                    "type": "show"
+                }))
+
         logger.info(f"Fetched {len(listrr_items)} items from Listrr")
         yield listrr_items

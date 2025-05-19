@@ -2,7 +2,7 @@ from loguru import logger
 
 from program.media import MediaItem, States
 from program.services.downloaders import Downloader
-from program.services.indexers.trakt import TraktIndexer
+from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing, notify
 from program.services.post_processing.subliminal import Subliminal
 from program.services.scrapers import Scraping
@@ -24,8 +24,20 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
 
     #TODO - Reindex non-released badly indexed items here
     if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
-        next_service = TraktIndexer
-        logger.debug(f"Submitting {content_item.imdb_id if content_item else existing_item.log_string} to Trakt indexer")
+        next_service = IndexerService
+        log_string = None
+        if existing_item:
+            log_string = existing_item.log_string
+        elif content_item:
+            if content_item.type == "movie":
+                log_string = f"TMDB {content_item.tmdb_id or content_item.imdb_id}"
+            elif content_item.type == "show":
+                log_string = f"TVDB {content_item.tvdb_id or content_item.imdb_id}"
+            elif content_item.type == "season":
+                log_string = f"TVDB {content_item.tvdb_id or content_item.imdb_id}"
+            elif content_item.type == "episode":
+                log_string = f"TVDB {content_item.tvdb_id or content_item.imdb_id}"
+        logger.debug(f"Submitting {log_string} to IndexerService")
         return next_service, [content_item or existing_item]
 
     elif existing_item is not None and existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:

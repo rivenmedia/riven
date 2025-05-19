@@ -7,18 +7,29 @@ from .mdblist_api import MdblistAPI, MdblistAPIError
 from .overseerr_api import OverseerrAPI, OverseerrAPIError
 from .plex_api import PlexAPI, PlexAPIError
 from .trakt_api import TraktAPI, TraktAPIError
-
+from .tmdb_api import TMDBApi, TMDBApiError
+from .tvdb_api import TVDBApi, TVDBApiError
 
 def bootstrap_apis():
-    __setup_trakt()
     __setup_plex()
     __setup_mdblist()
     __setup_overseerr()
     __setup_listrr()
+    __setup_trakt()
+    __setup_tmdb()
+    __setup_tvdb()
 
 def __setup_trakt():
     traktApi = TraktAPI(settings_manager.settings.content.trakt)
     di[TraktAPI] = traktApi
+
+def __setup_tmdb():
+    tmdbApi = TMDBApi()
+    di[TMDBApi] = tmdbApi
+
+def __setup_tvdb():
+    tvdbApi = TVDBApi()
+    di[TVDBApi] = tvdbApi
 
 def __setup_plex():
     if not settings_manager.settings.updaters.plex.enabled:

@@ -7,6 +7,7 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from kink import di
 from rich.live import Live
 
 from program.apis import bootstrap_apis
@@ -21,7 +22,7 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import Downloader
-from program.services.indexers.trakt import TraktIndexer
+from program.services.indexers import IndexerService, TMDBIndexer, TVDBIndexer
 from program.services.libraries import SymlinkLibrary
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.services.post_processing import PostProcessing
@@ -78,8 +79,14 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
 
+        tmdb_indexer = TMDBIndexer()
+        tvdb_indexer = TVDBIndexer()
+        di[TMDBIndexer] = tmdb_indexer
+        di[TVDBIndexer] = tvdb_indexer
+        composite_indexer = IndexerService()
+
         self.services = {
-            TraktIndexer: TraktIndexer(),
+            IndexerService: composite_indexer,
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
@@ -92,7 +99,9 @@ class Program(threading.Thread):
 
         self.all_services = {
             **self.requesting_services,
-            **self.services
+            **self.services,
+            TMDBIndexer: tmdb_indexer,
+            TVDBIndexer: tvdb_indexer,
         }
 
         if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
@@ -203,9 +212,8 @@ class Program(threading.Thread):
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
             updated_items = db_functions.update_ongoing(session)
-            for item_id, previous_state, new_state in updated_items:
+            for item_id in updated_items:
                 self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                logger.debug(f"Updated state for item {item_id} from {previous_state} to {new_state}")
 
             if updated_items:
                 logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
@@ -347,7 +355,7 @@ class Program(threading.Thread):
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
-            enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+            enhanced_item = next(self.services[IndexerService].run(item, log_msg=False))
             return enhanced_item
         except StopIteration:
             return None

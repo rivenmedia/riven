@@ -1,11 +1,9 @@
-﻿from typing import Union
+﻿"""Overseerr API client"""
 
-from kink import di
 from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError
 
-from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.utils.request import (
@@ -37,7 +35,6 @@ class OverseerrAPI:
         self.api_key = api_key
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
         session = create_service_session(rate_limit_params=rate_limit_params)
-        self.trakt_api = di[TraktAPI]
         self.headers = {"X-Api-Key": self.api_key}
         session.headers.update(self.headers)
         self.request_handler = OverseerrRequestHandler(session, base_url=base_url)
@@ -70,64 +67,37 @@ class OverseerrAPI:
 
         media_items = []
         for item in pending_items:
-            imdb_id = self.get_imdb_id(item.media)
-            if imdb_id:
+            media_type = item.type
+            imdb_id = item.media.imdbId
+            tmdb_id = item.media.tmdbId
+            tvdb_id = item.media.tvdbId
+
+            if media_type == "tv":
+                media_type = "show"
+
+            if media_type == "movie":
                 media_items.append(
                     MediaItem({
                         "imdb_id": imdb_id,
+                        "tmdb_id": tmdb_id,
+                        "type": media_type,
                         "requested_by": service_key,
-                        "overseerr_id": item.media.id
                     })
                 )
-            elif item.media.tmdbId:
-                logger.debug(f"Skipping {item.type} with TMDb ID {item.media.tmdbId} due to missing IMDb ID")
-            elif item.media.tvdbId:
-                logger.debug(f"Skipping {item.type} with TVDb ID {item.media.tvdbId} due to missing IMDb ID")
+            elif media_type == "show":
+                media_items.append(
+                    MediaItem({
+                        "imdb_id": imdb_id,
+                        "tvdb_id": tvdb_id,
+                        "type": media_type,
+                        "requested_by": service_key,
+                    })
+                )
+
             else:
-                logger.debug(f"Skipping {item.type} with Overseerr ID {item.media.id} due to missing IMDb ID")
+                logger.error(f"Unknown media type: {media_type}")
+
         return media_items
-
-
-    def get_imdb_id(self, data) -> str | None:
-        """Get imdbId for item from overseerr"""
-        if data.mediaType == "show":
-            external_id = data.tvdbId
-            data.mediaType = "tv"
-        else:
-            external_id = data.tmdbId
-
-        try:
-            response = self.request_handler.execute(HttpMethod.GET, f"api/v1/{data.mediaType}/{external_id}?language=en")
-        except (ConnectionError, RetryError, MaxRetryError) as e:
-            logger.error(f"Failed to fetch media details from overseerr: {str(e)}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error during fetching media details: {str(e)}")
-            return None
-
-        if not response.is_ok or not hasattr(response.data, "externalIds"):
-            return None
-
-        imdb_id = getattr(response.data.externalIds, "imdbId", None)
-        if imdb_id:
-            return imdb_id
-
-        # Try alternate IDs if IMDb ID is not available
-        alternate_ids = [("tmdbId", self.trakt_api.get_imdbid_from_tmdb)]
-        for id_attr, fetcher in alternate_ids:
-            external_id_value = getattr(response.data.externalIds, id_attr, None)
-            if external_id_value:
-                _type = data.media_type
-                if _type == "tv":
-                    _type = "show"
-                try:
-                    new_imdb_id: Union[str, None] = fetcher(external_id_value, type=_type)
-                    if not new_imdb_id:
-                        continue
-                    return new_imdb_id
-                except Exception as e:
-                    logger.error(f"Error fetching alternate ID: {str(e)}")
-                    continue
 
     def delete_request(self, mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
