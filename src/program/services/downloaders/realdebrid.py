@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Union
 
 from loguru import logger
-from requests import Session
+from requests import Session, exceptions
 
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
@@ -115,6 +115,8 @@ class RealDebridDownloader(DownloaderBase):
             container = self._process_torrent(torrent_id, infohash, item_type)
         except InvalidDebridFileException as e:
             logger.debug(f"{infohash}: {e}")
+        except exceptions.ReadTimeout as e:
+            logger.debug(f"Failed to get instant availability for {infohash}: [ReadTimeout] {e}")
         except Exception as e:
             if len(e.args) > 0:
                 if " 503 " in e.args[0] or "Infringing" in e.args[0]:
@@ -233,7 +235,8 @@ class RealDebridDownloader(DownloaderBase):
             self.api.request_handler.execute(
                 HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
-                data={"files": selection}
+                data={"files": selection},
+                timeout=25
             )
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
