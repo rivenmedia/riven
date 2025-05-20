@@ -77,7 +77,7 @@ class TVDBIndexer(BaseIndexer):
                     show_item = self._map_show_from_tvdb_data(show_details)
                     if show_item:
                         # Add seasons and episodes
-                        self._add_seasons_to_show(show_item, tvdb_id)
+                        self._add_seasons_to_show(show_item, show_details, tvdb_id)
                         return show_item
             except Exception as e:
                 logger.error(f"Error creating show from TVDB ID: {str(e)}")
@@ -89,7 +89,7 @@ class TVDBIndexer(BaseIndexer):
                 search_results = self.api.search_by_imdb_id(imdb_id)
                 if search_results and search_results.get('data'):
                     # Get the first result and fetch full details
-                    tvdb_id = str(search_results['data'][0]['id'])
+                    tvdb_id = str(search_results['data'][0]['series']['id'])
                     return self._create_show_from_ids(None, tvdb_id)
             except Exception as e:
                 logger.error(f"Error creating show from IMDB ID: {str(e)}")
@@ -110,13 +110,15 @@ class TVDBIndexer(BaseIndexer):
             # Extract genres
             genres = []
             if genre_data := show_data.get('genres'):
-                genres = [genre.lower() for genre in genre_data]
+                genres = [genre.get('name').lower() for genre in genre_data]
                 
             # Get network
             network = None
-            if networks := show_data.get('networks'):
-                if networks and len(networks) > 0:
-                    network = networks[0].get('name')
+
+            if current_network := show_data.get('currentNetwork'):
+                network = current_network.get('name')
+            elif original_network := show_data.get('originalNetwork'):
+                network = original_network.get('name')
                     
             # Create show item
             show_item = {
@@ -139,33 +141,34 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error mapping show from TVDB data: {str(e)}")
             return None
-            
-    def _add_seasons_to_show(self, show: Show, tvdb_id: str):
+
+    def _add_seasons_to_show(self, show: Show, show_details: dict, tvdb_id: str):
         """Add seasons and episodes to the given show using TVDB API."""
         try:
-            # Get all seasons
-            seasons_data = self.api.get_series_seasons(tvdb_id)
-            if not seasons_data or not seasons_data.get('data'):
-                return
-                
-            for season_data in seasons_data['data']:
+
+            seasons = show_details.get('seasons', [])
+            # Filter out specials (usually season 0) and non-official seasons (for example absolute ordering)
+            filtered_seasons = [season for season in seasons if season.get('number') != 0 and season.get('type').get('type') == 'official']
+
+            for season_data in filtered_seasons:
+                extended_data = self.api.get_season(season_data.get('id')).get('data')
+
                 # Skip specials (usually season 0)
-                if season_data.get('number') == 0:
+                if extended_data.get('number') == 0:
                     continue
                     
                 # Create season item
-                season_item = self._create_season_from_data(season_data, show)
+                season_item = self._create_season_from_data(extended_data, show)
                 if not season_item:
                     continue
-                    
-                # Get episodes for this season
-                episodes_data = self.api.get_season_episodes(season_data.get('id'))
-                if not episodes_data or not episodes_data.get('data'):
+
+                episodes = extended_data.get('episodes', [])
+                if not episodes or not isinstance(episodes, list):
                     continue
                     
-                for episode_data in episodes_data['data']:
+                for episode in episodes:
                     # Create episode item
-                    episode_item = self._create_episode_from_data(episode_data, season_item)
+                    episode_item = self._create_episode_from_data(episode, season_item)
                     if episode_item:
                         season_item.add_episode(episode_item)
                         
@@ -182,7 +185,9 @@ class TVDBIndexer(BaseIndexer):
                 
             # Convert aired date to datetime
             aired_at = None
-            if first_aired := season_data.get('firstAired'):
+
+            # TODO: Check if this is correct, TVDB API doesn't return firstAired for seasons so we use the first episode's aired date
+            if first_aired := season_data.get('episodes')[0].get('aired'):
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
@@ -194,7 +199,7 @@ class TVDBIndexer(BaseIndexer):
                 "tvdb_id": str(season_data.get('id')),
                 "title": season_data.get('name') or f"Season {season_number}",
                 "aired_at": aired_at,
-                "year": int(season_data.get('firstAired', '').split('-')[0]) if season_data.get('firstAired') else None,
+                "year": int(season_data.get('year')) if season_data.get('year') else None,
                 "type": "season",
                 "is_anime": show.is_anime,
                 "requested_at": datetime.now()
@@ -228,7 +233,7 @@ class TVDBIndexer(BaseIndexer):
                 "tvdb_id": str(episode_data.get('id')),
                 "title": episode_data.get('name') or f"Episode {episode_number}",
                 "aired_at": aired_at,
-                "year": int(episode_data.get('aired', '').split('-')[0]) if episode_data.get('aired') else None,
+                "year": int(episode_data.get('year')) if episode_data.get('year') else None,
                 "type": "episode",
                 "is_anime": season.is_anime,
                 "requested_at": datetime.now()

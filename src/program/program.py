@@ -378,6 +378,10 @@ class Program(threading.Thread):
                     # Convert items to list and get total count
                     items_list = [item for item in items if isinstance(item, (Movie, Show))]
                     total_items = len(items_list)
+
+                    if not total_items:
+                        logger.log("PROGRAM", "No items found in symlinks")
+                        return
                     
                     progress, console = create_progress_bar(total_items)
                     task = progress.add_task("Enriching items with metadata", total=total_items, log="")

@@ -92,6 +92,8 @@ class EventManager:
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
+            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
+            # self.remove_event_from_queue(future.event)
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"

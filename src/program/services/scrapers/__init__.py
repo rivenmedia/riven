@@ -79,7 +79,10 @@ class Scraping:
                     item.store_state(States.Failed)
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
                 else:
-                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                    if item.failed_attempts > 0:
+                        logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                    else:
+                        logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)

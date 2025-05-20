@@ -50,8 +50,8 @@ class TVDBToken(BaseModel):
 
 
 class TVDBRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=TVDBApiError, request_logging=request_logging)
+    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
+        super().__init__(session, base_url=base_url, response_type=ResponseType.DICT, custom_exception=TVDBApiError, request_logging=request_logging)
 
     def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
         return super()._request(method, endpoint, **kwargs)
@@ -70,7 +70,7 @@ class TVDBApi:
         tvdb_cache = get_cache_params("tvdb", 86400)
         use_cache = os.environ.get("SKIP_TVDB_CACHE", "false").lower() == "false"
         self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=tvdb_cache)
-        self.request_handler = TVDBRequestHandler(self.session)
+        self.request_handler = TVDBRequestHandler(self.session, base_url=self.BASE_URL)
     
     def _load_token_from_file(self) -> Optional[TVDBToken]:
         """Load token from file if it exists and is valid"""
@@ -110,10 +110,9 @@ class TVDBApi:
         if self.token and self.token.expires_at > now:
             return self.token.token
 
-        url = f"{self.BASE_URL}/login"
         payload = {"apikey": self.api_key}
         
-        response = self.request_handler.execute(HttpMethod.POST, url, json=payload)
+        response = self.request_handler.execute(HttpMethod.POST, "login", json=payload)
         if not response.is_ok:
             logger.error(f"Failed to obtain TVDB token: {response.status_code}")
             return None
@@ -148,7 +147,7 @@ class TVDBApi:
 
         try:
             headers = self._get_headers()
-            url = f"{self.BASE_URL}/series/{series_id}/extended"
+            url = f"series/{series_id}/extended"
             
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
@@ -166,7 +165,7 @@ class TVDBApi:
 
         try:
             headers = self._get_headers()
-            url = f"{self.BASE_URL}/search/remote_id/{imdb_id}"
+            url = f"search/remoteid/{imdb_id}"
             
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
@@ -177,28 +176,28 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error searching by IMDB ID: {str(e)}")
             return None
-            
-    def get_series_seasons(self, series_id: str) -> Optional[Dict]:
-        """Get all seasons for a series."""
+
+    def get_season(self, season_id: str) -> Optional[Dict]:
+        """Get details for a specific season."""
         try:
             headers = self._get_headers()
-            url = f"{self.BASE_URL}/series/{series_id}/seasons"
-            
+            url = f"seasons/{season_id}/extended"
+
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
-                logger.error(f"Failed to get series seasons: {response.status_code}")
+                logger.error(f"Failed to get season details: {response.status_code}")
                 return None
                 
             return response.data
         except Exception as e:
-            logger.error(f"Error getting series seasons: {str(e)}")
+            logger.error(f"Error getting season details: {str(e)}")
             return None
             
     def get_season_episodes(self, season_id: str) -> Optional[Dict]:
         """Get all episodes for a season."""
         try:
             headers = self._get_headers()
-            url = f"{self.BASE_URL}/seasons/{season_id}/extended"
+            url = f"seasons/{season_id}/extended"
             
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
@@ -214,7 +213,7 @@ class TVDBApi:
         """Get episode details."""
         try:
             headers = self._get_headers()
-            url = f"{self.BASE_URL}/episodes/{episode_id}/extended"
+            url = f"episodes/{episode_id}/extended"
             
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
