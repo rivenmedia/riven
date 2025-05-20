@@ -1,4 +1,5 @@
 import contextlib
+import os
 import signal
 import sys
 import threading
@@ -18,6 +19,7 @@ from starlette.requests import Request
 
 from program import Program
 from program.settings.models import get_version
+from program.telemetry import Telemetry
 from program.utils.cli import handle_args
 from routers import app_router
 
@@ -49,6 +51,14 @@ app = FastAPI(
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
 )
+
+if os.getenv("ENABLE_TELEMETRY", "true").lower() == "true":
+    TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "https://riven-telemetry.davidemarcoli.dev/api/telemetry")
+    telemetry = Telemetry(
+        app=app,
+        reporting_url=TELEMETRY_ENDPOINT,
+        app_version=get_version(),
+    )
 
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
