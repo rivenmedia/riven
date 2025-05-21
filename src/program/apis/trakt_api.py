@@ -36,7 +36,8 @@ class TraktRequestHandler(BaseRequestHandler):
 class TraktAPI:
     """Handles Trakt API communication"""
     BASE_URL = "https://api.trakt.tv"
-    CLIENT_ID = "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3"
+    CLIENT_ID = os.environ.get("TRAKT_API_CLIENT_ID", "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3")
+    logger.debug(f"Trakt Client ID: {CLIENT_ID[:4]}...{CLIENT_ID[-4:]}")
 
     patterns: dict[str, re.Pattern] = {
         "user_list": re.compile(r"https://trakt.tv/users/([^/]+)/lists/([^/]+)"),
