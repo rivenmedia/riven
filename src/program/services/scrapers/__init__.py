@@ -57,7 +57,10 @@ class Scraping:
             logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
             yield item
 
-        logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        if self.max_failed_attempts > 0:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        else:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}. Current scraped times: {item.scraped_times}")
 
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
