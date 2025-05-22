@@ -197,7 +197,11 @@ class TraktAPI:
     def create_item_from_imdb_id(self, imdb_id: str, type: str = None) -> Optional[MediaItem]:
         """Wrapper for trakt.tv API search method."""
         url = f"{self.BASE_URL}/search/imdb/{imdb_id}?extended=full"
-        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
+        try:
+            response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
+        except TraktAPIError as e:
+            logger.error(f"Failed to create item using imdb id: {imdb_id} - {str(e)}")
+            return None
         if not response.is_ok or not response.data:
             logger.error(
                 f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
