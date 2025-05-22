@@ -22,7 +22,7 @@ class BaseIndexer(ABC):
     @staticmethod
     def copy_attributes(source, target):
         """Copy attributes from source to target."""
-        attributes = ["title", "file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles", 
+        attributes = ["file", "folder", "update_folder", "symlinked", "is_anime", "symlink_path", "subtitles", 
                       "requested_by", "requested_at", "overseerr_id", "active_stream", "requested_id", "streams"]
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))

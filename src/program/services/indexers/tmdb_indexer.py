@@ -65,17 +65,25 @@ class TMDBIndexer(BaseIndexer):
         
         # First try TMDB ID if available
         if tmdb_id:
-            movie_details = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+            result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+            if result.data:
+                movie_details = result.data
+            else:
+                logger.error(f"Failed to get movie details for TMDB ID: {tmdb_id}")
             
         # If that fails or no TMDB ID, try IMDB ID
         if not movie_details and imdb_id:
             # Use the find endpoint to get TMDB data from IMDB ID
             results = self.api.get_from_external_id("imdb_id", imdb_id)
-            if results and hasattr(results, 'movie_results') and results.movie_results:
+            if results.data and hasattr(results.data, 'movie_results') and results.data.movie_results and len(results.data.movie_results) > 0:
                 # Get the first movie result and fetch full details
-                tmdb_id = results.movie_results[0].id
-                movie_details = self.api.get_movie_details(str(tmdb_id), "append_to_response=external_ids")
-        
+                tmdb_id = results.data.movie_results[0].id
+                result = self.api.get_movie_details(str(tmdb_id), "append_to_response=external_ids")
+                if result.data:
+                    movie_details = result.data
+                else:
+                    logger.error(f"Failed to get movie details for TMDB ID: {tmdb_id}")
+
         if not movie_details:
             return None
             
