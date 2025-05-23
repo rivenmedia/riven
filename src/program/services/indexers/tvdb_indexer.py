@@ -119,12 +119,18 @@ class TVDBIndexer(BaseIndexer):
                 network = current_network.get('name')
             elif original_network := show_data.get('originalNetwork'):
                 network = original_network.get('name')
-                    
+            
+            tmdb_id = None
+            if external_ids := show_data.get('remoteIds'):
+                # find item in external_ids with sourceName 'TheMovieDB.com'
+                tmdb_id = next((item.get('id') for item in external_ids if item.get('sourceName') == 'TheMovieDB.com'), None)
+
             # Create show item
             show_item = {
                 "title": show_data.get('name'),
                 "year": int(show_data.get('firstAired', '').split('-')[0]) if show_data.get('firstAired') else None,
                 "tvdb_id": str(show_data.get('id')),
+                "tmdb_id": str(tmdb_id) if tmdb_id else None,
                 "imdb_id": show_data.get('imdbId'),
                 "aired_at": aired_at,
                 "genres": genres,
