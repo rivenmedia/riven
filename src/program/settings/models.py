@@ -295,6 +295,7 @@ class NotificationsModel(Observable):
 class SubliminalConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
+    count_per_language: int = 1  # Number of subtitles to download per language
     providers: dict = {
         "opensubtitles": {
             "enabled": False,
