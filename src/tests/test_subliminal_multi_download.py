@@ -156,7 +156,7 @@ class TestSubliminalMultipleDownloads:
         
         # Second subtitle of each language should have numbered filename
         assert calls[1][1]['filename'] == "test_movie.eng.2.srt"
-        assert calls[3][1]['filename'] == "test_movie.heb.2.srt"
+        assert calls[3][1]['filename'] == "test_movie.ger.2.srt"
 
     @patch('program.services.post_processing.subliminal.settings_manager')
     def test_backward_compatibility_single_subtitle(
