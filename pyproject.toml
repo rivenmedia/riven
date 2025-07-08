@@ -19,7 +19,7 @@ fastapi = "^0.110.0"
 uvicorn = {extras = ["standard"], version = "^0.30.6"}
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
-coverage = "^7.6.8"
+coverage = "^7.9.2"
 cachetools = "^5.3.3"
 loguru = "^0.7.2"
 rich = "^13.7.1"
