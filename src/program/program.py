@@ -182,6 +182,9 @@ class Program(threading.Thread):
         self._schedule_services()
         self._schedule_functions()
 
+        # Initialize network profiling
+        self._initialize_network_profiling()
+
         super().start()
         self.scheduler.start()
         logger.success("Riven is running!")
@@ -212,6 +215,44 @@ class Program(threading.Thread):
             else:
                 logger.log("PROGRAM", "No items required state updates")
 
+    def _initialize_network_profiling(self) -> None:
+        """Initialize network profiling based on settings."""
+        try:
+            from program.utils.network_profiler import network_profiler
+
+            # Enable profiling if debug mode is active or explicitly enabled
+            if settings_manager.settings.debug or settings_manager.settings.network_profiling.enabled:
+                network_profiler.enable()
+                logger.log("PROGRAM", "Network profiling enabled")
+            else:
+                logger.log("PROGRAM", "Network profiling disabled")
+
+        except ImportError as e:
+            logger.warning(f"Failed to initialize network profiling: {e}")
+
+    def _network_profiling_summary(self) -> None:
+        """Log network profiling summary periodically."""
+        try:
+            from program.utils.network_profiler import network_profiler
+            network_profiler.log_summary()
+        except ImportError:
+            pass
+
+    def _network_health_check(self) -> None:
+        """Perform periodic network health checks and send alerts if needed."""
+        try:
+            from program.utils.network_profiler import network_profiler
+            health_status = network_profiler.check_system_health()
+
+            if health_status.get("status") == "unhealthy":
+                logger.warning("Network health check detected issues - alerts may have been sent")
+            elif health_status.get("health_check_enabled"):
+                logger.debug(f"Network health check completed: {health_status.get('status', 'unknown')}")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.error(f"Error during network health check: {e}")
+
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
@@ -220,6 +261,16 @@ class Program(threading.Thread):
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
+
+        # Add network profiling summary if enabled
+        if settings_manager.settings.debug or settings_manager.settings.network_profiling.enabled:
+            summary_interval = settings_manager.settings.network_profiling.periodic_summary_interval
+            scheduled_functions[self._network_profiling_summary] = {"interval": summary_interval}
+
+            # Add health check if alerts are enabled
+            if settings_manager.settings.network_profiling.enable_alerts:
+                # Run health checks every 15 minutes
+                scheduled_functions[self._network_health_check] = {"interval": 900}
 
         if settings_manager.settings.symlink.repair_symlinks:
             scheduled_functions[fix_broken_symlinks] = {

@@ -5,6 +5,7 @@ from auth import resolve_api_key, resolve_ws_api_key
 from program.settings.manager import settings_manager
 from routers.models.shared import RootResponse
 from routers.secure.default import router as default_router
+from routers.secure.debug import router as debug_router
 from routers.secure.items import router as items_router
 from routers.secure.scrape import router as scrape_router
 from routers.secure.settings import router as settings_router
@@ -23,6 +24,7 @@ async def root(_: Request) -> RootResponse:
     }
 
 app_router.include_router(default_router, dependencies=[Depends(resolve_api_key)])
+app_router.include_router(debug_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(items_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(scrape_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(settings_router, dependencies=[Depends(resolve_api_key)])

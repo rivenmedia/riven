@@ -1,4 +1,5 @@
 import json
+import time
 from enum import Enum
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Type
@@ -27,6 +28,19 @@ from urllib3.util.retry import Retry
 from xmltodict import parse as parse_xml
 
 from program.utils import data_dir_path
+
+# Import network profiler - using lazy import to avoid circular dependencies
+def get_network_profiler():
+    """Lazy import of network profiler to avoid circular dependencies."""
+    try:
+        from program.utils.network_profiler import network_profiler
+        return network_profiler
+    except ImportError:
+        # Return a no-op profiler if import fails
+        class NoOpProfiler:
+            def record_request(self, *args, **kwargs):
+                pass
+        return NoOpProfiler()
 
 
 class HttpMethod(Enum):
@@ -117,15 +131,17 @@ class BaseRequestHandler:
     :param base_params: Optional base parameters to include in requests.
     :param custom_exception: Optional custom exception to raise on request failure.
     :param request_logging: Boolean indicating if request logging should be enabled.
+    :param service_name: Optional service name for network profiling identification.
     """
     def __init__(self, session: Session | LimiterSession, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_url: Optional[str] = None, base_params: Optional[BaseRequestParameters] = None,
-                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
+                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False, service_name: Optional[str] = None):
         self.session = session
         self.response_type = response_type
         self.BASE_URL = base_url
         self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
         self.custom_exception = custom_exception or Exception
         self.request_logging = request_logging
+        self.service_name = service_name
         self.timeout = 15
 
     def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
@@ -139,6 +155,10 @@ class BaseRequestHandler:
         :param kwargs: Additional parameters to pass to the request.
         :return: ResponseObject with the response data.
         """
+        # Start timing for network profiling
+        start_time = time.perf_counter()
+        profiler = get_network_profiler()
+
         try:
             url = f"{self.BASE_URL}/{endpoint}".rstrip('/') if not ignore_base_url and self.BASE_URL else endpoint
 
@@ -161,13 +181,52 @@ class BaseRequestHandler:
             response_obj = ResponseObject(response=response, response_type=request_response_type)
             if self.request_logging:
                 logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
+
+            # Record successful request in profiler
+            duration = time.perf_counter() - start_time
+            profiler.record_request(
+                url=url,
+                method=method.value,
+                duration=duration,
+                status_code=response.status_code,
+                success=True,
+                service_name=getattr(self, 'service_name', None)
+            )
+
             return response_obj
 
         except HTTPError as e:
+            # Record failed request in profiler
+            duration = time.perf_counter() - start_time
+            status_code = e.response.status_code if e.response is not None else None
+            profiler.record_request(
+                url=url if 'url' in locals() else endpoint,
+                method=method.value,
+                duration=duration,
+                status_code=status_code,
+                success=False,
+                error_message=str(e),
+                service_name=getattr(self, 'service_name', None)
+            )
+
             if e.response is not None and e.response.status_code == 429:
                 raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response) from e
             else:
                 raise self.custom_exception(f"Request failed: {e}") from e
+
+        except Exception as e:
+            # Record any other exceptions in profiler
+            duration = time.perf_counter() - start_time
+            profiler.record_request(
+                url=url if 'url' in locals() else endpoint,
+                method=method.value,
+                duration=duration,
+                status_code=None,
+                success=False,
+                error_message=str(e),
+                service_name=getattr(self, 'service_name', None)
+            )
+            raise
 
 
 class RateLimitExceeded(Exception):

@@ -311,6 +311,29 @@ class SubliminalConfig(Observable):
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
 
+
+class NetworkProfilingModel(Observable):
+    """Network profiling configuration for monitoring HTTP request performance."""
+    enabled: bool = False
+    slow_request_threshold: float = Field(default=2.0, ge=0.1, le=60.0, description="Threshold in seconds to consider a request slow")
+    max_stored_requests: int = Field(default=1000, ge=100, le=10000, description="Maximum number of requests to store in memory")
+    log_slow_requests: bool = Field(default=True, description="Whether to immediately log slow requests")
+    periodic_summary_interval: int = Field(default=3600, ge=300, le=86400, description="Interval in seconds for periodic summary logging")
+
+    # Alerting settings
+    enable_alerts: bool = Field(default=False, description="Enable alerting for network issues")
+    alert_slow_request_threshold: float = Field(default=10.0, ge=1.0, le=300.0, description="Threshold in seconds for alerting on slow requests")
+    alert_error_rate_threshold: float = Field(default=10.0, ge=1.0, le=100.0, description="Error rate percentage threshold for alerts")
+    alert_cooldown_minutes: int = Field(default=60, ge=5, le=1440, description="Cooldown period between similar alerts in minutes")
+
+    # Production settings
+    feature_flag_enabled: bool = Field(default=True, description="Master feature flag for network profiling")
+    graceful_degradation: bool = Field(default=True, description="Continue operation if profiling fails")
+    max_memory_mb: float = Field(default=50.0, ge=1.0, le=500.0, description="Maximum memory usage in MB before auto-cleanup")
+    performance_monitoring: bool = Field(default=True, description="Monitor profiling performance impact")
+    auto_disable_on_error: bool = Field(default=True, description="Automatically disable profiling on repeated errors")
+
+
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
@@ -330,6 +353,7 @@ class AppModel(Observable):
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
+    network_profiling: NetworkProfilingModel = NetworkProfilingModel()
 
     def __init__(self, **data: Any):
         current_version = get_version()
