@@ -55,6 +55,7 @@ We are constantly adding features and improvements as we go along and squashing 
   - [Using `make` for Development](#using-make-for-development)
   - [Development without `make`](#development-without-make)
   - [Additional Tips](#additional-tips)
+- [Network Profiling](#network-profiling)
 - [Contributing](#contributing)
   - [Submitting Changes](#submitting-changes)
   - [Code Formatting](#code-formatting)
@@ -255,6 +256,36 @@ If you prefer not to use `make` and Docker, you can manually set up the developm
     ```
 
 By following these guidelines, you'll be able to set up your development environment smoothly and start contributing to the project. Happy coding!
+
+---
+
+## Network Profiling
+
+Monitor HTTP request performance to identify slow requests and bottlenecks.
+
+### Quick Start
+
+```bash
+# Enable via CLI
+python main.py --profile-network
+
+# Or in settings
+"network_profiling": {"enabled": true}
+```
+
+### Configuration
+
+```json
+{
+  "network_profiling": {
+    "enabled": false,
+    "slow_request_threshold": 2.0,
+    "max_stored_requests": 1000
+  }
+}
+```
+
+See [docs/NETWORK_PROFILING.md](docs/NETWORK_PROFILING.md) for details.
 
 ---
 

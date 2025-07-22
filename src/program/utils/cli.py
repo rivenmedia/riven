@@ -42,6 +42,17 @@ def handle_args():
         default=8080,
         help="Port to run the server on (default: 8000)"
     )
+    parser.add_argument(
+        "--profile-network",
+        action="store_true",
+        help="Enable network profiling to monitor HTTP request performance."
+    )
+    parser.add_argument(
+        "--profile-threshold",
+        type=float,
+        default=None,
+        help="Set the threshold in seconds for slow request detection (default: 2.0)."
+    )
 
     args = parser.parse_args()
 
@@ -63,5 +74,17 @@ def handle_args():
     if args.fix_symlinks:
         fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
         exit(0)
+
+    # Handle network profiling arguments
+    if hasattr(args, 'profile_network') and args.profile_network:
+        settings_manager.settings.network_profiling.enabled = True
+        logger.info("Network profiling enabled via CLI argument")
+
+    if hasattr(args, 'profile_threshold') and args.profile_threshold is not None:
+        if args.profile_threshold > 0:
+            settings_manager.settings.network_profiling.slow_request_threshold = args.profile_threshold
+            logger.info(f"Network profiling threshold set to {args.profile_threshold}s via CLI argument")
+        else:
+            logger.warning("Profile threshold must be greater than 0, ignoring CLI argument")
 
     return args
