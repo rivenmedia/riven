@@ -197,6 +197,9 @@ class TraktAPI:
     def create_item_from_imdb_id(self, imdb_id: str, type: str = None) -> Optional[MediaItem]:
         """Wrapper for trakt.tv API search method."""
         url = f"{self.BASE_URL}/search/imdb/{imdb_id}?extended=full"
+        if type:
+            url+=f"&type={type}"
+            
         try:
             response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         except TraktAPIError as e:
