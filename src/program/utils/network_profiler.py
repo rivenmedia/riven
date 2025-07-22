@@ -7,9 +7,9 @@ import json
 import csv
 import io
 from collections import deque, defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Deque, Tuple, Union
+from typing import Dict, List, Optional, Deque, Union
 from urllib.parse import urlparse
 import statistics
 
