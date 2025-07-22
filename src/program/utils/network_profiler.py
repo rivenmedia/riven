@@ -123,9 +123,6 @@ class NetworkProfiler:
         """Track performance impact of profiling."""
         self._performance_metrics["profiling_overhead_total"] += operation_time
         self._performance_metrics["profiling_calls_total"] += 1
-
-
-                    logger.warning(f"Network profiling average overhead: {avg_overhead*1000:.2f}ms per request")
     
     def enable(self) -> None:
         """Enable network profiling."""
