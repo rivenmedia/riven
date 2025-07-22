@@ -97,6 +97,9 @@ class NetworkProfiler:
                 alert_slow_request_threshold = 10.0
                 alert_error_rate_threshold = 10.0
                 alert_cooldown_minutes = 60
+                auto_disable_on_error = True
+                performance_monitoring = True
+                max_memory_mb = 50.0
             return DefaultSettings()
 
     def _is_feature_enabled(self) -> bool:
@@ -365,10 +368,12 @@ class NetworkProfiler:
             # Fallback for edge cases
             sorted_durations = sorted(durations)
             n = len(sorted_durations)
+            if n == 1:
+                return {"p50": sorted_durations[0], "p95": sorted_durations[0], "p99": sorted_durations[0]}
             return {
                 "p50": sorted_durations[n // 2],
-                "p95": sorted_durations[int(n * 0.95)] if n > 1 else sorted_durations[0],
-                "p99": sorted_durations[int(n * 0.99)] if n > 1 else sorted_durations[0]
+                "p95": sorted_durations[min(int(n * 0.95), n - 1)],
+                "p99": sorted_durations[min(int(n * 0.99), n - 1)]
             }
 
     def calculate_request_rate(self, minutes: int = 60) -> float:
