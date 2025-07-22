@@ -18,20 +18,17 @@ from loguru import logger
 
 @dataclass
 class RequestMetrics:
-    """Dataclass to store metrics for a single HTTP request."""
-    
     url: str
     method: str
     status_code: Optional[int]
-    duration: float  # in seconds
+    duration: float
     timestamp: datetime
     success: bool
     error_message: Optional[str] = None
     service_name: Optional[str] = None
-    
+
     @property
     def domain(self) -> str:
-        """Extract domain from URL for grouping."""
         try:
             return urlparse(self.url).netloc
         except Exception:
@@ -39,15 +36,12 @@ class RequestMetrics:
 
     @property
     def url_pattern(self) -> str:
-        """Extract URL pattern by replacing IDs and dynamic parts with placeholders."""
         try:
             parsed = urlparse(self.url)
             path = parsed.path
-
-            # Replace common ID patterns
-            path = re.sub(r'/\d+', '/{id}', path)  # Numeric IDs
-            path = re.sub(r'/[a-f0-9]{8,}', '/{hash}', path)  # Hash-like strings
-            path = re.sub(r'/tt\d+', '/{imdb_id}', path)  # IMDB IDs
+            path = re.sub(r'/\d+', '/{id}', path)
+            path = re.sub(r'/[a-f0-9]{8,}', '/{hash}', path)
+            path = re.sub(r'/tt\d+', '/{imdb_id}', path)
             path = re.sub(r'/[A-Z0-9]{8,}', '/{token}', path)  # Tokens/API keys
 
             return f"{parsed.netloc}{path}"
@@ -63,132 +57,32 @@ class NetworkProfiler:
     """Thread-safe network profiler for monitoring HTTP request performance."""
 
     def __init__(self, max_stored_requests: int = 1000, slow_threshold: float = 2.0):
-        """
-        Initialize the network profiler.
-
-        Args:
-            max_stored_requests: Maximum number of requests to store in memory
-            slow_threshold: Threshold in seconds to consider a request slow
-        """
         self._enabled = False
         self._max_stored_requests = max_stored_requests
         self._slow_threshold = slow_threshold
         self._lock = threading.RLock()
-
-        # Use deque for efficient FIFO operations with max size
         self._requests: Deque[RequestMetrics] = deque(maxlen=max_stored_requests)
-
-        # Statistics tracking
         self._total_requests = 0
         self._total_duration = 0.0
         self._slow_requests_count = 0
         self._error_count = 0
 
-        # Alerting tracking
-        self._last_alert_times = {}  # Track last alert time for each alert type
-
-        # Production monitoring
-        self._error_count_consecutive = 0
-        self._last_error_time = None
-        self._performance_metrics = {
-            "profiling_overhead_total": 0.0,
-            "profiling_calls_total": 0,
-            "memory_cleanups": 0,
-            "auto_disables": 0
-        }
-
-        logger.debug(f"NetworkProfiler initialized with max_stored_requests={max_stored_requests}, slow_threshold={slow_threshold}s")
-
     def _get_settings(self):
-        """Get network profiling settings, with fallback to defaults."""
         try:
             from program.settings.manager import settings_manager
             return settings_manager.settings.network_profiling
         except (ImportError, AttributeError):
-            # Return a simple object with default values if settings not available
             class DefaultSettings:
                 enabled = False
                 slow_request_threshold = 2.0
                 max_stored_requests = 1000
-                log_slow_requests = True
-                feature_flag_enabled = True
-                graceful_degradation = True
-                max_memory_mb = 50.0
-                performance_monitoring = True
-                auto_disable_on_error = True
             return DefaultSettings()
 
     def _is_feature_enabled(self) -> bool:
-        """Check if profiling is enabled via feature flag."""
         settings = self._get_settings()
-        return settings.feature_flag_enabled and self._enabled and settings.enabled
+        return self._enabled and settings.enabled
 
-    def _handle_error(self, error: Exception, operation: str) -> None:
-        """Handle errors with graceful degradation."""
-        settings = self._get_settings()
 
-        self._error_count_consecutive += 1
-        self._last_error_time = datetime.now()
-
-        logger.error(f"Network profiling error in {operation}: {error}")
-
-        # Auto-disable on repeated errors
-        if (settings.auto_disable_on_error and
-            self._error_count_consecutive >= 5):
-
-            logger.warning("Auto-disabling network profiling due to repeated errors")
-            self.disable()
-            self._performance_metrics["auto_disables"] += 1
-
-            # Send alert about auto-disable
-            try:
-                self._send_alert(
-                    "auto_disable",
-                    "🚨 Network Profiling Auto-Disabled",
-                    f"Network profiling was automatically disabled due to {self._error_count_consecutive} consecutive errors.\n\n"
-                    f"Last error: {error}\n"
-                    f"Operation: {operation}\n"
-                    f"Time: {self._last_error_time.isoformat()}"
-                )
-            except Exception:
-                pass  # Don't fail on alert failure
-
-    def _check_memory_usage(self) -> None:
-        """Check and manage memory usage."""
-        settings = self._get_settings()
-        usage = self.get_memory_usage_estimate()
-
-        current_mb = float(usage["estimated_mb"])
-
-        if current_mb > settings.max_memory_mb:
-            logger.warning(f"Network profiling memory usage ({current_mb:.2f}MB) exceeds limit ({settings.max_memory_mb}MB)")
-
-            # Remove oldest 25% of requests
-            with self._lock:
-                remove_count = len(self._requests) // 4
-                for _ in range(remove_count):
-                    if self._requests:
-                        self._requests.popleft()
-
-                self._performance_metrics["memory_cleanups"] += 1
-                logger.info(f"Cleaned up {remove_count} old requests to reduce memory usage")
-
-    def _measure_performance_impact(self, operation_time: float) -> None:
-        """Measure and track performance impact."""
-        settings = self._get_settings()
-        if not settings.performance_monitoring:
-            return
-
-        with self._lock:
-            self._performance_metrics["profiling_overhead_total"] += operation_time
-            self._performance_metrics["profiling_calls_total"] += 1
-
-            # Log performance warning if overhead is high
-            if self._performance_metrics["profiling_calls_total"] % 1000 == 0:
-                avg_overhead = (self._performance_metrics["profiling_overhead_total"] /
-                               self._performance_metrics["profiling_calls_total"])
-
-                if avg_overhead > 0.001:  # More than 1ms average overhead
                     logger.warning(f"Network profiling average overhead: {avg_overhead*1000:.2f}ms per request")
     
     def enable(self) -> None:

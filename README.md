@@ -261,70 +261,31 @@ By following these guidelines, you'll be able to set up your development environ
 
 ## Network Profiling
 
-Riven includes a comprehensive network profiling system to monitor and analyze HTTP request performance across all services. This feature helps identify slow requests, network issues, and performance bottlenecks.
+Monitor HTTP request performance to identify slow requests and bottlenecks.
 
 ### Quick Start
 
-Enable network profiling with any of these methods:
-
 ```bash
-# Via CLI argument
+# Enable via CLI
 python main.py --profile-network
 
-# Via environment variable
-export RIVEN_NETWORK_PROFILING_ENABLED=true
-
-# Via settings (set debug mode)
-"debug": true
-```
-
-### Key Features
-
-- 🚀 **Real-time monitoring** of all HTTP requests
-- 📊 **Advanced analytics** with percentiles and request rates
-- 🔔 **Smart alerting** for slow requests and high error rates
-- 📈 **Performance insights** grouped by service, domain, and URL pattern
-- 💾 **Export capabilities** in JSON and CSV formats
-- ⚡ **Zero overhead** when disabled, minimal impact when enabled
-
-### API Endpoints
-
-Access profiling data through the debug API:
-
-```bash
-# Get current statistics
-GET /api/v1/debug/network-stats
-
-# View slow requests
-GET /api/v1/debug/network-profiling/slow-requests
-
-# Export data
-GET /api/v1/debug/network-profiling/export/json
-GET /api/v1/debug/network-profiling/export/csv
-
-# Enable/disable profiling
-POST /api/v1/debug/network-profiling/enable
-POST /api/v1/debug/network-profiling/disable
+# Or in settings
+"network_profiling": {"enabled": true}
 ```
 
 ### Configuration
-
-Configure network profiling in your settings:
 
 ```json
 {
   "network_profiling": {
     "enabled": false,
     "slow_request_threshold": 2.0,
-    "max_stored_requests": 1000,
-    "enable_alerts": false,
-    "alert_slow_request_threshold": 10.0,
-    "alert_error_rate_threshold": 10.0
+    "max_stored_requests": 1000
   }
 }
 ```
 
-For detailed documentation, see [docs/NETWORK_PROFILING.md](docs/NETWORK_PROFILING.md).
+See [docs/NETWORK_PROFILING.md](docs/NETWORK_PROFILING.md) for details.
 
 ---
 
