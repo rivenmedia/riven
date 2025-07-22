@@ -67,6 +67,21 @@ class NetworkProfiler:
         self._slow_requests_count = 0
         self._error_count = 0
 
+        # Error tracking
+        self._error_count_consecutive = 0
+        self._last_error_time = None
+
+        # Alerting tracking
+        self._last_alert_times = {}
+
+        # Performance metrics
+        self._performance_metrics = {
+            "profiling_overhead_total": 0.0,
+            "profiling_calls_total": 0,
+            "memory_cleanups": 0,
+            "auto_disables": 0
+        }
+
     def _get_settings(self):
         try:
             from program.settings.manager import settings_manager
@@ -76,11 +91,38 @@ class NetworkProfiler:
                 enabled = False
                 slow_request_threshold = 2.0
                 max_stored_requests = 1000
+                log_slow_requests = True
+                graceful_degradation = True
+                enable_alerts = False
+                alert_slow_request_threshold = 10.0
+                alert_error_rate_threshold = 10.0
+                alert_cooldown_minutes = 60
             return DefaultSettings()
 
     def _is_feature_enabled(self) -> bool:
         settings = self._get_settings()
         return self._enabled and settings.enabled
+
+    def _handle_error(self, error: Exception, operation: str) -> None:
+        """Handle errors with simple logging."""
+        self._error_count_consecutive += 1
+        self._last_error_time = datetime.now()
+        logger.error(f"Network profiling error in {operation}: {error}")
+
+    def _check_memory_usage(self) -> None:
+        """Simple memory management."""
+        if len(self._requests) >= self._max_stored_requests * 0.9:
+            # Remove oldest 25% of requests when approaching limit
+            remove_count = len(self._requests) // 4
+            for _ in range(remove_count):
+                if self._requests:
+                    self._requests.popleft()
+            self._performance_metrics["memory_cleanups"] += 1
+
+    def _measure_performance_impact(self, operation_time: float) -> None:
+        """Track performance impact of profiling."""
+        self._performance_metrics["profiling_overhead_total"] += operation_time
+        self._performance_metrics["profiling_calls_total"] += 1
 
 
                     logger.warning(f"Network profiling average overhead: {avg_overhead*1000:.2f}ms per request")
