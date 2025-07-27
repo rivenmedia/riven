@@ -311,6 +311,14 @@ class SubliminalConfig(Observable):
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
 
+
+class NetworkProfilingModel(Observable):
+    """Network profiling configuration."""
+    enabled: bool = False
+    slow_request_threshold: float = Field(default=2.0, ge=0.1, le=60.0)
+    max_stored_requests: int = Field(default=1000, ge=100, le=10000)
+
+
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
@@ -330,6 +338,7 @@ class AppModel(Observable):
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
+    network_profiling: NetworkProfilingModel = NetworkProfilingModel()
 
     def __init__(self, **data: Any):
         current_version = get_version()
