@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
+import sqlalchemy.orm
 
 from program.db import db_functions
 from program.db.db import db, get_db
@@ -85,7 +86,31 @@ async def get_items(
     if limit < 1:
         raise HTTPException(status_code=400, detail="Limit must be 1 or greater.")
 
-    query = select(MediaItem)
+    # Prevent excessive memory usage by limiting max page size
+    if limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 items per page.")
+
+    # Optimize query to avoid loading unnecessary relationships by default
+    if extended:
+        # Only load relationships when extended data is requested
+        query = select(MediaItem)
+    else:
+        # For basic listing, avoid loading relationships to reduce memory usage
+        query = select(MediaItem).options(
+            sqlalchemy.orm.load_only(
+                MediaItem.id,
+                MediaItem.title,
+                MediaItem.type,
+                MediaItem.imdb_id,
+                MediaItem.tvdb_id,
+                MediaItem.tmdb_id,
+                MediaItem.last_state,
+                MediaItem.requested_at,
+                MediaItem.indexed_at,
+                MediaItem.scraped_at,
+                MediaItem.is_anime
+            )
+        )
 
     if search:
         search_lower = search.lower()
@@ -161,29 +186,46 @@ async def get_items(
             )
 
     with db.Session() as session:
-        total_items = session.execute(
-            select(func.count()).select_from(query.subquery())
-        ).scalar_one()
-        items = (
-            session.execute(query.offset((page - 1) * limit).limit(limit))
-            .unique()
-            .scalars()
-            .all()
-        )
+        # Use streaming for better memory efficiency with large datasets
+        with session.connection().execution_options(stream_results=True) as conn:
+            # Get total count efficiently
+            total_items = conn.execute(
+                select(func.count()).select_from(query.subquery())
+            ).scalar_one()
 
-        total_pages = (total_items + limit - 1) // limit
+            # Execute paginated query with streaming
+            paginated_query = query.offset((page - 1) * limit).limit(limit)
 
-        return {
-            "success": True,
-            "items": [
-                item.to_extended_dict() if extended else item.to_dict()
-                for item in items
-            ],
-            "page": page,
-            "limit": limit,
-            "total_items": total_items,
-            "total_pages": total_pages,
-        }
+            # Use streaming execution for memory efficiency
+            result = conn.execute(paginated_query)
+            items = result.unique().scalars().all()
+
+            total_pages = (total_items + limit - 1) // limit
+
+            # Process items in batches to reduce memory usage for large responses
+            processed_items = []
+            batch_size = 100  # Process items in smaller batches
+
+            for i in range(0, len(items), batch_size):
+                batch = items[i:i + batch_size]
+                batch_processed = [
+                    item.to_extended_dict() if extended else item.to_dict()
+                    for item in batch
+                ]
+                processed_items.extend(batch_processed)
+
+                # Expunge items from session to free memory
+                for item in batch:
+                    session.expunge(item)
+
+            return {
+                "success": True,
+                "items": processed_items,
+                "page": page,
+                "limit": limit,
+                "total_items": total_items,
+                "total_pages": total_pages,
+            }
 
 
 @router.post(
@@ -256,16 +298,23 @@ async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> 
 )
 async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
     ids = imdb_ids.split(",")
+
+    # Limit the number of IDs to prevent excessive queries
+    if len(ids) > 100:
+        raise HTTPException(status_code=400, detail="Cannot query more than 100 IMDb IDs at once.")
+
     with db.Session() as session:
-        items = []
-        for id in ids:
-            item = (
-                session.execute(select(MediaItem).where(MediaItem.imdb_id == id).where(MediaItem.type.in_(["movie", "show"])))
-                .unique()
-                .scalar_one()
+        # Use a single query with IN clause for better performance
+        items = (
+            session.execute(
+                select(MediaItem)
+                .where(MediaItem.imdb_id.in_(ids))
+                .where(MediaItem.type.in_(["movie", "show"]))
             )
-            if item:
-                items.append(item)
+            .unique()
+            .scalars()
+            .all()
+        )
         return [item.to_extended_dict() for item in items]
 
 
@@ -607,7 +656,6 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
 
     return {"message": f"Successfully unpaused items.", "ids": ids}
 
-
 class FfprobeResponse(BaseModel):
     message: str
     data: dict
@@ -646,3 +694,19 @@ async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
     if data:
         return FfprobeResponse(message=f"Successfully parsed media files for item {id}", data=data)
     return FfprobeResponse(message=f"No media files found for item {id}", data={})
+
+class ClearFailedAttemptsResponse(BaseModel):
+    message: str
+
+@router.post(
+    "/clear_failed_attempts",
+    summary="Clear Failed Attempts",
+    description="Clear all `failed_attempts` and `scraped_times` from all items in the database",
+    operation_id="clear_failed_attempts",
+)
+async def clear_failed_attempts(request: Request) -> ClearFailedAttemptsResponse:
+    with db.Session() as session:
+        db_functions.clear_failed_attempts(session)
+        db_functions.clear_scraped_times(session)
+        logger.debug("Successfully cleared all `failed_attempts` and `scraped_times` from all items in the database")
+    return {"message": "Successfully cleared all `failed_attempts` and `scraped_times` from all items in the database"}

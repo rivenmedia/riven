@@ -21,6 +21,8 @@ class StreamRelation(db.Model):
     __table_args__ = (
         Index("ix_streamrelation_parent_id", "parent_id"),
         Index("ix_streamrelation_child_id", "child_id"),
+        # Composite index for efficient lookups of parent-child pairs
+        Index("ix_streamrelation_parent_child", "parent_id", "child_id", unique=True),
     )
 
 class StreamBlacklistRelation(db.Model):
@@ -33,6 +35,8 @@ class StreamBlacklistRelation(db.Model):
     __table_args__ = (
         Index("ix_streamblacklistrelation_media_item_id", "media_item_id"),
         Index("ix_streamblacklistrelation_stream_id", "stream_id"),
+        # Composite index for efficient lookups of media_item-stream pairs
+        Index("ix_streamblacklistrelation_item_stream", "media_item_id", "stream_id", unique=True),
     )
 
 class Stream(db.Model):
@@ -49,10 +53,12 @@ class Stream(db.Model):
     blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams", lazy="selectin")
 
     __table_args__ = (
-        Index("ix_stream_infohash", "infohash"),
+        Index("ix_stream_infohash", "infohash", unique=True),  # Infohash should be unique
         Index("ix_stream_raw_title", "raw_title"),
         Index("ix_stream_parsed_title", "parsed_title"),
         Index("ix_stream_rank", "rank"),
+        # Composite index for sorting streams by rank within infohash queries
+        Index("ix_stream_infohash_rank", "infohash", "rank"),
     )
 
     def __init__(self, torrent: Torrent):

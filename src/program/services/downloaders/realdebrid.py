@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from threading import RLock
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -22,6 +23,47 @@ from program.utils.request import (
 )
 
 from .shared import DownloaderBase, premium_days_left
+
+
+# Request deduplication cache for availability checks
+class AvailabilityCache:
+    """Short-term cache to deduplicate availability requests."""
+
+    def __init__(self, ttl: int = 5):
+        self._cache = {}
+        self._lock = RLock()
+        self._ttl = ttl
+
+    def get(self, infohash: str):
+        """Get cached result if available and not expired."""
+        with self._lock:
+            if infohash in self._cache:
+                result, timestamp = self._cache[infohash]
+                if time.time() - timestamp < self._ttl:
+                    return result
+                else:
+                    del self._cache[infohash]
+        return None
+
+    def set(self, infohash: str, result):
+        """Cache result for short period."""
+        with self._lock:
+            self._cache[infohash] = (result, time.time())
+
+    def clear_expired(self):
+        """Clear expired entries."""
+        current_time = time.time()
+        with self._lock:
+            expired_keys = [
+                key for key, (_, timestamp) in self._cache.items()
+                if current_time - timestamp >= self._ttl
+            ]
+            for key in expired_keys:
+                del self._cache[key]
+
+
+# Global availability cache instance
+_availability_cache = AvailabilityCache()
 
 
 class RealDebridError(Exception):
@@ -104,9 +146,14 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for a single infohash.
+        Get instant availability for a single infohash with request deduplication.
         Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
         """
+        # Check cache first to avoid duplicate requests
+        cached_result = _availability_cache.get(infohash)
+        if cached_result is not None:
+            return cached_result
+
         container: Optional[TorrentContainer] = None
         torrent_id = None
 
@@ -136,6 +183,8 @@ class RealDebridDownloader(DownloaderBase):
                 except Exception as e:
                     logger.error(f"Failed to delete torrent {torrent_id}: {e}")
 
+        # Cache the result (including None) to avoid duplicate requests
+        _availability_cache.set(infohash, container)
         return container
 
     def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:

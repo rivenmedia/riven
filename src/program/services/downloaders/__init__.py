@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -58,11 +60,12 @@ class Downloader:
             yield item
 
         download_success = False
-        for stream in item.streams:
-            container: Optional[TorrentContainer] = self.validate_stream(stream, item)
-            if not container:
-                continue
 
+        # Parallel stream availability checking with adaptive polling
+        valid_streams = self._validate_streams_parallel(item.streams, item)
+
+        # Process valid streams in order of priority (they're already sorted)
+        for stream, container in valid_streams:
             try:
                 download_result = self.download_cached_stream(stream, container)
                 if self.update_item_attributes(item, download_result):
@@ -86,15 +89,124 @@ class Downloader:
 
         yield item
 
+    def _validate_streams_parallel(self, streams: List[Stream], item: MediaItem) -> List[tuple[Stream, TorrentContainer]]:
+        """
+        Validate multiple streams in parallel for better performance.
+        Returns list of (stream, container) tuples for valid streams, maintaining original order.
+        """
+        if not streams:
+            return []
+
+        def validate_single_stream(stream: Stream) -> tuple[Stream, Optional[TorrentContainer]]:
+            """Validate a single stream and return the result."""
+            try:
+                container = self.validate_stream(stream, item)
+                return stream, container
+            except Exception as e:
+                logger.debug(f"Stream validation failed for {stream.infohash}: {e}")
+                return stream, None
+
+        valid_streams = []
+
+        # Use parallel processing for availability checks, but limit concurrency to avoid overwhelming debrid services
+        max_workers = min(len(streams), 5)  # Limit to 5 concurrent checks to respect rate limits
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="stream-validator") as executor:
+            # Submit all validation tasks
+            future_to_stream = {
+                executor.submit(validate_single_stream, stream): stream
+                for stream in streams
+            }
+
+            # Collect results in original order
+            stream_results = {}
+            for future in as_completed(future_to_stream, timeout=120):  # 2 minute timeout
+                try:
+                    stream, container = future.result(timeout=30)  # 30 second timeout per stream
+                    stream_results[stream] = container
+                except Exception as e:
+                    stream = future_to_stream[future]
+                    logger.debug(f"Stream validation timeout/error for {stream.infohash}: {e}")
+                    stream_results[stream] = None
+
+        # Return valid streams in original order (maintaining priority)
+        for stream in streams:
+            container = stream_results.get(stream)
+            if container:
+                valid_streams.append((stream, container))
+
+        return valid_streams
+
+    def _should_recheck_stream_availability(self, stream: Stream, item: MediaItem) -> bool:
+        """
+        Determine if a stream's availability should be rechecked based on adaptive polling.
+        Uses data volatility patterns to optimize checking frequency.
+        """
+        # Always check if we've never checked before
+        if not hasattr(stream, 'last_availability_check'):
+            return True
+
+        last_check = getattr(stream, 'last_availability_check', None)
+        if not last_check:
+            return True
+
+        time_since_check = (datetime.now() - last_check).total_seconds()
+
+        # Adaptive intervals based on stream and item characteristics
+        base_interval = 300  # 5 minutes base
+
+        # Recently added streams are more volatile
+        if hasattr(stream, 'created_at') and stream.created_at:
+            stream_age_hours = (datetime.now() - stream.created_at).total_seconds() / 3600
+            if stream_age_hours < 1:
+                base_interval = 60  # Check every minute for very new streams
+            elif stream_age_hours < 6:
+                base_interval = 180  # Check every 3 minutes for recent streams
+
+        # High-priority items need more frequent checks
+        if item.last_state in [States.Requested, States.Indexed]:
+            base_interval *= 0.5  # Check twice as often
+
+        # Popular streams (high rank) are more likely to become available
+        if hasattr(stream, 'rank') and stream.rank < 10:
+            base_interval *= 0.7  # Check more frequently for high-ranked streams
+
+        # Failed availability checks get exponential backoff
+        failed_checks = getattr(stream, 'failed_availability_checks', 0)
+        if failed_checks > 0:
+            base_interval *= (1.3 ** failed_checks)  # Exponential backoff
+
+        # Cap between 30 seconds and 30 minutes
+        final_interval = max(30, min(1800, base_interval))
+
+        return time_since_check >= final_interval
+
     def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
         """
-        Validate a single stream by ensuring its files match the item's requirements.
+        Validate a single stream with adaptive availability checking.
         """
+        # Use adaptive polling to optimize availability checks
+        if not self._should_recheck_stream_availability(stream, item):
+            # Return cached result if available
+            cached_container = getattr(stream, '_cached_container', None)
+            if cached_container:
+                logger.debug(f"Using cached availability for stream {stream.infohash}")
+                return cached_container
+
+        # Update last check time
+        stream.last_availability_check = datetime.now()
+
         container = self.get_instant_availability(stream.infohash, item.type)
         if not container:
             logger.debug(f"Stream {stream.infohash} is not cached or valid.")
+            # Track failed checks for adaptive backoff
+            stream.failed_availability_checks = getattr(stream, 'failed_availability_checks', 0) + 1
             item.blacklist_stream(stream)
             return None
+
+        # Cache successful result and reset failed counter
+        stream._cached_container = container
+        stream.failed_availability_checks = 0
 
         valid_files = []
         for file in container.files or []:

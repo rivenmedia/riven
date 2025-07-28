@@ -1,3 +1,4 @@
+import asyncio
 import linecache
 import os
 import threading
@@ -107,6 +108,33 @@ class Program(threading.Thread):
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
+        # Initialize async executor for non-critical background tasks
+        self.async_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="async-bg")
+        self.background_tasks = []
+
+    def submit_background_task(self, func, *args, **kwargs):
+        """Submit a non-critical task to run asynchronously in the background."""
+        try:
+            future = self.async_executor.submit(func, *args, **kwargs)
+            self.background_tasks.append(future)
+
+            # Clean up completed tasks to prevent memory leaks
+            self.background_tasks = [task for task in self.background_tasks if not task.done()]
+
+        except Exception as e:
+            logger.debug(f"Failed to submit background task: {e}")
+
+    def cleanup_background_tasks(self):
+        """Clean up completed background tasks."""
+        completed_tasks = [task for task in self.background_tasks if task.done()]
+        for task in completed_tasks:
+            try:
+                # Get result to handle any exceptions
+                task.result(timeout=0.1)
+            except Exception as e:
+                logger.debug(f"Background task completed with error: {e}")
+
+        self.background_tasks = [task for task in self.background_tasks if not task.done()]
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
@@ -199,6 +227,57 @@ class Program(threading.Thread):
             else:
                 logger.log("PROGRAM", "No items required retrying")
 
+    def _smart_show_updates(self):
+        """
+        Smart scheduling for show updates that spreads updates throughout the day
+        to avoid API rate limits while ensuring timely detection of new content.
+        """
+        try:
+            from program.services.indexers.trakt import TraktIndexer
+            from datetime import datetime
+            import random
+
+            # Get current hour to adjust update strategy
+            current_hour = datetime.now().hour
+
+            # Determine batch size based on time of day
+            if 18 <= current_hour <= 23:  # Peak hours (6 PM - 11 PM)
+                batch_size = 20  # More aggressive during peak viewing
+                max_shows = 50
+            elif 0 <= current_hour <= 6:  # Off-peak hours (midnight - 6 AM)
+                batch_size = 10  # Conservative during low activity
+                max_shows = 25
+            else:  # Regular hours
+                batch_size = 15  # Balanced approach
+                max_shows = 40
+
+            # Get shows that need updating with priority-based selection
+            indexer = TraktIndexer()
+            if not indexer.initialized:
+                logger.debug("TraktIndexer not initialized, skipping smart show updates")
+                return
+
+            shows_to_update = TraktIndexer.get_shows_needing_update(limit=max_shows)
+
+            if not shows_to_update:
+                logger.debug("No shows need updating at this time")
+                return
+
+            # Add some randomization to spread load
+            random.shuffle(shows_to_update)
+
+            # Process shows in batches with time-based delays
+            processed_count = indexer.update_shows_batch(
+                limit=len(shows_to_update),
+                batch_size=batch_size
+            )
+
+            if processed_count > 0:
+                logger.info(f"Smart show updates: processed {processed_count} shows during {current_hour}:00 hour")
+
+        except Exception as e:
+            logger.error(f"Error in smart show updates: {e}")
+
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
@@ -216,7 +295,8 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._update_ongoing: {"interval": 60 * 60 * 4},
-            self._retry_library: {"interval": 60 * 60 * 24},
+            self._retry_library: {"interval": 60 * 60 * 4},
+            self._smart_show_updates: {"interval": 60 * 30},  # Every 30 minutes
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
@@ -295,19 +375,29 @@ class Program(threading.Thread):
             self.display_top_allocators(snapshot)
 
     def run(self):
+        last_cleanup = time.time()
+
         while self.initialized:
             if not self.validate():
                 time.sleep(1)
                 continue
 
+            # Periodic cleanup of background tasks (every 30 seconds)
+            current_time = time.time()
+            if current_time - last_cleanup > 30:
+                self.submit_background_task(self.cleanup_background_tasks)
+                last_cleanup = current_time
+
             try:
                 event: Event = self.em.next()
                 self.em.add_event_to_running(event)
                 if self.enable_trace:
-                    self.dump_tracemalloc()
+                    # Submit trace dumping as background task to avoid blocking
+                    self.submit_background_task(self.dump_tracemalloc)
             except Empty:
                 if self.enable_trace:
-                    self.dump_tracemalloc()
+                    # Submit trace dumping as background task to avoid blocking
+                    self.submit_background_task(self.dump_tracemalloc)
                 time.sleep(0.1)
                 continue
 
@@ -343,6 +433,11 @@ class Program(threading.Thread):
                     executor["_executor"].shutdown(wait=False)
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+
+        # Shutdown async executor for background tasks
+        if hasattr(self, "async_executor"):
+            self.async_executor.shutdown(wait=False)
+
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:

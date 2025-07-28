@@ -26,7 +26,8 @@ class Torrentio:
         self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
         self.timeout: int = self.settings.timeout
         rate_limit_params = get_rate_limit_params(max_calls=1, period=5) if self.settings.ratelimit else None
-        session = create_service_session(rate_limit_params=rate_limit_params)
+        # Use deduplication for live torrent data with 3-second TTL
+        session = create_service_session(rate_limit_params=rate_limit_params, use_deduplication=True, dedup_ttl=3)
         self.request_handler = ScraperRequestHandler(session)
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None

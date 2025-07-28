@@ -1,12 +1,17 @@
 import os
 import shutil
 import alembic
+from contextlib import contextmanager
+from functools import wraps
+from threading import RLock
+from time import time
 
 from loguru import logger
 from threading import Event
 from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timedelta
-from sqlalchemy import delete, func, insert, inspect, or_, select, text
+from sqlalchemy import delete, func, insert, inspect, or_, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -19,6 +24,143 @@ from .db import db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
+
+
+# Simple in-memory cache for static database queries
+class SimpleCache:
+    """Thread-safe in-memory cache with TTL support for static data only."""
+
+    def __init__(self):
+        self._cache = {}
+        self._lock = RLock()
+
+    def get(self, key: str):
+        """Get value from cache if not expired."""
+        with self._lock:
+            if key in self._cache:
+                value, expiry = self._cache[key]
+                if time() < expiry:
+                    return value
+                else:
+                    del self._cache[key]
+        return None
+
+    def set(self, key: str, value, ttl: int = 300):  # 5 minute default TTL
+        """Set value in cache with TTL."""
+        with self._lock:
+            self._cache[key] = (value, time() + ttl)
+
+    def clear(self):
+        """Clear all cached data."""
+        with self._lock:
+            self._cache.clear()
+
+
+# Global cache instance for static data
+_static_cache = SimpleCache()
+
+
+def clear_static_cache():
+    """Clear all cached static data. Call this when data is modified."""
+    _static_cache.clear()
+
+
+@contextmanager
+def managed_session(auto_commit: bool = True, auto_rollback: bool = True):
+    """
+    Context manager for database sessions with automatic cleanup and error handling.
+
+    Args:
+        auto_commit: Whether to automatically commit on success
+        auto_rollback: Whether to automatically rollback on error
+    """
+    session = db.Session()
+    try:
+        yield session
+        if auto_commit:
+            session.commit()
+    except SQLAlchemyError as e:
+        if auto_rollback:
+            session.rollback()
+        logger.error(f"Database error in managed session: {e}")
+        raise
+    except Exception as e:
+        if auto_rollback:
+            session.rollback()
+        logger.error(f"Unexpected error in managed session: {e}")
+        raise
+    finally:
+        # Ensure session is properly closed and resources are freed
+        try:
+            session.close()
+        except Exception as e:
+            logger.warning(f"Error closing session: {e}")
+
+
+def batch_session_operation(operations: list, batch_size: int = 100):
+    """
+    Execute multiple database operations in batches with optimized session management.
+
+    Args:
+        operations: List of callable operations that take a session parameter
+        batch_size: Number of operations to execute per batch
+    """
+    if not operations:
+        return
+
+    for i in range(0, len(operations), batch_size):
+        batch = operations[i:i + batch_size]
+
+        with managed_session() as session:
+            for operation in batch:
+                try:
+                    operation(session)
+                except Exception as e:
+                    logger.error(f"Error in batch operation: {e}")
+                    # Continue with other operations in the batch
+                    continue
+
+
+def optimize_session_for_bulk_operations(session: Session):
+    """
+    Optimize a session for bulk operations by adjusting settings.
+
+    Args:
+        session: SQLAlchemy session to optimize
+    """
+    # Disable autoflush for bulk operations
+    session.autoflush = False
+
+    # Use bulk operations when possible
+    session.bulk_insert_mappings = session.bulk_insert_mappings
+    session.bulk_update_mappings = session.bulk_update_mappings
+    logger.debug("Cleared static database query cache")
+
+
+def cache_static_query(ttl: int = 300):
+    """
+    Decorator to cache static database queries.
+    Only use for queries that return static/semi-static data.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create cache key from function name and arguments
+            cache_key = f"{func.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
+
+            # Try to get from cache first
+            cached_result = _static_cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            if result is not None:  # Only cache non-None results
+                _static_cache.set(cache_key, result, ttl)
+
+            return result
+        return wrapper
+    return decorator
 
 
 def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session = None) -> "MediaItem":
@@ -45,14 +187,31 @@ def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session 
         return item
 
 def get_items_by_ids(ids: list, item_types: list[str] = None, session: Session = None) -> list["MediaItem"]:
-    """Get a list of MediaItems by their IDs."""
-    items = []
-    for id in ids:
-        items.append(get_item_by_id(id, item_types,  session))
-    return items
+    """Get a list of MediaItems by their IDs using a single query to avoid N+1 problem."""
+    if not ids:
+        return []
 
+    from program.media.item import MediaItem, Season, Show
+    _session = session if session else db.Session()
+
+    with _session:
+        query = (select(MediaItem)
+            .where(MediaItem.id.in_(ids))
+            .options(
+                selectinload(Show.seasons)
+                .selectinload(Season.episodes)
+            ))
+        if item_types:
+            query = query.where(MediaItem.type.in_(item_types))
+
+        items = _session.execute(query).unique().scalars().all()
+        for item in items:
+            _session.expunge(item)
+        return items
+
+@cache_static_query(ttl=600)  # Cache for 10 minutes since external IDs are static
 def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: int = None, session: Session = None) -> "MediaItem":
-    """Get a MediaItem by its external ID."""
+    """Get a MediaItem by its external ID with caching for static data."""
     from program.media.item import MediaItem, Season, Show
 
     _session = session if session else db.Session()
@@ -81,11 +240,12 @@ def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: i
         return item
 
 def delete_media_item(item: "MediaItem"):
-    """Delete a MediaItem and all its associated relationships."""
-    with db.Session() as session:
+    """Delete a MediaItem and all its associated relationships with optimized session management."""
+    with managed_session() as session:
         item = session.merge(item)
         session.delete(item)
-        session.commit()
+        # Clear cache since data was modified
+        clear_static_cache()
 
 def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
     """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
@@ -128,6 +288,8 @@ def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
 
             session.execute(delete(MediaItem).where(MediaItem.id == media_item_id))
             session.commit()
+            # Clear cache since data was modified
+            clear_static_cache()
             return True
 
         except IntegrityError as e:
@@ -140,38 +302,42 @@ def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
             return False
 
 def delete_seasons_and_episodes(session: Session, season_ids: list[str], batch_size: int = 30):
-    """Delete seasons and episodes of a show in batches, committing after each batch."""
+    """Delete seasons and episodes of a show in optimized batches."""
     from program.media.item import Episode, Season
     from program.media.stream import StreamBlacklistRelation, StreamRelation
     from program.media.subtitle import Subtitle
 
-    for season_id in season_ids:
-        season = session.query(Season).get(season_id)
-        session.execute(delete(StreamRelation).where(StreamRelation.parent_id == season_id))
-        session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == season_id))
-        session.execute(delete(Subtitle).where(Subtitle.parent_id == season_id))
-        session.commit()
+    if not season_ids:
+        return
 
-        while True:
-            episode_ids = session.execute(
-                select(Episode.id).where(Episode.parent_id == season_id).limit(batch_size)
-            ).scalars().all()
+    # Get all episode IDs for all seasons in one query
+    all_episode_ids = session.execute(
+        select(Episode.id).where(Episode.parent_id.in_(season_ids))
+    ).scalars().all()
 
-            if not episode_ids:
-                break
-
-            session.execute(delete(Episode).where(Episode.id.in_(episode_ids)))
+    # Delete related data in bulk for better performance
+    if all_episode_ids:
+        # Delete episode-related data in batches
+        for i in range(0, len(all_episode_ids), batch_size):
+            batch_episode_ids = all_episode_ids[i:i + batch_size]
+            session.execute(delete(StreamRelation).where(StreamRelation.parent_id.in_(batch_episode_ids)))
+            session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id.in_(batch_episode_ids)))
+            session.execute(delete(Subtitle).where(Subtitle.parent_id.in_(batch_episode_ids)))
+            session.execute(delete(Episode).where(Episode.id.in_(batch_episode_ids)))
             session.commit()
 
-        session.delete(season)
-        session.commit()
+    # Delete season-related data in bulk
+    session.execute(delete(StreamRelation).where(StreamRelation.parent_id.in_(season_ids)))
+    session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id.in_(season_ids)))
+    session.execute(delete(Subtitle).where(Subtitle.parent_id.in_(season_ids)))
+    session.execute(delete(Season).where(Season.id.in_(season_ids)))
+    session.commit()
 
 def reset_media_item(item: "MediaItem"):
-    """Reset a MediaItem."""
-    with db.Session() as session:
+    """Reset a MediaItem with optimized session management."""
+    with managed_session() as session:
         item = session.merge(item)
         item.reset()
-        session.commit()
 
 def reset_streams(item: "MediaItem"):
     """Reset streams associated with a MediaItem."""
@@ -194,6 +360,70 @@ def clear_streams_by_id(media_item_id: str):
             delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id)
         )
         session.commit()
+
+
+def clear_streams_batch(media_item_ids: list[str]):
+    """Clear all streams for multiple media items with optimized session management."""
+    if not media_item_ids:
+        return
+
+    with managed_session() as session:
+        # Optimize session for bulk operations
+        optimize_session_for_bulk_operations(session)
+
+        # Use batch operations for better performance
+        session.execute(
+            delete(StreamRelation).where(StreamRelation.parent_id.in_(media_item_ids))
+        )
+        session.execute(
+            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id.in_(media_item_ids))
+        )
+        logger.debug(f"Cleared streams for {len(media_item_ids)} media items")
+
+
+def add_streams_batch(item_stream_pairs: list[tuple[str, int]]):
+    """Add multiple stream relationships in a single transaction.
+
+    Args:
+        item_stream_pairs: List of (media_item_id, stream_id) tuples
+    """
+    if not item_stream_pairs:
+        return
+
+    with db.Session() as session:
+        # Prepare batch insert data
+        relations_data = [
+            {"parent_id": item_id, "child_id": stream_id}
+            for item_id, stream_id in item_stream_pairs
+        ]
+
+        # Use bulk insert for better performance
+        session.execute(insert(StreamRelation), relations_data)
+        session.commit()
+        logger.debug(f"Added {len(item_stream_pairs)} stream relationships")
+
+
+def blacklist_streams_batch(item_stream_pairs: list[tuple[str, int]]):
+    """Blacklist multiple streams in a single transaction.
+
+    Args:
+        item_stream_pairs: List of (media_item_id, stream_id) tuples
+    """
+    if not item_stream_pairs:
+        return
+
+    with db.Session() as session:
+        # Prepare batch insert data
+        blacklist_data = [
+            {"media_item_id": item_id, "stream_id": stream_id}
+            for item_id, stream_id in item_stream_pairs
+        ]
+
+        # Use bulk insert for better performance
+        session.execute(insert(StreamBlacklistRelation), blacklist_data)
+        session.commit()
+        logger.debug(f"Blacklisted {len(item_stream_pairs)} streams")
+
 
 def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
     """Blacklist a stream for a media item."""
@@ -277,9 +507,10 @@ def get_item_ids(session: Session, item_id: str) -> tuple[str, list[str]]:
             select(Season.id).where(Season.parent_id == item_id)
         ).scalars().all()
 
-        for season_id in season_ids:
+        # Get all episode IDs for all seasons in a single query to avoid N+1
+        if season_ids:
             episode_ids = session.execute(
-                select(Episode.id).where(Episode.parent_id == season_id)
+                select(Episode.id).where(Episode.parent_id.in_(season_ids))
             ).scalars().all()
             related_ids.extend(episode_ids)
         related_ids.extend(season_ids)
@@ -305,8 +536,9 @@ def get_item_by_symlink_path(filepath: str, session: Session = None) -> list["Me
             _session.expunge(item)
         return items
 
+@cache_static_query(ttl=600)  # Cache for 10 minutes since IMDb metadata is static
 def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = None, episode_number: Optional[int] = None, session: Session = None) -> list["MediaItem"]:
-    """Get a MediaItem by its IMDb ID and optionally season and episode numbers."""
+    """Get a MediaItem by its IMDb ID and optionally season and episode numbers with caching."""
     from program.media.item import Episode, Movie, Season, Show
 
     _session = session if session else db.Session()
@@ -376,18 +608,32 @@ def update_ongoing(session) -> list[tuple[str, str, str]]:
 
     logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
 
+    # Load all items in a single query to avoid N+1 problem
+    items = session.execute(
+        select(MediaItem).where(MediaItem.id.in_(item_ids))
+    ).unique().scalars().all()
+
     updated_items = []
-    for item_id in item_ids:
+    items_to_update = []
+
+    for item in items:
         try:
-            item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
-            if item:
-                previous_state, new_state = item.store_state()
-                if previous_state != new_state:
-                    updated_items.append((item_id, previous_state.name, new_state.name))
-                    session.merge(item)
-                    session.commit()
+            previous_state, new_state = item.store_state()
+            if previous_state != new_state:
+                updated_items.append((item.id, previous_state.name, new_state.name))
+                items_to_update.append(item)
         except Exception as e:
-            logger.error(f"Failed to update state for item with ID {item_id}: {e}")
+            logger.error(f"Failed to update state for item with ID {item.id}: {e}")
+
+    # Bulk update all changed items
+    if items_to_update:
+        try:
+            for item in items_to_update:
+                session.merge(item)
+            session.commit()
+        except Exception as e:
+            logger.error(f"Failed to commit bulk state updates: {e}")
+            session.rollback()
 
     return updated_items
 
@@ -631,3 +877,15 @@ if reset is not None and reset.lower() in ["true","1"]:
 if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     exit(0)
+
+def clear_failed_attempts(session: Session) -> None:
+    """Clear all `failed_attempts` from all items in the database."""
+    from program.media.item import MediaItem
+    session.execute(update(MediaItem).where(MediaItem.failed_attempts > 0).values(failed_attempts=0))
+    session.commit()
+
+def clear_scraped_times(session: Session) -> None:
+    """Clear all `scraped_times` from all items in the database."""
+    from program.media.item import MediaItem
+    session.execute(update(MediaItem).where(MediaItem.scraped_times > 0).values(scraped_times=0))
+    session.commit()

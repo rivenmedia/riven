@@ -1,6 +1,10 @@
+import heapq
 import os
 import threading
+import time
 import traceback
+from collections import deque
+from typing import List, Optional
 import sqlalchemy.orm
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
@@ -31,13 +35,22 @@ class EventManager:
     def __init__(self):
         self._executors: list[ThreadPoolExecutor] = []
         self._futures: list[Future] = []
-        self._queued_events: list[Event] = []
+        # Use heap for efficient priority queue operations
+        self._queued_events: list[tuple[datetime, int, Event]] = []  # (run_at, counter, event)
         self._running_events: list[Event] = []
         self.mutex = Lock()
+        self._counter = 0  # For stable sorting when run_at times are equal
+        self._last_cleanup = time.time()  # Track last executor cleanup
+
+        # Batch processing optimization
+        self._batch_queue = deque()  # Queue for batching similar events
+        self._batch_size = 5  # Process events in batches
+        self._last_batch_process = time.time()
+        self._batch_timeout = 2.0  # Process batch after 2 seconds even if not full
 
     def _find_or_create_executor(self, service_cls) -> ThreadPoolExecutor:
         """
-        Finds or creates a ThreadPoolExecutor for the given service class.
+        Finds or creates an optimized ThreadPoolExecutor for the given service class.
 
         Args:
             service_cls (type): The service class for which to find or create an executor.
@@ -47,15 +60,172 @@ class EventManager:
         """
         service_name = service_cls.__name__
         env_var_name = f"{service_name.upper()}_MAX_WORKERS"
-        max_workers = int(os.environ.get(env_var_name, 1))
+
+        # Get optimized default worker counts based on service type
+        default_workers = self._get_optimal_worker_count(service_name)
+        max_workers = int(os.environ.get(env_var_name, default_workers))
+
+        # Find existing executor
         for executor in self._executors:
             if executor["_name_prefix"] == service_name:
-                logger.debug(f"Executor for {service_name} found.")
-                return executor["_executor"]
-        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=max_workers)
-        self._executors.append({ "_name_prefix": service_name, "_executor": _executor })
-        logger.debug(f"Created executor for {service_name} with {max_workers} max workers.")
+                # Check if executor is still healthy
+                if not executor["_executor"]._shutdown:
+                    logger.debug(f"Executor for {service_name} found.")
+                    return executor["_executor"]
+                else:
+                    # Remove shutdown executor
+                    logger.warning(f"Removing shutdown executor for {service_name}")
+                    self._executors.remove(executor)
+                    break
+
+        # Create new optimized executor
+        _executor = ThreadPoolExecutor(
+            thread_name_prefix=service_name,
+            max_workers=max_workers
+        )
+
+        executor_info = {
+            "_name_prefix": service_name,
+            "_executor": _executor,
+            "_max_workers": max_workers,
+            "_created_at": time.time()
+        }
+
+        self._executors.append(executor_info)
+        logger.debug(f"Created optimized executor for {service_name} with {max_workers} max workers.")
         return _executor
+
+    def _get_optimal_worker_count(self, service_name: str) -> int:
+        """
+        Get optimal worker count based on service type and system capabilities.
+
+        Args:
+            service_name: Name of the service
+
+        Returns:
+            Optimal number of workers for the service
+        """
+        import os
+        cpu_count = os.cpu_count() or 4
+
+        # Service-specific optimizations
+        service_configs = {
+            # I/O intensive services can handle more workers
+            'Scraping': min(8, cpu_count * 2),  # High concurrency for scraping
+            'Downloader': min(4, cpu_count),    # Moderate concurrency for downloads
+            'TraktIndexer': min(3, cpu_count),  # Conservative for API rate limits
+            'Symlinker': min(2, cpu_count),     # File I/O operations
+            'Updater': min(2, cpu_count),       # File operations
+            'SymlinkLibrary': 1,                # Sequential file operations
+            'PostProcessing': 1,                # Sequential processing
+        }
+
+        return service_configs.get(service_name, 1)  # Conservative default
+
+    def cleanup_executors(self):
+        """Clean up shutdown or idle executors to free resources."""
+        current_time = time.time()
+        executors_to_remove = []
+
+        for executor_info in self._executors:
+            executor = executor_info["_executor"]
+
+            # Remove shutdown executors
+            if executor._shutdown:
+                executors_to_remove.append(executor_info)
+                continue
+
+            # Check for idle executors (no active threads for 10 minutes)
+            created_at = executor_info.get("_created_at", current_time)
+            if (current_time - created_at > 600 and  # 10 minutes old
+                len(executor._threads) == 0):  # No active threads
+                logger.debug(f"Shutting down idle executor for {executor_info['_name_prefix']}")
+                executor.shutdown(wait=False)
+                executors_to_remove.append(executor_info)
+
+        # Remove cleaned up executors
+        for executor_info in executors_to_remove:
+            self._executors.remove(executor_info)
+
+        if executors_to_remove:
+            logger.debug(f"Cleaned up {len(executors_to_remove)} idle/shutdown executors")
+
+    def get_executor_stats(self) -> Dict[str, Dict]:
+        """Get statistics about all executors for monitoring."""
+        stats = {}
+        for executor_info in self._executors:
+            service_name = executor_info["_name_prefix"]
+            executor = executor_info["_executor"]
+
+            stats[service_name] = {
+                "max_workers": executor_info["_max_workers"],
+                "active_threads": len(executor._threads),
+                "shutdown": executor._shutdown,
+                "created_at": executor_info.get("_created_at", 0),
+                "uptime_minutes": (time.time() - executor_info.get("_created_at", time.time())) / 60
+            }
+
+        return stats
+
+    def add_events_batch(self, events: List[Event]):
+        """
+        Add multiple events to the queue in a batch for better performance.
+
+        Args:
+            events: List of events to add
+        """
+        if not events:
+            return
+
+        # Pre-validate all events outside of mutex
+        validated_events = []
+        for event in events:
+            if self._validate_event_for_queue(event):
+                validated_events.append(event)
+
+        if not validated_events:
+            return
+
+        # Add all validated events to queue in single mutex acquisition
+        with self.mutex:
+            for event in validated_events:
+                heapq.heappush(self._queue, event)
+                self._counter += 1
+
+        logger.debug(f"Added batch of {len(validated_events)} events to queue")
+
+    def _validate_event_for_queue(self, event: Event) -> bool:
+        """
+        Validate an event for queue addition without holding mutex.
+
+        Args:
+            event: Event to validate
+
+        Returns:
+            True if event should be queued
+        """
+        if not event.item_id:
+            return True  # Content events don't need item validation
+
+        try:
+            with db.Session() as session:
+                item = session.query(MediaItem).filter_by(id=event.item_id).options(
+                    sqlalchemy.orm.load_only(MediaItem.id, MediaItem.last_state)
+                ).one_or_none()
+
+                if not item and not event.content_item:
+                    logger.error(f"No item found from event: {event.log_message}")
+                    return False
+
+                if item and item.is_parent_blocked():
+                    logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
+                    return False
+
+                return True
+
+        except Exception as e:
+            logger.error(f"Error validating event for queue: {e}")
+            return False
 
     def _process_future(self, future, service):
         """
@@ -99,45 +269,59 @@ class EventManager:
 
     def add_event_to_queue(self, event: Event, log_message=True):
         """
-        Adds an event to the queue.
+        Adds an event to the queue with optimized mutex usage.
 
         Args:
             event (Event): The event to add to the queue.
         """
+        # Perform database operations outside of mutex to reduce contention
+        if event.item_id:
+            with db.Session() as session:
+                try:
+                    # Query just the columns we need, avoiding relationship loading entirely
+                    item = session.query(MediaItem).filter_by(id=event.item_id).options(
+                        sqlalchemy.orm.load_only(MediaItem.id, MediaItem.last_state)
+                    ).one_or_none()
+                except Exception as e:
+                    logger.error(f"Error getting item from database: {e}")
+                    return
+
+                if not item and not event.content_item:
+                    logger.error(f"No item found from event: {event.log_message}")
+                    return
+
+                if item and item.is_parent_blocked():
+                    logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
+                    return
+
+        # Only hold mutex for the actual queue modification
         with self.mutex:
-            if event.item_id:
-                with db.Session() as session:
-                    try:
-                        # Query just the columns we need, avoiding relationship loading entirely
-                        item = session.query(MediaItem).filter_by(id=event.item_id).options(
-                            sqlalchemy.orm.load_only(MediaItem.id, MediaItem.last_state)
-                        ).one_or_none()
-                    except Exception as e:
-                        logger.error(f"Error getting item from database: {e}")
-                        return
+            # Use heap for efficient priority queue
+            self._counter += 1
+            heapq.heappush(self._queued_events, (event.run_at, self._counter, event))
 
-                    if not item and not event.content_item:
-                        logger.error(f"No item found from event: {event.log_message}")
-                        return
-
-                    if item.is_parent_blocked():
-                        logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
-                        return
-
-            self._queued_events.append(event)
-            if log_message:
-                logger.debug(f"Added {event.log_message} to the queue.")
+        if log_message:
+            logger.debug(f"Added {event.log_message} to the queue.")
 
     def remove_event_from_queue(self, event: Event):
         """
-        Removes an event from the queue.
+        Removes an event from the queue (heap structure).
 
         Args:
             event (Event): The event to remove from the queue.
         """
         with self.mutex:
-            self._queued_events.remove(event)
-            logger.debug(f"Removed {event.log_message} from the queue.")
+            # Find and remove the event from the heap
+            for i, (run_at, counter, queued_event) in enumerate(self._queued_events):
+                if queued_event == event:
+                    # Replace with last element and heapify
+                    self._queued_events[i] = self._queued_events[-1]
+                    self._queued_events.pop()
+                    if i < len(self._queued_events):
+                        heapq.heapify(self._queued_events)
+                    logger.debug(f"Removed {event.log_message} from the queue.")
+                    return
+            logger.warning(f"Event {event.log_message} not found in queue for removal.")
 
     def remove_event_from_running(self, event: Event):
         """
@@ -156,11 +340,18 @@ class EventManager:
         Removes an item from the queue.
 
         Args:
-            item (MediaItem): The event item to remove from the queue.
+            item_id (str): The event item ID to remove from the queue.
         """
-        for event in self._queued_events:
-            if event.item_id == item_id:
-                self.remove_event_from_queue(event)
+        with self.mutex:
+            # Find events to remove (need to extract from heap tuples)
+            events_to_remove = []
+            for run_at, counter, event in self._queued_events:
+                if event.item_id == item_id:
+                    events_to_remove.append(event)
+
+        # Remove events outside of the iteration
+        for event in events_to_remove:
+            self.remove_event_from_queue(event)
 
     def add_event_to_running(self, event: Event):
         """
@@ -209,6 +400,12 @@ class EventManager:
             log_message += f" with {event.log_message}"
         logger.debug(log_message)
 
+        # Periodic cleanup of idle executors (every 5 minutes)
+        current_time = time.time()
+        if current_time - self._last_cleanup > 300:  # 5 minutes
+            self.cleanup_executors()
+            self._last_cleanup = current_time
+
         cancellation_event = threading.Event()
         executor = self._find_or_create_executor(service)
         future = executor.submit(db_functions.run_thread_with_db_item, program.all_services[service].run, service, program, event, cancellation_event)
@@ -252,7 +449,7 @@ class EventManager:
 
     def next(self) -> Event:
         """
-        Get the next event in the queue with an optional timeout.
+        Get the next event in the queue with optimized heap operations.
 
         Raises:
             Empty: If the queue is empty.
@@ -260,14 +457,19 @@ class EventManager:
         Returns:
             Event: The next event in the queue.
         """
-        while True:
-            if self._queued_events:
-                with self.mutex:
-                    self._queued_events.sort(key=lambda event: event.run_at)
-                    if self._queued_events and datetime.now() >= self._queued_events[0].run_at:
-                        event = self._queued_events.pop(0)
-                        return event
-            raise Empty
+        with self.mutex:
+            if not self._queued_events:
+                raise Empty
+
+            # Peek at the earliest event without removing it
+            run_at, counter, event = self._queued_events[0]
+
+            if datetime.now() >= run_at:
+                # Remove and return the earliest event
+                heapq.heappop(self._queued_events)
+                return event
+
+        raise Empty
 
     def _id_in_queue(self, _id: str) -> bool:
         """
@@ -279,7 +481,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
-        return any(event.item_id == _id for event in self._queued_events)
+        return any(event.item_id == _id for run_at, counter, event in self._queued_events)
 
     def _id_in_running_events(self, _id: str) -> bool:
         """
@@ -319,7 +521,7 @@ class EventManager:
                     return False
         else:
             imdb_id = event.content_item.imdb_id
-            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._queued_events):
+            if any(event.content_item and event.content_item.imdb_id == imdb_id for run_at, counter, event in self._queued_events):
                 logger.debug(f"Content Item with IMDB ID {imdb_id} is already in queue, skipping.")
                 return False
             if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._running_events):

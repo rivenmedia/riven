@@ -4,6 +4,8 @@ import sys
 import threading
 import time
 import traceback
+from collections import defaultdict, deque
+from typing import Dict, List
 
 import uvicorn
 from dotenv import load_dotenv
@@ -21,20 +23,99 @@ from program.settings.models import get_version
 from program.utils.cli import handle_args
 from routers import app_router
 
+
+class PerformanceMonitor:
+    """Performance monitoring and metrics collection."""
+
+    def __init__(self, max_samples: int = 1000):
+        self.max_samples = max_samples
+        self.request_times = defaultdict(lambda: deque(maxlen=max_samples))
+        self.request_counts = defaultdict(int)
+        self.error_counts = defaultdict(int)
+        self.slow_requests = deque(maxlen=100)  # Keep track of slowest requests
+        self._lock = threading.RLock()
+
+    def record_request(self, method: str, path: str, duration: float, status_code: int):
+        """Record a request's performance metrics."""
+        with self._lock:
+            endpoint = f"{method} {path}"
+
+            # Record timing
+            self.request_times[endpoint].append(duration)
+            self.request_counts[endpoint] += 1
+
+            # Record errors
+            if status_code >= 400:
+                self.error_counts[endpoint] += 1
+
+            # Track slow requests (>2 seconds)
+            if duration > 2.0:
+                self.slow_requests.append({
+                    'endpoint': endpoint,
+                    'duration': duration,
+                    'status_code': status_code,
+                    'timestamp': time.time()
+                })
+
+    def get_stats(self) -> Dict:
+        """Get performance statistics."""
+        with self._lock:
+            stats = {}
+
+            for endpoint, times in self.request_times.items():
+                if times:
+                    times_list = list(times)
+                    stats[endpoint] = {
+                        'count': self.request_counts[endpoint],
+                        'avg_time': sum(times_list) / len(times_list),
+                        'min_time': min(times_list),
+                        'max_time': max(times_list),
+                        'error_count': self.error_counts[endpoint],
+                        'error_rate': self.error_counts[endpoint] / self.request_counts[endpoint] if self.request_counts[endpoint] > 0 else 0
+                    }
+
+            return {
+                'endpoints': stats,
+                'slow_requests': list(self.slow_requests)[-10:],  # Last 10 slow requests
+                'total_requests': sum(self.request_counts.values()),
+                'total_errors': sum(self.error_counts.values())
+            }
+
+
+# Global performance monitor
+performance_monitor = PerformanceMonitor()
+
+
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
+        response = None
+        status_code = 500
+
         try:
             response = await call_next(request)
+            status_code = response.status_code
         except Exception as e:
             logger.exception(f"Exception during request processing: {e}")
             raise
         finally:
             process_time = time.time() - start_time
-            logger.log(
-                "API",
-                f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s",
+
+            # Record performance metrics
+            performance_monitor.record_request(
+                request.method,
+                request.url.path,
+                process_time,
+                status_code
             )
+
+            # Log with performance context
+            log_level = "WARNING" if process_time > 2.0 else "API"
+            logger.log(
+                log_level,
+                f"{request.method} {request.url.path} - {status_code} - {process_time:.2f}s",
+            )
+
         return response
 
 args = handle_args()

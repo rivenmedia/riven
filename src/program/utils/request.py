@@ -1,4 +1,6 @@
 import json
+import hashlib
+import time
 from enum import Enum
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Type
@@ -176,24 +178,96 @@ class RateLimitExceeded(Exception):
         super().__init__(message)
         self.response = response
 
+
+class DeduplicationMixin:
+    """Mixin to add request deduplication with very short TTL for live data."""
+
+    def __init__(self, *args, dedup_ttl: int = 3, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dedup_ttl = dedup_ttl  # Short TTL in seconds for live data
+        self._dedup_cache = {}  # In-memory cache for deduplication
+
+    def _get_request_key(self, method: str, url: str, **kwargs) -> str:
+        """Generate a unique key for the request."""
+        # Include method, url, and relevant parameters
+        key_data = {
+            'method': method.upper(),
+            'url': url,
+            'params': kwargs.get('params', {}),
+            'data': kwargs.get('data', {}),
+            'json': kwargs.get('json', {}),
+        }
+        key_string = json.dumps(key_data, sort_keys=True)
+        return hashlib.md5(key_string.encode()).hexdigest()
+
+    def _cleanup_expired_entries(self):
+        """Remove expired entries from deduplication cache."""
+        current_time = time.time()
+        expired_keys = [
+            key for key, (timestamp, _) in self._dedup_cache.items()
+            if current_time - timestamp > self.dedup_ttl
+        ]
+        for key in expired_keys:
+            del self._dedup_cache[key]
+
+    def request(self, method: str, url: str, **kwargs):
+        """Override request method to add deduplication."""
+        # Clean up expired entries periodically
+        self._cleanup_expired_entries()
+
+        # Generate request key
+        request_key = self._get_request_key(method, url, **kwargs)
+        current_time = time.time()
+
+        # Check if we have a recent response for this exact request
+        if request_key in self._dedup_cache:
+            timestamp, response = self._dedup_cache[request_key]
+            if current_time - timestamp <= self.dedup_ttl:
+                logger.debug(f"Returning deduplicated response for {method} {url}")
+                return response
+
+        # Make the actual request
+        response = super().request(method, url, **kwargs)
+
+        # Store the response for deduplication (only for successful requests)
+        if response.status_code < 400:
+            self._dedup_cache[request_key] = (current_time, response)
+
+        return response
+
+
 class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
     """Session class with caching and rate-limiting behavior."""
+    pass
+
+
+class DeduplicatedSession(DeduplicationMixin, Session):
+    """Session class with request deduplication for live data."""
+    pass
+
+
+class DeduplicatedLimiterSession(DeduplicationMixin, LimiterMixin, Session):
+    """Session class with request deduplication and rate-limiting for live data."""
     pass
 
 def create_service_session(
         rate_limit_params: Optional[dict] = None,
         use_cache: bool = False,
         cache_params: Optional[dict] = None,
+        use_deduplication: bool = False,
+        dedup_ttl: int = 3,
         session_adapter: Optional[HTTPAdapter | LimiterAdapter] = None,
         retry_policy: Optional[Retry] = None,
         log_config: Optional[bool] = False,
-) -> Session | CachedSession | CachedLimiterSession:
+) -> Session | CachedSession | CachedLimiterSession | DeduplicatedSession | DeduplicatedLimiterSession:
     """
-    Create a session for a specific service with optional caching and rate-limiting.
+    Create a session for a specific service with optional caching, rate-limiting, and deduplication.
 
     :param rate_limit_params: Dictionary of rate-limiting parameters.
     :param use_cache: Boolean indicating if caching should be enabled.
     :param cache_params: Dictionary of caching parameters if caching is enabled.
+    :param use_deduplication: Boolean indicating if request deduplication should be enabled for live data.
+    :param dedup_ttl: Time-to-live for deduplication cache in seconds.
     :param session_adapter: Optional custom HTTP adapter to use for the session.
     :param retry_policy: Optional retry policy to use for the session.
     :param log_config: Boolean indicating if the session configuration should be logged.
@@ -202,6 +276,7 @@ def create_service_session(
     if use_cache and not cache_params:
         raise ValueError("Cache parameters must be provided if use_cache is True.")
 
+    # Caching takes precedence over deduplication (for static data)
     if use_cache and cache_params:
         if log_config:
             logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
@@ -211,6 +286,21 @@ def create_service_session(
         _create_and_mount_session_adapter(cache_session, session_adapter, retry_policy, log_config)
         return cache_session
 
+    # Deduplication for live data (short TTL)
+    if use_deduplication:
+        if log_config:
+            logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
+            logger.debug(f"Deduplication TTL: {dedup_ttl}s")
+
+        if rate_limit_params:
+            dedup_session = DeduplicatedLimiterSession(dedup_ttl=dedup_ttl, **rate_limit_params)
+        else:
+            dedup_session = DeduplicatedSession(dedup_ttl=dedup_ttl)
+
+        _create_and_mount_session_adapter(dedup_session, session_adapter, retry_policy, log_config)
+        return dedup_session
+
+    # Standard rate-limited or basic session
     if rate_limit_params:
         if log_config:
             logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
@@ -255,8 +345,19 @@ def get_rate_limit_params(
     :return: Dictionary with rate limit configuration.
     """
 
-    bucket_class = SQLiteBucket if db_name else (MemoryListBucket if use_memory_list else MemoryQueueBucket)
-    bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"} if db_name else {}
+    # Optimize bucket selection for performance
+    if db_name:
+        # Use SQLite for persistent rate limiting (longer periods)
+        bucket_class = SQLiteBucket
+        bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"}
+    elif use_memory_list:
+        # Use MemoryListBucket for high-frequency, short-term limits (better for live data)
+        bucket_class = MemoryListBucket
+        bucket_kwargs = {}
+    else:
+        # Use MemoryQueueBucket for moderate frequency limits
+        bucket_class = MemoryQueueBucket
+        bucket_kwargs = {}
 
     rate_limits = []
     if per_second:
@@ -295,6 +396,86 @@ def get_cache_params(cache_name: str = 'cache', expire_after: Optional[int] = 60
     return {'cache_name': cache_path, 'expire_after': expire_after}
 
 
+def get_optimized_rate_limit_params(service_type: str = "default") -> dict:
+    """
+    Get optimized rate limiting parameters for different service types to maximize throughput.
+
+    :param service_type: Type of service ('scraper', 'debrid', 'indexer', 'api', 'default')
+    :return: Optimized rate limit parameters
+    """
+    # Optimized configurations for maximum live data throughput
+    configs = {
+        'scraper': {
+            # High throughput for scrapers (Torrentio, Mediafusion, etc.)
+            'per_second': 10,  # Aggressive rate for live data
+            'per_minute': 300,  # Allow bursts
+            'use_memory_list': True,  # Faster bucket for short-term limits
+            'max_delay': 2,  # Short delays to maintain responsiveness
+        },
+        'debrid': {
+            # Optimized for debrid services (RealDebrid, AllDebrid)
+            'per_second': 5,  # Moderate rate to avoid 429s
+            'per_minute': 150,  # Conservative for API stability
+            'use_memory_list': True,
+            'max_delay': 5,  # Allow slightly longer delays for stability
+        },
+        'indexer': {
+            # Balanced for indexers (Trakt, TVDB, etc.)
+            'per_second': 3,  # Conservative for metadata APIs
+            'per_minute': 100,
+            'per_hour': 3000,  # Respect hourly limits
+            'use_memory_list': False,  # Use persistent bucket for longer limits
+            'max_delay': 10,
+        },
+        'api': {
+            # General API services
+            'per_second': 2,
+            'per_minute': 60,
+            'per_hour': 1000,
+            'use_memory_list': False,
+            'max_delay': 15,
+        },
+        'default': {
+            # Conservative default
+            'per_second': 1,
+            'per_minute': 30,
+            'use_memory_list': True,
+            'max_delay': 5,
+        }
+    }
+
+    config = configs.get(service_type, configs['default'])
+    return get_rate_limit_params(**config)
+
+
+def create_adaptive_session(service_name: str, service_type: str = "default", **kwargs) -> Session:
+    """
+    Create an adaptive session that optimizes rate limiting for maximum live data throughput.
+
+    :param service_name: Name of the service for logging
+    :param service_type: Type of service for rate limit optimization
+    :param kwargs: Additional session parameters
+    :return: Optimized session for the service
+    """
+    # Get optimized rate limiting parameters
+    rate_limit_params = get_optimized_rate_limit_params(service_type)
+
+    # Use deduplication for live data (short TTL to prevent duplicate requests)
+    dedup_ttl = 3 if service_type in ['scraper', 'debrid'] else 5
+
+    # Create optimized session
+    session = create_service_session(
+        rate_limit_params=rate_limit_params,
+        use_deduplication=True,
+        dedup_ttl=dedup_ttl,
+        log_config=False,  # Reduce logging overhead
+        **kwargs
+    )
+
+    logger.debug(f"Created adaptive session for {service_name} ({service_type}) with optimized rate limiting")
+    return session
+
+
 def get_retry_policy(retries: int = 3, backoff_factor: float = 0.3, status_forcelist: Optional[list[int]] = None) -> Retry:
     """
     Create a retry policy for requests.
@@ -309,17 +490,17 @@ def get_retry_policy(retries: int = 3, backoff_factor: float = 0.3, status_force
 
 def get_http_adapter(
         retry_policy: Optional[Retry] = None,
-        pool_connections: Optional[int] = 50,
-        pool_maxsize: Optional[int] = 100,
-        pool_block: Optional[bool] = True
+        pool_connections: Optional[int] = 100,  # Increased for better connection reuse
+        pool_maxsize: Optional[int] = 200,      # Increased for high-throughput live data
+        pool_block: Optional[bool] = False      # Don't block to avoid delays with live data
 ) -> HTTPAdapter:
     """
-    Create an HTTP adapter with retry policy and optional rate limiting.
+    Create an HTTP adapter with retry policy and optimized connection pooling for live data.
 
     :param retry_policy: The retry policy to use for the adapter.
-    :param pool_connections: The number of connection pools to allow.
-    :param pool_maxsize: The maximum number of connections to keep in the pool.
-    :param pool_block: Boolean indicating if the pool should block when full.
+    :param pool_connections: The number of connection pools to allow (increased for live data).
+    :param pool_maxsize: The maximum number of connections to keep in the pool (increased for throughput).
+    :param pool_block: Boolean indicating if the pool should block when full (disabled for live data).
     """
     adapter_kwargs = {
         'max_retries': retry_policy,
@@ -347,7 +528,7 @@ def _create_and_mount_session_adapter(
         retry_policy: Optional[Retry] = None,
         log_config: Optional[bool] = False):
     """
-    Create and mount an HTTP adapter to a session.
+    Create and mount an HTTP adapter to a session with optimized settings for live data.
 
     :param session: The session to mount the adapter to.
     :param retry_policy: The retry policy to use for the adapter.
@@ -355,6 +536,13 @@ def _create_and_mount_session_adapter(
     adapter = adapter_instance or get_http_adapter(retry_policy)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
+
+    # Optimize session headers for better connection reuse and live data performance
+    session.headers.update({
+        'Connection': 'keep-alive',
+        'Keep-Alive': 'timeout=30, max=100',  # Keep connections alive longer
+        'User-Agent': 'Riven/1.0 (Live Data Optimized)',
+    })
 
     if log_config:
         logger.debug(f"Mounted http adapter with params: {adapter.__dict__} to session.")

@@ -1,4 +1,6 @@
-from typing import Literal
+from typing import Literal, Optional
+import threading
+import time
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -20,6 +22,33 @@ from ..models.shared import MessageResponse
 router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
+
+# Simple cache for mount scanning
+_mount_scan_cache = {}
+_cache_lock = threading.Lock()
+
+def _get_cached_mount_scan(cache_key: str) -> Optional[dict]:
+    """Get cached mount scan result if still valid."""
+    with _cache_lock:
+        if cache_key in _mount_scan_cache:
+            result, expiry = _mount_scan_cache[cache_key]
+            if time.time() < expiry:
+                return result
+            else:
+                del _mount_scan_cache[cache_key]
+    return None
+
+def _cache_mount_scan(cache_key: str, result: dict, ttl: int = 300):
+    """Cache mount scan result with TTL."""
+    with _cache_lock:
+        _mount_scan_cache[cache_key] = (result, time.time() + ttl)
+
+        # Limit cache size to prevent memory issues
+        if len(_mount_scan_cache) > 10:
+            # Remove oldest entries
+            oldest_key = min(_mount_scan_cache.keys(),
+                           key=lambda k: _mount_scan_cache[k][1])
+            del _mount_scan_cache[oldest_key]
 
 
 @router.get("/health", operation_id="health")
@@ -212,22 +241,110 @@ class MountResponse(BaseModel):
 
 @router.get("/mount", operation_id="mount")
 async def get_rclone_files() -> MountResponse:
-    """Get all files in the rclone mount."""
+    """Get all files in the rclone mount with optimized scanning and caching."""
     import os
+    import time
+    from pathlib import Path
 
     rclone_dir = settings_manager.settings.symlink.rclone_path
+
+    # Use cached result if available and recent (5 minutes)
+    cache_key = f"mount_scan_{rclone_dir}"
+    cached_result = _get_cached_mount_scan(cache_key)
+    if cached_result:
+        return MountResponse(files=cached_result)
+
     file_map = {}
 
-    def scan_dir(path):
-        with os.scandir(path) as entries:
-            for entry in entries:
-                if entry.is_file():
-                    file_map[entry.name] = entry.path
-                elif entry.is_dir():
-                    scan_dir(entry.path)
+    def scan_dir_optimized(path):
+        """Optimized directory scanning using os.scandir with better error handling."""
+        try:
+            with os.scandir(path) as entries:
+                # Process entries in batches to reduce memory usage
+                batch = []
+                for entry in entries:
+                    batch.append(entry)
 
-    scan_dir(rclone_dir)  # dict of `filename: filepath``
+                    # Process batch when it reaches 100 entries
+                    if len(batch) >= 100:
+                        _process_entry_batch(batch, file_map)
+                        batch = []
+
+                # Process remaining entries
+                if batch:
+                    _process_entry_batch(batch, file_map)
+
+        except (OSError, PermissionError) as e:
+            logger.warning(f"Error scanning directory {path}: {e}")
+
+    def _process_entry_batch(entries, file_map):
+        """Process a batch of directory entries efficiently."""
+        for entry in entries:
+            try:
+                if entry.is_file(follow_symlinks=False):
+                    file_map[entry.name] = entry.path
+                elif entry.is_dir(follow_symlinks=False):
+                    scan_dir_optimized(entry.path)
+            except (OSError, PermissionError):
+                # Skip entries that can't be accessed
+                continue
+
+    # Perform the scan
+    scan_dir_optimized(rclone_dir)
+
+    # Cache the result for 5 minutes
+    _cache_mount_scan(cache_key, file_map, ttl=300)
+
     return MountResponse(files=file_map)
+
+
+@router.get("/performance", operation_id="performance")
+async def get_performance_metrics():
+    """Get system performance metrics and statistics."""
+    try:
+        # Import here to avoid circular imports
+        from main import performance_monitor
+
+        stats = performance_monitor.get_stats()
+
+        # Add system-level metrics
+        import psutil
+        import os
+
+        # Get current process info
+        process = psutil.Process(os.getpid())
+
+        system_stats = {
+            'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
+            'cpu_percent': process.cpu_percent(),
+            'open_files': len(process.open_files()),
+            'threads': process.num_threads(),
+            'uptime_seconds': time.time() - process.create_time()
+        }
+
+        # Add database connection pool stats if available
+        try:
+            from program.db.db import db
+            pool_stats = {
+                'pool_size': db.engine.pool.size(),
+                'checked_in': db.engine.pool.checkedin(),
+                'checked_out': db.engine.pool.checkedout(),
+                'overflow': db.engine.pool.overflow(),
+                'invalid': db.engine.pool.invalid()
+            }
+            system_stats['database_pool'] = pool_stats
+        except Exception:
+            pass
+
+        return {
+            'performance': stats,
+            'system': system_stats,
+            'timestamp': time.time()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return {"error": "Failed to retrieve performance metrics"}
 
 
 class UploadLogsResponse(BaseModel):

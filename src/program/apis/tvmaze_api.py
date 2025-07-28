@@ -31,8 +31,9 @@ class TvmazeAPI:
     def __init__(self, settings: TraktModel):
         self.settings = settings
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
-        tvmaze_cache = get_cache_params("tvmaze", 86400)
-        use_cache = os.environ.get("SKIP_TVMAZE_CACHE", "false").lower() == "true"
+        # TVMaze provides static show metadata, so caching is beneficial
+        tvmaze_cache = get_cache_params("tvmaze_static", 86400)  # 24 hour cache for static data
+        use_cache = os.environ.get("SKIP_TVMAZE_CACHE", "false").lower() == "false"
         session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=tvmaze_cache)
         session.headers.update({"Content-type": "application/json"})
         self.request_handler = TvmazeRequestHandler(session)

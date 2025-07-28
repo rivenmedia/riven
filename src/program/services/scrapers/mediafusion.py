@@ -39,7 +39,8 @@ class Mediafusion:
             if self.settings.ratelimit
             else None
         )
-        session = create_service_session(rate_limit_params=rate_limit_params)
+        # Use deduplication for live stream data with 3-second TTL
+        session = create_service_session(rate_limit_params=rate_limit_params, use_deduplication=True, dedup_ttl=3)
         self.request_handler = ScraperRequestHandler(session)
         self.initialized = self.validate()
         if not self.initialized:

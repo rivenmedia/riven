@@ -1,5 +1,6 @@
 """ Jackett scraper module """
 
+import concurrent.futures
 import queue
 import threading
 import time
@@ -70,7 +71,9 @@ class Jackett:
                 rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers),
                                                           period=2) if self.settings.ratelimit else None
                 http_adapter = get_http_adapter(pool_connections=len(self.indexers), pool_maxsize=len(self.indexers))
-                session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
+                # Use deduplication for live torrent search data with 3-second TTL
+                session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter,
+                                               use_deduplication=True, dedup_ttl=3)
                 self.request_handler = ScraperRequestHandler(session)
                 self._log_indexers()
                 return True
@@ -97,28 +100,31 @@ class Jackett:
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the given media item"""
-        results_queue = queue.Queue()
-        threads = [
-            threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
-            for indexer in self.indexers
-        ]
-
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-        results = []
-        while not results_queue.empty():
-            results.extend(results_queue.get())
-
+        """Scrape the given media item using optimized ThreadPoolExecutor"""
         torrents: Dict[str, str] = {}
-        for result in results:
-            if result[1] is None:
-                continue
-            # infohash: raw_title
-            torrents[result[1]] = result[0]
+
+        # Use ThreadPoolExecutor for better resource management
+        max_workers = min(len(self.indexers), 10)  # Limit concurrent indexer requests
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="jackett") as executor:
+            # Submit all indexer tasks
+            future_to_indexer = {
+                executor.submit(self._scrape_indexer, item, indexer): indexer
+                for indexer in self.indexers
+            }
+
+            # Collect results with timeout
+            for future in concurrent.futures.as_completed(future_to_indexer, timeout=30):
+                indexer = future_to_indexer[future]
+                try:
+                    results = future.result(timeout=10)  # 10 second timeout per indexer
+                    for result in results:
+                        if result[1] is not None:  # infohash exists
+                            torrents[result[1]] = result[0]  # infohash: raw_title
+                except concurrent.futures.TimeoutError:
+                    logger.debug(f"Timeout for Jackett indexer {indexer.name}, skipping.")
+                except Exception as e:
+                    logger.error(f"Error processing Jackett indexer {indexer.name}: {e}")
 
         if torrents:
             logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
@@ -126,8 +132,8 @@ class Jackett:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return torrents
 
-    def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
-        """Thread target for searching indexers"""
+    def _scrape_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
+        """Scrape a single indexer and return results directly"""
         try:
             start_time = time.perf_counter()
             result = self._search_indexer(item, indexer)
@@ -136,8 +142,18 @@ class Jackett:
             logger.error(f"Invalid Type for {item.log_string}: {e}")
             result = []
             search_duration = 0
+        except Exception as e:
+            logger.error(f"Error scraping {indexer.title} for {item.log_string}: {e}")
+            result = []
+            search_duration = 0
+
         item_title = item.log_string
         logger.debug(f"Scraped {item_title} from {indexer.title} in {search_duration:.2f} seconds with {len(result)} results")
+        return result
+
+    def _thread_target(self, item: MediaItem, indexer: JackettIndexer, results_queue: queue.Queue):
+        """Thread target for searching indexers (deprecated - kept for compatibility)"""
+        result = self._scrape_indexer(item, indexer)
         results_queue.put(result)
 
     def _search_indexer(self, item: MediaItem, indexer: JackettIndexer) -> List[Tuple[str, str]]:
