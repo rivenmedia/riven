@@ -1,3 +1,4 @@
+import asyncio
 import linecache
 import os
 import threading
@@ -30,7 +31,9 @@ from program.services.updaters import Updater
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
-from program.utils.logging import create_progress_bar, log_cleaner, logger
+from program.utils.logging import (
+    create_progress_bar, log_cleaner, logger, perf_logger
+)
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -107,6 +110,33 @@ class Program(threading.Thread):
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
 
+        # Initialize async executor for non-critical background tasks
+        self.async_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="async-bg")
+        self.background_tasks = []
+
+    def submit_background_task(self, func, *args, **kwargs):
+        """Submit a non-critical task to run asynchronously in the background."""
+        try:
+            future = self.async_executor.submit(func, *args, **kwargs)
+            self.background_tasks.append(future)
+
+            # Clean up completed tasks to prevent memory leaks
+            self.background_tasks = [task for task in self.background_tasks if not task.done()]
+
+        except Exception as e:
+            logger.debug(f"Failed to submit background task: {e}")
+
+    def cleanup_background_tasks(self):
+        """Clean up completed background tasks."""
+        completed_tasks = [task for task in self.background_tasks if task.done()]
+        for task in completed_tasks:
+            try:
+                # Get result to handle any exceptions
+                task.result(timeout=0.1)
+            except Exception as e:
+                logger.debug(f"Background task completed with error: {e}")
+
+        self.background_tasks = [task for task in self.background_tasks if not task.done()]
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
@@ -199,6 +229,60 @@ class Program(threading.Thread):
             else:
                 logger.log("PROGRAM", "No items required retrying")
 
+    def _smart_show_updates(self):
+        """
+        Smart scheduling for show updates that spreads updates throughout the day
+        to avoid API rate limits while ensuring timely detection of new content.
+        """
+        try:
+            from program.services.indexers.trakt import TraktIndexer
+            from datetime import datetime
+            import random
+
+            # Get current hour to adjust update strategy
+            current_hour = datetime.now().hour
+
+            # Determine batch size based on time of day
+            if 18 <= current_hour <= 23:  # Peak hours (6 PM - 11 PM)
+                batch_size = 20  # More aggressive during peak viewing
+                max_shows = 50
+            elif 0 <= current_hour <= 6:  # Off-peak hours (midnight - 6 AM)
+                batch_size = 10  # Conservative during low activity
+                max_shows = 25
+            else:  # Regular hours
+                batch_size = 15  # Balanced approach
+                max_shows = 40
+
+            # Get shows that need updating with priority-based selection
+            indexer = TraktIndexer()
+            if not indexer.initialized:
+                logger.debug("TraktIndexer not initialized, skipping smart show updates")
+                return
+
+            shows_to_update = TraktIndexer.get_shows_needing_update(limit=max_shows)
+
+            if not shows_to_update:
+                logger.debug("No shows need updating at this time")
+                return
+
+            # Log the start of the update process
+            logger.log("TRAKT", f"🔍 CHECKING FOR NEW CONTENT: Scanning {len(shows_to_update)} shows for new seasons/episodes")
+
+            # Add some randomization to spread load
+            random.shuffle(shows_to_update)
+
+            # Process shows in batches with time-based delays
+            processed_count = indexer.update_shows_batch(
+                limit=len(shows_to_update),
+                batch_size=batch_size
+            )
+
+            if processed_count > 0:
+                logger.info(f"Smart show updates: processed {processed_count} shows during {current_hour}:00 hour")
+
+        except Exception as e:
+            logger.error(f"Error in smart show updates: {e}")
+
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
@@ -216,7 +300,8 @@ class Program(threading.Thread):
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._update_ongoing: {"interval": 60 * 60 * 4},
-            self._retry_library: {"interval": 60 * 60 * 24},
+            self._retry_library: {"interval": 60 * 60 * 4},
+            self._smart_show_updates: {"interval": 60 * 30},  # Every 30 minutes
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
@@ -295,43 +380,89 @@ class Program(threading.Thread):
             self.display_top_allocators(snapshot)
 
     def run(self):
+        last_cleanup = time.time()
+        consecutive_limit_hits = 0
+        max_backoff_sleep = 5.0  # Maximum sleep time when hitting limits
+
         while self.initialized:
             if not self.validate():
                 time.sleep(1)
                 continue
 
+            # Periodic cleanup of background tasks (every 30 seconds)
+            current_time = time.time()
+            if current_time - last_cleanup > 30:
+                self.submit_background_task(self.cleanup_background_tasks)
+                last_cleanup = current_time
+
             try:
                 event: Event = self.em.next()
-                self.em.add_event_to_running(event)
+                # Check if we can add to running events (respects limits)
+                if not self.em.add_event_to_running(event):
+                    # Implement intelligent backoff when hitting running events limit
+                    consecutive_limit_hits += 1
+
+                    # Calculate exponential backoff sleep time
+                    backoff_sleep = min(0.1 * (2 ** min(consecutive_limit_hits - 1, 5)), max_backoff_sleep)
+
+                    # Schedule event for later with delay to prevent immediate retry
+                    from datetime import datetime, timedelta
+                    delay_seconds = max(backoff_sleep * 2, 1.0)  # At least 1 second delay
+                    event.run_at = datetime.now() + timedelta(seconds=delay_seconds)
+
+                    # Track retry attempts to prevent infinite cycling
+                    retry_count = getattr(event, '_retry_count', 0) + 1
+                    event._retry_count = retry_count
+
+                    if retry_count > 10:  # Prevent infinite retries
+                        logger.warning(f"Dropping event after 10 retry attempts: {event.log_message}")
+                        consecutive_limit_hits = max(0, consecutive_limit_hits - 1)
+                        continue
+
+                    logger.log("QUEUE", f"Cannot process {event.log_message} - running events limit reached. Retrying in {delay_seconds:.1f}s (attempt {retry_count})")
+                    self.em.add_event_to_queue(event, log_message=False)  # Don't spam logs
+
+                    time.sleep(backoff_sleep)
+                    continue
+
+                # Successfully added to running events - reset backoff counter
+                consecutive_limit_hits = 0
+
+                # Dispatch event to concurrent worker immediately (non-blocking)
+                service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                logger.debug(f"Dispatching {service_name} job for {event.item_id or 'new item'}")
+                self.em.submit_job(event.emitted_by, self, event)
+                perf_logger.increment_counter("jobs_submitted")
+
                 if self.enable_trace:
-                    self.dump_tracemalloc()
+                    # Submit trace dumping as background task to avoid blocking
+                    self.submit_background_task(self.dump_tracemalloc)
+
             except Empty:
+                # Reset backoff counter when queue is empty
+                consecutive_limit_hits = 0
+
                 if self.enable_trace:
-                    self.dump_tracemalloc()
-                time.sleep(0.1)
-                continue
+                    # Submit trace dumping as background task to avoid blocking
+                    self.submit_background_task(self.dump_tracemalloc)
 
-            existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
-
-            next_service, items_to_submit = process_event(
-                event.emitted_by, existing_item, event.content_item
-            )
-
-            self.em.remove_event_from_running(event)
-
-            for item_to_submit in items_to_submit:
-                if not next_service:
-                    self.em.add_event_to_queue(Event("StateTransition", item_id=item_to_submit.id))
+                # Intelligent sleep based on when next event is due
+                next_event_seconds = self.em.get_next_event_time()
+                if next_event_seconds is None:
+                    # No events in queue, sleep for default time
+                    sleep_time = 0.5
+                elif next_event_seconds == 0:
+                    # Events are ready now, very short sleep to avoid busy loop
+                    sleep_time = 0.01
                 else:
-                    # We are in the database, pass on id.
-                    if item_to_submit.id:
-                        event = Event(next_service, item_id=item_to_submit.id)
-                    # We are not, lets pass the MediaItem
-                    else:
-                        event = Event(next_service, content_item=item_to_submit)
+                    # Sleep until next event is due, but cap at reasonable maximum
+                    sleep_time = min(next_event_seconds, 2.0)  # Max 2 seconds
 
-                    self.em.add_event_to_running(event)
-                    self.em.submit_job(next_service, self, event)
+                # Only log when there are scheduled events to avoid spam
+                if next_event_seconds is not None and next_event_seconds > 0:
+                    logger.debug(f"No events ready, sleeping for {sleep_time:.2f}s (next event in {next_event_seconds:.1f}s)")
+                time.sleep(sleep_time)
+                continue
 
     def stop(self):
         if not self.initialized:
@@ -343,11 +474,37 @@ class Program(threading.Thread):
                     executor["_executor"].shutdown(wait=False)
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+
+        # Shutdown async executor for background tasks
+        if hasattr(self, "async_executor"):
+            self.async_executor.shutdown(wait=False)
+
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
+            # Check if item already exists in database to preserve counts
+            existing_item = None
+            if item.imdb_id:
+                with db.Session() as session:
+                    existing_item = session.execute(
+                        select(MediaItem).where(MediaItem.imdb_id == item.imdb_id)
+                    ).scalar_one_or_none()
+
+                    if existing_item:
+                        # Detach from session to avoid conflicts
+                        session.expunge(existing_item)
+
             enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+
+            # Preserve existing database counts if item already exists
+            if existing_item and enhanced_item and enhanced_item.type == "show":
+                # Preserve season/episode counts to prevent "NEW SEASON" false positives
+                enhanced_item.set("last_season_count", getattr(existing_item, 'last_season_count', 0) or 0)
+                enhanced_item.set("last_episode_count", getattr(existing_item, 'last_episode_count', 0) or 0)
+                enhanced_item.set("season_episode_counts", getattr(existing_item, 'season_episode_counts', {}) or {})
+                logger.debug(f"Preserved counts for {enhanced_item.log_string}: seasons={enhanced_item.last_season_count}, episodes={enhanced_item.last_episode_count}")
+
             return enhanced_item
         except StopIteration:
             return None

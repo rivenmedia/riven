@@ -37,6 +37,9 @@ class Updater:
         # Lets update the attributes of the item and its children, we dont care if the service updated it or not.
         for _item in get_items_to_update(item):
             _item.set("update_folder", "updated")
+
+        # Store the state to trigger proper state transitions
+        item.store_state()
         yield item
 
 def get_items_to_update(item: MediaItem) -> list[MediaItem]:

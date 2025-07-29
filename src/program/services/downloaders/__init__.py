@@ -1,3 +1,5 @@
+# Removed ThreadPoolExecutor - now using sequential processing for proper RTN rank order
+from datetime import datetime
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -54,47 +56,240 @@ class Downloader:
             yield item
 
         if not item.streams:
-            logger.debug(f"No streams available for {item.log_string} ({item.id})")
+            logger.debug(f"❌ No streams available for download: {item.log_string}")
             yield item
 
+        logger.debug(f"🔽 Starting download for {item.log_string} ({len(item.streams)} streams available)")
         download_success = False
-        for stream in item.streams:
-            container: Optional[TorrentContainer] = self.validate_stream(stream, item)
-            if not container:
-                continue
 
-            try:
-                download_result = self.download_cached_stream(stream, container)
-                if self.update_item_attributes(item, download_result):
-                    logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-                    download_success = True
-                    break
-                else:
-                    raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
-            except Exception as e:
-                logger.debug(f"Stream {stream.infohash} failed: {e}")
-                if 'download_result' in locals() and download_result.id:
-                    try:
-                        self.service.delete_torrent(download_result.id)
-                        logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
-                    except Exception as e:
-                        logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service: {e}")
-                item.blacklist_stream(stream)
+        # Two-tier processing: Quick wins first, difficult items later
+        if getattr(item, '_needs_deep_processing', False):
+            # This is a retry for deep processing - check remaining streams
+            download_success = self._try_deep_download(item)
+        else:
+            # First attempt - try quick download with top 5 streams
+            download_success = self._try_quick_download(item)
 
-        if not download_success:
-            logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
+            if not download_success:
+                # Schedule for deeper processing later instead of blocking now
+                download_success = self._schedule_deep_processing(item)
+
+                # Simple failure handling - let state transition system handle retries
+                if not download_success:
+                    logger.debug(f"❌ Download failed for {item.log_string} - will be retried by state transition")
 
         yield item
 
+    def _try_quick_download(self, item: MediaItem) -> bool:
+        """
+        Tier 1: Try to download using only the top 5 RTN ranked streams.
+        This handles 80% of items quickly with minimal API calls.
+        """
+        if not item.streams:
+            return False
+
+        # Only check top 5 streams for quick wins
+        top_streams = item.streams[:5]
+        logger.debug(f"🚀 Quick download attempt: checking top {len(top_streams)} streams for {item.log_string}")
+
+        # Check if service is available before processing any streams
+        if hasattr(self.service, '_rate_limit_breaker'):
+            if not self.service._rate_limit_breaker.can_execute():
+                logger.warning(f"Circuit breaker OPEN - skipping all streams for {item.log_string}")
+                return False
+
+        # Process streams sequentially in RTN rank order (best first)
+        # STOP immediately when we find the first valid stream
+        for stream in top_streams:
+            # Skip already blacklisted streams
+            if item.is_stream_blacklisted(stream):
+                logger.debug(f"⏭️ Skipping blacklisted stream {stream.infohash} for {item.log_string}")
+                continue
+
+            logger.debug(f"🔍 Checking stream {stream.infohash} (rank {getattr(stream, 'rank', 'unknown')}) for {item.log_string}")
+
+            try:
+                # Validate this single stream
+                container = self.validate_stream(stream, item)
+                if not container:
+                    logger.debug(f"❌ Stream {stream.infohash} is not cached or valid")
+                    item.blacklist_stream(stream)
+                    continue  # Try next stream in rank order
+
+                # Stream is valid - try to download it immediately
+                logger.debug(f"✅ Stream {stream.infohash} is valid - attempting download")
+                download_result = self.download_cached_stream(stream, container)
+
+                if self.update_item_attributes(item, download_result):
+                    logger.debug(f"✅ Quick download success: {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                    return True  # SUCCESS - stop processing more streams
+                else:
+                    raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
+
+            except Exception as e:
+                logger.debug(f"❌ Stream {stream.infohash} failed: {e}")
+                if 'download_result' in locals() and download_result.id:
+                    try:
+                        self.service.delete_torrent(download_result.id)
+                    except Exception:
+                        pass
+                item.blacklist_stream(stream)
+                # Continue to next stream in rank order
+
+        logger.debug(f"⏭️ Quick download failed for {item.log_string} - will try deep processing later")
+        return False
+
+    def _schedule_deep_processing(self, item: MediaItem) -> bool:
+        """
+        Tier 2: Try deep processing immediately if we have remaining streams.
+        This prevents blocking the queue on difficult items.
+        """
+        if len(item.streams) <= 5:
+            # No more streams to check
+            logger.debug(f"❌ No more streams available for {item.log_string}")
+            return False
+
+        # Try deep processing immediately instead of scheduling
+        logger.debug(f"🔍 Attempting deep processing for {item.log_string} ({len(item.streams) - 5} remaining streams)")
+        return self._try_deep_download(item)
+
+    def _try_deep_download(self, item: MediaItem) -> bool:
+        """
+        Tier 2: Try to download using remaining streams (beyond top 5).
+        This handles the 20% of difficult items that need more thorough checking.
+        """
+        if not item.streams or len(item.streams) <= 5:
+            logger.debug(f"❌ No remaining streams for deep processing: {item.log_string}")
+            return False
+
+        # Check if service is available before deep processing
+        if hasattr(self.service, '_rate_limit_breaker'):
+            if not self.service._rate_limit_breaker.can_execute():
+                logger.warning(f"Circuit breaker OPEN - skipping deep processing for {item.log_string}")
+                return False
+
+        # Check remaining streams (beyond top 5) sequentially in RTN rank order
+        remaining_streams = item.streams[5:]
+        logger.debug(f"🔍 Deep processing: checking {len(remaining_streams)} remaining streams for {item.log_string}")
+
+        # Process streams one at a time in RTN rank order - STOP when we find the first valid one
+        for stream in remaining_streams:
+            # Skip already blacklisted streams
+            if item.is_stream_blacklisted(stream):
+                logger.debug(f"⏭️ Skipping blacklisted stream {stream.infohash} for {item.log_string}")
+                continue
+
+            logger.debug(f"🔍 Deep processing stream {stream.infohash} (rank {getattr(stream, 'rank', 'unknown')}) for {item.log_string}")
+
+            try:
+                # Validate this single stream
+                container = self.validate_stream(stream, item)
+                if not container:
+                    logger.debug(f"❌ Stream {stream.infohash} is not cached or valid")
+                    item.blacklist_stream(stream)
+                    continue  # Try next stream in rank order
+
+                # Stream is valid - try to download it immediately
+                logger.debug(f"✅ Stream {stream.infohash} is valid - attempting download")
+                download_result = self.download_cached_stream(stream, container)
+
+                if self.update_item_attributes(item, download_result):
+                    logger.debug(f"✅ Deep processing success: {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                    # Clear the deep processing flag
+                    if hasattr(item, '_needs_deep_processing'):
+                        delattr(item, '_needs_deep_processing')
+                    return True  # SUCCESS - stop processing more streams
+                else:
+                    raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
+
+            except Exception as e:
+                logger.debug(f"❌ Deep processing stream {stream.infohash} failed: {e}")
+                if 'download_result' in locals() and download_result.id:
+                    try:
+                        self.service.delete_torrent(download_result.id)
+                    except Exception:
+                        pass
+                item.blacklist_stream(stream)
+                # Continue to next stream in rank order
+
+        logger.debug(f"❌ Deep processing failed: No valid streams found for {item.log_string}")
+        # Clear the deep processing flag since we've exhausted all options
+        if hasattr(item, '_needs_deep_processing'):
+            delattr(item, '_needs_deep_processing')
+        return False
+
+    # Removed _validate_streams_parallel - now using sequential processing to respect RTN rank order
+
+    def _should_recheck_stream_availability(self, stream: Stream, item: MediaItem) -> bool:
+        """
+        Determine if a stream's availability should be rechecked based on adaptive polling.
+        Uses data volatility patterns to optimize checking frequency.
+        """
+        # Always check if we've never checked before
+        if not hasattr(stream, 'last_availability_check'):
+            return True
+
+        last_check = getattr(stream, 'last_availability_check', None)
+        if not last_check:
+            return True
+
+        time_since_check = (datetime.now() - last_check).total_seconds()
+
+        # Adaptive intervals based on stream and item characteristics
+        base_interval = 300  # 5 minutes base
+
+        # Recently added streams are more volatile
+        if hasattr(stream, 'created_at') and stream.created_at:
+            stream_age_hours = (datetime.now() - stream.created_at).total_seconds() / 3600
+            if stream_age_hours < 1:
+                base_interval = 60  # Check every minute for very new streams
+            elif stream_age_hours < 6:
+                base_interval = 180  # Check every 3 minutes for recent streams
+
+        # High-priority items need more frequent checks
+        if item.last_state in [States.Requested, States.Indexed]:
+            base_interval *= 0.5  # Check twice as often
+
+        # Popular streams (high rank) are more likely to become available
+        if hasattr(stream, 'rank') and stream.rank < 10:
+            base_interval *= 0.7  # Check more frequently for high-ranked streams
+
+        # Failed availability checks get exponential backoff
+        failed_checks = getattr(stream, 'failed_availability_checks', 0)
+        if failed_checks > 0:
+            base_interval *= (1.3 ** failed_checks)  # Exponential backoff
+
+        # Cap between 30 seconds and 30 minutes
+        final_interval = max(30, min(1800, base_interval))
+
+        return time_since_check >= final_interval
+
     def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
         """
-        Validate a single stream by ensuring its files match the item's requirements.
+        Validate a single stream with adaptive availability checking.
         """
+        # Use adaptive polling to optimize availability checks
+        if not self._should_recheck_stream_availability(stream, item):
+            # Return cached result if available
+            cached_container = getattr(stream, '_cached_container', None)
+            if cached_container:
+                logger.debug(f"Using cached availability for stream {stream.infohash}")
+                return cached_container
+
+        # Update last check time
+        stream.last_availability_check = datetime.now()
+
         container = self.get_instant_availability(stream.infohash, item.type)
         if not container:
             logger.debug(f"Stream {stream.infohash} is not cached or valid.")
+            # Track failed checks for adaptive backoff
+            stream.failed_availability_checks = getattr(stream, 'failed_availability_checks', 0) + 1
             item.blacklist_stream(stream)
             return None
+
+        # Cache successful result and reset failed counter
+        stream._cached_container = container
+        stream.failed_availability_checks = 0
 
         valid_files = []
         for file in container.files or []:

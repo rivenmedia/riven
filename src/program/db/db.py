@@ -8,11 +8,12 @@ from program.settings.manager import settings_manager
 from program.utils import root_dir
 
 engine_options = {
-    "pool_size": 25, # Prom: Set to 1 when debugging sql queries
-    "max_overflow": 25, # Prom: Set to 0 when debugging sql queries
-    "pool_pre_ping": True, # Prom: Set to False when debugging sql queries
-    "pool_recycle": 1800, # Prom: Set to -1 when debugging sql queries
-    "echo": False, # Prom: Set to true when debugging sql queries
+    "pool_size": 50, # Increased for better concurrent performance (was 25)
+    "max_overflow": 75, # Increased overflow capacity for peak loads (was 25)
+    "pool_pre_ping": True, # Keep enabled for connection health checks
+    "pool_recycle": 3600, # Increased to 1 hour for better connection reuse (was 30 min)
+    "pool_timeout": 30, # Added timeout to prevent indefinite waits
+    "echo": False, # Keep disabled for production performance
 }
 
 # Prom: This is a good place to set the statement timeout for the database when debugging.

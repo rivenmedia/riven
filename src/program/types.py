@@ -51,7 +51,12 @@ class Event:
     emitted_by: Service
     item_id: Optional[str] = None
     content_item: Optional[MediaItem] = None
-    run_at: datetime = datetime.now()
+    run_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        """Set default run_at to current time if not provided."""
+        if self.run_at is None:
+            self.run_at = datetime.now()
 
     @property
     def log_message(self):

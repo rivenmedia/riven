@@ -50,28 +50,45 @@ class TraktAPI:
         self.oauth_client_secret = self.settings.oauth.oauth_client_secret
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
-        trakt_cache = get_cache_params("trakt", 86400)
-        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "false"
-        session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=trakt_cache)
+
+        # Create cached session for static metadata (show info, aliases, etc.)
+        trakt_cache = get_cache_params("trakt_static", 86400)  # 24 hour cache for static data
+        use_static_cache = os.environ.get("SKIP_TRAKT_STATIC_CACHE", "false").lower() == "false"
+        cached_session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_static_cache, cache_params=trakt_cache)
+
+        # Create non-cached session for dynamic data (trending, popular, user lists, etc.)
+        live_session = create_service_session(rate_limit_params=rate_limit_params, use_cache=False)
+
         self.headers = {
             "Content-type": "application/json",
             "trakt-api-key": self.CLIENT_ID,
             "trakt-api-version": "2"
         }
-        session.headers.update(self.headers)
-        self.request_handler = TraktRequestHandler(session)
+
+        # Setup both session handlers
+        cached_session.headers.update(self.headers)
+        live_session.headers.update(self.headers)
+
+        # Static data handler (cached) - for show metadata, aliases, etc.
+        self.static_handler = TraktRequestHandler(cached_session)
+        # Dynamic data handler (live) - for trending, popular, user lists, etc.
+        self.live_handler = TraktRequestHandler(live_session)
+
+        # Default to static handler for backward compatibility
+        self.request_handler = self.static_handler
 
     def validate(self):
         return self.request_handler.execute(HttpMethod.GET, f"{self.BASE_URL}/lists/2")
 
-    def _fetch_data(self, url, params):
+    def _fetch_data(self, url, params, use_live_handler=False):
         """Fetch paginated data from Trakt API with rate limiting."""
+        handler = self.live_handler if use_live_handler else self.static_handler
         all_data = []
         page = 1
 
         while True:
             try:
-                response = self.request_handler.execute(HttpMethod.GET, url, params={**params, "page": page})
+                response = handler.execute(HttpMethod.GET, url, params={**params, "page": page})
                 if response.is_ok:
                     data = response.data if isinstance(response.data, list) else [response.data]
                     if not data:
@@ -97,17 +114,17 @@ class TraktAPI:
     def get_watchlist_items(self, user):
         """Get watchlist items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/{user}/watchlist"
-        return self._fetch_data(url,{})
+        return self._fetch_data(url, {}, use_live_handler=True)  # User data is dynamic
 
     def get_user_list(self, user, list_name):
         """Get user list items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/{user}/lists/{list_name}/items"
-        return self._fetch_data(url, {})
+        return self._fetch_data(url, {}, use_live_handler=True)  # User lists are dynamic
 
     def get_collection_items(self, user, media_type):
         """Get collections from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/{user}/collection/{media_type}"
-        return self._fetch_data(url, {})
+        return self._fetch_data(url, {}, use_live_handler=True)  # User collections are dynamic
 
     # UNUSED
     def get_liked_lists(self):
@@ -118,17 +135,17 @@ class TraktAPI:
     def get_trending_items(self, media_type, limit=10):
         """Get trending items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/{media_type}/trending"
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(url, {"limit": limit}, use_live_handler=True)  # Trending is highly dynamic
 
     def get_popular_items(self, media_type, limit=10):
         """Get popular items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/{media_type}/popular"
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(url, {"limit": limit}, use_live_handler=True)  # Popular is dynamic
 
     def get_most_watched_items(self, media_type, period="weekly", limit=10):
         """Get popular items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/{media_type}/watched/{period}"
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(url, {"limit": limit}, use_live_handler=True)  # Most watched is dynamic
 
     # UNUSED
     def get_favorited_items(self, user, limit=10):
@@ -167,7 +184,7 @@ class TraktAPI:
         if not imdb_id:
             return {}
         url = f"{self.BASE_URL}/shows/{imdb_id}/seasons?extended=episodes,full"
-        response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
+        response = self.request_handler.execute(method=HttpMethod.GET, endpoint=url, timeout=30)
         return response.data if response.is_ok and response.data else {}
 
     def get_show_aliases(self, imdb_id: str, item_type: str) -> List[dict]:
@@ -176,7 +193,7 @@ class TraktAPI:
             return []
         url = f"{self.BASE_URL}/{item_type}/{imdb_id}/aliases"
         try:
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
+            response = self.request_handler.execute(method=HttpMethod.GET, endpoint=url, timeout=30)
             if response.is_ok and response.data:
                 aliases = {}
                 for ns in response.data:

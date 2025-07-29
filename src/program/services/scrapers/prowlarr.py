@@ -180,15 +180,50 @@ class Prowlarr:
         return indexers
 
     def _periodic_indexer_scan(self):
-        """scan indexers every 30 minutes"""
+        """Adaptive indexer scanning based on volatility and usage patterns."""
         previous_count = len(self.indexers)
-        if self.last_indexer_scan is None or (datetime.now() - self.last_indexer_scan).total_seconds() > 1800:
+        scan_interval = self._get_adaptive_scan_interval()
+
+        if self.last_indexer_scan is None or (datetime.now() - self.last_indexer_scan).total_seconds() > scan_interval:
             self.indexers = self.get_indexers()
             self.last_indexer_scan = datetime.now()
+
             if len(self.indexers) != previous_count:
                 logger.info(f"Indexers count changed from {previous_count} to {len(self.indexers)}")
-                next_scan_time = self.last_indexer_scan + timedelta(seconds=1800)
-                logger.info(f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}")
+                # If indexers changed, scan more frequently for a while
+                self._indexer_change_detected = True
+                self._last_change_time = datetime.now()
+
+            next_scan_time = self.last_indexer_scan + timedelta(seconds=scan_interval)
+            logger.debug(f"Next indexer scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')} (interval: {scan_interval}s)")
+
+    def _get_adaptive_scan_interval(self) -> int:
+        """
+        Get adaptive scan interval based on indexer volatility and usage patterns.
+        Returns interval in seconds.
+        """
+        base_interval = 1800  # 30 minutes base
+
+        # If indexers changed recently, scan more frequently
+        if hasattr(self, '_indexer_change_detected') and self._indexer_change_detected:
+            if hasattr(self, '_last_change_time'):
+                time_since_change = (datetime.now() - self._last_change_time).total_seconds()
+                if time_since_change < 3600:  # Within last hour
+                    return 600  # 10 minutes
+                elif time_since_change < 7200:  # Within last 2 hours
+                    return 1200  # 20 minutes
+                else:
+                    # Reset change detection after 2 hours
+                    self._indexer_change_detected = False
+
+        # During peak hours (evening), scan more frequently
+        current_hour = datetime.now().hour
+        if 18 <= current_hour <= 23:  # 6 PM to 11 PM
+            return int(base_interval * 0.7)  # 21 minutes
+        elif 0 <= current_hour <= 6:  # Midnight to 6 AM
+            return int(base_interval * 1.5)  # 45 minutes (less activity)
+
+        return base_interval
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Prowlarr site for the given media items

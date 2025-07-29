@@ -50,6 +50,10 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
         if infohash in processed_infohashes:
             continue
 
+        if '【高清剧集网发布 www.BPHDTV.com】超能立方[全12集][国语配音 中文字幕].' in raw_title:
+            # remove the text
+            raw_title = raw_title.replace('【高清剧集网发布 www.BPHDTV.com】超能立方[全12集][国语配音 中文字幕].', '')
+
         try:
             torrent: Torrent = rtn.rank(
                 raw_title=raw_title,

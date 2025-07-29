@@ -1,4 +1,6 @@
-from typing import Literal
+from typing import Literal, Optional
+import threading
+import time
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -20,6 +22,33 @@ from ..models.shared import MessageResponse
 router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
+
+# Simple cache for mount scanning
+_mount_scan_cache = {}
+_cache_lock = threading.Lock()
+
+def _get_cached_mount_scan(cache_key: str) -> Optional[dict]:
+    """Get cached mount scan result if still valid."""
+    with _cache_lock:
+        if cache_key in _mount_scan_cache:
+            result, expiry = _mount_scan_cache[cache_key]
+            if time.time() < expiry:
+                return result
+            else:
+                del _mount_scan_cache[cache_key]
+    return None
+
+def _cache_mount_scan(cache_key: str, result: dict, ttl: int = 300):
+    """Cache mount scan result with TTL."""
+    with _cache_lock:
+        _mount_scan_cache[cache_key] = (result, time.time() + ttl)
+
+        # Limit cache size to prevent memory issues
+        if len(_mount_scan_cache) > 10:
+            # Remove oldest entries
+            oldest_key = min(_mount_scan_cache.keys(),
+                           key=lambda k: _mount_scan_cache[k][1])
+            del _mount_scan_cache[oldest_key]
 
 
 @router.get("/health", operation_id="health")
@@ -212,22 +241,264 @@ class MountResponse(BaseModel):
 
 @router.get("/mount", operation_id="mount")
 async def get_rclone_files() -> MountResponse:
-    """Get all files in the rclone mount."""
+    """Get all files in the rclone mount with optimized scanning and caching."""
     import os
+    import time
+    from pathlib import Path
 
     rclone_dir = settings_manager.settings.symlink.rclone_path
+
+    # Use cached result if available and recent (5 minutes)
+    cache_key = f"mount_scan_{rclone_dir}"
+    cached_result = _get_cached_mount_scan(cache_key)
+    if cached_result:
+        return MountResponse(files=cached_result)
+
     file_map = {}
 
-    def scan_dir(path):
-        with os.scandir(path) as entries:
-            for entry in entries:
-                if entry.is_file():
-                    file_map[entry.name] = entry.path
-                elif entry.is_dir():
-                    scan_dir(entry.path)
+    def scan_dir_optimized(path):
+        """Optimized directory scanning using os.scandir with better error handling."""
+        try:
+            with os.scandir(path) as entries:
+                # Process entries in batches to reduce memory usage
+                batch = []
+                for entry in entries:
+                    batch.append(entry)
 
-    scan_dir(rclone_dir)  # dict of `filename: filepath``
+                    # Process batch when it reaches 100 entries
+                    if len(batch) >= 100:
+                        _process_entry_batch(batch, file_map)
+                        batch = []
+
+                # Process remaining entries
+                if batch:
+                    _process_entry_batch(batch, file_map)
+
+        except (OSError, PermissionError) as e:
+            logger.warning(f"Error scanning directory {path}: {e}")
+
+    def _process_entry_batch(entries, file_map):
+        """Process a batch of directory entries efficiently."""
+        for entry in entries:
+            try:
+                if entry.is_file(follow_symlinks=False):
+                    file_map[entry.name] = entry.path
+                elif entry.is_dir(follow_symlinks=False):
+                    scan_dir_optimized(entry.path)
+            except (OSError, PermissionError):
+                # Skip entries that can't be accessed
+                continue
+
+    # Perform the scan
+    scan_dir_optimized(rclone_dir)
+
+    # Cache the result for 5 minutes
+    _cache_mount_scan(cache_key, file_map, ttl=300)
+
     return MountResponse(files=file_map)
+
+
+@router.get("/performance", operation_id="performance")
+async def get_performance_metrics(request: Request):
+    """Get system performance metrics and statistics."""
+    try:
+        # Access performance monitor through the app instance to avoid circular imports
+        performance_monitor = request.app.performance_monitor
+        stats = performance_monitor.get_stats()
+
+        # Add system-level metrics with error handling
+        system_stats = {}
+        try:
+            import psutil
+            import os
+
+            # Get current process info
+            process = psutil.Process(os.getpid())
+
+            system_stats = {
+                'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
+                'open_files': len(process.open_files()),
+                'threads': process.num_threads(),
+                'uptime_seconds': time.time() - process.create_time()
+            }
+
+            # Try to get CPU percent safely - this can fail in non-main threads
+            try:
+                # Use interval=None to avoid blocking and signal issues
+                cpu_percent = process.cpu_percent(interval=None)
+                if cpu_percent is not None:
+                    system_stats['cpu_percent'] = cpu_percent
+            except Exception:
+                # Skip CPU percent if it fails (common in non-main threads)
+                pass
+
+        except Exception as e:
+            logger.warning(f"Failed to get system metrics: {e}")
+            system_stats = {'error': f'Failed to get system metrics: {str(e)}'}
+
+        # Add database connection pool stats if available
+        try:
+            from program.db.db import db
+            pool_stats = {
+                'pool_size': db.engine.pool.size(),
+                'checked_in': db.engine.pool.checkedin(),
+                'checked_out': db.engine.pool.checkedout(),
+                'overflow': db.engine.pool.overflow(),
+                'invalid': db.engine.pool.invalid()
+            }
+            system_stats['database_pool'] = pool_stats
+        except Exception:
+            pass
+
+        # Add comprehensive event manager and operational stats
+        program = None
+        memory_stats = {'error': 'Unable to get memory stats'}
+        executor_stats = {'error': 'Unable to get executor stats'}
+        event_updates = {'error': 'Unable to get event updates'}
+
+        try:
+            # Try to get program instance through the app
+            program = request.app.program
+            if program:
+                logger.debug(f"Program found: initialized={getattr(program, 'initialized', False)}, has_em={hasattr(program, 'em')}")
+                if hasattr(program, 'em'):
+                    memory_stats = program.em.get_memory_stats()
+                    executor_stats = program.em.get_executor_stats()
+                    event_updates = program.em.get_event_updates()
+                else:
+                    logger.warning("Program found but no event manager")
+            else:
+                logger.warning("No program instance found in app")
+        except Exception as e:
+            logger.warning(f"Failed to get program stats via app: {e}")
+
+        # Fallback to dependency injection if app method failed
+        if program is None or 'error' in memory_stats:
+            try:
+                from program import Program
+                from kink import di
+                program = di[Program]
+                if program and hasattr(program, 'em'):
+                    logger.debug("Using DI fallback for program access")
+                    memory_stats = program.em.get_memory_stats()
+                    executor_stats = program.em.get_executor_stats()
+                    event_updates = program.em.get_event_updates()
+            except Exception as e:
+                logger.warning(f"Failed to get program stats via DI: {e}")
+
+        # Add database statistics
+        db_stats = {}
+        try:
+            from program.db.db import db
+            with db.Session() as session:
+                # Get table row counts for monitoring
+                from program.media.item import Movie, Show, Season, Episode, MediaItem
+                from program.media.stream import Stream
+
+                db_stats = {
+                    'movies_total': session.query(func.count(Movie.id)).scalar(),
+                    'shows_total': session.query(func.count(Show.id)).scalar(),
+                    'seasons_total': session.query(func.count(Season.id)).scalar(),
+                    'episodes_total': session.query(func.count(Episode.id)).scalar(),
+                    'streams_total': session.query(func.count(Stream.id)).scalar(),
+                    'movies_symlinked': session.query(func.count(Movie.id)).filter(Movie.symlinked == True).scalar(),
+                    'episodes_symlinked': session.query(func.count(Episode.id)).filter(Episode.symlinked == True).scalar(),
+                }
+
+                # Get state distribution
+                from program.media.state import States
+                state_counts = {}
+                for state in States:
+                    count = session.query(func.count(MediaItem.id)).filter(MediaItem.last_state == state).scalar()
+                    if count > 0:
+                        state_counts[state.name] = count
+                db_stats['state_distribution'] = state_counts
+
+        except Exception as e:
+            logger.warning(f"Failed to get database stats: {e}")
+            db_stats = {'error': f'Unable to get database stats: {str(e)}'}
+
+        # Add performance logger stats if available
+        perf_logger_stats = {}
+        try:
+            from program.utils.logging import perf_logger
+            perf_logger_stats = perf_logger.get_stats()
+        except Exception as e:
+            logger.warning(f"Failed to get performance logger stats: {e}")
+            perf_logger_stats = {'error': f'Unable to get perf logger stats: {str(e)}'}
+
+        # Add detailed running items information
+        running_items_details = {}
+        try:
+            if program and 'error' not in memory_stats and memory_stats.get('running_breakdown'):
+                from program.db.db import db
+                with db.Session() as session:
+                    # Get details about currently running items
+                    running_items = []
+
+                    # Get a sample of running events with item details
+                    if hasattr(program, 'em') and hasattr(program.em, '_running_events'):
+                        with program.em.mutex:
+                            for event in program.em._running_events[:20]:  # Limit to first 20 for performance
+                                if event.item_id:
+                                    try:
+                                        item = session.query(MediaItem).filter_by(id=event.item_id).first()
+                                        if item:
+                                            running_items.append({
+                                                'item_id': event.item_id,
+                                                'title': getattr(item, 'title', 'Unknown'),
+                                                'type': item.__class__.__name__,
+                                                'state': item.last_state.name if item.last_state else 'Unknown',
+                                                'service': getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                                            })
+                                    except Exception:
+                                        # Skip items that can't be queried
+                                        pass
+
+                    running_items_details = {
+                        'sample_running_items': running_items,
+                        'total_running_count': len(program.em._running_events) if program and hasattr(program, 'em') else 0
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to get running items details: {e}")
+            running_items_details = {'error': f'Unable to get running items: {str(e)}'}
+
+        # Add service health status
+        service_health = {}
+        try:
+            if program and hasattr(program, 'all_services'):
+                for service_class, service_instance in program.all_services.items():
+                    service_name = service_class.__name__
+                    service_health[service_name] = {
+                        'enabled': getattr(service_instance, 'enabled', True),
+                        'initialized': getattr(service_instance, 'initialized', False),
+                        'last_run': getattr(service_instance, 'last_run', None),
+                        'class_name': service_class.__name__
+                    }
+            else:
+                service_health = {'error': 'Program instance not available'}
+        except Exception as e:
+            logger.warning(f"Failed to get service health: {e}")
+            service_health = {'error': f'Unable to get service health: {str(e)}'}
+
+        return {
+            'performance': stats,
+            'system': system_stats,
+            'event_manager': {
+                'memory': memory_stats,
+                'executors': executor_stats,
+                'current_events': event_updates
+            },
+            'database': db_stats,
+            'performance_logger': perf_logger_stats,
+            'running_items': running_items_details,
+            'service_health': service_health,
+            'timestamp': time.time()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return {"error": "Failed to retrieve performance metrics"}
 
 
 class UploadLogsResponse(BaseModel):
