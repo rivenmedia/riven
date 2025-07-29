@@ -68,18 +68,46 @@ class Subliminal:
                 video = Video.fromname(real_name)
                 video.symlink_path = item.symlink_path
                 video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, pathlib.Path(item.symlink_path).parent)
-                return video, self.pool.download_best_subtitles(self.pool.list_subtitles(video, self.languages), video, self.languages)
+                # Get all subtitles for all languages
+                all_subtitles = self.pool.list_subtitles(video, self.languages)
+                subtitles_to_download = []
+                count_per_language = getattr(self.settings, 'count_per_language', 1)
+                for language in self.languages:
+                    # Filter and sort by score for each language
+                    lang_subs = [s for s in all_subtitles if s.language == language]
+                    # Compute score for each subtitle
+                    scored = [(s, s.get_matches(video)) for s in lang_subs]
+                    # Sort by number of matches (descending)
+                    scored.sort(key=lambda x: len(x[1]), reverse=True)
+                    # Take top N
+                    top_subs = [s for s, _ in scored[:count_per_language]]
+                    subtitles_to_download.extend(top_subs)
+                # Download all selected subtitles
+                self.pool.download_subtitles(subtitles_to_download)
+                return video, subtitles_to_download
             except ValueError:
                 logger.error(f"Could not parse video name: {real_name}")
-        return {}
+        return {}, []
 
     def save_subtitles(self, video, subtitles, item):
+        # Save all subtitles, appending an index if more than one per language
+        lang_count = {}
         for subtitle in subtitles:
             original_name = video.name
             video.name = pathlib.Path(video.symlink_path)
-            saved = save_subtitles(video, [subtitle])
-            for subtitle in saved:
-                logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(item.symlink_path).stem}")
+            lang = str(subtitle.language)
+            lang_count.setdefault(lang, 0)
+            lang_count[lang] += 1
+            # If more than one per language, append index
+            if lang_count[lang] > 1:
+                # Save with .lang.N.srt
+                filename = f"{video.name.stem}.{lang}.{lang_count[lang]}.srt"
+                save_subtitles(video, [subtitle], directory=video.name.parent, single=False, encoding=None, filename=filename)
+                logger.info(f"Downloaded ({subtitle.language}) subtitle #{lang_count[lang]} for {pathlib.Path(item.symlink_path).stem}")
+            else:
+                saved = save_subtitles(video, [subtitle])
+                for subtitle in saved:
+                    logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(item.symlink_path).stem}")
             video.name = original_name
 
 
