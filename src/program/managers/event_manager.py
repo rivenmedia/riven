@@ -20,6 +20,9 @@ from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
 from program.types import Event
 from program.media.item import MediaItem
+from program.utils.logging import (
+    log_memory_usage, log_queue_operation, perf_logger
+)
 
 
 class EventUpdate(BaseModel):
@@ -30,7 +33,7 @@ class EventUpdate(BaseModel):
 
 class EventManager:
     """
-    Manages the execution of services and the handling of events.
+    Manages the execution of services and the handling of events with memory management.
     """
     def __init__(self):
         self._executors: list[ThreadPoolExecutor] = []
@@ -41,6 +44,37 @@ class EventManager:
         self.mutex = Lock()
         self._counter = 0  # For stable sorting when run_at times are equal
         self._last_cleanup = time.time()  # Track last executor cleanup
+
+        # Memory management limits - balanced for concurrent processing
+        self.MAX_QUEUED_EVENTS = int(os.environ.get('RIVEN_MAX_QUEUED_EVENTS', '500'))   # Increased for concurrent processing
+        self.MAX_RUNNING_EVENTS = int(os.environ.get('RIVEN_MAX_RUNNING_EVENTS', '1000'))  # Removed artificial bottleneck
+        self.MAX_FUTURES = int(os.environ.get('RIVEN_MAX_FUTURES', '1000'))               # Increased for concurrent futures
+        self.MAX_BATCH_QUEUE = int(os.environ.get('RIVEN_MAX_BATCH_QUEUE', '50'))        # Increased for batching
+
+        # Service-specific concurrency limits - balanced for performance
+        self.SERVICE_CONCURRENCY_LIMITS = {
+            'Downloader': int(os.environ.get('RIVEN_MAX_DOWNLOADER_CONCURRENT', '2')),   # Conservative for API limits
+            'Scraping': int(os.environ.get('RIVEN_MAX_SCRAPING_CONCURRENT', '10')),      # Higher for scrapers
+            'TraktIndexer': int(os.environ.get('RIVEN_MAX_TRAKT_CONCURRENT', '5')),      # Moderate for Trakt
+            'StateTransition': int(os.environ.get('RIVEN_MAX_STATE_CONCURRENT', '20')),  # Increased - lightweight operations
+            'RetryLibrary': int(os.environ.get('RIVEN_MAX_RETRY_CONCURRENT', '5')),      # Increased for retries
+            'ManualAPI': int(os.environ.get('RIVEN_MAX_MANUAL_CONCURRENT', '10')),       # Manual API operations
+        }
+
+        # Memory monitoring
+        self._memory_warnings_sent = 0
+        self._last_memory_check = time.time()
+        self._memory_check_interval = 60  # Check every minute
+
+        # Queue status monitoring
+        self._last_queue_status_log = time.time()
+        self._last_running_events_log = time.time()
+        self._running_events_log_interval = 30  # Log running events every 30 seconds
+
+        # Performance tracking disabled to prevent hanging
+        # self._event_start_times = {}  # Track when events start processing
+        # self._slow_service_threshold = 15  # Log if service takes longer than 15 seconds
+        self._queue_status_interval = 30  # Log queue status every 30 seconds
 
         # Batch processing optimization
         self._batch_queue = deque()  # Queue for batching similar events
@@ -58,7 +92,7 @@ class EventManager:
         Returns:
             concurrent.futures.ThreadPoolExecutor: The executor for the service class.
         """
-        service_name = service_cls.__name__
+        service_name = getattr(service_cls, '__name__', str(service_cls))
         env_var_name = f"{service_name.upper()}_MAX_WORKERS"
 
         # Get optimized default worker counts based on service type
@@ -118,9 +152,156 @@ class EventManager:
             'Updater': min(2, cpu_count),       # File operations
             'SymlinkLibrary': 1,                # Sequential file operations
             'PostProcessing': 1,                # Sequential processing
+            'ManualAPI': min(3, cpu_count),     # Manual API operations
         }
 
         return service_configs.get(service_name, 1)  # Conservative default
+
+    def _check_memory_limits(self) -> bool:
+        """
+        Check if we're approaching memory limits and take action if needed.
+
+        Returns:
+            bool: True if within limits, False if limits exceeded
+        """
+        current_time = time.time()
+
+        # Only check periodically to avoid overhead
+        if current_time - self._last_memory_check < self._memory_check_interval:
+            return True
+
+        self._last_memory_check = current_time
+
+        # Check queue sizes
+        queued_count = len(self._queued_events)
+        running_count = len(self._running_events)
+        futures_count = len(self._futures)
+        batch_count = len(self._batch_queue)
+
+        # More aggressive warnings at lower thresholds
+        if queued_count > self.MAX_QUEUED_EVENTS * 0.5:  # 50% threshold
+            logger.log("QUEUE", f"Queue growing: {queued_count}/{self.MAX_QUEUED_EVENTS} events")
+
+        if queued_count > self.MAX_QUEUED_EVENTS * 0.8:  # 80% threshold
+            logger.warning(f"Queue approaching limit: {queued_count}/{self.MAX_QUEUED_EVENTS} events")
+            # Start cleanup early
+            self._cleanup_old_queued_events()
+
+        if running_count > self.MAX_RUNNING_EVENTS * 0.7:  # 70% threshold
+            logger.warning(f"Running events approaching limit: {running_count}/{self.MAX_RUNNING_EVENTS}")
+
+        # Enforce hard limits
+        if queued_count >= self.MAX_QUEUED_EVENTS:
+            logger.error(f"Queue limit reached: {queued_count}/{self.MAX_QUEUED_EVENTS}. Dropping new events.")
+            self._cleanup_old_queued_events()
+            return False
+
+        if running_count >= self.MAX_RUNNING_EVENTS:
+            logger.error(f"Too many running events: {running_count}. System may be overloaded.")
+            return False
+
+        if futures_count >= self.MAX_FUTURES:
+            self._cleanup_completed_futures()
+            return False
+
+        if batch_count >= self.MAX_BATCH_QUEUE:
+            self._process_event_batch()  # Force process batch
+
+        # Periodic queue status logging
+        if current_time - self._last_queue_status_log > self._queue_status_interval:
+            self._log_queue_status()
+            self._last_queue_status_log = current_time
+
+        return True
+
+    def _cleanup_old_queued_events(self):
+        """Remove oldest queued events when limit is reached."""
+        with self.mutex:
+            current_count = len(self._queued_events)
+            if current_count >= self.MAX_QUEUED_EVENTS * 0.8:  # Start cleanup at 80%
+                # Remove more aggressively - 30% of events to give more breathing room
+                remove_count = max(current_count // 3, 10)  # Remove at least 10 events
+
+                # Sort by run_at time and remove oldest
+                self._queued_events.sort(key=lambda x: x[0])  # Sort by run_at
+                removed_events = self._queued_events[:remove_count]
+                self._queued_events = self._queued_events[remove_count:]
+
+                # Re-heapify after removal
+                heapq.heapify(self._queued_events)
+
+                logger.log("CLEANUP", f"Removed {remove_count} oldest queued events to prevent memory overflow")
+                perf_logger.increment_counter("events_cleaned_up", remove_count)
+
+                # Log some details about removed events
+                for run_at, counter, event in removed_events[:3]:  # Log first 3
+                    logger.debug(f"Cleaned up old event: {event.log_message} (scheduled for {run_at})")
+
+                log_memory_usage("After queue cleanup")
+
+    def _log_queue_status(self):
+        """Log current queue status for monitoring."""
+        stats = self.get_memory_stats()
+
+        if stats["queued_events"] > 0 or stats["running_events"] > 0:
+            queue_msg = f"Queue: {stats['queued_events']}/{stats['max_queued_events']}"
+            running_msg = f"Running: {stats['running_events']}/{stats['max_running_events']}"
+            futures_msg = f"Futures: {stats['futures']}"
+
+            # Show breakdown if there are items
+            breakdown_parts = []
+            if stats.get("queue_breakdown"):
+                for service, count in stats["queue_breakdown"].items():
+                    breakdown_parts.append(f"{service}:{count}")
+
+            breakdown_str = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
+
+            logger.log("QUEUE", f"{queue_msg} | {running_msg} | {futures_msg}{breakdown_str}")
+
+    def _cleanup_completed_futures(self):
+        """Remove completed futures to prevent memory accumulation."""
+        completed_futures = []
+        active_futures = []
+
+        for future in self._futures:
+            if future.done():
+                completed_futures.append(future)
+            else:
+                active_futures.append(future)
+
+        self._futures = active_futures
+
+        if completed_futures:
+            logger.debug(f"Cleaned up {len(completed_futures)} completed futures")
+
+    def get_memory_stats(self) -> Dict[str, int]:
+        """Get current memory usage statistics."""
+        # Get queue breakdown by service type
+        queue_breakdown = {}
+        running_breakdown = {}
+
+        with self.mutex:
+            for run_at, counter, event in self._queued_events:
+                service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                queue_breakdown[service_name] = queue_breakdown.get(service_name, 0) + 1
+
+            for event in self._running_events:
+                service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                running_breakdown[service_name] = running_breakdown.get(service_name, 0) + 1
+
+        return {
+            "queued_events": len(self._queued_events),
+            "running_events": len(self._running_events),
+            "futures": len(self._futures),
+            "batch_queue": len(self._batch_queue),
+            "executors": len(self._executors),
+            "max_queued_events": self.MAX_QUEUED_EVENTS,
+            "max_running_events": self.MAX_RUNNING_EVENTS,
+            "max_futures": self.MAX_FUTURES,
+            "max_batch_queue": self.MAX_BATCH_QUEUE,
+            "queue_breakdown": queue_breakdown,
+            "running_breakdown": running_breakdown
+        }
 
     def cleanup_executors(self):
         """Clean up shutdown or idle executors to free resources."""
@@ -244,36 +425,48 @@ class EventManager:
             return  # Skip processing if the future was cancelled
 
         try:
-            result = future.result()
+            # Get the result to ensure any exceptions are raised
+            future.result()
             if future in self._futures:
                 self._futures.remove(future)
             websocket_manager.publish("event_update", self.get_event_updates())
-            if isinstance(result, tuple):
-                item_id, timestamp = result
-            else:
-                item_id, timestamp = result, datetime.now()
-            if item_id:
+
+            # Remove the completed event from running events
+            if hasattr(future, 'event') and future.event:
                 self.remove_event_from_running(future.event)
                 logger.debug(f"Removed {future.event.log_message} from running events.")
-                if future.cancellation_event.is_set():
-                    logger.debug(f"Future with Item ID: {item_id} was cancelled discarding results...")
-                    return
-                self.add_event(Event(emitted_by=service, item_id=item_id, run_at=timestamp))
+
+            # Check if the future was cancelled
+            if future.cancellation_event.is_set():
+                logger.debug(f"Future was cancelled, discarding results...")
+                return
+
+            # NOTE: State transitions and next service dispatch are handled by
+            # db_functions.run_thread_with_db_item, so we don't need to add events here
+            # This prevents duplicate event creation and infinite loops
+
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
-        log_message = f"Service {service.__name__} executed"
+        service_name = getattr(service, '__name__', str(service))
+        log_message = f"Service {service_name} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"
         logger.debug(log_message)
 
     def add_event_to_queue(self, event: Event, log_message=True):
         """
-        Adds an event to the queue with optimized mutex usage.
+        Adds an event to the queue with optimized mutex usage and memory management.
 
         Args:
             event (Event): The event to add to the queue.
         """
+        # Check memory limits before adding
+        if not self._check_memory_limits():
+            logger.warning(f"Memory limits exceeded, dropping event: {event.log_message}")
+            perf_logger.increment_counter("events_dropped_memory_limit")
+            return
+
         # Perform database operations outside of mutex to reduce contention
         if event.item_id:
             with db.Session() as session:
@@ -296,12 +489,28 @@ class EventManager:
 
         # Only hold mutex for the actual queue modification
         with self.mutex:
+            # Double-check limit after acquiring mutex
+            if len(self._queued_events) >= self.MAX_QUEUED_EVENTS:
+                logger.warning(f"Queue full ({len(self._queued_events)}), dropping event: {event.log_message}")
+                perf_logger.increment_counter("events_dropped_queue_full")
+                return
+
+            # Defensive check: ensure run_at is never None
+            if event.run_at is None:
+                logger.warning(f"Event {event.log_message} has None run_at, setting to current time")
+                event.run_at = datetime.now()
+
             # Use heap for efficient priority queue
             self._counter += 1
             heapq.heappush(self._queued_events, (event.run_at, self._counter, event))
 
+            # Log queue operation with current size
+            log_queue_operation("Event added", len(self._queued_events), event.item_id)
+
         if log_message:
             logger.debug(f"Added {event.log_message} to the queue.")
+
+        perf_logger.increment_counter("events_queued")
 
     def remove_event_from_queue(self, event: Event):
         """
@@ -325,7 +534,7 @@ class EventManager:
 
     def remove_event_from_running(self, event: Event):
         """
-        Removes an event from the running events.
+        Removes an event from the running events and tracks performance.
 
         Args:
             event (Event): The event to remove from the running events.
@@ -333,6 +542,11 @@ class EventManager:
         with self.mutex:
             if event in self._running_events:
                 self._running_events.remove(event)
+
+                # Performance tracking disabled to prevent hanging
+                # event_key = f"{event.item_id or 'content'}_{getattr(event.emitted_by, '__name__', str(event.emitted_by))}"
+                # start_time = self._event_start_times.pop(event_key, None)
+
                 logger.debug(f"Removed {event.log_message} from running events.")
 
     def remove_id_from_queue(self, item_id: str):
@@ -355,14 +569,88 @@ class EventManager:
 
     def add_event_to_running(self, event: Event):
         """
-        Adds an event to the running events.
+        Adds an event to the running events with memory limit checking.
 
         Args:
             event (Event): The event to add to the running events.
         """
         with self.mutex:
+            # Check global running events limit (now much higher)
+            if len(self._running_events) >= self.MAX_RUNNING_EVENTS:
+                # Log service breakdown to understand what's slow
+                service_breakdown = {}
+                for e in self._running_events:
+                    service_name = getattr(e.emitted_by, '__name__', str(e.emitted_by))
+                    service_breakdown[service_name] = service_breakdown.get(service_name, 0) + 1
+
+                logger.warning(f"High running events count ({len(self._running_events)}), service breakdown: {service_breakdown}")
+                logger.error(f"Too many running events ({len(self._running_events)}), cannot add: {event.log_message}")
+                return False
+
+            # Check service-specific concurrency limits to prevent API rate limiting
+            service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+            if service_name in self.SERVICE_CONCURRENCY_LIMITS:
+                # Count how many events of this service type are already running
+                service_count = sum(1 for e in self._running_events
+                                  if getattr(e.emitted_by, '__name__', str(e.emitted_by)) == service_name)
+
+                if service_count >= self.SERVICE_CONCURRENCY_LIMITS[service_name]:
+                    logger.debug(f"Service-specific limit reached for {service_name}: {service_count}/{self.SERVICE_CONCURRENCY_LIMITS[service_name]}")
+                    return False
+
             self._running_events.append(event)
+
+            # Performance tracking disabled to prevent hanging
+            # event_key = f"{event.item_id or 'content'}_{getattr(event.emitted_by, '__name__', str(event.emitted_by))}"
+            # self._event_start_times[event_key] = time.time()
+
             logger.debug(f"Added {event.log_message} to running events.")
+
+            # Periodic logging disabled to prevent hanging
+            # current_time = time.time()
+            # if current_time - self._last_running_events_log > self._running_events_log_interval:
+            #     self._log_running_events_status()
+            #     self._last_running_events_log = current_time
+
+            return True
+
+    def _log_running_events_status(self):
+        """Log current running events status with performance insights"""
+        with self.mutex:
+            if not self._running_events:
+                return
+
+            # Count events by service type and track long-running ones
+            service_breakdown = {}
+            long_running_events = []
+            current_time = time.time()
+
+            for event in self._running_events:
+                service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                service_breakdown[service_name] = service_breakdown.get(service_name, 0) + 1
+
+                # Check for long-running events
+                event_key = f"{event.item_id or 'content'}_{service_name}"
+                start_time = self._event_start_times.get(event_key)
+                if start_time:
+                    duration = current_time - start_time
+                    if duration > self._slow_service_threshold:
+                        long_running_events.append({
+                            'service': service_name,
+                            'item': event.item_id or 'content',
+                            'duration': duration
+                        })
+
+            # Log if we have a significant number of running events
+            total_running = len(self._running_events)
+            if total_running > 50:  # Only log if we have many running events
+                logger.info(f"📊 Running events status: {total_running} total - {service_breakdown}")
+
+                # Log long-running events that might be bottlenecks
+                if long_running_events:
+                    logger.warning(f"🐌 Long-running events ({len(long_running_events)}):")
+                    for event_info in long_running_events[:5]:  # Show top 5 slowest
+                        logger.warning(f"   {event_info['service']}: {event_info['item']} ({event_info['duration']:.1f}s)")
 
     def remove_id_from_running(self, item_id: str):
         """
@@ -394,7 +682,8 @@ class EventManager:
             program (Program): The program containing the service.
             item (Event, optional): The event item to process. Defaults to None.
         """
-        log_message = f"Submitting service {service.__name__} to be executed"
+        service_name = getattr(service, '__name__', str(service))
+        log_message = f"Submitting service {service_name} to be executed"
         # Content services dont provide an event.
         if event:
             log_message += f" with {event.log_message}"
@@ -404,11 +693,38 @@ class EventManager:
         current_time = time.time()
         if current_time - self._last_cleanup > 300:  # 5 minutes
             self.cleanup_executors()
+            self._cleanup_completed_futures()  # Also cleanup futures
             self._last_cleanup = current_time
+
+        # Check futures limit before adding
+        if len(self._futures) >= self.MAX_FUTURES:
+            self._cleanup_completed_futures()
+            if len(self._futures) >= self.MAX_FUTURES:
+                service_name = getattr(service, '__name__', str(service))
+                logger.error(f"Too many futures ({len(self._futures)}), cannot submit job for {service_name}")
+                return
 
         cancellation_event = threading.Event()
         executor = self._find_or_create_executor(service)
-        future = executor.submit(db_functions.run_thread_with_db_item, program.all_services[service].run, service, program, event, cancellation_event)
+
+        # Handle different types of services/functions
+        if isinstance(service, str):
+            # Handle function-based events (like "RetryLibrary", "StateTransition", "ManualAPI")
+            if service in ["RetryLibrary", "StateTransition", "UpdateOngoing", "ManualAPI"]:
+                # These events should trigger state transitions directly without running a service
+                # They use a dummy generator function that yields the item to trigger state processing
+                def dummy_service(item):
+                    yield item
+                future = executor.submit(db_functions.run_thread_with_db_item, dummy_service, service, program, event, cancellation_event)
+            else:
+                logger.error(f"Unknown function-based service: {service}")
+                return
+        else:
+            # Handle regular service classes
+            if service not in program.all_services:
+                logger.error(f"Service {getattr(service, '__name__', str(service))} not found in program.all_services")
+                return
+            future = executor.submit(db_functions.run_thread_with_db_item, program.all_services[service].run, service, program, event, cancellation_event)
         future.cancellation_event = cancellation_event
         if event:
             future.event = event
@@ -464,12 +780,44 @@ class EventManager:
             # Peek at the earliest event without removing it
             run_at, counter, event = self._queued_events[0]
 
+            # Defensive check: handle None run_at
+            if run_at is None:
+                logger.warning(f"Event {event.log_message} has None run_at in queue, fixing and returning immediately")
+                event.run_at = datetime.now()
+                heapq.heappop(self._queued_events)
+                return event
+
             if datetime.now() >= run_at:
                 # Remove and return the earliest event
                 heapq.heappop(self._queued_events)
                 return event
 
+        # No events are ready, but provide info about when next event is due
         raise Empty
+
+    def get_next_event_time(self) -> float:
+        """
+        Get the number of seconds until the next scheduled event is ready.
+
+        Returns:
+            float: Seconds until next event (0 if events are ready now, None if no events)
+        """
+        with self.mutex:
+            if not self._queued_events:
+                return None
+
+            # Get the earliest event time
+            run_at, _, _ = self._queued_events[0]
+            if run_at is None:
+                return 0  # Event should run immediately
+
+            # Calculate seconds until event is ready
+            now = datetime.now()
+            if now >= run_at:
+                return 0  # Event is ready now
+
+            seconds_until = (run_at - now).total_seconds()
+            return max(0, seconds_until)
 
     def _id_in_queue(self, _id: str) -> bool:
         """
@@ -556,7 +904,8 @@ class EventManager:
 
         updates = {event_type: [] for event_type in event_types}
         for event in events:
-            table = updates.get(event.emitted_by.__name__, None)
+            service_name = getattr(event.emitted_by, '__name__', str(event.emitted_by))
+            table = updates.get(service_name, None)
             if table is not None:
                 table.append(event.item_id)
 

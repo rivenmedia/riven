@@ -19,6 +19,7 @@ from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
+from program.utils.logging import perf_logger
 
 
 class Scraping:
@@ -184,9 +185,11 @@ class Scraping:
         """Scrape an item."""
         if item.state == States.Paused:
             logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
+            perf_logger.increment_counter("scraping_skipped_paused")
             yield item
 
-        logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        logger.debug(f"Starting scrape for {item.log_string} (attempts: {item.failed_attempts}/{self.max_failed_attempts}, scraped: {item.scraped_times})")
+        perf_logger.increment_counter("scraping_started")
 
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
@@ -199,16 +202,20 @@ class Scraping:
             if new_streams:
                 item.streams.extend(new_streams)
                 item.failed_attempts = 0  # Reset failed attempts on success
-                logger.log("SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}")
+                logger.debug(f"✅ Scraping completed: Added {len(new_streams)} streams to {item.log_string}")
+                perf_logger.increment_counter("scraping_success")
             else:
-                logger.log("SCRAPER", f"No new streams added for {item.log_string}")
+                logger.debug(f"❌ Scraping failed: No streams found for {item.log_string}")
+                perf_logger.increment_counter("scraping_no_results")
 
                 item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
                 if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
                     item.store_state(States.Failed)
-                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
+                    logger.warning(f"🚫 Scraping failed permanently: {item.log_string} ({item.failed_attempts}/{self.max_failed_attempts} attempts)")
+                    perf_logger.increment_counter("scraping_failed_permanently")
                 else:
-                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                    logger.debug(f"⚠️ Scraping attempt failed: {item.log_string} ({item.failed_attempts}/{self.max_failed_attempts} attempts)")
+                    perf_logger.increment_counter("scraping_failed_retry")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
@@ -304,7 +311,16 @@ class Scraping:
             top_results: List[Stream] = list(sorted_streams.values())[:10]
             logger.debug(f"Displaying top {len(top_results)} results for {item.log_string}")
             for stream in top_results:
-                logger.debug(f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})")
+                # Safe access to parsed_data (now a dict instead of ParsedData object)
+                resolution = "Unknown"
+                if stream.parsed_data:
+                    if isinstance(stream.parsed_data, dict):
+                        resolution = stream.parsed_data.get('resolution', 'Unknown')
+                    else:
+                        # Fallback for any remaining ParsedData objects
+                        resolution = getattr(stream.parsed_data, 'resolution', 'Unknown')
+
+                logger.debug(f"[Rank: {stream.rank}][Res: {resolution}] {stream.raw_title} ({stream.infohash})")
 
         return sorted_streams
 
@@ -363,10 +379,29 @@ class Scraping:
             multiplier *= 0.5  # Check twice as often
 
         # Items with recent activity (new streams found) need more frequent checks
-        if hasattr(item, 'streams') and item.streams:
-            last_stream_time = max((s.created_at for s in item.streams if hasattr(s, 'created_at')), default=None)
-            if last_stream_time and (datetime.now() - last_stream_time).hours < 6:
-                multiplier *= 0.7  # Check more frequently if streams were recently found
+        # Use safe stream access to avoid detached instance errors
+        try:
+            # Only check streams if they're already loaded (avoid lazy loading)
+            if hasattr(item, 'streams') and item.streams is not None:
+                # Check if streams are loaded without triggering lazy load
+                from sqlalchemy.orm import object_session
+                from sqlalchemy.inspection import inspect
+
+                # If item is detached or streams not loaded, skip this optimization
+                if object_session(item) is None:
+                    # Item is detached, skip stream-based optimization
+                    pass
+                elif not inspect(item).attrs.streams.loaded_value:
+                    # Streams not loaded, skip to avoid lazy loading
+                    pass
+                else:
+                    # Streams are loaded, safe to access
+                    last_stream_time = max((s.created_at for s in item.streams if hasattr(s, 'created_at')), default=None)
+                    if last_stream_time and (datetime.now() - last_stream_time).hours < 6:
+                        multiplier *= 0.7  # Check more frequently if streams were recently found
+        except Exception:
+            # If any error occurs, skip stream-based optimization
+            pass
 
         # Failed items get exponential backoff
         if item.failed_attempts > 0:

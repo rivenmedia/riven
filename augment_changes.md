@@ -627,12 +627,42 @@ Performance Monitoring:
 ```
 
 ### **Database Schema Changes**
+
+**Migration File**: `src/alembic/versions/20250728_2029_5263b97bfb41_performance_optimization_comprehensive_.py`
+
+**New Columns Added to MediaItem Table:**
 ```sql
--- New columns added to MediaItem table
+-- Show status tracking for intelligent re-indexing
 ALTER TABLE MediaItem ADD COLUMN show_status VARCHAR(20);           -- "ongoing", "ended", "hiatus", "unknown"
 ALTER TABLE MediaItem ADD COLUMN last_air_date DATETIME;            -- Date of last aired episode
 ALTER TABLE MediaItem ADD COLUMN next_air_date DATETIME;            -- Date of next expected episode
 ALTER TABLE MediaItem ADD COLUMN status_last_updated DATETIME;      -- When status was last updated
+
+-- Season/episode count tracking for change detection
+ALTER TABLE MediaItem ADD COLUMN last_season_count INTEGER DEFAULT 0;     -- Previous season count
+ALTER TABLE MediaItem ADD COLUMN last_episode_count INTEGER DEFAULT 0;    -- Previous episode count
+ALTER TABLE MediaItem ADD COLUMN season_episode_counts JSON;              -- Episode counts per season
+ALTER TABLE MediaItem ADD COLUMN season_count INTEGER DEFAULT 0;          -- Current season count
+ALTER TABLE MediaItem ADD COLUMN episode_count INTEGER DEFAULT 0;         -- Current total episode count
+```
+
+**New Columns Added to Stream Table:**
+```sql
+-- Parsed torrent data storage
+ALTER TABLE Stream ADD COLUMN parsed_data JSON;                     -- Parsed torrent data from RTN
+```
+
+**Performance Indexes Created:**
+```sql
+-- Show status tracking indexes
+CREATE INDEX ix_mediaitem_show_status ON MediaItem (show_status);
+CREATE INDEX ix_mediaitem_last_air_date ON MediaItem (last_air_date);
+CREATE INDEX ix_mediaitem_next_air_date ON MediaItem (next_air_date);
+CREATE INDEX ix_mediaitem_status_last_updated ON MediaItem (status_last_updated);
+
+-- Composite indexes for efficient queries
+CREATE INDEX ix_mediaitem_type_show_status ON MediaItem (type, show_status);
+CREATE INDEX ix_mediaitem_show_status_next_air ON MediaItem (show_status, next_air_date);
 ```
 
 ### **Configuration Changes**

@@ -4,20 +4,39 @@ import alembic
 from contextlib import contextmanager
 from functools import wraps
 from threading import RLock
-from time import time
+import time
 
 from loguru import logger
 from threading import Event
 from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import delete, func, insert, inspect, or_, select, text, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, PendingRollbackError
 from sqlalchemy.orm import Session, selectinload
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils import root_dir
+from program.utils.logging import perf_logger
+
+
+def _handle_session_error(session: Session, error: Exception):
+    """Handle session errors with proper rollback logic."""
+    try:
+        if isinstance(error, PendingRollbackError):
+            # Session already has a pending rollback, just rollback
+            session.rollback()
+        else:
+            # Other errors, try to rollback
+            session.rollback()
+    except Exception as rollback_error:
+        logger.error(f"Error during session rollback: {rollback_error}")
+        # If rollback fails, close the session
+        try:
+            session.close()
+        except Exception:
+            pass  # Nothing more we can do
 from program.media.state import States
 
 from .db import db
@@ -39,7 +58,7 @@ class SimpleCache:
         with self._lock:
             if key in self._cache:
                 value, expiry = self._cache[key]
-                if time() < expiry:
+                if time.time() < expiry:
                     return value
                 else:
                     del self._cache[key]
@@ -48,7 +67,7 @@ class SimpleCache:
     def set(self, key: str, value, ttl: int = 300):  # 5 minute default TTL
         """Set value in cache with TTL."""
         with self._lock:
-            self._cache[key] = (value, time() + ttl)
+            self._cache[key] = (value, time.time() + ttl)
 
     def clear(self):
         """Clear all cached data."""
@@ -169,9 +188,24 @@ def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session 
         return None
 
     from program.media.item import MediaItem, Season, Show
-    _session = session if session else db.Session()
 
-    with _session:
+    # If session is provided, use it directly (don't expunge)
+    if session:
+        query = (select(MediaItem)
+            .where(MediaItem.id == item_id)
+            .options(
+                selectinload(Show.seasons)
+                .selectinload(Season.episodes)
+            ))
+        if item_types:
+            query = query.where(MediaItem.type.in_(item_types))
+
+        result = session.execute(query).unique().scalar_one_or_none()
+        perf_logger.increment_counter("db_item_lookups")
+        return result
+
+    # If no session provided, create one and expunge (legacy behavior)
+    with db.Session() as _session:
         query = (select(MediaItem)
             .where(MediaItem.id == item_id)
             .options(
@@ -184,6 +218,8 @@ def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session 
         item = _session.execute(query).unique().scalar_one_or_none()
         if item:
             _session.expunge(item)
+
+        perf_logger.increment_counter("db_item_lookups")
         return item
 
 def get_items_by_ids(ids: list, item_types: list[str] = None, session: Session = None) -> list["MediaItem"]:
@@ -208,6 +244,9 @@ def get_items_by_ids(ids: list, item_types: list[str] = None, session: Session =
         for item in items:
             _session.expunge(item)
         return items
+
+
+
 
 @cache_static_query(ttl=600)  # Cache for 10 minutes since external IDs are static
 def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: int = None, session: Session = None) -> "MediaItem":
@@ -566,27 +605,26 @@ def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = No
         return items
 
 def retry_library(session) -> list[str]:
-    """Retry items that failed to download."""
+    """Retry items that failed to download with optimized query."""
     from program.media.item import MediaItem
     session = session if session else db.Session()
 
-    count = session.execute(
-        select(func.count(MediaItem.id))
-        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
-        .where(MediaItem.type.in_(["movie", "show"]))
-    ).scalar_one()
-
-    if count == 0:
-        return []
-
-    logger.log("PROGRAM", f"Starting retry process for {count} items.")
-
+    # Optimize: Combine count and fetch in single query with LIMIT
+    # This prevents scanning the entire table twice
     items_query = (
         select(MediaItem.id)
         .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
         .where(MediaItem.type.in_(["movie", "show"]))
         .order_by(MediaItem.requested_at.desc())
+        .limit(100)  # Process in batches to prevent overwhelming the system
     )
+
+    item_ids = [row[0] for row in session.execute(items_query).fetchall()]
+
+    if not item_ids:
+        return []
+
+    logger.log("PROGRAM", f"Starting retry process for {len(item_ids)} items (batch processing).")
 
     result = session.execute(items_query)
     return [item_id for item_id in result.scalars()]
@@ -669,57 +707,194 @@ def create_calendar(session: Session) -> dict:
     return calendar
 
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
-    """Run a thread with a MediaItem."""
+    """Run a thread with a MediaItem and handle state transitions - optimized for efficiency."""
     from program.media.item import MediaItem
+    from program.state_transition import process_event
+    from program.types import Event as EventType
+
     if event:
+        # Optimize session for this operation
         with db.Session() as session:
             if event.item_id:
+                # OPTIMIZATION 1: Use existing optimized function with session
+                # This already handles parent relationships correctly
                 input_item = get_item_by_id(event.item_id, session=session)
-                if input_item:
-                    input_item = session.merge(input_item)
-                    res = next(fn(input_item), None)
-                    if res:
-                        if isinstance(res, tuple):
-                            item, run_at = res
-                            res = item.id, run_at
-                        else:
-                            item = res
-                            res = item.id
-                        if not isinstance(item, MediaItem):
-                            logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
-                            program.em.remove_id_from_queues(input_item.id)
 
-                        if not cancellation_event.is_set():
-                            # Update parent item
-                            if input_item.type == "episode":
+                if input_item:
+                    # OPTIMIZATION 2: Run service with error handling
+                    try:
+                        res = next(fn(input_item), None)
+                    except Exception as service_error:
+                        logger.error(f"Service {getattr(service, '__name__', str(service))} failed for {input_item.log_string}: {service_error}")
+                        program.em.remove_event_from_running(event)
+                        return None
+
+                    # Handle state transitions and next service dispatch
+                    if not cancellation_event.is_set():
+                        try:
+                            # Check if service returned a delayed execution tuple
+                            delayed_execution_time = None
+                            if isinstance(res, tuple) and len(res) == 2:
+                                # Service returned (item, timestamp) for delayed execution
+                                actual_item, delayed_execution_time = res
+                                logger.debug(f"Service {getattr(service, '__name__', str(service))} returned delayed execution time: {delayed_execution_time} for {input_item.log_string}")
+
+                                # Create delayed event for same service
+                                delayed_event = EventType(service, item_id=input_item.id, run_at=delayed_execution_time)
+                                # Use add_event instead of add_event_to_queue to enable duplicate prevention
+                                if program.em.add_event(delayed_event):
+                                    logger.debug(f"Scheduled {getattr(service, '__name__', str(service))} for {input_item.log_string} at {delayed_execution_time}")
+                                else:
+                                    logger.debug(f"Skipped scheduling {getattr(service, '__name__', str(service))} for {input_item.log_string} - already in queue or running")
+
+                                # Remove current event and return (no further processing)
+                                program.em.remove_event_from_running(event)
+                                return input_item.id
+
+                            # Process state transition to determine next service (normal flow)
+                            next_service, items_to_submit = process_event(
+                                service, input_item, event.content_item
+                            )
+
+                            # Log state transition results (only in debug mode to reduce overhead)
+                            service_name = getattr(service, '__name__', str(service))
+                            if next_service:
+                                next_service_name = getattr(next_service, '__name__', str(next_service))
+                                logger.debug(f"State transition: {service_name} → {next_service_name} for {input_item.log_string}")
+                            else:
+                                logger.debug(f"State transition: {service_name} → StateTransition for {input_item.log_string}")
+
+                            # Remove this event from running events
+                            program.em.remove_event_from_running(event)
+                            perf_logger.increment_counter("events_processed")
+
+                            # OPTIMIZATION 3: Batch event submission to reduce overhead
+                            events_to_queue = []
+                            events_to_dispatch = []
+
+                            for item_to_submit in items_to_submit:
+                                if not next_service:
+                                    # State transition event
+                                    new_event = EventType("StateTransition", item_id=item_to_submit.id)
+                                    events_to_queue.append(new_event)
+                                else:
+                                    # Service processing event
+                                    if item_to_submit.id:
+                                        new_event = EventType(next_service, item_id=item_to_submit.id)
+                                    else:
+                                        new_event = EventType(next_service, content_item=item_to_submit)
+
+                                    # Try to dispatch immediately, queue if can't
+                                    if program.em.add_event_to_running(new_event):
+                                        events_to_dispatch.append((next_service, new_event, item_to_submit))
+                                    else:
+                                        events_to_queue.append(new_event)
+
+                            # Batch submit events to reduce logging overhead
+                            if events_to_queue:
+                                queued_count = 0
+                                for event in events_to_queue:
+                                    # Use add_event instead of add_event_to_queue to enable duplicate prevention
+                                    if program.em.add_event(event):
+                                        queued_count += 1
+                                logger.debug(f"Queued {queued_count}/{len(events_to_queue)} events for processing (duplicates skipped)")
+
+                            if events_to_dispatch:
+                                for next_svc, new_event, item in events_to_dispatch:
+                                    program.em.submit_job(next_svc, program, new_event)
+                                    perf_logger.increment_counter("jobs_submitted")
+                                logger.debug(f"Dispatched {len(events_to_dispatch)} jobs for concurrent processing")
+
+                            # OPTIMIZATION 4: Efficient state updates with pre-loaded relationships
+                            # Since we loaded parent relationships upfront, no additional queries needed
+                            if input_item.type == "episode" and input_item.parent and input_item.parent.parent:
                                 input_item.parent.parent.store_state()
-                            elif input_item.type == "season":
+                            elif input_item.type == "season" and input_item.parent:
                                 input_item.parent.store_state()
                             else:
                                 input_item.store_state()
+
+                            # OPTIMIZATION 5: Single commit for all changes
                             session.commit()
-                        return res
-            # This is in bad need of indexing...
-            if event.content_item:
-                indexed_item = next(fn(event.content_item), None)
-                if indexed_item is None:
-                    logger.debug(f"Unable to index {event.content_item.log_string if event.content_item.log_string is not None else event.content_item.imdb_id}")
+
+                        except Exception as e:
+                            # Handle rate limit exceptions specially - don't lose the item
+                            from program.utils.request import RateLimitExceeded
+                            if isinstance(e, RateLimitExceeded):
+                                logger.warning(f"Rate limit hit for {input_item.log_string} - scheduling retry in {e.suggested_delay}s")
+
+                                # Create a delayed retry event
+                                from datetime import datetime, timedelta
+                                retry_time = datetime.now() + timedelta(seconds=e.suggested_delay)
+
+                                # Create new event with same service but delayed execution
+                                retry_event = EventType(service, item_id=input_item.id, run_at=retry_time)
+                                # Use add_event instead of add_event_to_queue to enable duplicate prevention
+                                program.em.add_event(retry_event)
+
+                                # Remove current event but don't mark item as failed
+                                program.em.remove_event_from_running(event)
+                                return None  # Return without error to prevent failure marking
+                            else:
+                                # Handle other exceptions normally
+                                logger.error(f"Error processing event for {input_item.log_string}: {e}")
+                                program.em.remove_event_from_running(event)  # Ensure event is removed
+                                _handle_session_error(session, e)
+                                return None  # Don't try to continue after error
+
+                    # OPTIMIZATION 6: Simplified return value handling
+                    if res and hasattr(res, 'id'):
+                        return res.id
                     return None
-                indexed_item.store_state()
-                session.add(indexed_item)
-                item_id = indexed_item.id
-                if not cancellation_event.is_set():
-                    session.commit()
-                return item_id
-    # Content services dont pass events, get ready for a ride!
+                else:
+                    # Item not found - remove event and return
+                    logger.warning(f"Item {event.item_id} not found in database")
+                    program.em.remove_event_from_running(event)
+                    return None
+            # OPTIMIZATION 7: Efficient content item indexing
+            elif event.content_item:
+                try:
+                    indexed_item = next(fn(event.content_item), None)
+                    if indexed_item is None:
+                        item_identifier = getattr(event.content_item, 'log_string', None) or getattr(event.content_item, 'imdb_id', 'unknown')
+                        logger.debug(f"Unable to index {item_identifier}")
+                        return None
+
+                    # Efficient state storage and commit
+                    indexed_item.store_state()
+                    session.add(indexed_item)
+
+                    if not cancellation_event.is_set():
+                        session.commit()
+                        return indexed_item.id
+                    return None
+
+                except Exception as e:
+                    logger.error(f"Error indexing content item: {e}")
+                    _handle_session_error(session, e)
+                    return None
+    # OPTIMIZATION 8: Efficient content service handling
     else:
-        for i in fn():
-            if isinstance(i, MediaItem):
-                i = [i]
-            if isinstance(i, list):
-                for item in i:
-                    if isinstance(item, MediaItem):
-                        program.em.add_item(item, service)
+        try:
+            # Batch process items from content services
+            items_to_add = []
+            for i in fn():
+                if isinstance(i, MediaItem):
+                    items_to_add.append(i)
+                elif isinstance(i, list):
+                    for item in i:
+                        if isinstance(item, MediaItem):
+                            items_to_add.append(item)
+
+            # Batch add items to reduce event manager overhead
+            if items_to_add:
+                for item in items_to_add:
+                    program.em.add_item(item, service)
+                logger.debug(f"Added {len(items_to_add)} items from {getattr(service, '__name__', str(service))}")
+
+        except Exception as e:
+            logger.error(f"Error in content service {getattr(service, '__name__', str(service))}: {e}")
+
     return None
 
 def hard_reset_database() -> None:

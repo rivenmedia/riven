@@ -200,6 +200,11 @@ async def get_items(
             result = conn.execute(paginated_query)
             items = result.unique().scalars().all()
 
+            # Simple validation check
+            if items and not hasattr(items[0], 'to_dict'):
+                logger.error(f"Invalid item type returned: {type(items[0])}")
+                items = []
+
             total_pages = (total_items + limit - 1) // limit
 
             # Process items in batches to reduce memory usage for large responses
@@ -211,7 +216,9 @@ async def get_items(
                 batch_processed = [
                     item.to_extended_dict() if extended else item.to_dict()
                     for item in batch
+                    if hasattr(item, 'to_dict')  # Simple filter for valid items
                 ]
+
                 processed_items.extend(batch_processed)
 
                 # Expunge items from session to free memory

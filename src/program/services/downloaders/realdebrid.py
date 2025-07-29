@@ -1,6 +1,4 @@
-import time
 from datetime import datetime
-from threading import RLock
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -25,45 +23,7 @@ from program.utils.request import (
 from .shared import DownloaderBase, premium_days_left
 
 
-# Request deduplication cache for availability checks
-class AvailabilityCache:
-    """Short-term cache to deduplicate availability requests."""
-
-    def __init__(self, ttl: int = 5):
-        self._cache = {}
-        self._lock = RLock()
-        self._ttl = ttl
-
-    def get(self, infohash: str):
-        """Get cached result if available and not expired."""
-        with self._lock:
-            if infohash in self._cache:
-                result, timestamp = self._cache[infohash]
-                if time.time() - timestamp < self._ttl:
-                    return result
-                else:
-                    del self._cache[infohash]
-        return None
-
-    def set(self, infohash: str, result):
-        """Cache result for short period."""
-        with self._lock:
-            self._cache[infohash] = (result, time.time())
-
-    def clear_expired(self):
-        """Clear expired entries."""
-        current_time = time.time()
-        with self._lock:
-            expired_keys = [
-                key for key, (_, timestamp) in self._cache.items()
-                if current_time - timestamp >= self._ttl
-            ]
-            for key in expired_keys:
-                del self._cache[key]
-
-
-# Global availability cache instance
-_availability_cache = AvailabilityCache()
+# Removed caching and circuit breaker logic to match working version
 
 
 class RealDebridError(Exception):
@@ -146,20 +106,22 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
-        Get instant availability for a single infohash with request deduplication.
+        Get instant availability for a single infohash.
         Creates a makeshift availability check since Real-Debrid no longer supports instant availability.
         """
-        # Check cache first to avoid duplicate requests
-        cached_result = _availability_cache.get(infohash)
-        if cached_result is not None:
-            return cached_result
-
         container: Optional[TorrentContainer] = None
         torrent_id = None
 
         try:
+            logger.debug(f"Adding torrent {infohash} to Real-Debrid")
             torrent_id = self.add_torrent(infohash)
+            logger.debug(f"Torrent {infohash} added with ID {torrent_id}, processing...")
             container = self._process_torrent(torrent_id, infohash, item_type)
+
+            if container:
+                logger.debug(f"✅ Torrent {infohash} is valid and cached with {len(container.files)} files")
+            else:
+                logger.debug(f"❌ Torrent {infohash} is not valid or not cached")
         except InvalidDebridFileException as e:
             logger.debug(f"{infohash}: {e}")
         except exceptions.ReadTimeout as e:
@@ -183,16 +145,18 @@ class RealDebridDownloader(DownloaderBase):
                 except Exception as e:
                     logger.error(f"Failed to delete torrent {torrent_id}: {e}")
 
-        # Cache the result (including None) to avoid duplicate requests
-        _availability_cache.set(infohash, container)
         return container
 
     def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """Process a single torrent and return a TorrentContainer if valid."""
+        logger.debug(f"🔍 _process_torrent called for torrent_id={torrent_id}, infohash={infohash}, item_type={item_type}")
+
         torrent_info = self.get_torrent_info(torrent_id)
         if not torrent_info:
             logger.debug(f"No torrent info found for {torrent_id} with infohash {infohash}")
             return None
+
+        logger.debug(f"📊 Processing torrent {torrent_id} with infohash {infohash}, status: {torrent_info.status}")
 
         torrent_files = []
 
@@ -201,6 +165,8 @@ class RealDebridDownloader(DownloaderBase):
             return None
 
         if torrent_info.status == "waiting_files_selection":
+            logger.debug(f"Torrent {torrent_id} waiting for file selection, found {len(torrent_info.files)} files")
+
             video_file_ids = [
                 file_id for file_id, file_info in torrent_info.files.items()
                 if file_info["filename"].endswith(tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS))
@@ -210,8 +176,10 @@ class RealDebridDownloader(DownloaderBase):
                 logger.debug(f"No video files found in torrent {torrent_id} with infohash {infohash}")
                 return None
 
+            logger.debug(f"Selecting {len(video_file_ids)} video files for torrent {torrent_id}")
             self.select_files(torrent_id, video_file_ids)
             torrent_info = self.get_torrent_info(torrent_id)
+            logger.debug(f"After file selection, torrent status: {torrent_info.status}")
 
         if torrent_info.status == "downloaded":
             for file_id, file_info in torrent_info.files.items():
@@ -264,8 +232,9 @@ class RealDebridDownloader(DownloaderBase):
                     logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
                     raise RealDebridError("Infringing Torrent or Service Unavailable")
                 elif " 429 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
-                    raise RealDebridError("Rate Limit Exceeded")
+                    logger.warning(f"Rate limit hit adding torrent {infohash} - will retry later")
+                    from program.utils.request import RateLimitExceeded
+                    raise RateLimitExceeded(f"Rate limit exceeded adding torrent {infohash}", retry_after=60)
                 elif " 404 " in e.args[0]:
                     logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
                     raise RealDebridError("Torrent Not Found or Service Unavailable")
@@ -281,6 +250,7 @@ class RealDebridDownloader(DownloaderBase):
         """Select files from a torrent"""
         try:
             selection = ",".join(str(file_id) for file_id in ids) if ids else "all"
+            logger.debug(f"🔧 Selecting files for torrent {torrent_id}: {selection}")
             self.api.request_handler.execute(
                 HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
@@ -317,9 +287,12 @@ class RealDebridDownloader(DownloaderBase):
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
+        except Exception as e:
+            logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
+            raise
 
     def delete_torrent(self, torrent_id: str) -> None:
-        """Delete a torrent"""
+        """Delete a torrent with rate limit handling"""
         try:
             self.api.request_handler.execute(HttpMethod.DELETE, f"torrents/delete/{torrent_id}")
         except Exception as e:

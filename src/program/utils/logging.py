@@ -1,8 +1,14 @@
-"""Logging utils"""
+"""Enhanced logging utilities with performance monitoring and structured logging"""
 
 import os
 import sys
+import time
+import threading
+import traceback
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
+from typing import Any, Dict, Optional, Union
 
 from loguru import logger
 from rich.console import Console
@@ -52,6 +58,17 @@ def setup_logger(level):
         "JELLYFIN": (48, "DAD3BE", "📽️ "),
         "EMBY": (48, "DAD3BE", "📽️ "),
         "TRAKT": (48, "1DB954", "🎵"),
+        # Enhanced logging levels
+        "PERFORMANCE": (49, "ff6b35", "⚡"),  # Performance metrics
+        "MEMORY": (50, "f72585", "🧠"),       # Memory usage tracking
+        "QUEUE": (51, "4361ee", "📋"),        # Queue operations
+        "SESSION": (52, "7209b7", "🔐"),      # Database sessions
+        "STREAM": (53, "560bad", "🌊"),       # Stream processing
+        "STATE": (54, "480ca8", "🔄"),        # State transitions
+        "WEBHOOK": (55, "3a0ca3", "🪝"),      # Webhook events
+        "BATCH": (56, "7b2cbf", "📦"),        # Batch operations
+        "CLEANUP": (57, "5a189a", "🧹"),      # Cleanup operations
+        "HEALTH": (58, "240046", "❤️"),       # Health checks
     }
 
     # Set log levels
@@ -117,7 +134,223 @@ def log_cleaner():
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
 
-def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
+class PerformanceLogger:
+    """Enhanced performance logging with timing and memory tracking."""
+
+    def __init__(self):
+        self.timings = {}
+        self.counters = {}
+        self.lock = threading.RLock()
+
+    def time_operation(self, operation_name: str, duration: float, context: Dict[str, Any] = None):
+        """Log operation timing with context."""
+        with self.lock:
+            if operation_name not in self.timings:
+                self.timings[operation_name] = []
+            self.timings[operation_name].append(duration)
+
+            # Keep only last 100 timings per operation
+            if len(self.timings[operation_name]) > 100:
+                self.timings[operation_name] = self.timings[operation_name][-100:]
+
+        # Log slow operations
+        if duration > 2.0:  # Slower than 2 seconds
+            level = "WARNING" if duration > 5.0 else "PERFORMANCE"
+            context_str = f" | {context}" if context else ""
+            logger.log(level, f"Slow operation: {operation_name} took {duration:.2f}s{context_str}")
+        elif duration > 0.5:  # Slower than 500ms
+            context_str = f" | {context}" if context else ""
+            logger.log("PERFORMANCE", f"{operation_name} took {duration:.2f}s{context_str}")
+
+    def increment_counter(self, counter_name: str, value: int = 1):
+        """Increment a named counter."""
+        with self.lock:
+            self.counters[counter_name] = self.counters.get(counter_name, 0) + value
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get performance statistics."""
+        with self.lock:
+            stats = {
+                'timings': {},
+                'counters': dict(self.counters)
+            }
+
+            for operation, times in self.timings.items():
+                if times:
+                    stats['timings'][operation] = {
+                        'count': len(times),
+                        'avg': sum(times) / len(times),
+                        'min': min(times),
+                        'max': max(times),
+                        'recent': times[-10:]  # Last 10 timings
+                    }
+
+            return stats
+
+
+# Global performance logger instance
+perf_logger = PerformanceLogger()
+
+
+def log_performance(operation_name: str = None, log_args: bool = False, log_result: bool = False):
+    """
+    Decorator to log function performance and execution details.
+
+    Args:
+        operation_name: Custom name for the operation (defaults to function name)
+        log_args: Whether to log function arguments
+        log_result: Whether to log function result
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            op_name = operation_name or f"{func.__module__}.{func.__name__}"
+            start_time = time.time()
+
+            # Log function entry
+            context = {}
+            if log_args and (args or kwargs):
+                context['args'] = str(args)[:200] if args else None
+                context['kwargs'] = str(kwargs)[:200] if kwargs else None
+
+            logger.log("PERFORMANCE", f"Starting {op_name}")
+
+            try:
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+
+                # Log successful completion
+                if log_result and result is not None:
+                    context['result'] = str(result)[:200]
+
+                perf_logger.time_operation(op_name, duration, context)
+                logger.log("PERFORMANCE", f"Completed {op_name} in {duration:.3f}s")
+
+                return result
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(f"Failed {op_name} after {duration:.3f}s: {e}")
+                perf_logger.time_operation(f"{op_name}_failed", duration, {'error': str(e)})
+                raise
+
+        return wrapper
+    return decorator
+
+
+@contextmanager
+def log_context(context_name: str, level: str = "DEBUG", log_entry: bool = True, log_exit: bool = True):
+    """
+    Context manager for logging entry/exit of code blocks with timing.
+
+    Args:
+        context_name: Name of the context
+        level: Log level to use
+        log_entry: Whether to log context entry
+        log_exit: Whether to log context exit
+    """
+    start_time = time.time()
+
+    if log_entry:
+        logger.log(level, f"Entering {context_name}")
+
+    try:
+        yield
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Exception in {context_name} after {duration:.3f}s: {e}")
+        raise
+    finally:
+        if log_exit:
+            duration = time.time() - start_time
+            logger.log(level, f"Exiting {context_name} after {duration:.3f}s")
+
+
+def log_memory_usage(operation: str, level: str = "MEMORY"):
+    """Log current memory usage for an operation."""
+    try:
+        import psutil
+        import os
+
+        process = psutil.Process(os.getpid())
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        logger.log(level, f"{operation} | Memory usage: {memory_mb:.1f}MB")
+
+    except ImportError:
+        logger.debug(f"{operation} | Memory logging unavailable (psutil not installed)")
+    except Exception as e:
+        logger.debug(f"{operation} | Memory logging failed: {e}")
+
+
+def log_database_operation(operation: str, query: str = None, duration: float = None,
+                          rows_affected: int = None, level: str = "DATABASE"):
+    """Log database operations with context."""
+    context_parts = [operation]
+
+    if duration is not None:
+        context_parts.append(f"{duration:.3f}s")
+
+    if rows_affected is not None:
+        context_parts.append(f"{rows_affected} rows")
+
+    if query and len(query) < 200:
+        context_parts.append(f"Query: {query}")
+    elif query:
+        context_parts.append(f"Query: {query[:200]}...")
+
+    logger.log(level, " | ".join(context_parts))
+
+
+def log_api_request(method: str, url: str, status_code: int = None,
+                   duration: float = None, level: str = "API"):
+    """Log API requests with timing and status."""
+    context_parts = [f"{method} {url}"]
+
+    if status_code is not None:
+        context_parts.append(f"Status: {status_code}")
+
+    if duration is not None:
+        context_parts.append(f"{duration:.3f}s")
+
+    # Use different levels based on status code
+    if status_code and status_code >= 400:
+        level = "WARNING" if status_code < 500 else "ERROR"
+    elif duration and duration > 5.0:
+        level = "WARNING"
+
+    logger.log(level, " | ".join(context_parts))
+
+
+def log_queue_operation(operation: str, queue_size: int = None, item_id: str = None,
+                       level: str = "QUEUE"):
+    """Log queue operations with context."""
+    context_parts = [operation]
+
+    if queue_size is not None:
+        context_parts.append(f"Queue size: {queue_size}")
+
+    if item_id:
+        context_parts.append(f"Item: {item_id}")
+
+    logger.log(level, " | ".join(context_parts))
+
+
+def log_session_operation(operation: str, session_id: str = None, duration: float = None,
+                         level: str = "SESSION"):
+    """Log database session operations."""
+    context_parts = [operation]
+
+    if session_id:
+        context_parts.append(f"Session: {session_id}")
+
+    if duration is not None:
+        context_parts.append(f"{duration:.3f}s")
+
+    logger.log(level, " | ".join(context_parts))
+
+
+def create_progress_bar() -> tuple[Progress, Console]:
+    """Create a rich progress bar for operations."""
     console = Console()
     progress = Progress(
         SpinnerColumn(),
@@ -133,6 +366,7 @@ def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
     return progress, console
 
 
+# Initialize logging
 console = Console()
 log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
 setup_logger(log_level)

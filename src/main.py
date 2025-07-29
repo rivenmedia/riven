@@ -139,6 +139,7 @@ async def scalar_html():
     )
 
 app.program = Program()
+app.performance_monitor = performance_monitor  # Make performance monitor accessible to routes
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
     CORSMiddleware,

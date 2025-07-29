@@ -299,28 +299,42 @@ async def get_rclone_files() -> MountResponse:
 
 
 @router.get("/performance", operation_id="performance")
-async def get_performance_metrics():
+async def get_performance_metrics(request: Request):
     """Get system performance metrics and statistics."""
     try:
-        # Import here to avoid circular imports
-        from main import performance_monitor
-
+        # Access performance monitor through the app instance to avoid circular imports
+        performance_monitor = request.app.performance_monitor
         stats = performance_monitor.get_stats()
 
-        # Add system-level metrics
-        import psutil
-        import os
+        # Add system-level metrics with error handling
+        system_stats = {}
+        try:
+            import psutil
+            import os
 
-        # Get current process info
-        process = psutil.Process(os.getpid())
+            # Get current process info
+            process = psutil.Process(os.getpid())
 
-        system_stats = {
-            'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
-            'cpu_percent': process.cpu_percent(),
-            'open_files': len(process.open_files()),
-            'threads': process.num_threads(),
-            'uptime_seconds': time.time() - process.create_time()
-        }
+            system_stats = {
+                'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
+                'open_files': len(process.open_files()),
+                'threads': process.num_threads(),
+                'uptime_seconds': time.time() - process.create_time()
+            }
+
+            # Try to get CPU percent safely - this can fail in non-main threads
+            try:
+                # Use interval=None to avoid blocking and signal issues
+                cpu_percent = process.cpu_percent(interval=None)
+                if cpu_percent is not None:
+                    system_stats['cpu_percent'] = cpu_percent
+            except Exception:
+                # Skip CPU percent if it fails (common in non-main threads)
+                pass
+
+        except Exception as e:
+            logger.warning(f"Failed to get system metrics: {e}")
+            system_stats = {'error': f'Failed to get system metrics: {str(e)}'}
 
         # Add database connection pool stats if available
         try:
@@ -336,9 +350,149 @@ async def get_performance_metrics():
         except Exception:
             pass
 
+        # Add comprehensive event manager and operational stats
+        program = None
+        memory_stats = {'error': 'Unable to get memory stats'}
+        executor_stats = {'error': 'Unable to get executor stats'}
+        event_updates = {'error': 'Unable to get event updates'}
+
+        try:
+            # Try to get program instance through the app
+            program = request.app.program
+            if program:
+                logger.debug(f"Program found: initialized={getattr(program, 'initialized', False)}, has_em={hasattr(program, 'em')}")
+                if hasattr(program, 'em'):
+                    memory_stats = program.em.get_memory_stats()
+                    executor_stats = program.em.get_executor_stats()
+                    event_updates = program.em.get_event_updates()
+                else:
+                    logger.warning("Program found but no event manager")
+            else:
+                logger.warning("No program instance found in app")
+        except Exception as e:
+            logger.warning(f"Failed to get program stats via app: {e}")
+
+        # Fallback to dependency injection if app method failed
+        if program is None or 'error' in memory_stats:
+            try:
+                from program import Program
+                from kink import di
+                program = di[Program]
+                if program and hasattr(program, 'em'):
+                    logger.debug("Using DI fallback for program access")
+                    memory_stats = program.em.get_memory_stats()
+                    executor_stats = program.em.get_executor_stats()
+                    event_updates = program.em.get_event_updates()
+            except Exception as e:
+                logger.warning(f"Failed to get program stats via DI: {e}")
+
+        # Add database statistics
+        db_stats = {}
+        try:
+            from program.db.db import db
+            with db.Session() as session:
+                # Get table row counts for monitoring
+                from program.media.item import Movie, Show, Season, Episode, MediaItem
+                from program.media.stream import Stream
+
+                db_stats = {
+                    'movies_total': session.query(func.count(Movie.id)).scalar(),
+                    'shows_total': session.query(func.count(Show.id)).scalar(),
+                    'seasons_total': session.query(func.count(Season.id)).scalar(),
+                    'episodes_total': session.query(func.count(Episode.id)).scalar(),
+                    'streams_total': session.query(func.count(Stream.id)).scalar(),
+                    'movies_symlinked': session.query(func.count(Movie.id)).filter(Movie.symlinked == True).scalar(),
+                    'episodes_symlinked': session.query(func.count(Episode.id)).filter(Episode.symlinked == True).scalar(),
+                }
+
+                # Get state distribution
+                from program.media.state import States
+                state_counts = {}
+                for state in States:
+                    count = session.query(func.count(MediaItem.id)).filter(MediaItem.last_state == state).scalar()
+                    if count > 0:
+                        state_counts[state.name] = count
+                db_stats['state_distribution'] = state_counts
+
+        except Exception as e:
+            logger.warning(f"Failed to get database stats: {e}")
+            db_stats = {'error': f'Unable to get database stats: {str(e)}'}
+
+        # Add performance logger stats if available
+        perf_logger_stats = {}
+        try:
+            from program.utils.logging import perf_logger
+            perf_logger_stats = perf_logger.get_stats()
+        except Exception as e:
+            logger.warning(f"Failed to get performance logger stats: {e}")
+            perf_logger_stats = {'error': f'Unable to get perf logger stats: {str(e)}'}
+
+        # Add detailed running items information
+        running_items_details = {}
+        try:
+            if program and 'error' not in memory_stats and memory_stats.get('running_breakdown'):
+                from program.db.db import db
+                with db.Session() as session:
+                    # Get details about currently running items
+                    running_items = []
+
+                    # Get a sample of running events with item details
+                    if hasattr(program, 'em') and hasattr(program.em, '_running_events'):
+                        with program.em.mutex:
+                            for event in program.em._running_events[:20]:  # Limit to first 20 for performance
+                                if event.item_id:
+                                    try:
+                                        item = session.query(MediaItem).filter_by(id=event.item_id).first()
+                                        if item:
+                                            running_items.append({
+                                                'item_id': event.item_id,
+                                                'title': getattr(item, 'title', 'Unknown'),
+                                                'type': item.__class__.__name__,
+                                                'state': item.last_state.name if item.last_state else 'Unknown',
+                                                'service': getattr(event.emitted_by, '__name__', str(event.emitted_by))
+                                            })
+                                    except Exception:
+                                        # Skip items that can't be queried
+                                        pass
+
+                    running_items_details = {
+                        'sample_running_items': running_items,
+                        'total_running_count': len(program.em._running_events) if program and hasattr(program, 'em') else 0
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to get running items details: {e}")
+            running_items_details = {'error': f'Unable to get running items: {str(e)}'}
+
+        # Add service health status
+        service_health = {}
+        try:
+            if program and hasattr(program, 'all_services'):
+                for service_class, service_instance in program.all_services.items():
+                    service_name = service_class.__name__
+                    service_health[service_name] = {
+                        'enabled': getattr(service_instance, 'enabled', True),
+                        'initialized': getattr(service_instance, 'initialized', False),
+                        'last_run': getattr(service_instance, 'last_run', None),
+                        'class_name': service_class.__name__
+                    }
+            else:
+                service_health = {'error': 'Program instance not available'}
+        except Exception as e:
+            logger.warning(f"Failed to get service health: {e}")
+            service_health = {'error': f'Unable to get service health: {str(e)}'}
+
         return {
             'performance': stats,
             'system': system_stats,
+            'event_manager': {
+                'memory': memory_stats,
+                'executors': executor_stats,
+                'current_events': event_updates
+            },
+            'database': db_stats,
+            'performance_logger': perf_logger_stats,
+            'running_items': running_items_details,
+            'service_health': service_health,
             'timestamp': time.time()
         }
 

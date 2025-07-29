@@ -46,6 +46,7 @@ class Stream(db.Model):
     infohash: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     raw_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     parsed_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    parsed_data: Mapped[dict] = mapped_column(sqlalchemy.JSON, nullable=True)  # Store parsed torrent data
     rank: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
     lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
 
@@ -65,12 +66,50 @@ class Stream(db.Model):
         self.raw_title = torrent.raw_title
         self.infohash = torrent.infohash
         self.parsed_title = torrent.data.parsed_title
-        self.parsed_data = torrent.data
+        # Safely serialize parsed data
+        try:
+            self.parsed_data = self._serialize_parsed_data(torrent.data)
+        except Exception as e:
+            # If serialization fails, store None and log the error
+            from loguru import logger
+            logger.debug(f"Failed to serialize parsed data for {torrent.infohash}: {e}")
+            self.parsed_data = None
         self.rank = torrent.rank
         self.lev_ratio = torrent.lev_ratio
 
+    def _serialize_parsed_data(self, parsed_data) -> dict:
+        """Convert ParsedData object to JSON-serializable dictionary."""
+        try:
+            # Convert ParsedData object to dictionary
+            if hasattr(parsed_data, '__dict__'):
+                data_dict = {}
+                for key, value in parsed_data.__dict__.items():
+                    # Handle different types of values
+                    if isinstance(value, (str, int, float, bool, type(None))):
+                        data_dict[key] = value
+                    elif isinstance(value, (list, tuple)):
+                        # Convert lists/tuples to lists of serializable items
+                        data_dict[key] = [str(item) for item in value]
+                    elif hasattr(value, '__dict__'):
+                        # Nested objects - convert to string representation
+                        data_dict[key] = str(value)
+                    else:
+                        # Fallback to string representation
+                        data_dict[key] = str(value)
+                return data_dict
+            else:
+                # Fallback: convert entire object to string
+                return {"raw_data": str(parsed_data)}
+        except Exception as e:
+            # If serialization fails, store minimal info
+            return {
+                "error": f"Serialization failed: {str(e)}",
+                "type": str(type(parsed_data)),
+                "raw_data": str(parsed_data)[:500]  # Truncate to avoid huge strings
+            }
+
     def __hash__(self):
-        return self.infohash
+        return hash(self.infohash)
 
     def __eq__(self, other):
         return isinstance(other, Stream) and self.infohash == other.infohash

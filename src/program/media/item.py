@@ -97,16 +97,21 @@ class MediaItem(db.Model):
     indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
     # Season/episode count tracking for change detection
     last_season_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True, default=0)
     last_episode_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True, default=0)
     # JSON field to track episode counts per season: {"1": 10, "2": 12, ...}
     season_episode_counts: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True, default={})
+
     # Show status tracking for intelligent re-indexing
     show_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)  # "ongoing", "ended", "hiatus", "unknown"
     last_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     next_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     status_last_updated: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    season_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    episode_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
     active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
     streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="select", cascade="all")
     blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="select", cascade="all")
@@ -132,14 +137,6 @@ class MediaItem(db.Model):
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
     failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-
-    # Show status tracking columns for performance optimization
-    show_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String(20), nullable=True)  # "ongoing", "ended", "hiatus", "unknown"
-    last_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    next_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    status_last_updated: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    season_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    episode_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",

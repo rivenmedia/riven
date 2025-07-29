@@ -112,26 +112,33 @@ class Symlinker:
                 if item.type in ("show", "season"):
                     item.soft_reset()
                 yield item
+                return  # Exit early to prevent multiple yields
             next_attempt = self._calculate_next_attempt(item)
             logger.log("SYMLINKER", f"Waiting for {item.log_string} to become available, next attempt in {round((next_attempt - datetime.now()).total_seconds())} seconds")
             item.symlinked_times += 1
             yield (item, next_attempt)
+            return  # Exit early to prevent multiple yields
 
         try:
+            all_symlinked = True
             for _item in items:
                 symlinked = False
                 if self._symlink(_item):
                     symlinked = True
                 if symlinked:
                     logger.log("SYMLINKER", f"Symlinks created for {_item.log_string}")
-                if not symlinked:
+                else:
                     logger.log("SYMLINKER", f"No symlinks created for {_item.log_string}")
                     _item.soft_reset()
                     logger.debug(f"Item {_item.log_string} has been soft reset")
+                    all_symlinked = False
+
+            # Only yield once at the end
+            yield item
+
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
-
-        yield item
+            yield item
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
         base_delay = timedelta(seconds=4)

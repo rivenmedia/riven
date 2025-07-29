@@ -2,6 +2,7 @@ import json
 import hashlib
 import time
 from enum import Enum
+from threading import RLock
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Type
 
@@ -167,16 +168,139 @@ class BaseRequestHandler:
 
         except HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
-                raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response) from e
+                # Extract retry-after header if available
+                retry_after = e.response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        retry_delay = int(retry_after)
+                        logger.warning(f"Rate limited for {url}, server suggests waiting {retry_delay}s")
+                    except ValueError:
+                        retry_delay = None
+                else:
+                    retry_delay = None
+
+                raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response, retry_after=retry_delay) from e
             else:
                 raise self.custom_exception(f"Request failed: {e}") from e
 
 
 class RateLimitExceeded(Exception):
-    """Rate limit exceeded exception for requests."""
-    def __init__(self, message, response=None):
+    """Rate limit exceeded exception for requests with enhanced retry information."""
+    def __init__(self, message, response=None, retry_after=None):
         super().__init__(message)
         self.response = response
+        self.retry_after = retry_after  # Server-suggested retry delay in seconds
+        self.should_retry = True  # Flag indicating this is a retryable error
+        self.suggested_delay = retry_after or 30  # Default 30s delay if no server suggestion
+
+
+class CircuitBreaker:
+    """
+    Generic circuit breaker for API rate limiting and failure management.
+    Prevents overwhelming services that are experiencing issues.
+    """
+    def __init__(self, failure_threshold=5, recovery_timeout=300, service_name="Unknown"):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.service_name = service_name
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+
+    def can_execute(self):
+        """Check if requests can be executed based on circuit breaker state"""
+        if self.state == "CLOSED":
+            return True
+        elif self.state == "OPEN":
+            if self.last_failure_time:
+                from datetime import datetime, timedelta
+                if datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+                    self.state = "HALF_OPEN"
+                    logger.debug(f"Circuit breaker for {self.service_name} moving to HALF_OPEN state")
+                    return True
+            return False
+        else:  # HALF_OPEN
+            return True
+
+    def record_success(self):
+        """Record a successful request - resets failure count and closes circuit"""
+        if self.failure_count > 0 or self.state != "CLOSED":
+            logger.debug(f"Circuit breaker for {self.service_name} recording success - resetting to CLOSED")
+        self.failure_count = 0
+        self.state = "CLOSED"
+
+    def record_failure(self):
+        """Record a failed request - may trip circuit breaker"""
+        self.failure_count += 1
+        from datetime import datetime
+        self.last_failure_time = datetime.now()
+
+        if self.failure_count >= self.failure_threshold:
+            self.state = "OPEN"
+            logger.warning(f"Circuit breaker for {self.service_name} OPEN - too many failures ({self.failure_count}/{self.failure_threshold})")
+        else:
+            logger.debug(f"Circuit breaker for {self.service_name} recorded failure {self.failure_count}/{self.failure_threshold}")
+
+    def get_status(self):
+        """Get current circuit breaker status for monitoring"""
+        return {
+            'state': self.state,
+            'failure_count': self.failure_count,
+            'last_failure_time': self.last_failure_time,
+            'service_name': self.service_name
+        }
+
+
+class TTLCache:
+    """
+    Generic Time-To-Live cache for API responses and availability checks.
+    Thread-safe with automatic expiration cleanup.
+    """
+    def __init__(self, ttl: int = 300, max_size: int = 1000):
+        self._cache = {}
+        self._lock = RLock()
+        self._ttl = ttl
+        self._max_size = max_size
+
+    def get(self, key: str):
+        """Get cached result if available and not expired."""
+        with self._lock:
+            if key in self._cache:
+                result, timestamp = self._cache[key]
+                if time.time() - timestamp < self._ttl:
+                    return result
+                else:
+                    del self._cache[key]
+        return None
+
+    def set(self, key: str, value):
+        """Cache result with TTL expiration."""
+        with self._lock:
+            # Clean up if cache is getting too large
+            if len(self._cache) >= self._max_size:
+                self._cleanup_expired()
+
+            self._cache[key] = (value, time.time())
+
+    def _cleanup_expired(self):
+        """Remove expired entries from cache."""
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, timestamp) in self._cache.items()
+            if current_time - timestamp >= self._ttl
+        ]
+        for key in expired_keys:
+            del self._cache[key]
+
+    def clear(self):
+        """Clear all cached entries."""
+        with self._lock:
+            self._cache.clear()
+
+    def size(self):
+        """Get current cache size."""
+        with self._lock:
+            return len(self._cache)
 
 
 class DeduplicationMixin:
@@ -413,11 +537,12 @@ def get_optimized_rate_limit_params(service_type: str = "default") -> dict:
             'max_delay': 2,  # Short delays to maintain responsiveness
         },
         'debrid': {
-            # Optimized for debrid services (RealDebrid, AllDebrid)
-            'per_second': 5,  # Moderate rate to avoid 429s
-            'per_minute': 150,  # Conservative for API stability
+            # Optimized for debrid services (RealDebrid allows 250/min)
+            'per_second': 3,    # Allow bursts up to 3/second
+            'per_minute': 200,  # Conservative buffer under RealDebrid's 250/min
+            'per_hour': 10000,  # Generous hourly limit
             'use_memory_list': True,
-            'max_delay': 5,  # Allow slightly longer delays for stability
+            'max_delay': 60,    # Allow longer delays for recovery from rate limits
         },
         'indexer': {
             # Balanced for indexers (Trakt, TVDB, etc.)
@@ -446,6 +571,85 @@ def get_optimized_rate_limit_params(service_type: str = "default") -> dict:
 
     config = configs.get(service_type, configs['default'])
     return get_rate_limit_params(**config)
+
+
+def create_service_rate_limiter(service_name: str, service_type: str = "default") -> Dict[str, any]:
+    """
+    Create optimized rate limiter configuration for specific services.
+
+    :param service_name: Specific service name (e.g., 'realdebrid', 'alldebrid')
+    :param service_type: General service type fallback
+    :return: Rate limiter configuration with circuit breaker
+    """
+    # Service-specific configurations based on real API limits
+    service_configs = {
+        'realdebrid': {
+            'per_second': 3,
+            'per_minute': 200,    # Conservative under 250/min limit
+            'per_hour': 10000,
+            'use_memory_list': True,
+            'max_delay': 60,
+            'circuit_breaker': CircuitBreaker(
+                failure_threshold=10,
+                recovery_timeout=120,
+                service_name='Real-Debrid'
+            )
+        },
+        'alldebrid': {
+            'per_second': 5,
+            'per_minute': 300,    # AllDebrid is more lenient
+            'per_hour': 15000,
+            'use_memory_list': True,
+            'max_delay': 30,
+            'circuit_breaker': CircuitBreaker(
+                failure_threshold=8,
+                recovery_timeout=90,
+                service_name='AllDebrid'
+            )
+        },
+        'torrentio': {
+            'per_second': 8,
+            'per_minute': 400,
+            'use_memory_list': True,
+            'max_delay': 10,
+            'circuit_breaker': CircuitBreaker(
+                failure_threshold=5,
+                recovery_timeout=60,
+                service_name='Torrentio'
+            )
+        },
+        'trakt': {
+            'per_second': 2,
+            'per_minute': 60,
+            'per_hour': 2000,
+            'use_memory_list': False,
+            'max_delay': 15,
+            'circuit_breaker': CircuitBreaker(
+                failure_threshold=5,
+                recovery_timeout=180,
+                service_name='Trakt'
+            )
+        }
+    }
+
+    # Get service-specific config or fall back to type-based config
+    config = service_configs.get(service_name.lower())
+    if not config:
+        config = get_optimized_rate_limit_params(service_type)
+        # Add a generic circuit breaker
+        config['circuit_breaker'] = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout=300,
+            service_name=service_name
+        )
+        return config
+
+    # Extract circuit breaker before creating rate limit params
+    circuit_breaker = config.pop('circuit_breaker')
+    rate_limit_config = get_rate_limit_params(**config)
+    rate_limit_config['circuit_breaker'] = circuit_breaker
+
+    return rate_limit_config
 
 
 def create_adaptive_session(service_name: str, service_type: str = "default", **kwargs) -> Session:

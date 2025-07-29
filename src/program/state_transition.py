@@ -53,6 +53,13 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         # Handle notifications and post-processing efficiently
         return _handle_completed_item(existing_item, emitted_by)
 
+    # Handle case where Updater has run but item state hasn't been updated yet
+    elif emitted_by == Updater and existing_item is not None:
+        # After Updater runs, the item should be marked as completed
+        # This handles the transition from Updater to completion
+        logger.debug(f"Updater completed for {existing_item.log_string}, checking for post-processing")
+        return _handle_completed_item(existing_item, emitted_by)
+
     # if items_to_submit and next_service:
     #     for item in items_to_submit:
     #         logger.debug(f"Submitting {item.log_string} ({item.id}) to {next_service if isinstance(next_service, str) else next_service.__name__}")
@@ -73,31 +80,42 @@ def _get_incomplete_children(item: MediaItem, emitted_by: Service) -> list[Media
     """
     items_to_submit = []
 
-    if item.type == "show":
-        # Batch process seasons - avoid recursive calls
-        incomplete_seasons = [
-            season for season in item.seasons
-            if season.last_state not in [States.Completed, States.Unreleased]
-        ]
+    try:
+        if item.type == "show":
+            # Safe access to seasons relationship
+            if hasattr(item, 'seasons') and item.seasons is not None:
+                # Batch process seasons - avoid recursive calls
+                incomplete_seasons = [
+                    season for season in item.seasons
+                    if season.last_state not in [States.Completed, States.Unreleased]
+                ]
 
-        for season in incomplete_seasons:
-            if season.last_state in [States.PartiallyCompleted, States.Ongoing]:
+                for season in incomplete_seasons:
+                    if season.last_state in [States.PartiallyCompleted, States.Ongoing]:
+                        # Safe access to episodes relationship
+                        if hasattr(season, 'episodes') and season.episodes is not None:
+                            # Get incomplete episodes directly
+                            incomplete_episodes = [
+                                episode for episode in season.episodes
+                                if episode.last_state != States.Completed
+                            ]
+                            items_to_submit.extend(incomplete_episodes)
+                    else:
+                        items_to_submit.append(season)
+
+        elif item.type == "season":
+            # Safe access to episodes relationship
+            if hasattr(item, 'episodes') and item.episodes is not None:
                 # Get incomplete episodes directly
                 incomplete_episodes = [
-                    episode for episode in season.episodes
+                    episode for episode in item.episodes
                     if episode.last_state != States.Completed
                 ]
                 items_to_submit.extend(incomplete_episodes)
-            else:
-                items_to_submit.append(season)
-
-    elif item.type == "season":
-        # Get incomplete episodes directly
-        incomplete_episodes = [
-            episode for episode in item.episodes
-            if episode.last_state != States.Completed
-        ]
-        items_to_submit.extend(incomplete_episodes)
+    except Exception as e:
+        # If we encounter any database/session issues, just return empty list
+        logger.debug(f"Error accessing relationships in _get_incomplete_children: {e}")
+        items_to_submit = []
 
     return items_to_submit
 
@@ -118,19 +136,28 @@ def _get_scrapeable_items(item: MediaItem, emitted_by: Service) -> list[MediaIte
 
     items_to_submit = []
 
-    if item.type == "show":
-        # Use list comprehension for better performance
-        scrapeable_states = [States.Indexed, States.PartiallyCompleted, States.Unknown]
-        items_to_submit = [
-            season for season in item.seasons
-            if season.last_state in scrapeable_states and Scraping.should_submit(season)
-        ]
-    elif item.type == "season":
-        scrapeable_states = [States.Indexed, States.Unknown]
-        items_to_submit = [
-            episode for episode in item.episodes
-            if episode.last_state in scrapeable_states and Scraping.should_submit(episode)
-        ]
+    try:
+        if item.type == "show":
+            # Use list comprehension for better performance
+            scrapeable_states = [States.Indexed, States.PartiallyCompleted, States.Unknown]
+            # Safe access to seasons relationship
+            if hasattr(item, 'seasons') and item.seasons is not None:
+                items_to_submit = [
+                    season for season in item.seasons
+                    if season.last_state in scrapeable_states and Scraping.should_submit(season)
+                ]
+        elif item.type == "season":
+            scrapeable_states = [States.Indexed, States.Unknown]
+            # Safe access to episodes relationship
+            if hasattr(item, 'episodes') and item.episodes is not None:
+                items_to_submit = [
+                    episode for episode in item.episodes
+                    if episode.last_state in scrapeable_states and Scraping.should_submit(episode)
+                ]
+    except Exception as e:
+        # If we encounter any database/session issues, just return empty list
+        logger.debug(f"Error accessing relationships in _get_scrapeable_items: {e}")
+        items_to_submit = []
 
     return items_to_submit
 
