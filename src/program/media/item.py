@@ -133,6 +133,14 @@ class MediaItem(db.Model):
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
     failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
+    # Show status tracking columns for performance optimization
+    show_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String(20), nullable=True)  # "ongoing", "ended", "hiatus", "unknown"
+    last_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    next_air_date: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    status_last_updated: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    season_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    episode_count: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
@@ -153,6 +161,11 @@ class MediaItem(db.Model):
         Index("ix_mediaitem_year", "year"),
         Index("ix_mediaitem_overseerr_id", "overseerr_id"),
         Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
+        # Performance optimization indexes for show status tracking
+        Index("ix_mediaitem_show_status", "show_status"),
+        Index("ix_mediaitem_last_air_date", "last_air_date"),
+        Index("ix_mediaitem_next_air_date", "next_air_date"),
+        Index("ix_mediaitem_status_last_updated", "status_last_updated"),
     )
 
     def __init__(self, item: dict | None) -> None:
