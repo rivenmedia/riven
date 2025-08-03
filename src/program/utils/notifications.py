@@ -1,9 +1,11 @@
+import json
 from typing import List
 
 from apprise import Apprise
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.managers.sse_manager import sse_manager
 from program.settings.manager import settings_manager
 from program.settings.models import NotificationsModel
 
@@ -37,3 +39,14 @@ def notify_on_complete(item: MediaItem) -> None:
     title = f"Riven completed a {item.type.title()}!"
     body = f"**{item.log_string}** ({item.aired_at.year})"
     notify(title, body)
+    
+    # Emit server-side event for item completion
+    notification_data = {
+        "type": "item_complete",
+        "title": title,
+        "body": body,
+        "item_type": item.type,
+        "item_title": item.log_string,
+        "year": item.aired_at.year if item.aired_at else None
+    }
+    sse_manager.publish_event("notifications", json.dumps(notification_data))
