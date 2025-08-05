@@ -100,7 +100,7 @@ class Jackett:
         """Scrape the given media item"""
         results_queue = queue.Queue()
         threads = [
-            threading.Thread(target=self._thread_target, args=(item, indexer, results_queue))
+            threading.Thread(target=self._thread_target, args=(item, indexer, results_queue), name=f"Jackett_{indexer.title}")
             for indexer in self.indexers
         ]
 

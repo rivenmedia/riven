@@ -16,7 +16,6 @@ from program.utils.request import (
     ResponseObject,
     ResponseType,
     create_service_session,
-    get_cache_params,
     get_rate_limit_params,
     logger,
 )
@@ -37,7 +36,6 @@ class TraktAPI:
     """Handles Trakt API communication"""
     BASE_URL = "https://api.trakt.tv"
     CLIENT_ID = os.environ.get("TRAKT_API_CLIENT_ID", "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3")
-    logger.debug(f"Trakt Client ID: {CLIENT_ID[:4]}...{CLIENT_ID[-4:]}")
 
     patterns: dict[str, re.Pattern] = {
         "user_list": re.compile(r"https://trakt.tv/users/([^/]+)/lists/([^/]+)"),
@@ -50,9 +48,7 @@ class TraktAPI:
         self.oauth_client_secret = self.settings.oauth.oauth_client_secret
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
         rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
-        trakt_cache = get_cache_params("trakt", 86400)
-        use_cache = os.environ.get("SKIP_TRAKT_CACHE", "false").lower() == "false"
-        session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=trakt_cache)
+        session = create_service_session(rate_limit_params=rate_limit_params)
         self.headers = {
             "Content-type": "application/json",
             "trakt-api-key": self.CLIENT_ID,

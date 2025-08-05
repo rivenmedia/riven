@@ -286,7 +286,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
         if not local_broken_symlinks:
             return
 
-        with ThreadPoolExecutor(thread_name_prefix="FixSymlinks", max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(thread_name_prefix="ProcessSymlinkDirectory", max_workers=2) as executor:
             futures = [executor.submit(check_and_fix_symlink, symlink_path, file_map) for symlink_path in local_broken_symlinks]
             for future in as_completed(futures):
                 future.result()
@@ -309,7 +309,7 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
         library_paths = [os.path.join(library_path, d) for d in valid_dirs if os.path.isdir(os.path.join(library_path, d))]
         logger.debug(f"Found top-level directories: {library_paths}")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(thread_name_prefix="FixBrokenSymlinks", max_workers=2) as executor:
         futures = [executor.submit(process_directory, directory, file_map) for directory in library_paths]
         if not futures:
             logger.log("FILES", f"No directories found in {library_path}. Aborting fix_broken_symlinks.")

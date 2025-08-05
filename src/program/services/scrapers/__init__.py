@@ -104,7 +104,7 @@ class Scraping:
                 except Exception as e:
                     logger.exception(f"Error updating results for {service.__class__.__name__}: {e}")
 
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(thread_name_prefix="ScraperService_", max_workers=len(available_services)) as executor:
             futures = {executor.submit(run_service, service, item): service_name for service_name, service in available_services.items() if service.initialized}
             for future in as_completed(futures):
                 try:
