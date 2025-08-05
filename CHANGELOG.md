@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.22.0](https://github.com/rivenmedia/riven/compare/v0.21.21...v0.22.0) (2025-08-05)
+
+
+### Features
+
+* Add TorBox downloader to Riven ([#1074](https://github.com/rivenmedia/riven/issues/1074)) ([9875109](https://github.com/rivenmedia/riven/commit/9875109e25c3c67cc3cdcd2cd450547dce365854))
+* add TRAKT_API_CLIENT_ID env to override the default trakt client id used by trakt indexer ([7fd087f](https://github.com/rivenmedia/riven/commit/7fd087f7b46cde4b6542f1d57ca394a1b4bf28ca))
+* set the media type when performing search ([#1110](https://github.com/rivenmedia/riven/issues/1110)) ([16ada64](https://github.com/rivenmedia/riven/commit/16ada643305024ac3e1b3b7f8defc1faef6aa77e))
+
+
+### Bug Fixes
+
+* fixed hanging on downloader. improved logging. ([#1116](https://github.com/rivenmedia/riven/issues/1116)) ([422db78](https://github.com/rivenmedia/riven/commit/422db783e1a3f07262601478841d9576d70cb332))
+* handle create_item_from_imdb_id response exception ([d91dd25](https://github.com/rivenmedia/riven/commit/d91dd254c08fbb410706d4fc6cb97f3691ebc67c))
+* readtimeout issue with rd, updated timeout to 25s instead of 15s. added exception handling for this as well. ([45105db](https://github.com/rivenmedia/riven/commit/45105dbd70854d70c56f4ebec3d6ca6ea7ef1504))
+
 ## [0.21.21](https://github.com/rivenmedia/riven/compare/v0.21.20...v0.21.21) (2025-05-12)
 
 
