@@ -14,7 +14,7 @@ from pyrate_limiter import (
 )
 from requests import Session
 from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, HTTPError, RequestException
+from requests.exceptions import ConnectTimeout, HTTPError, RequestException, ConnectionError, ReadTimeout, SSLError, Timeout
 from requests.models import Response
 from requests_cache import CachedSession, CacheMixin
 from requests_ratelimiter import (
@@ -163,11 +163,14 @@ class BaseRequestHandler:
                 logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
             return response_obj
 
-        except HTTPError as e:
-            if e.response is not None and e.response.status_code == 429:
+        except (HTTPError, ConnectTimeout, ReadTimeout, ConnectionError, SSLError, Timeout, RequestException) as e:
+            if isinstance(e, HTTPError) and e.response is not None and e.response.status_code == 429:
                 raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response) from e
             else:
-                raise self.custom_exception(f"Request failed: {e}") from e
+                # Log the specific exception type for debugging
+                exception_type = type(e).__name__
+                logger.debug(f"Request to {url} failed with {exception_type}: {e}")
+                raise self.custom_exception(f"Request failed [{exception_type}]: {e}") from e
 
 
 class RateLimitExceeded(Exception):

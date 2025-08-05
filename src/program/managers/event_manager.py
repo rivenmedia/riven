@@ -46,15 +46,13 @@ class EventManager:
             concurrent.futures.ThreadPoolExecutor: The executor for the service class.
         """
         service_name = service_cls.__name__
-        env_var_name = f"{service_name.upper()}_MAX_WORKERS"
-        max_workers = int(os.environ.get(env_var_name, 1))
         for executor in self._executors:
             if executor["_name_prefix"] == service_name:
                 logger.debug(f"Executor for {service_name} found.")
                 return executor["_executor"]
-        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=max_workers)
+        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=1)
         self._executors.append({ "_name_prefix": service_name, "_executor": _executor })
-        logger.debug(f"Created executor for {service_name} with {max_workers} max workers.")
+        logger.debug(f"Created executor for {service_name}")
         return _executor
 
     def _process_future(self, future, service):

@@ -1,7 +1,5 @@
-import time
 from datetime import datetime
 from typing import List, Optional, Union
-
 from loguru import logger
 from requests import Session, exceptions
 
@@ -19,6 +17,7 @@ from program.utils.request import (
     ResponseType,
     create_service_session,
     get_rate_limit_params,
+    get_retry_policy,
 )
 
 from .shared import DownloaderBase, premium_days_left
@@ -30,6 +29,7 @@ class RealDebridError(Exception):
 class RealDebridRequestHandler(BaseRequestHandler):
     def __init__(self, session: Session, base_url: str, request_logging: bool = False):
         super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
+        self.timeout = 30  # Real-Debrid timeout: 30 seconds total
 
     def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> Union[dict, list]:
         response = super()._request(method, endpoint, **kwargs)
@@ -45,8 +45,9 @@ class RealDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(per_minute=60)
-        self.session = create_service_session(rate_limit_params=rate_limit_params)
+        rate_limit_params = get_rate_limit_params(per_minute=200)  # Real-Debrid allows 250/min, using 200 to be safe
+        retry_policy = get_retry_policy(retries=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        self.session = create_service_session(rate_limit_params=rate_limit_params, retry_policy=retry_policy)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
@@ -210,23 +211,25 @@ class RealDebridDownloader(DownloaderBase):
             )
             return response["id"]
         except Exception as e:
-            if len(e.args) > 0:
-                if " 503 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
-                    raise RealDebridError("Infringing Torrent or Service Unavailable")
-                elif " 429 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
-                    raise RealDebridError("Rate Limit Exceeded")
-                elif " 404 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
-                    raise RealDebridError("Torrent Not Found or Service Unavailable")
-                elif " 400 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
-                    raise RealDebridError("Torrent file is not valid")
+            error_message = str(e.args[0]) if e.args else str(e)
+            if "503" in error_message:
+                logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
+                raise RealDebridError("Infringing Torrent or Service Unavailable")
+            elif "429" in error_message:
+                logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
+                raise RealDebridError("Rate Limit Exceeded")
+            elif "404" in error_message:
+                logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
+                raise RealDebridError("Torrent Not Found or Service Unavailable")
+            elif "400" in error_message:
+                logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
+                raise RealDebridError("Torrent file is not valid")
+            elif "502" in error_message:
+                logger.debug(f"Failed to add torrent {infohash}: [502] Bad Gateway")
+                raise RealDebridError("Bad Gateway")
             else:
                 logger.debug(f"Failed to add torrent {infohash}: {e}")
-            
-            raise RealDebridError(f"Failed to add torrent {infohash}: {e}")
+                raise RealDebridError(f"Failed to add torrent {infohash}: {e}")
 
     def select_files(self, torrent_id: str, ids: List[int] = None) -> None:
         """Select files from a torrent"""
@@ -235,8 +238,7 @@ class RealDebridDownloader(DownloaderBase):
             self.api.request_handler.execute(
                 HttpMethod.POST,
                 f"torrents/selectFiles/{torrent_id}",
-                data={"files": selection},
-                timeout=25
+                data={"files": selection}
             )
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
