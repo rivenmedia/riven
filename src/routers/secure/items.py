@@ -607,6 +607,41 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
 
     return {"message": f"Successfully unpaused items.", "ids": ids}
 
+class ReindexResponse(BaseModel):
+    message: str
+
+@router.post(
+    "/reindex",
+    summary="Reindex item with Trakt Indexer to pick up new season & episode releases.",
+    description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
+    operation_id="trakt_reindexer"
+)
+async def reindex_item(request: Request, id: str) -> ReindexResponse:
+    """Reindex item through Trakt manually"""
+    item: MediaItem = db_functions.get_item_by_id(id)
+    
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    if item.type not in ("movie", "show"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not a movie or show")
+
+    try:
+        item.indexed_at = None
+        item.store_state(States.Requested)
+        
+        with db.Session() as session:
+            session.merge(item)
+            session.commit()
+            
+        request.app.program.em.add_event(Event("RetryItem", item.id))
+        
+        logger.info(f"Successfully queued {item.log_string} for reindexing")
+        return ReindexResponse(message=f"Successfully queued {item.log_string} for reindexing")
+        
+    except Exception as e:
+        logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
 
 class FfprobeResponse(BaseModel):
     message: str
