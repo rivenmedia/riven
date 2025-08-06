@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 from typing import List, Optional, Union
 from loguru import logger
 from requests import Session, exceptions
@@ -115,7 +116,7 @@ class RealDebridDownloader(DownloaderBase):
             torrent_id = self.add_torrent(infohash)
             container = self._process_torrent(torrent_id, infohash, item_type)
         except InvalidDebridFileException as e:
-            logger.debug(f"{infohash}: {e}")
+            logger.debug(f"Invalid Debrid File: {infohash}: {e}")
         except exceptions.ReadTimeout as e:
             logger.debug(f"Failed to get instant availability for {infohash}: [ReadTimeout] {e}")
         except Exception as e:
@@ -211,20 +212,19 @@ class RealDebridDownloader(DownloaderBase):
             )
             return response["id"]
         except Exception as e:
-            error_message = str(e.args[0]) if e.args else str(e)
-            if "503" in error_message:
+            if e.response.status_code == 503:
                 logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
                 raise RealDebridError("Infringing Torrent or Service Unavailable")
-            elif "429" in error_message:
+            elif e.response.status_code == 429:
                 logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
                 raise RealDebridError("Rate Limit Exceeded")
-            elif "404" in error_message:
+            elif e.response.status_code == 404:
                 logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
                 raise RealDebridError("Torrent Not Found or Service Unavailable")
-            elif "400" in error_message:
-                logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
+            elif e.response.status_code == 400:
+                logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid")
                 raise RealDebridError("Torrent file is not valid")
-            elif "502" in error_message:
+            elif e.response.status_code == 502:
                 logger.debug(f"Failed to add torrent {infohash}: [502] Bad Gateway")
                 raise RealDebridError("Bad Gateway")
             else:

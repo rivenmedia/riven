@@ -17,6 +17,7 @@ from program.db.db import db, get_db
 from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
+from program.services.indexers.trakt import TraktIndexer
 from program.symlink import Symlinker
 from program.types import Event
 from program.services.libraries.symlink import fix_broken_symlinks
@@ -616,29 +617,37 @@ class ReindexResponse(BaseModel):
     description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
     operation_id="trakt_reindexer"
 )
-async def reindex_item(request: Request, id: str) -> ReindexResponse:
+async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
     """Reindex item through Trakt manually"""
-    item: MediaItem = db_functions.get_item_by_id(id)
-    
+    if item_id:
+        item: MediaItem = db_functions.get_item_by_id(item_id)
+    elif imdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
+
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     if item.type not in ("movie", "show"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not a movie or show")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
 
     try:
+        trakt_indexer = request.app.program.all_services[TraktIndexer]
         item.indexed_at = None
-        item.store_state(States.Requested)
+        reindexed_item = next(trakt_indexer.run(item, log_msg=True))
         
-        with db.Session() as session:
-            session.merge(item)
-            session.commit()
+        if reindexed_item:
+            with db.Session() as session:
+                session.merge(reindexed_item)
+                session.commit()
             
-        request.app.program.em.add_event(Event("RetryItem", item.id))
-        
-        logger.info(f"Successfully queued {item.log_string} for reindexing")
-        return ReindexResponse(message=f"Successfully queued {item.log_string} for reindexing")
-        
+            logger.info(f"Successfully reindexed {item.log_string}")
+            request.app.program.em.add_event(Event("RetryItem", item.id))
+            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Trakt")
+
     except Exception as e:
         logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
