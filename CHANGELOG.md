@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.0](https://github.com/rivenmedia/riven/compare/v0.22.0...v0.23.0) (2025-08-06)
+
+
+### Features
+
+* **api:** added reindex api route to manually reindex items ([ed80503](https://github.com/rivenmedia/riven/commit/ed80503d106e510966040915742e16dfeb7603e7))
+
+
+### Bug Fixes
+
+* swapped to use trakt indexer directly on reindex route ([315fc29](https://github.com/rivenmedia/riven/commit/315fc29461a435dd4710657ecd1231bf0da8b2bf))
+
 ## [0.22.0](https://github.com/rivenmedia/riven/compare/v0.21.21...v0.22.0) (2025-08-05)
 
 
