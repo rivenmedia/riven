@@ -414,6 +414,8 @@ class Program(threading.Thread):
                                         log_message = f"Retry failed: {item.log_string}"
                                         progress.update(task, advance=1, log=log_message)
                                         continue
+                                except NotADirectoryError:
+                                    errors.append(f"Skipping {item.log_string} as it is not a valid directory")
                                 except Exception as e:
                                     errors.append(f"Error enhancing {item.log_string}: {str(e)}")
                                     log_message = f"Error: {item.log_string}"
