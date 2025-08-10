@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/rivenmedia/riven/compare/v0.23.0...v0.23.1) (2025-08-10)
+
+
+### Bug Fixes
+
+* fixed notadirectoryerror on re-init symlinks ([ff97b5c](https://github.com/rivenmedia/riven/commit/ff97b5c4806be568f62a08fb014f035aa0a719bc))
+
 ## [0.23.0](https://github.com/rivenmedia/riven/compare/v0.22.0...v0.23.0) (2025-08-06)
 
 
