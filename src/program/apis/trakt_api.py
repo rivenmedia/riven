@@ -24,9 +24,20 @@ from program.utils.request import (
 class TraktAPIError(Exception):
     """Base exception for TraktApi related errors"""
 
+
 class TraktRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=TraktAPIError, request_logging=request_logging)
+    def __init__(
+        self,
+        session: Session,
+        response_type=ResponseType.SIMPLE_NAMESPACE,
+        request_logging: bool = False,
+    ):
+        super().__init__(
+            session,
+            response_type=response_type,
+            custom_exception=TraktAPIError,
+            request_logging=request_logging,
+        )
 
     def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
         return super()._request(method, endpoint, **kwargs)
@@ -34,12 +45,16 @@ class TraktRequestHandler(BaseRequestHandler):
 
 class TraktAPI:
     """Handles Trakt API communication"""
+
     BASE_URL = "https://api.trakt.tv"
-    CLIENT_ID = os.environ.get("TRAKT_API_CLIENT_ID", "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3")
+    CLIENT_ID = os.environ.get(
+        "TRAKT_API_CLIENT_ID",
+        "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3",
+    )
 
     patterns: dict[str, re.Pattern] = {
         "user_list": re.compile(r"https://trakt.tv/users/([^/]+)/lists/([^/]+)"),
-        "short_list": re.compile(r"https://trakt.tv/lists/\d+")
+        "short_list": re.compile(r"https://trakt.tv/lists/\d+"),
     }
 
     def __init__(self, settings: TraktModel):
@@ -52,9 +67,16 @@ class TraktAPI:
         self.headers = {
             "Content-type": "application/json",
             "trakt-api-key": self.CLIENT_ID,
-            "trakt-api-version": "2"
+            "trakt-api-version": "2",
         }
         session.headers.update(self.headers)
+
+        if self.settings.proxy_url:
+            proxies = {
+                "http": self.settings.proxy_url,
+                "https": self.settings.proxy_url,
+            }
+            session.proxies.update(proxies)
         self.request_handler = TraktRequestHandler(session)
 
     def validate(self):
@@ -67,20 +89,28 @@ class TraktAPI:
 
         while True:
             try:
-                response = self.request_handler.execute(HttpMethod.GET, url, params={**params, "page": page})
+                response = self.request_handler.execute(
+                    HttpMethod.GET, url, params={**params, "page": page}
+                )
                 if response.is_ok:
-                    data = response.data if isinstance(response.data, list) else [response.data]
+                    data = (
+                        response.data
+                        if isinstance(response.data, list)
+                        else [response.data]
+                    )
                     if not data:
                         break
                     all_data.extend(data)
                     if "X-Pagination-Page-Count" not in response.response.headers:
                         break
                     if params.get("limit") and len(all_data) >= params["limit"]:
-                        all_data = all_data[:params["limit"]]
+                        all_data = all_data[: params["limit"]]
                         break
                     page += 1
                 elif response.status_code == 429:
-                    logger.warning("Rate limit exceeded. Retrying after rate limit period.")
+                    logger.warning(
+                        "Rate limit exceeded. Retrying after rate limit period."
+                    )
                     break
                 else:
                     logger.error(f"Failed to fetch data: {response.status_code}")
@@ -93,7 +123,7 @@ class TraktAPI:
     def get_watchlist_items(self, user):
         """Get watchlist items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/{user}/watchlist"
-        return self._fetch_data(url,{})
+        return self._fetch_data(url, {})
 
     def get_user_list(self, user, list_name):
         """Get user list items from Trakt with pagination support."""
@@ -179,7 +209,7 @@ class TraktAPI:
                     country = ns.country
                     title = ns.title
                     if title and title.startswith("Anime-"):
-                        title = title[len("Anime-"):]
+                        title = title[len("Anime-") :]
                     if country not in aliases:
                         aliases[country] = []
                     if title not in aliases[country]:
@@ -189,13 +219,14 @@ class TraktAPI:
             logger.error(f"Failed to get show aliases for {imdb_id}")
         return {}
 
-
-    def create_item_from_imdb_id(self, imdb_id: str, type: str = None) -> Optional[MediaItem]:
+    def create_item_from_imdb_id(
+        self, imdb_id: str, type: str = None
+    ) -> Optional[MediaItem]:
         """Wrapper for trakt.tv API search method."""
         url = f"{self.BASE_URL}/search/imdb/{imdb_id}?extended=full"
         if type:
-            url+=f"&type={type}"
-            
+            url += f"&type={type}"
+
         try:
             response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         except TraktAPIError as e:
@@ -203,15 +234,24 @@ class TraktAPI:
             return None
         if not response.is_ok or not response.data:
             logger.error(
-                f"Failed to create item using imdb id: {imdb_id}")  # This returns an empty list for response.data
+                f"Failed to create item using imdb id: {imdb_id}"
+            )  # This returns an empty list for response.data
             return None
 
         data = next((d for d in response.data if d.type == type), None)
         if not data:
-            clause = lambda x: x.type == type if type else x in ["show", "movie", "season", "episode"]
+            clause = (
+                lambda x: x.type == type
+                if type
+                else x in ["show", "movie", "season", "episode"]
+            )
             data = next((d for d in response.data if clause), None)
 
-        return self.map_item_from_data(getattr(data, data.type), data.type) if data else None
+        return (
+            self.map_item_from_data(getattr(data, data.type), data.type)
+            if data
+            else None
+        )
 
     def get_imdbid_from_tmdb(self, tmdb_id: str, type: str = "movie") -> Optional[str]:
         """Wrapper for trakt.tv API search method."""
@@ -219,7 +259,9 @@ class TraktAPI:
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
-        imdb_id = self._get_imdb_id_from_list(response.data, id_type="tmdb", _id=tmdb_id, type=type)
+        imdb_id = self._get_imdb_id_from_list(
+            response.data, id_type="tmdb", _id=tmdb_id, type=type
+        )
         if imdb_id and imdb_id.startswith("tt"):
             return imdb_id
         logger.error(f"Failed to fetch imdb_id for tmdb_id: {tmdb_id}")
@@ -231,7 +273,9 @@ class TraktAPI:
         response = self.request_handler.execute(HttpMethod.GET, url, timeout=30)
         if not response.is_ok or not response.data:
             return None
-        imdb_id = self._get_imdb_id_from_list(response.data, id_type="tvdb", _id=tvdb_id, type=type)
+        imdb_id = self._get_imdb_id_from_list(
+            response.data, id_type="tvdb", _id=tvdb_id, type=type
+        )
         if imdb_id and imdb_id.startswith("tt"):
             return imdb_id
         logger.error(f"Failed to fetch imdb_id for tvdb_id: {tvdb_id}")
@@ -240,20 +284,30 @@ class TraktAPI:
     def resolve_short_url(self, short_url) -> Union[str, None]:
         """Resolve short URL to full URL"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET, endpoint=short_url, headers={"Content-Type": "application/json", "Accept": "text/html"})
+            response = self.request_handler.execute(
+                HttpMethod.GET,
+                endpoint=short_url,
+                headers={"Content-Type": "application/json", "Accept": "text/html"},
+            )
             if response.is_ok:
                 return response.response.url
             else:
-                logger.error(f"Failed to resolve short URL: {short_url} (with status code: {response.status_code})")
+                logger.error(
+                    f"Failed to resolve short URL: {short_url} (with status code: {response.status_code})"
+                )
                 return None
         except RequestException as e:
             logger.error(f"Error resolving short URL: {str(e)}")
             return None
 
-    def map_item_from_data(self, data, item_type: str, show_genres: List[str] = None) -> Optional[MediaItem]:
+    def map_item_from_data(
+        self, data, item_type: str, show_genres: List[str] = None
+    ) -> Optional[MediaItem]:
         """Map trakt.tv API data to MediaItemContainer."""
         if item_type not in ["movie", "show", "season", "episode"]:
-            logger.debug(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
+            logger.debug(
+                f"Unknown item type {item_type} for {data.title} not found in list of acceptable items"
+            )
             return None
 
         formatted_aired_at = self._get_formatted_date(data, item_type)
@@ -292,12 +346,18 @@ class TraktAPI:
                 item["number"] = data.number
                 return Episode(item)
             case _:
-                logger.error(f"Unknown item type {item_type} for {data.title} not found in list of acceptable items")
+                logger.error(
+                    f"Unknown item type {item_type} for {data.title} not found in list of acceptable items"
+                )
                 return None
 
     def perform_oauth_flow(self) -> str:
         """Initiate the OAuth flow and return the authorization URL."""
-        if not self.oauth_client_id or not self.oauth_client_secret or not self.oauth_redirect_uri:
+        if (
+            not self.oauth_client_id
+            or not self.oauth_client_secret
+            or not self.oauth_redirect_uri
+        ):
             logger.error("OAuth settings not found in Trakt settings")
             raise TraktAPIError("OAuth settings not found in Trakt settings")
 
@@ -308,9 +368,13 @@ class TraktAPI:
         }
         return f"{self.BASE_URL}/oauth/authorize?{urlencode(params)}"
 
-    def handle_oauth_callback(self, api_key:str, code: str) -> bool:
+    def handle_oauth_callback(self, api_key: str, code: str) -> bool:
         """Handle the OAuth callback and exchange the code for an access token."""
-        if not self.oauth_client_id or not self.oauth_client_secret or not self.oauth_redirect_uri:
+        if (
+            not self.oauth_client_id
+            or not self.oauth_client_secret
+            or not self.oauth_redirect_uri
+        ):
             logger.error("OAuth settings not found in Trakt settings")
             return False
 
@@ -324,7 +388,9 @@ class TraktAPI:
         }
         headers = self.headers.copy()
         headers["trakt-api-key"] = api_key
-        response = self.request_handler.execute(HttpMethod.POST, token_url, data=payload, additional_headers=headers)
+        response = self.request_handler.execute(
+            HttpMethod.POST, token_url, data=payload, additional_headers=headers
+        )
         if response.is_ok:
             token_data = response.data
             self.settings.access_token = token_data.get("access_token")
@@ -335,32 +401,57 @@ class TraktAPI:
             logger.error(f"Failed to obtain OAuth token: {response.status_code}")
             return False
 
-    def _get_imdb_id_from_list(self, namespaces: List[SimpleNamespace], id_type: str = None, _id: str = None,
-                              type: str = None) -> Optional[str]:
+    def _get_imdb_id_from_list(
+        self,
+        namespaces: List[SimpleNamespace],
+        id_type: str = None,
+        _id: str = None,
+        type: str = None,
+    ) -> Optional[str]:
         """Get the imdb_id from the list of namespaces."""
         if not any([id_type, _id, type]):
             return None
 
         for ns in namespaces:
-            if type == "movie" and hasattr(ns, "movie") and hasattr(ns.movie, "ids") and hasattr(ns.movie.ids, "imdb"):
+            if (
+                type == "movie"
+                and hasattr(ns, "movie")
+                and hasattr(ns.movie, "ids")
+                and hasattr(ns.movie.ids, "imdb")
+            ):
                 if str(getattr(ns.movie.ids, id_type)) == str(_id):
                     return ns.movie.ids.imdb
-            elif type == "show" and hasattr(ns, "show") and hasattr(ns.show, "ids") and hasattr(ns.show.ids, "imdb"):
+            elif (
+                type == "show"
+                and hasattr(ns, "show")
+                and hasattr(ns.show, "ids")
+                and hasattr(ns.show.ids, "imdb")
+            ):
                 if str(getattr(ns.show.ids, id_type)) == str(_id):
                     return ns.show.ids.imdb
-            elif type == "season" and hasattr(ns, "season") and hasattr(ns.season, "ids") and hasattr(ns.season.ids,
-                                                                                                      "imdb"):
+            elif (
+                type == "season"
+                and hasattr(ns, "season")
+                and hasattr(ns.season, "ids")
+                and hasattr(ns.season.ids, "imdb")
+            ):
                 if str(getattr(ns.season.ids, id_type)) == str(_id):
                     return ns.season.ids.imdb
-            elif type == "episode" and hasattr(ns, "episode") and hasattr(ns.episode, "ids") and hasattr(ns.episode.ids,
-                                                                                                         "imdb"):
+            elif (
+                type == "episode"
+                and hasattr(ns, "episode")
+                and hasattr(ns.episode, "ids")
+                and hasattr(ns.episode.ids, "imdb")
+            ):
                 if str(getattr(ns.episode.ids, id_type)) == str(_id):
                     return ns.episode.ids.imdb
         return None
 
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
         """Get the formatted aired date from the data."""
-        if item_type in ["show", "season", "episode"] and (first_aired := getattr(data, "first_aired", None)):
+        if item_type in ["show", "season", "episode"] and (
+            first_aired := getattr(data, "first_aired", None)
+        ):
             return datetime.strptime(first_aired, "%Y-%m-%dT%H:%M:%S.%fZ")
         if item_type == "movie" and (released := getattr(data, "released", None)):
             return datetime.strptime(released, "%Y-%m-%d")
@@ -375,7 +466,10 @@ class TraktAPI:
         if not item.get("genres") or item.get("country") == "us":
             return False
 
-        if not any(genre in item.get("genres", []) for genre in ["animation", "donghua", "anime"]):
+        if not any(
+            genre in item.get("genres", [])
+            for genre in ["animation", "donghua", "anime"]
+        ):
             return False
 
         if item.get("country", "") not in ["jp", "kr", "cn", "hk"]:

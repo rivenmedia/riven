@@ -1,6 +1,7 @@
 """Riven settings models"""
+
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
@@ -8,7 +9,10 @@ from RTN.models import SettingsModel
 from program.settings.migratable import MigratableBaseModel
 from program.utils import generate_api_key, get_version
 
-deprecation_warning = "This has been deprecated and will be removed in a future version."
+deprecation_warning = (
+    "This has been deprecated and will be removed in a future version."
+)
+
 
 class Observable(MigratableBaseModel):
     class Config:
@@ -40,6 +44,7 @@ class Observable(MigratableBaseModel):
 
 # Download Services
 
+
 class RealDebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -49,16 +54,18 @@ class AllDebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+
 class TorBoxModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
     movie_filesize_mb_min: int = 700
-    movie_filesize_mb_max: int = -1 # -1 is no limit
+    movie_filesize_mb_max: int = -1  # -1 is no limit
     episode_filesize_mb_min: int = 100
-    episode_filesize_mb_max: int = -1 # -1 is no limit
+    episode_filesize_mb_max: int = -1  # -1 is no limit
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
@@ -73,7 +80,7 @@ class SymlinkModel(Observable):
     library_path: Path = Path()
     separate_anime_dirs: bool = False
     repair_symlinks: bool = False
-    repair_interval: float = 6 # hours
+    repair_interval: float = 6  # hours
 
 
 # Content Services
@@ -172,7 +179,7 @@ class TraktModel(Updatable):
     most_watched_count: int = 10
     update_interval: int = 86400
     oauth: TraktOauthModel = TraktOauthModel()
-
+    proxy_url: str = ""
 
 class ContentModel(Observable):
     overseerr: OverseerrModel = OverseerrModel()
@@ -222,6 +229,7 @@ class MediafusionConfig(Observable):
     timeout: int = 30
     ratelimit: bool = True
 
+
 class OrionoidConfig(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -229,7 +237,7 @@ class OrionoidConfig(Observable):
     parameters: dict[str, Any] = {
         "video3d": "false",
         "videoquality": "sd_hd8k",
-        "limitcount": 5
+        "limitcount": 5,
     }
     timeout: int = 30
     ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
@@ -274,8 +282,7 @@ class ScraperModel(Observable):
 # Version Ranking Model (set application defaults here!)
 
 
-class RTNSettingsModel(SettingsModel, Observable):
-    ...
+class RTNSettingsModel(SettingsModel, Observable): ...
 
 
 # Application Settings
@@ -284,32 +291,29 @@ class RTNSettingsModel(SettingsModel, Observable):
 class IndexerModel(Observable):
     update_interval: int = 60 * 60
 
+
 class DatabaseModel(Observable):
     host: str = "postgresql+psycopg2://postgres:postgres@localhost/riven"
+
 
 class NotificationsModel(Observable):
     enabled: bool = False
     on_item_type: List[str] = ["movie", "show", "season", "episode"]
     service_urls: List[str] = []
 
+
 class SubliminalConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
     providers: dict = {
-        "opensubtitles": {
-            "enabled": False,
-            "username": "",
-            "password": ""
-        },
-        "opensubtitlescom": {
-            "enabled": False,
-            "username": "",
-            "password": ""
-        }
+        "opensubtitles": {"enabled": False, "username": "", "password": ""},
+        "opensubtitlescom": {"enabled": False, "username": "", "password": ""},
     }
+
 
 class PostProcessing(Observable):
     subliminal: SubliminalConfig = SubliminalConfig()
+
 
 class AppModel(Observable):
     version: str = get_version()
