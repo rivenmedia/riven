@@ -213,7 +213,7 @@ class Prowlarr:
         torrents = {}
         start_time = time.time()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.indexers)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="ProwlarrScraper", max_workers=len(self.indexers)) as executor:
             future_to_indexer = {
                 executor.submit(self.scrape_indexer, indexer, item): indexer
                 for indexer in self.indexers

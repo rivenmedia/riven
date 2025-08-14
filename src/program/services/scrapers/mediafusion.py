@@ -53,6 +53,9 @@ class Mediafusion:
         if not self.settings.url:
             logger.error("Mediafusion URL is not configured and will not be used.")
             return False
+        if "elfhosted" in self.settings.url.lower():
+            logger.warning("Elfhosted Mediafusion instance is no longer supported. Please use a different instance.")
+            return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Mediafusion timeout is not set or invalid.")
             return False

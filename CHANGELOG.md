@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.23.1](https://github.com/rivenmedia/riven/compare/v0.23.0...v0.23.1) (2025-08-10)
+
+
+### Bug Fixes
+
+* fixed notadirectoryerror on re-init symlinks ([ff97b5c](https://github.com/rivenmedia/riven/commit/ff97b5c4806be568f62a08fb014f035aa0a719bc))
+
+## [0.23.0](https://github.com/rivenmedia/riven/compare/v0.22.0...v0.23.0) (2025-08-06)
+
+
+### Features
+
+* **api:** added reindex api route to manually reindex items ([ed80503](https://github.com/rivenmedia/riven/commit/ed80503d106e510966040915742e16dfeb7603e7))
+
+
+### Bug Fixes
+
+* swapped to use trakt indexer directly on reindex route ([315fc29](https://github.com/rivenmedia/riven/commit/315fc29461a435dd4710657ecd1231bf0da8b2bf))
+
+## [0.22.0](https://github.com/rivenmedia/riven/compare/v0.21.21...v0.22.0) (2025-08-05)
+
+
+### Features
+
+* Add TorBox downloader to Riven ([#1074](https://github.com/rivenmedia/riven/issues/1074)) ([9875109](https://github.com/rivenmedia/riven/commit/9875109e25c3c67cc3cdcd2cd450547dce365854))
+* add TRAKT_API_CLIENT_ID env to override the default trakt client id used by trakt indexer ([7fd087f](https://github.com/rivenmedia/riven/commit/7fd087f7b46cde4b6542f1d57ca394a1b4bf28ca))
+* set the media type when performing search ([#1110](https://github.com/rivenmedia/riven/issues/1110)) ([16ada64](https://github.com/rivenmedia/riven/commit/16ada643305024ac3e1b3b7f8defc1faef6aa77e))
+
+
+### Bug Fixes
+
+* fixed hanging on downloader. improved logging. ([#1116](https://github.com/rivenmedia/riven/issues/1116)) ([422db78](https://github.com/rivenmedia/riven/commit/422db783e1a3f07262601478841d9576d70cb332))
+* handle create_item_from_imdb_id response exception ([d91dd25](https://github.com/rivenmedia/riven/commit/d91dd254c08fbb410706d4fc6cb97f3691ebc67c))
+* readtimeout issue with rd, updated timeout to 25s instead of 15s. added exception handling for this as well. ([45105db](https://github.com/rivenmedia/riven/commit/45105dbd70854d70c56f4ebec3d6ca6ea7ef1504))
+
+## [0.21.21](https://github.com/rivenmedia/riven/compare/v0.21.20...v0.21.21) (2025-05-12)
+
+
+### Bug Fixes
+
+* anime fix for non-anime related content ([a19e09e](https://github.com/rivenmedia/riven/commit/a19e09e91ca3a31c39563f25e9d8cbc4eca98319))
+* copy attrs down to episode as well ([0372ad5](https://github.com/rivenmedia/riven/commit/0372ad5c6c35815d882a5f915d0f3fc3331aa403))
+* fixed bug on failing to lowercase during anime check ([9c0ea94](https://github.com/rivenmedia/riven/commit/9c0ea94fe928ffc68417a93eb5439a2c70b05b0c))
+* further improvements to validations ([f0f1a3b](https://github.com/rivenmedia/riven/commit/f0f1a3ba17129406dd0dc4ea4e008ddfc35183e9))
+* im going back to bed.. ([853586f](https://github.com/rivenmedia/riven/commit/853586f9c6181cfdae763bd6b19db3444499f31c))
+* restrict usage of comet from elfhosted instances ([77117db](https://github.com/rivenmedia/riven/commit/77117db99c2c8a78fc814aac4c42e57790744500))
+* restrict usage of mediafusion from elfhosted instances ([38fc68b](https://github.com/rivenmedia/riven/commit/38fc68bc3bebd6d38cf56d713a94c7013d3d6929))
+
+## [0.21.20](https://github.com/rivenmedia/riven/compare/v0.21.19...v0.21.20) (2025-04-26)
+
+
+### Bug Fixes
+
+* improve skipping special episodes/seasons ([2d3f927](https://github.com/rivenmedia/riven/commit/2d3f9274a5f4cea7bd6c8924363e6df306d8a977))
+* improved logging on retry_library and update_ongoing for clarity ([01554a5](https://github.com/rivenmedia/riven/commit/01554a5e3b93d1f8a02b7e5630e0e358ea8fb1e0))
+* notifications simplified. fixed anime type check on chinese and korean anime. ([7a98d75](https://github.com/rivenmedia/riven/commit/7a98d7512fe3416de7d8d940527a1459a1fdef4f))
+* update parsett from 1.6.7 to 1.6.11 (latest) ([e8e16cb](https://github.com/rivenmedia/riven/commit/e8e16cbeb415a867ef08eea047cda4d34cc885e7))
+
 ## [0.21.19](https://github.com/rivenmedia/riven/compare/v0.21.18...v0.21.19) (2025-04-10)
 
 

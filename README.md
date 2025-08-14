@@ -23,7 +23,7 @@ Services currently supported:
 
 | Type              | Supported                                                                         |
 | ----------------- | --------------------------------------------------------------------------------- |
-| Debrid services   | Real Debrid, All Debrid                                                           |
+| Debrid services   | Real Debrid, All Debrid, TorBox                                                   |
 | Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                           |
 | Scraping services | Comet, Jackett, Torrentio, Orionoid, Knightcrawler, Mediafusion, Prowlarr, Zilean |
 | Media servers     | Plex, Jellyfin, Emby                                                              |
@@ -40,29 +40,29 @@ We are constantly adding features and improvements as we go along and squashing 
 
 ## Table of Contents
 
--   [Table of Contents](#table-of-contents)
--   [ElfHosted](#elfhosted)
--   [Self Hosted](#self-hosted)
-    -   [Docker Compose](#docker-compose)
-        -   [What is ORIGIN ?](#what-is-origin-)
-    -   [Running outside of Docker](#running-outside-of-docker)
-        -   [First terminal:](#first-terminal)
-        -   [Second terminal:](#second-terminal)
-    -   [Symlinking settings](#symlinking-settings)
--   [Development](#development)
-    -   [Prerequisites](#prerequisites)
-    -   [Initial Setup](#initial-setup)
-    -   [Using `make` for Development](#using-make-for-development)
-    -   [Development without `make`](#development-without-make)
-    -   [Additional Tips](#additional-tips)
--   [Contributing](#contributing)
-    -   [Submitting Changes](#submitting-changes)
-    -   [Code Formatting](#code-formatting)
-    -   [Dependency Management](#dependency-management)
-        -   [Setting Up Your Environment](#setting-up-your-environment)
-        -   [Adding or Updating Dependencies](#adding-or-updating-dependencies)
-    -   [Running Tests and Linters](#running-tests-and-linters)
--   [License](#license)
+- [Table of Contents](#table-of-contents)
+- [ElfHosted](#elfhosted)
+- [Self Hosted](#self-hosted)
+  - [Docker Compose](#docker-compose)
+    - [What is ORIGIN ?](#what-is-origin-)
+  - [Running outside of Docker](#running-outside-of-docker)
+    - [First terminal:](#first-terminal)
+    - [Second terminal:](#second-terminal)
+  - [Symlinking settings](#symlinking-settings)
+- [Development](#development)
+  - [Prerequisites](#prerequisites)
+  - [Initial Setup](#initial-setup)
+  - [Using `make` for Development](#using-make-for-development)
+  - [Development without `make`](#development-without-make)
+  - [Additional Tips](#additional-tips)
+- [Contributing](#contributing)
+  - [Submitting Changes](#submitting-changes)
+  - [Code Formatting](#code-formatting)
+  - [Dependency Management](#dependency-management)
+    - [Setting Up Your Environment](#setting-up-your-environment)
+    - [Adding or Updating Dependencies](#adding-or-updating-dependencies)
+  - [Running Tests and Linters](#running-tests-and-linters)
+- [License](#license)
 
 ---
 

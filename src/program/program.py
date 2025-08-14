@@ -2,7 +2,6 @@ import linecache
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Empty
 
@@ -32,6 +31,7 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
+from program.utils.request import RateLimitExceeded
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -310,7 +310,6 @@ class Program(threading.Thread):
 
             try:
                 event: Event = self.em.next()
-                self.em.add_event_to_running(event)
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
@@ -325,8 +324,6 @@ class Program(threading.Thread):
                 event.emitted_by, existing_item, event.content_item
             )
 
-            self.em.remove_event_from_running(event)
-
             for item_to_submit in items_to_submit:
                 if not next_service:
                     self.em.add_event_to_queue(Event("StateTransition", item_id=item_to_submit.id))
@@ -338,7 +335,7 @@ class Program(threading.Thread):
                     else:
                         event = Event(next_service, content_item=item_to_submit)
 
-                    self.em.add_event_to_running(event)
+                    # Event will be added to running when job actually starts in submit_job
                     self.em.submit_job(next_service, self, event)
 
     def stop(self):
@@ -378,67 +375,79 @@ class Program(threading.Thread):
                     # Convert items to list and get total count
                     items_list = [item for item in items if isinstance(item, (Movie, Show))]
                     total_items = len(items_list)
-
-                    if not total_items:
-                        logger.log("PROGRAM", "No items found in symlinks")
-                        return
-                    
                     progress, console = create_progress_bar(total_items)
                     task = progress.add_task("Enriching items with metadata", total=total_items, log="")
+                    processed_count = 0
 
-                    # Process in chunks of 100 items
-                    chunk_size = 100
                     with Live(progress, console=console, refresh_per_second=10):
-                        workers = int(os.getenv("SYMLINK_MAX_WORKERS", 4))
-                        
-                        for i in range(0, total_items, chunk_size):
-                            chunk = items_list[i:i + chunk_size]
-                            
+                        for item in items_list:
+                            processed_count += 1
+                            log_message = ""
+
                             try:
-                                with ThreadPoolExecutor(thread_name_prefix="EnhanceSymlinks", max_workers=workers) as executor:
-                                    future_to_item = {
-                                        executor.submit(self._enhance_item, item): item
-                                        for item in chunk
-                                    }
+                                # Skip duplicates
+                                if not item or item.imdb_id in added_items:
+                                    errors.append(f"Duplicate symlink directory found for {item.log_string if item else 'Unknown'}")
+                                    log_message = f"Skipped duplicate: {item.log_string if item else 'Unknown'}"
+                                    progress.update(task, advance=1, log=log_message)
+                                    continue
 
-                                    for future in as_completed(future_to_item):
-                                        item = future_to_item[future]
-                                        log_message = ""
+                                if db_functions.get_item_by_id(item.id, session=session):
+                                    errors.append(f"Duplicate item found in database for id: {item.id}")
+                                    log_message = f"Already in database: {item.log_string}"
+                                    progress.update(task, advance=1, log=log_message)
+                                    continue
 
-                                        try:
-                                            if not item or item.imdb_id in added_items:
-                                                errors.append(f"Duplicate symlink directory found for {item.log_string}")
-                                                continue
-
-                                            if db_functions.get_item_by_id(item.id, session=session):
-                                                errors.append(f"Duplicate item found in database for id: {item.id}")
-                                                continue
-
-                                            enhanced_item = future.result()
-                                            if not enhanced_item:
-                                                errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
-                                                continue
-
-                                            enhanced_item.store_state()
-                                            session.add(enhanced_item)
-                                            added_items.add(item.imdb_id)
-
-                                            log_message = f"Indexed IMDb Id: {enhanced_item.id} as {enhanced_item.type.title()}: {enhanced_item.log_string}"
-                                        except NotADirectoryError:
-                                            errors.append(f"Skipping {item.log_string} as it is not a valid directory")
-                                        except Exception as e:
-                                            logger.exception(f"Error processing {item.log_string}: {e}")
-                                            raise  # Re-raise to trigger rollback
-                                        finally:
+                                # Enhance item with Trakt data
+                                try:
+                                    enhanced_item = self._enhance_item(item)
+                                    if not enhanced_item:
+                                        errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
+                                        log_message = f"Failed to enhance: {item.log_string}"
+                                        progress.update(task, advance=1, log=log_message)
+                                        continue
+                                except RateLimitExceeded:
+                                    # Rate limit hit - wait and retry once
+                                    logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
+                                    time.sleep(10)
+                                    try:
+                                        enhanced_item = self._enhance_item(item)
+                                        if not enhanced_item:
+                                            errors.append(f"Failed to enhance {item.log_string} after retry")
+                                            log_message = f"Failed after retry: {item.log_string}"
                                             progress.update(task, advance=1, log=log_message)
+                                            continue
+                                    except Exception as e:
+                                        errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
+                                        log_message = f"Retry failed: {item.log_string}"
+                                        progress.update(task, advance=1, log=log_message)
+                                        continue
+                                except NotADirectoryError:
+                                    errors.append(f"Skipping {item.log_string} as it is not a valid directory")
+                                except Exception as e:
+                                    errors.append(f"Error enhancing {item.log_string}: {str(e)}")
+                                    log_message = f"Error: {item.log_string}"
+                                    progress.update(task, advance=1, log=log_message)
+                                    continue
 
-                                # Only commit if the entire chunk was successful
-                                session.commit()
-                                
+                                # Save to database
+                                enhanced_item.store_state()
+                                session.add(enhanced_item)
+                                added_items.add(item.imdb_id)
+
+                                # Commit every 25 items to avoid large transactions
+                                if processed_count % 25 == 0:
+                                    session.commit()
+
+                                log_message = f"Successfully Indexed {enhanced_item.log_string}"
+                                progress.update(task, advance=1, log=log_message)
+
                             except Exception as e:
-                                session.rollback()
-                                logger.error(f"Failed to process chunk {i//chunk_size + 1}, rolling back all changes: {str(e)}")
-                                raise  # Re-raise to abort the entire process
+                                errors.append(f"Unexpected error for {item.log_string}: {str(e)}")
+                                continue
+
+                        # Final commit for any remaining items
+                        session.commit()
                         
                         progress.update(task, log="Finished Indexing Symlinks!")
 

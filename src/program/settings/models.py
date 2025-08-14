@@ -49,6 +49,9 @@ class AllDebridModel(Observable):
     enabled: bool = False
     api_key: str = ""
 
+class TorBoxModel(Observable):
+    enabled: bool = False
+    api_key: str = ""
 
 class DownloadersModel(Observable):
     video_extensions: List[str] = ["mp4", "mkv", "avi"]
@@ -59,6 +62,7 @@ class DownloadersModel(Observable):
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
     all_debrid: AllDebridModel = AllDebridModel()
+    torbox: TorBoxModel = TorBoxModel()
 
 
 # Symlink Service
@@ -200,7 +204,7 @@ class KnightcrawlerConfig(Observable):
 
 class CometConfig(Observable):
     enabled: bool = False
-    url: str = "https://comet.elfhosted.com"
+    url: str = "http://localhost:8000"
     timeout: int = 30
     ratelimit: bool = True
 
@@ -214,7 +218,7 @@ class ZileanConfig(Observable):
 
 class MediafusionConfig(Observable):
     enabled: bool = False
-    url: str = "https://mediafusion.elfhosted.com"
+    url: str = "http://localhost:8000"
     timeout: int = 30
     ratelimit: bool = True
 
