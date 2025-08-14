@@ -65,13 +65,17 @@ class TVDBApi:
 
     def __init__(self):
         self.api_key = "6be85335-5c4f-4d8d-b945-d3ed0eb8cdce"
-        self.token = self._load_token_from_file()
-        rate_limit_params = get_rate_limit_params(max_calls=150, period=60)  # TVDB allows 150 requests per minute
+        self.token = None
+        rate_limit_params = get_rate_limit_params(max_calls=150, period=60, max_delay=60)  # TVDB allows 150 requests per minute
         tvdb_cache = get_cache_params("tvdb", 86400)
         use_cache = os.environ.get("SKIP_TVDB_CACHE", "false").lower() == "false"
         self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=tvdb_cache)
         self.request_handler = TVDBRequestHandler(self.session, base_url=self.BASE_URL)
-    
+        self.token = self._load_token_from_file()
+        if not self.token:
+            logger.error("No TVDB token found, exiting.")
+            exit(0)
+
     def _load_token_from_file(self) -> Optional[TVDBToken]:
         """Load token from file if it exists and is valid"""
         try:
@@ -85,7 +89,13 @@ class TVDBApi:
                     logger.debug("Loaded valid TVDB token from file")
                     return token
                 else:
-                    logger.debug("Loaded TVDB token is expired")
+                    logger.debug("Loaded TVDB token is expired, refreshing")
+                    token = self._get_auth_token()
+                    if not self.token:
+                        exit(0)
+                    self._save_token_to_file(self.token)
+                    logger.debug("Refreshed TVDB token")
+                    return token
             return None
         except Exception as e:
             logger.error(f"Error loading TVDB token from file: {str(e)}")
@@ -106,22 +116,16 @@ class TVDBApi:
     def _get_auth_token(self) -> Optional[str]:
         """Get auth token, refreshing if necessary."""
         now = datetime.now()
-
         if self.token and self.token.expires_at > now:
             return self.token.token
 
         payload = {"apikey": self.api_key}
-        
         response = self.request_handler.execute(HttpMethod.POST, "login", json=payload)
-        if not response.is_ok:
+        if not response.is_ok or not response.data.get("data", {}).get("token"):
             logger.error(f"Failed to obtain TVDB token: {response.status_code}")
             return None
 
-        if not hasattr(response.data, 'data') or not hasattr(response.data.data, 'token'):
-            logger.error("Invalid token response from TVDB")
-            return None
-
-        if token := response.data.data.token:
+        if token := response.data["data"]["token"]:
             expires_at = now + timedelta(days=25)
             self.token = TVDBToken(token=token, expires_at=expires_at)
             self._save_token_to_file(self.token)
