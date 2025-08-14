@@ -1,5 +1,4 @@
 from datetime import datetime
-import time
 from typing import List, Optional, Union
 from loguru import logger
 from requests import Session, exceptions
