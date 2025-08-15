@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "riven"
-version = "0.23.1"
+version = "0.23.4"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
 authors = ["Riven Developers"]
 license = "GPL-3.0"
@@ -11,12 +11,12 @@ package-mode = false
 python = "^3.11"
 dill = "^0.3.8"
 plexapi = "^4.15.10"
-requests = "^2.31.0"
+requests = { extras = ["socks"], version = "^2.31.0" }
 xmltodict = "^0.13.0"
 lxml = "^5.1.0"
 pydantic = "^2.6.3"
 fastapi = "^0.110.0"
-uvicorn = {extras = ["standard"], version = "^0.30.6"}
+uvicorn = { extras = ["standard"], version = "^0.30.6" }
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
 coverage = "^7.6.8"
@@ -94,14 +94,14 @@ ignore = [
   "PLR0913", # flask8-bugbear: Too many arguments for a method or function
   "PLR0911", # flask8-bugbear: Too many return statements
   "PLR2004", # flake8-bugbear: Magic value used in comparison
-  "S104", # flake8-bandit: Possible binding to all interfaces
-  "S108", # flake8-bandit: Probable insecure usage of temp file/directory
-  "S311", # flake8-bandit: Standard pseudo-random generators are not suitable for security/cryptographic purposes
-  "S101", # ruff: Ignore assert warnings on tests
-  "RET505", #
+  "S104",    # flake8-bandit: Possible binding to all interfaces
+  "S108",    # flake8-bandit: Probable insecure usage of temp file/directory
+  "S311",    # flake8-bandit: Standard pseudo-random generators are not suitable for security/cryptographic purposes
+  "S101",    # ruff: Ignore assert warnings on tests
+  "RET505",  #
   "RET503",  # ruff: Ignore required explicit returns (is this desired?)
-  "SLF001", # private member accessing from pickle
-  "B904" # ruff: ignore raising exceptions from except for the API
+  "SLF001",  # private member accessing from pickle
+  "B904",    # ruff: ignore raising exceptions from except for the API
 ]
 extend-select = [
   "I",   # isort

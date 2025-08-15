@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.23.4](https://github.com/rivenmedia/riven/compare/v0.23.3...v0.23.4) (2025-08-15)
+
+
+### Bug Fixes
+
+* check for valid symlink video types on db reinit ([c61074f](https://github.com/rivenmedia/riven/commit/c61074f36a39418ac6f73fe2f7684d90115e31d3))
+
+## [0.23.3](https://github.com/rivenmedia/riven/compare/v0.23.2...v0.23.3) (2025-08-15)
+
+
+### Bug Fixes
+
+* add more parent item data ([25e6810](https://github.com/rivenmedia/riven/commit/25e681055c255d50421cad762d2a3c5fae9100c3))
+
+## [0.23.2](https://github.com/rivenmedia/riven/compare/v0.23.1...v0.23.2) (2025-08-14)
+
+
+### Bug Fixes
+
+* add proxy_url setting for trakt ([44fb11b](https://github.com/rivenmedia/riven/commit/44fb11b28a9a0782b40941f47ddaf228e2539e4e))
+* added default 10s max delay limit to fix hanging in RD requests ([50a1714](https://github.com/rivenmedia/riven/commit/50a1714a059afa8140a6c00b01b66a5f0c6a65c7))
+
 ## [0.23.1](https://github.com/rivenmedia/riven/compare/v0.23.0...v0.23.1) (2025-08-10)
 
 
