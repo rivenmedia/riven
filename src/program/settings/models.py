@@ -197,7 +197,7 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
     proxy_url: str = ""
 
 
@@ -220,7 +220,7 @@ class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
@@ -240,7 +240,7 @@ class OrionoidConfig(Observable):
         "limitcount": 5,
     }
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
@@ -260,6 +260,13 @@ class ProwlarrConfig(Observable):
     limiter_seconds: int = 60
 
 
+class RarbgConfig(Observable):
+    enabled: bool = False
+    url: str = "https://therarbg.to"
+    timeout: int = 30
+    ratelimit: bool = True
+
+
 class ScraperModel(Observable):
     after_2: float = 2
     after_5: float = 6
@@ -277,6 +284,7 @@ class ScraperModel(Observable):
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()
     comet: CometConfig = CometConfig()
+    rarbg: RarbgConfig = RarbgConfig()
 
 
 # Version Ranking Model (set application defaults here!)

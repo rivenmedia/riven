@@ -14,6 +14,7 @@ from program.services.scrapers.knightcrawler import Knightcrawler
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
+from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
@@ -36,7 +37,8 @@ class Scraping:
         self.keyword_services = {
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
-            Zilean: Zilean()
+            Zilean: Zilean(),
+            # Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,
@@ -55,7 +57,10 @@ class Scraping:
             logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
             yield item
 
-        logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        if self.max_failed_attempts > 0:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        else:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}. Current scraped times: {item.scraped_times}")
 
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
@@ -77,7 +82,10 @@ class Scraping:
                     item.store_state(States.Failed)
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
                 else:
-                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                    if self.max_failed_attempts > 0:
+                        logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                    else:
+                        logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)

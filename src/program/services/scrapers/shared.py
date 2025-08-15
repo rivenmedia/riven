@@ -92,6 +92,12 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                         logger.debug(f"Skipping torrent with too few seasons for {item.log_string}: {raw_title}")
                     continue
 
+            if item.type == "episode":
+                if not item.parent.parent.is_anime and item.number not in torrent.data.episodes:
+                    if scraping_settings.parse_debug:
+                        logger.debug(f"Skipping not matching episode torrent for {item.log_string}: {raw_title}")
+                    continue
+
             torrents.add(torrent)
             processed_infohashes.add(infohash)
         except Exception as e:

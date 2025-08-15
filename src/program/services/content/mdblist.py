@@ -40,25 +40,29 @@ class Mdblist:
         return True
 
     def run(self) -> Generator[MediaItem, None, None]:
-        """Fetch media from mdblist and add them to media_items attribute
-        if they are not already there"""
+        """Fetch media from mdblist and add them to media_items attribute"""
         items_to_yield = []
         try:
-            for list in self.settings.lists:
-                if not list:
+            for list_id in self.settings.lists:
+                if not list_id:
                     continue
 
-                if isinstance(list, int):
-                    items = self.api.list_items_by_id(list)
+                if isinstance(list_id, int):
+                    items = self.api.list_items_by_id(list_id)
                 else:
-                    items = self.api.list_items_by_url(list)
+                    items = self.api.list_items_by_url(list_id)
+                    
                 for item in items:
                     if hasattr(item, "error") or not item or item.imdb_id is None:
                         continue
+                        
                     if item.imdb_id.startswith("tt"):
-                        items_to_yield.append(MediaItem(
-                            {"imdb_id": item.imdb_id, "requested_by": self.key}
-                        ))
+                        media_type = "movie" if hasattr(item, "media_type") and item.media_type == "movie" else "show"
+                        items_to_yield.append(MediaItem({
+                            "imdb_id": item.imdb_id, 
+                            "requested_by": self.key,
+                            "type": media_type
+                        }))
         except RateLimitExceeded:
             pass
 

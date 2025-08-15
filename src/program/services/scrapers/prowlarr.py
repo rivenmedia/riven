@@ -327,18 +327,22 @@ class Prowlarr:
 
         data = response.data
         streams = {}
+
         for torrent in data:
             title = torrent.title
             infohash = torrent.infoHash if hasattr(torrent, "infoHash") else None
             guid = torrent.guid if hasattr(torrent, "guid") else None
+
             if not infohash and not guid:
                 continue
+
             if not infohash and guid and not guid.endswith(".torrent"):
                 infohash = INFOHASH_PATTERN.search(guid)
                 if infohash:
                     infohash = infohash.group(1).lower()
                 else:
                     continue
+
             if not infohash and guid and guid.endswith(".torrent"):
                 try:
                     infohash = _get_infohash_from_torrent_url(url=guid)

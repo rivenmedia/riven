@@ -65,14 +65,18 @@ def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: i
         .where(or_(MediaItem.type == "movie", MediaItem.type == "show"))
     )
 
+    conditions = []
     if imdb_id:
-        query = query.where(MediaItem.imdb_id == imdb_id)
-    elif tvdb_id:
-        query = query.where(MediaItem.tvdb_id == tvdb_id)
-    elif tmdb_id:
-        query = query.where(MediaItem.tmdb_id == tmdb_id)
-    else:
-        raise ValueError("One of the external ids must be given")
+        conditions.append(MediaItem.imdb_id == str(imdb_id))
+    if tvdb_id:
+        conditions.append(MediaItem.tvdb_id == str(tvdb_id))
+    if tmdb_id:
+        conditions.append(MediaItem.tmdb_id == str(tmdb_id))
+    
+    if not conditions:
+        raise ValueError("At least one external ID must be provided")
+
+    query = query.where(or_(*conditions))
 
     with _session:
         item = _session.execute(query).unique().scalar_one_or_none()
@@ -333,7 +337,7 @@ def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = No
             _session.expunge(item)
         return items
 
-def retry_library(session) -> list[str]:
+def retry_library(session: Session) -> list[str]:
     """Retry items that failed to download."""
     from program.media.item import MediaItem
     session = session if session else db.Session()
@@ -359,7 +363,7 @@ def retry_library(session) -> list[str]:
     result = session.execute(items_query)
     return [item_id for item_id in result.scalars()]
 
-def update_ongoing(session) -> list[tuple[str, str, str]]:
+def update_ongoing(session: Session) -> list[tuple[str, str, str]]:
     """Update state for ongoing and unreleased items."""
     from program.media.item import MediaItem
     session = session if session else db.Session()
@@ -383,9 +387,10 @@ def update_ongoing(session) -> list[tuple[str, str, str]]:
             if item:
                 previous_state, new_state = item.store_state()
                 if previous_state != new_state:
-                    updated_items.append((item_id, previous_state.name, new_state.name))
+                    updated_items.append(item_id)
                     session.merge(item)
                     session.commit()
+                    logger.log("PROGRAM", f"Updated state for {item.log_string}. Previous State: {previous_state.name} -> New State: {new_state.name}")
         except Exception as e:
             logger.error(f"Failed to update state for item with ID {item_id}: {e}")
 
