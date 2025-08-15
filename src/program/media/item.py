@@ -259,21 +259,15 @@ class MediaItem(db.Model):
 
         if self.type == "season":
             parent_title = self.parent.title
-        elif self.type == "episode":
-            parent_title = self.parent.parent.title
-
-        if self.type == "season":
             season_number = self.number
-        elif self.type == "episode":
-            season_number = self.parent.number
-            episode_number = self.number
-
-        if self.type == "season":
             parent_ids["trakt_id"] = self.parent.trakt_id if hasattr(self, "parent") and hasattr(self.parent, "trakt_id") else None
             parent_ids["imdb_id"] = self.parent.imdb_id if hasattr(self, "parent") and hasattr(self.parent, "imdb_id") else None
             parent_ids["tvdb_id"] = self.parent.tvdb_id if hasattr(self, "parent") and hasattr(self.parent, "tvdb_id") else None
             parent_ids["tmdb_id"] = self.parent.tmdb_id if hasattr(self, "parent") and hasattr(self.parent, "tmdb_id") else None
         elif self.type == "episode":
+            parent_title = self.parent.parent.title
+            season_number = self.parent.number
+            episode_number = self.number
             parent_ids["trakt_id"] = self.parent.parent.trakt_id if hasattr(self, "parent") and hasattr(self.parent, "trakt_id") else None
             parent_ids["imdb_id"] = self.parent.parent.imdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "imdb_id") else None
             parent_ids["tvdb_id"] = self.parent.parent.tvdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "tvdb_id") else None
