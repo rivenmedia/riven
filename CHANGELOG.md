@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.4](https://github.com/rivenmedia/riven/compare/v0.23.3...v0.23.4) (2025-08-15)
+
+
+### Bug Fixes
+
+* check for valid symlink video types on db reinit ([c61074f](https://github.com/rivenmedia/riven/commit/c61074f36a39418ac6f73fe2f7684d90115e31d3))
+
 ## [0.23.3](https://github.com/rivenmedia/riven/compare/v0.23.2...v0.23.3) (2025-08-15)
 
 
