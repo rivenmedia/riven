@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.3](https://github.com/rivenmedia/riven/compare/v0.23.2...v0.23.3) (2025-08-15)
+
+
+### Bug Fixes
+
+* add more parent item data ([25e6810](https://github.com/rivenmedia/riven/commit/25e681055c255d50421cad762d2a3c5fae9100c3))
+
 ## [0.23.2](https://github.com/rivenmedia/riven/compare/v0.23.1...v0.23.2) (2025-08-14)
 
 
