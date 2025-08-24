@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
+
+
+### Bug Fixes
+
+* revert max_delay in limiter back to 0 ([dc7ef05](https://github.com/rivenmedia/riven/commit/dc7ef05922ac4423ad8d0ad296af2d2366fcdcd3))
+
 ## [0.23.5](https://github.com/rivenmedia/riven/compare/v0.23.4...v0.23.5) (2025-08-20)
 
 
