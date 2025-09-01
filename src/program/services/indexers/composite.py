@@ -37,7 +37,7 @@ class CompositeIndexer(BaseIndexer):
             yield from self.tvdb_indexer.run(in_item, log_msg)
             return
             
-        if in_item.tmdb_id and not in_item.tvdb_id:
+        elif in_item.tmdb_id and not in_item.tvdb_id:
             logger.debug(f"Using TMDB indexer based on TMDB ID: {in_item.log_string}")
             yield from self.tmdb_indexer.run(in_item, log_msg)
             return
@@ -48,7 +48,7 @@ class CompositeIndexer(BaseIndexer):
             yield from self.tmdb_indexer.run(in_item, log_msg)
             return
             
-        if item_type in ["show", "season", "episode"]:
+        elif item_type in ["show", "season", "episode"]:
             logger.debug(f"Using TVDB indexer for {item_type} type: {in_item.log_string}")
             yield from self.tvdb_indexer.run(in_item, log_msg)
             return
@@ -78,6 +78,6 @@ class CompositeIndexer(BaseIndexer):
                 # Try TVDB as fallback
                 yield from self.tvdb_indexer.run(in_item, log_msg)
             return
-            
+
         # Fall through case - should rarely hit this
         logger.error(f"Unknown item type: {item_type} for {in_item.log_string}")

@@ -152,7 +152,6 @@ class TVDBApi:
         try:
             headers = self._get_headers()
             url = f"series/{series_id}/extended"
-            
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
                 logger.error(f"Failed to get series details: {response.status_code}")
@@ -162,7 +161,7 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting series details: {str(e)}")
             return None
-            
+
     def search_by_imdb_id(self, imdb_id: str) -> Optional[Dict]:
         """Search for a series by IMDB ID."""
         logger.debug(f"Searching for series by IMDB ID: {imdb_id}")
@@ -227,4 +226,20 @@ class TVDBApi:
             return response.data.get("data") if response.data and "data" in response.data else None
         except Exception as e:
             logger.error(f"Error getting episode details: {str(e)}")
+            return None
+    
+    def  get_translation(self, series_id: str, language: str) -> Optional[Dict]:
+        """Get translation title for a series. Language must be 3 letter code."""
+        try:
+            headers = self._get_headers()
+            url = f"series/{series_id}/extended/{language}"
+            
+            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
+            if not response.is_ok:
+                logger.error(f"Failed to get translation title: {response.status_code}")
+                return None
+
+            return response.data # name and aliases
+        except Exception as e:
+            logger.error(f"Error getting translation title: {str(e)}")
             return None

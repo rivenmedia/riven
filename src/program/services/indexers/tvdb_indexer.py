@@ -74,7 +74,7 @@ class TVDBIndexer(BaseIndexer):
                 show_details = self.api.get_series(tvdb_id)
                 if show_details:
                     # Create show item
-                    show_item = self._map_show_from_tvdb_data(show_details)
+                    show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
                     if show_item:
                         # Add seasons and episodes
                         self._add_seasons_to_show(show_item, show_details, tvdb_id)
@@ -83,7 +83,7 @@ class TVDBIndexer(BaseIndexer):
                 logger.error(f"Error creating show from TVDB ID: {str(e)}")
                 
         # If that fails or no TVDB ID, try IMDB ID
-        if imdb_id:
+        elif imdb_id:
             try:
                 # Search by IMDB ID
                 search_results = self.api.search_by_imdb_id(imdb_id)
@@ -96,25 +96,25 @@ class TVDBIndexer(BaseIndexer):
                 
         return None
             
-    def _map_show_from_tvdb_data(self, show_data: dict) -> Optional[Show]:
+    def _map_show_from_tvdb_data(self, show_data: dict, imdb_id: Optional[str] = None) -> Optional[Show]:
         """Map TVDB show data to our Show object."""
         try:
-            # Convert aired date to datetime
+
+            if not imdb_id:
+                imdb_id = next((item.get('id') for item in show_data.get('remoteIds') if item.get('sourceName') == 'IMDB'), None)
+
             aired_at = None
             if first_aired := show_data.get('firstAired'):
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
-                    
-            # Extract genres
+
             genres = []
             if genre_data := show_data.get('genres'):
                 genres = [genre.get('name').lower() for genre in genre_data]
-                
-            # Get network
-            network = None
 
+            network = None
             if current_network := show_data.get('currentNetwork'):
                 network = current_network.get('name')
             elif original_network := show_data.get('originalNetwork'):
@@ -122,16 +122,25 @@ class TVDBIndexer(BaseIndexer):
             
             tmdb_id = None
             if external_ids := show_data.get('remoteIds'):
-                # find item in external_ids with sourceName 'TheMovieDB.com'
                 tmdb_id = next((item.get('id') for item in external_ids if item.get('sourceName') == 'TheMovieDB.com'), None)
+
+            aliases = [alias.get('name') for alias in show_data.get('aliases')]
+            slug = show_data.get('slug').replace('-', ' ')
+            aliases.append(slug) # Might not be a good idea, will have to wait and see..
+
+            if show_data.get('originalLanguage') != 'eng':
+                translation = self.api.get_translation(show_data.get('id'), "eng")
+                if translation:
+                    aliases.extend([alias.get('name') for alias in translation.get('aliases')])
+                    title = translation["data"].get('name')
 
             # Create show item
             show_item = {
-                "title": show_data.get('name'),
+                "title": title or show_data.get('name'),
                 "year": int(show_data.get('firstAired', '').split('-')[0]) if show_data.get('firstAired') else None,
                 "tvdb_id": str(show_data.get('id')),
                 "tmdb_id": str(tmdb_id) if tmdb_id else None,
-                "imdb_id": show_data.get('imdbId'),
+                "imdb_id": imdb_id,
                 "aired_at": aired_at,
                 "genres": genres,
                 "type": "show",
@@ -140,7 +149,8 @@ class TVDBIndexer(BaseIndexer):
                 "network": network,
                 "country": show_data.get('originalCountry'),
                 "language": show_data.get('originalLanguage'),
-                "is_anime": 'anime' in genres or ('animation' in genres and show_data.get('originalLanguage') != 'en')
+                "is_anime": 'anime' in genres or ('animation' in genres and show_data.get('originalLanguage') != 'en'),
+                "aliases": aliases,
             }
             
             return Show(show_item)
