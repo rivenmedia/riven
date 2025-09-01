@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
+
+
+### Bug Fixes
+
+* revert max_delay in limiter back to 0 ([dc7ef05](https://github.com/rivenmedia/riven/commit/dc7ef05922ac4423ad8d0ad296af2d2366fcdcd3))
+
+## [0.23.5](https://github.com/rivenmedia/riven/compare/v0.23.4...v0.23.5) (2025-08-20)
+
+
+### Bug Fixes
+
+* temporarily use fixed plexapi dependency from fork ([#1135](https://github.com/rivenmedia/riven/issues/1135)) ([e1fcb49](https://github.com/rivenmedia/riven/commit/e1fcb495f1e38c73c043c2416f932b834e391936))
+
 ## [0.23.4](https://github.com/rivenmedia/riven/compare/v0.23.3...v0.23.4) (2025-08-15)
 
 

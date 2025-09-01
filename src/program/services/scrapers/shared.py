@@ -102,7 +102,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             processed_infohashes.add(infohash)
         except Exception as e:
             if scraping_settings.parse_debug and log_msg:
-                logger.debug(f"GarbageTorrent: '{raw_title}' - {e}")
+                logger.debug(f"GarbageTorrent: {e}")
             processed_infohashes.add(infohash)
             continue
 

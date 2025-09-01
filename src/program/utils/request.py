@@ -237,7 +237,7 @@ def get_rate_limit_params(
         db_name: Optional[str] = None,
         use_memory_list: bool = False,
         limit_statuses: Optional[list[int]] = None,
-        max_delay: Optional[int] = 10,
+        max_delay: Optional[int] = 0,
 ) -> Dict[str, any]:
     """
     Generate rate limit parameters for a service. If `db_name` is not provided,
