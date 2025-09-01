@@ -7,6 +7,7 @@ from kink import di
 from loguru import logger
 
 from program.apis.trakt_api import TraktAPI
+from program.apis.tvdb_api import TVDBApi
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
 
@@ -22,6 +23,7 @@ class TraktIndexer:
         self.settings = settings_manager.settings.indexer
         self.failed_ids = set()
         self.api = di[TraktAPI]
+        self.tvdb_api = di[TVDBApi]
 
     @staticmethod
     def copy_attributes(source, target):
@@ -103,21 +105,54 @@ class TraktIndexer:
             logger.error(f"Failed to parse date: {item.indexed_at} with format: {interval}")
             return False
 
+    # TRAKT CODE NOT USED ANYMORE
+    # def _add_seasons_to_show(self, show: Show, imdb_id: str):
+    #     """Add seasons to the given show using Trakt API."""
+    #     if not imdb_id or not imdb_id.startswith("tt"):
+    #         logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
+    #         return
 
-    def _add_seasons_to_show(self, show: Show, imdb_id: str):
-        """Add seasons to the given show using Trakt API."""
-        if not imdb_id or not imdb_id.startswith("tt"):
-            logger.error(f"Item {show.log_string} does not have an imdb_id, cannot index it")
-            return
+    #     seasons = self.api.get_show(imdb_id)
+    #     for season in seasons:
+    #         if season.number == 0:
+    #             continue
+    #         season_item = self.api.map_item_from_data(season, "season", show.genres)
+    #         if season_item:
+    #             for episode in season.episodes:
+    #                 episode_item = self.api.map_item_from_data(episode, "episode", show.genres)
+    #                 if episode_item:
+    #                     season_item.add_episode(episode_item)
+    #             show.add_season(season_item)
 
-        seasons = self.api.get_show(imdb_id)
-        for season in seasons:
-            if season.number == 0:
-                continue
-            season_item = self.api.map_item_from_data(season, "season", show.genres)
-            if season_item:
-                for episode in season.episodes:
-                    episode_item = self.api.map_item_from_data(episode, "episode", show.genres)
+    # TVDB CODE
+    def _add_seasons_to_show(self, show: Show):
+        """Add seasons and episodes to the given show using TVDB API."""
+        try:
+            show_details = self.tvdb_api.get_series(show.imdb_id)
+            seasons = show_details.get('seasons', [])
+            # Filter out specials (usually season 0) and non-official seasons (for example absolute ordering)
+            filtered_seasons = [season for season in seasons if season.get('number') != 0 and season.get('type').get('type') == 'official']
+
+            for season_data in filtered_seasons:
+                extended_data = self.tvdb_api.get_season(season_data.get('id')).get('data')
+
+                # Skip specials (usually season 0)
+                if extended_data.get('number') == 0:
+                    continue
+
+                season_item = self._create_season_from_data(extended_data, show)
+                if not season_item:
+                    continue
+
+                episodes = extended_data.get('episodes', [])
+                if not episodes or not isinstance(episodes, list):
+                    continue
+                    
+                for episode in episodes:
+                    episode_item = self._create_episode_from_data(episode, season_item)
                     if episode_item:
                         season_item.add_episode(episode_item)
+                        
                 show.add_season(season_item)
+        except Exception as e:
+            logger.error(f"Error adding seasons to show: {str(e)}")
