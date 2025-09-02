@@ -146,11 +146,6 @@ class Program(threading.Thread):
         self.initialize_apis()
         self.initialize_services()
 
-        max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
-        if max_worker_env_vars:
-            for var in max_worker_env_vars:
-                logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
-
         if not self.validate():
             logger.log("PROGRAM", "----------------------------------------------")
             logger.error("Riven is waiting for configuration to start!")
@@ -226,6 +221,7 @@ class Program(threading.Thread):
             self._update_ongoing: {"interval": 60 * 60 * 4},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
+            db_functions.clear_nones_from_database: {"interval": 60 * 60 * 24},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
@@ -234,7 +230,6 @@ class Program(threading.Thread):
                 "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
                 "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
             }
-            # logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(

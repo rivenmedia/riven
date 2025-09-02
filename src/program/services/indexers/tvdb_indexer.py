@@ -1,12 +1,12 @@
 """TVDB indexer module"""
 
 from datetime import datetime
-from typing import Generator, Optional, Union
+from typing import Generator, List, Optional
 
 from kink import di
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem, Show, Season, Episode
 from program.services.indexers.base import BaseIndexer
 from program.apis.tvdb_api import TVDBApi
 
@@ -18,90 +18,78 @@ class TVDBIndexer(BaseIndexer):
     def __init__(self):
         super().__init__()
         self.key = "tvdbindexer"
-        self.ids = []
         self.api = di[TVDBApi]
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
+    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Show, None, None]:
         """Run the TVDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
             return
 
-        # Get available IDs
-        imdb_id = in_item.imdb_id
-        tvdb_id = in_item.tvdb_id
-        
-        if not (imdb_id or tvdb_id):
+        if in_item.type not in ["show", "mediaitem"]:
+            logger.debug(f"TVDB indexer skipping incorrect item type: {in_item.log_string}")
+            return
+
+        if not (in_item.imdb_id or in_item.tvdb_id):
             logger.error(f"Item {in_item.log_string} does not have an imdb_id or tvdb_id, cannot index it")
             return
 
-        if imdb_id in self.failed_ids or tvdb_id in self.failed_ids:
-            logger.debug(f"Skipping previously failed IMDB ID: {imdb_id} or TVDB ID: {tvdb_id}")
-            return
+        if (item := self._create_show_from_id(in_item.imdb_id, in_item.tvdb_id)):
+            item = self.copy_items(in_item, item)
+            item.indexed_at = datetime.now()
+            if log_msg:
+                logger.info(f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
+            yield item
 
-        # TVDB indexer will primarily handle TV shows
-        if in_item.type == "movie":
-            logger.debug(f"TVDB indexer skipping movie item: {in_item.log_string}")
-            return
-
-        # Get TV show details from TVDB
-        item = self._create_show_from_ids(imdb_id, tvdb_id)
+        logger.error(f"Failed to index TV show with ids: imdb={in_item.imdb_id}, tvdb={in_item.tvdb_id}")
+        return
         
-        if not item:
-            logger.error(f"Failed to index TV show with ids: imdb={imdb_id}, tvdb={tvdb_id}")
-            if imdb_id:
-                self.failed_ids.add(imdb_id)
-            return
-
-        item = self.copy_items(in_item, item)
-        item.indexed_at = datetime.now()
-
-        if log_msg:
-            logger.info(f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
-
-        yield item
-        
-    def _create_show_from_ids(self, imdb_id: Optional[str] = None, tvdb_id: Optional[str] = None) -> Optional[Show]:
+    def _create_show_from_id(self, imdb_id: Optional[str] = None, tvdb_id: Optional[str] = None) -> Optional[Show]:
         """Create a show item from TVDB using available IDs."""
         if not imdb_id and not tvdb_id:
             logger.error("No IMDB ID or TVDB ID provided")
             return None
-            
-        # First try TVDB ID if available
-        if tvdb_id:
-            try:
-                # Get show details
+
+        try:
+            # Direct lookup by TVDB ID
+            if tvdb_id:
                 show_details = self.api.get_series(tvdb_id)
                 if show_details:
-                    # Create show item
                     show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
                     if show_item:
-                        # Add seasons and episodes
                         self._add_seasons_to_show(show_item, show_details, tvdb_id)
                         return show_item
-            except Exception as e:
-                logger.error(f"Error creating show from TVDB ID: {str(e)}")
-                
-        # If that fails or no TVDB ID, try IMDB ID
-        elif imdb_id:
-            try:
-                # Search by IMDB ID
+
+            # Lookup via IMDB ID
+            elif imdb_id:
                 search_results = self.api.search_by_imdb_id(imdb_id)
-                if search_results and search_results.get('data'):
-                    # Get the first result and fetch full details
-                    tvdb_id = str(search_results['data'][0]['series']['id'])
-                    return self._create_show_from_ids(None, tvdb_id)
-            except Exception as e:
-                logger.error(f"Error creating show from IMDB ID: {str(e)}")
-                
+                if search_results and search_results.get("data"):
+                    tvdb_id = str(search_results["data"][0]["series"]["id"])
+                    show_details = self.api.get_series(tvdb_id)
+                    if show_details:
+                        show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
+                        if show_item:
+                            self._add_seasons_to_show(show_item, show_details, tvdb_id)
+                            return show_item
+
+        except Exception as e:
+            logger.error(f"Error creating show from TVDB ID: {e}")
+
+        if tvdb_id:
+            logger.error(f"Failed to get show details for TVDB ID: {tvdb_id}")
+        elif imdb_id:
+            logger.error(f"Failed to get show details for IMDB ID: {imdb_id}")
+        else:
+            logger.error("Failed to get show details for unknown ID")
+
         return None
             
-    def _map_show_from_tvdb_data(self, show_data: dict, imdb_id: Optional[str] = None) -> Optional[Show]:
+    def _map_show_from_tvdb_data(self, show_data: dict = {}, imdb_id: Optional[str] = None) -> Optional[Show]:
         """Map TVDB show data to our Show object."""
         try:
 
             if not imdb_id:
-                imdb_id = next((item.get('id') for item in show_data.get('remoteIds') if item.get('sourceName') == 'IMDB'), None)
+                imdb_id: Optional[str] = next((item.get('id') for item in show_data.get('remoteIds') if item.get('sourceName') == 'IMDB'), None)
 
             aired_at = None
             if first_aired := show_data.get('firstAired'):
@@ -109,10 +97,6 @@ class TVDBIndexer(BaseIndexer):
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
-
-            genres = []
-            if genre_data := show_data.get('genres'):
-                genres = [genre.get('name').lower() for genre in genre_data]
 
             network = None
             if current_network := show_data.get('currentNetwork'):
@@ -122,73 +106,68 @@ class TVDBIndexer(BaseIndexer):
             
             tmdb_id = None
             if external_ids := show_data.get('remoteIds'):
-                tmdb_id = next((item.get('id') for item in external_ids if item.get('sourceName') == 'TheMovieDB.com'), None)
+                tmdb_id: Optional[str] = next((item.get('id') for item in external_ids if item.get('sourceName') == 'TheMovieDB.com'), None)
 
-            aliases = [alias.get('name') for alias in show_data.get('aliases')]
-            slug = show_data.get('slug').replace('-', ' ')
-            aliases.append(slug) # Might not be a good idea, will have to wait and see..
+            aliases = self.api.get_aliases(show_data) or {}
+            slug = (show_data.get('slug') or '').replace('-', ' ').title()
+            aliases.setdefault('eng', []).append(slug.title())
 
+            title = None
             if show_data.get('originalLanguage') != 'eng':
-                translation = self.api.get_translation(show_data.get('id'), "eng")
-                if translation:
-                    aliases.extend([alias.get('name') for alias in translation.get('aliases')])
-                    title = translation["data"].get('name')
+                if (translation := self.api.get_translation(show_data.get('id'), "eng")):
+                    aliases["eng"].extend([alias for alias in translation.get('data').get('aliases')])
+                    title = translation.get('data').get('name')
 
-            # Create show item
+            if not title:
+                title = show_data.get('name')
+
+            if aliases:
+                # get rid of duplicate values
+                aliases = {k: list(set(v)) for k, v in aliases.items()}
+
+            genres_lower = [
+                (g.get('name') or '').lower() for g in (show_data.get('genres') or []) if isinstance(g, dict)
+            ]
+            is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.get('originalLanguage') != 'eng')
+
             show_item = {
-                "title": title or show_data.get('name'),
+                "title": title,
                 "year": int(show_data.get('firstAired', '').split('-')[0]) if show_data.get('firstAired') else None,
                 "tvdb_id": str(show_data.get('id')),
-                "tmdb_id": str(tmdb_id) if tmdb_id else None,
+                "tmdb_id": None,
                 "imdb_id": imdb_id,
                 "aired_at": aired_at,
-                "genres": genres,
+                "genres": genres_lower,
                 "type": "show",
                 "requested_at": datetime.now(),
                 "overview": show_data.get('overview'),
                 "network": network,
                 "country": show_data.get('originalCountry'),
                 "language": show_data.get('originalLanguage'),
-                "is_anime": 'anime' in genres or ('animation' in genres and show_data.get('originalLanguage') != 'en'),
+                "is_anime": is_anime,
                 "aliases": aliases,
             }
-            
+
             return Show(show_item)
         except Exception as e:
             logger.error(f"Error mapping show from TVDB data: {str(e)}")
-            return None
+
+        return None
 
     def _add_seasons_to_show(self, show: Show, show_details: dict, tvdb_id: str):
         """Add seasons and episodes to the given show using TVDB API."""
         try:
-
             seasons = show_details.get('seasons', [])
-            # Filter out specials (usually season 0) and non-official seasons (for example absolute ordering)
-            filtered_seasons = [season for season in seasons if season.get('number') != 0 and season.get('type').get('type') == 'official']
-
+            filtered_seasons: List[dict] = [season for season in seasons if season.get('number') != 0 and season.get('type').get('type') == 'official']
             for season_data in filtered_seasons:
-                extended_data = self.api.get_season(season_data.get('id')).get('data')
-
-                # Skip specials (usually season 0)
-                if extended_data.get('number') == 0:
-                    continue
-                    
-                # Create season item
-                season_item = self._create_season_from_data(extended_data, show)
-                if not season_item:
-                    continue
-
-                episodes = extended_data.get('episodes', [])
-                if not episodes or not isinstance(episodes, list):
-                    continue
-                    
-                for episode in episodes:
-                    # Create episode item
-                    episode_item = self._create_episode_from_data(episode, season_item)
-                    if episode_item:
-                        season_item.add_episode(episode_item)
-                        
-                show.add_season(season_item)
+                if (extended_data := self.api.get_season(season_data.get('id')).get('data')):
+                    if (season_item := self._create_season_from_data(extended_data, show)):
+                        if (episodes := extended_data.get('episodes', [])) and isinstance(episodes, list):
+                            for episode in episodes:
+                                episode_item = self._create_episode_from_data(episode, season_item)
+                                if episode_item:
+                                    season_item.add_episode(episode_item)
+                        show.add_season(season_item)
         except Exception as e:
             logger.error(f"Error adding seasons to show: {str(e)}")
             
@@ -198,17 +177,16 @@ class TVDBIndexer(BaseIndexer):
             season_number = season_data.get('number')
             if season_number is None:
                 return None
-                
-            # Convert aired date to datetime
+
             aired_at = None
 
-            # TODO: Check if this is correct, TVDB API doesn't return firstAired for seasons so we use the first episode's aired date
-            if first_aired := season_data.get('episodes')[0].get('aired'):
-                try:
+            try:
+                # TVDB API doesn't return firstAired for seasons so we use the first episode's aired date
+                if first_aired := season_data.get('episodes')[0].get('aired'):
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
-                except (ValueError, TypeError):
-                    pass
-                    
+            except (ValueError, TypeError):
+                pass
+
             # Create season item
             season_item = {
                 "number": season_number,
@@ -234,16 +212,14 @@ class TVDBIndexer(BaseIndexer):
             episode_number = episode_data.get('number')
             if episode_number is None:
                 return None
-                
-            # Convert aired date to datetime
+
             aired_at = None
             if first_aired := episode_data.get('aired'):
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
-                    
-            # Create episode item
+
             episode_item = {
                 "number": episode_number,
                 "tvdb_id": str(episode_data.get('id')),
@@ -254,7 +230,7 @@ class TVDBIndexer(BaseIndexer):
                 "is_anime": season.is_anime,
                 "requested_at": datetime.now()
             }
-            
+
             episode = Episode(episode_item)
             episode.parent = season
             return episode

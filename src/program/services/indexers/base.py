@@ -59,11 +59,11 @@ class BaseIndexer(ABC):
         if not item.indexed_at or not item.title:
             return True
 
-        settings = settings_manager.settings.indexer
-
         try:
+            settings = settings_manager.settings.indexer
             interval = timedelta(seconds=settings.update_interval)
             return datetime.now() - item.indexed_at > interval
         except Exception:
             logger.error(f"Failed to parse date: {item.indexed_at} with format: {interval}")
-            return False
+            
+        return False

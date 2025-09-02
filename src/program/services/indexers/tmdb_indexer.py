@@ -1,14 +1,14 @@
 """TMDB indexer module"""
 
 from datetime import datetime
-from typing import Generator, Optional, Union
+from typing import Generator, Optional
 
 from kink import di
 from loguru import logger
 
-from program.apis.tmdb_api import TMDBApi
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
+from program.apis.tmdb_api import TMDBApi
 
 
 class TMDBIndexer(BaseIndexer):
@@ -18,111 +18,110 @@ class TMDBIndexer(BaseIndexer):
     def __init__(self):
         super().__init__()
         self.key = "tmdbindexer"
-        self.ids = []
         self.api = di[TMDBApi]
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
+    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Movie, None, None]:
         """Run the TMDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
             return
-            
-        # For TMDB, we'll use different ID strategies depending on what we have
-        imdb_id = in_item.imdb_id
-        tmdb_id = in_item.tmdb_id
-        
-        if not (imdb_id or tmdb_id):
+
+        if not (in_item.imdb_id or in_item.tmdb_id):
             logger.error(f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it")
             return
 
-        # TMDB indexer will primarily handle movies
         if in_item.type not in ["movie", "mediaitem"]:
-            logger.debug(f"TMDB indexer skipping non-movie item: {in_item.log_string}")
-            return
-            
-        # Get movie details from TMDB
-        item = self._create_movie_from_ids(imdb_id, tmdb_id)
-        
-        if not item:
-            logger.error(f"Failed to index movie with ids: imdb={imdb_id}, tmdb={tmdb_id}")
+            logger.debug(f"TMDB indexer skipping incorrect item type: {in_item.log_string}")
             return
 
-        item = self.copy_items(in_item, item)
-        item.indexed_at = datetime.now()
+        if (item := self._create_movie_from_id(in_item.imdb_id, in_item.tmdb_id)):
+            item = self.copy_items(in_item, item)
+            item.indexed_at = datetime.now()
+            if log_msg:
+                logger.info(f"Indexed movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
+            yield item
 
-        if log_msg:
-            logger.info(f"Indexed movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
+        logger.error(f"Failed to index movie with ids: imdb={in_item.imdb_id}, tmdb={in_item.tmdb_id}")
+        return
 
-        yield item
-        
-    def _create_movie_from_ids(self, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None) -> Optional[Movie]:
+    def _create_movie_from_id(self, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None) -> Optional[Movie]:
         """Create a movie item from TMDB using available IDs."""
         if not imdb_id and not tmdb_id:
             logger.error("No IMDB ID or TMDB ID provided")
             return None
 
         movie_details = None
-        
-        # First try TMDB ID if available
-        if tmdb_id:
-            result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
-            if result.data:
-                movie_details = result.data
-            else:
-                logger.error(f"Failed to get movie details for TMDB ID: {tmdb_id}")
-            
-        # If that fails or no TMDB ID, try IMDB ID
-        if not movie_details and imdb_id:
-            # Use the find endpoint to get TMDB data from IMDB ID
-            results = self.api.get_from_external_id("imdb_id", imdb_id)
-            if results.data and hasattr(results.data, 'movie_results') and results.data.movie_results and len(results.data.movie_results) > 0:
-                # Get the first movie result and fetch full details
-                tmdb_id = results.data.movie_results[0].id
-                result = self.api.get_movie_details(str(tmdb_id), "append_to_response=external_ids")
-                if result.data:
-                    movie_details = result.data
-                else:
-                    logger.error(f"Failed to get movie details for TMDB ID: {tmdb_id}")
+
+        try:
+            # Direct lookup by TMDB ID
+            if tmdb_id:
+                result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+                movie_details = result.data if result and result.data else None
+
+            # Lookup via IMDB ID
+            elif imdb_id:
+                results = self.api.get_from_external_id("imdb_id", imdb_id)
+                if results and results.data and getattr(results.data, "movie_results", None):
+                    movie_results = results.data.movie_results
+                    if movie_results:
+                        tmdb_id = str(movie_results[0].id)
+                        result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+                        movie_details = result.data if result and result.data else None
+
+        except Exception as e:
+            logger.error(f"Error fetching movie details: {e}")
 
         if not movie_details:
+            if tmdb_id:
+                logger.error(f"Failed to get movie details for TMDB ID: {tmdb_id}")
+            elif imdb_id:
+                logger.error(f"Failed to get movie details for IMDB ID: {imdb_id}")
+            else:
+                logger.error("Failed to get movie details for unknown ID")
             return None
-            
-        # Map TMDB movie details to our Movie object
+
         try:
-            # Convert release date to datetime
-            release_date = None
-            if hasattr(movie_details, 'release_date') and movie_details.release_date:
-                release_date = datetime.strptime(movie_details.release_date, "%Y-%m-%d")
-                
-            # Extract genres
-            genres = []
-            if hasattr(movie_details, 'genres') and movie_details.genres:
-                genres = [genre.name.lower() for genre in movie_details.genres]
-            
-            # Get country
+            release_date = (
+                datetime.strptime(movie_details.release_date, "%Y-%m-%d")
+                if getattr(movie_details, "release_date", None)
+                else None
+            )
+
+            genres = [
+                genre.name.lower()
+                for genre in getattr(movie_details, "genres", []) or []
+            ]
+
             country = None
-            if hasattr(movie_details, 'production_countries') and movie_details.production_countries:
+            if getattr(movie_details, "production_countries", None):
                 country = movie_details.production_countries[0].iso_3166_1
-            
-            # Create movie item
+
             movie_item = {
-                "title": movie_details.title,
-                "year": int(movie_details.release_date[:4]) if hasattr(movie_details, 'release_date') and movie_details.release_date else None,
+                "title": getattr(movie_details, "title", None),
+                "year": (
+                    int(movie_details.release_date[:4])
+                    if getattr(movie_details, "release_date", None)
+                    else None
+                ),
+                "tvdb_id": None,
                 "tmdb_id": str(movie_details.id),
-                "imdb_id": movie_details.imdb_id if hasattr(movie_details, 'imdb_id') else None,
+                "imdb_id": getattr(movie_details, "imdb_id", None),
                 "aired_at": release_date,
                 "genres": genres,
                 "type": "movie",
                 "requested_at": datetime.now(),
-                "overview": movie_details.overview if hasattr(movie_details, 'overview') else None,
+                "overview": getattr(movie_details, "overview", None),
                 "country": country,
-                "language": movie_details.original_language if hasattr(movie_details, 'original_language') else None,
-                "is_anime": any(g in ["animation", "anime"] for g in genres) and 
-                           (not hasattr(movie_details, 'original_language') or 
-                            movie_details.original_language != "en")
+                "language": getattr(movie_details, "original_language", None),
+                "is_anime": (
+                    any(g in ["animation", "anime"] for g in genres)
+                    and getattr(movie_details, "original_language", None) != "en"
+                ),
+                "aliases": {},
             }
-            
+
             return Movie(movie_item)
+
         except Exception as e:
-            logger.error(f"Error creating movie from TMDB data: {str(e)}")
+            logger.error(f"Error mapping TMDB movie data: {e}")
             return None

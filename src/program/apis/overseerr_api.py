@@ -46,17 +46,11 @@ class OverseerrAPI:
         """Get media requests from `Overseerr`"""
         try:
             response = self.request_handler.execute(HttpMethod.GET, f"api/v1/request?take={10000}&filter=approved&sort=added")
-            if not response.is_ok:
+            if not response.is_ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
                 logger.error(f"Failed to fetch requests from overseerr: {response.data}")
                 return []
-        except (ConnectionError, RetryError, MaxRetryError) as e:
-            logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
-            return []
         except Exception as e:
-            logger.error(f"Unexpected error during fetching requests: {str(e)}")
-            return []
-
-        if not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
+            logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
             return []
 
         # Lets look at approved items only that are only in the pending state
@@ -76,24 +70,11 @@ class OverseerrAPI:
                 media_type = "show"
 
             if media_type == "movie":
-                media_items.append(
-                    MediaItem({
-                        "imdb_id": imdb_id,
-                        "tmdb_id": tmdb_id,
-                        "type": media_type,
-                        "requested_by": service_key,
-                    })
-                )
+                new_item = MediaItem({"imdb_id": imdb_id, "tmdb_id": tmdb_id, "requested_by": service_key})
+                media_items.append(new_item)
             elif media_type == "show":
-                media_items.append(
-                    MediaItem({
-                        "imdb_id": imdb_id,
-                        "tvdb_id": tvdb_id,
-                        "type": media_type,
-                        "requested_by": service_key,
-                    })
-                )
-
+                new_item = MediaItem({"imdb_id": imdb_id, "tvdb_id": tvdb_id, "requested_by": service_key})
+                media_items.append(new_item)
             else:
                 logger.error(f"Unknown media type: {media_type}")
 

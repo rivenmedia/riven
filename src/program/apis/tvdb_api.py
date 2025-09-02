@@ -195,7 +195,7 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting season details: {str(e)}")
             return None
-            
+
     def get_season_episodes(self, season_id: str) -> Optional[Dict]:
         """Get all episodes for a season."""
         try:
@@ -211,7 +211,7 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting season episodes: {str(e)}")
             return None
-            
+
     def get_episode(self, episode_id: str) -> Optional[Dict]:
         """Get episode details."""
         try:
@@ -228,11 +228,11 @@ class TVDBApi:
             logger.error(f"Error getting episode details: {str(e)}")
             return None
     
-    def  get_translation(self, series_id: str, language: str) -> Optional[Dict]:
+    def get_translation(self, series_id: str, language: str) -> Optional[Dict]:
         """Get translation title for a series. Language must be 3 letter code."""
         try:
             headers = self._get_headers()
-            url = f"series/{series_id}/extended/{language}"
+            url = f"series/{series_id}/translations/{language}"
             
             response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
             if not response.is_ok:
@@ -243,3 +243,18 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting translation title: {str(e)}")
             return None
+    
+    def get_aliases(self, series_data: Dict) -> Optional[Dict[str, list[str]]]:
+        """
+        Get aliases for a series, grouped by language.
+
+        Returns:
+            Dict[str, list[str]]: A dictionary where keys are language codes and values are lists of alias names.
+        """
+        aliases_by_lang: Dict[str, list[str]] = {}
+        for alias in series_data.get("aliases", []):
+            lang = alias.get("language")
+            name = alias.get("name")
+            if lang and name:
+                aliases_by_lang.setdefault(lang, []).append(name)
+        return aliases_by_lang

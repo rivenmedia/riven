@@ -396,6 +396,15 @@ def update_ongoing(session: Session) -> list[tuple[str, str, str]]:
 
     return updated_items
 
+def clear_nones_from_database():
+    """Clear all None values from the database."""
+    with db.Session() as session:
+        # we need to get any item's that arent a mediaitem, and delete them. Let's log them first
+        items = session.execute(select(MediaItem).where(MediaItem.type != "mediaitem")).unique().scalars().all()
+        logger.log("PROGRAM", f"Found {len(items)} items that are not a mediaitem")
+        
+        # session.commit()
+
 def create_calendar(session: Session) -> dict:
     """Create a calendar of all the items in the library."""
     from program.media.item import MediaItem, Show, Season
