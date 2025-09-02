@@ -152,8 +152,8 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
             if directory not in POSSIBLE_DIRS:
                 logger.debug(f"Skipping {directory} as it's not a valid media directory.")
                 continue
-            if os.path.splitext(season)[1][1:] not in ALLOWED_VIDEO_EXTENSIONS:
-                continue
+            # if os.path.splitext(season)[1][1:] not in ALLOWED_VIDEO_EXTENSIONS:
+            #     continue
             if not (season_number := re.search(r"(\d+)", season)):
                 logger.log("NOT_FOUND", f"Can't extract season number at path {directory / show / season}")
                 continue

@@ -438,7 +438,6 @@ class Program(threading.Thread):
 
                         # Final commit for any remaining items
                         session.commit()
-                        
                         progress.update(task, log="Finished Indexing Symlinks!")
 
                     if errors:
