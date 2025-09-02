@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.7](https://github.com/rivenmedia/riven/compare/v0.23.6...v0.23.7) (2025-09-02)
+
+
+### Bug Fixes
+
+* fixed incompleted items from reinit db ([add17ed](https://github.com/rivenmedia/riven/commit/add17ed5f219c2cd338501be00e7f64b71c3f7bd))
+
 ## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
 
 
