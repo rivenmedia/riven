@@ -213,23 +213,23 @@ class Symlinker:
             return path
 
         if isinstance(item, Movie):
-            movie_folder = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+            movie_folder = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{tmdb-{item.tmdb_id}}}"
             destination_folder = create_folder_path(movie_path, movie_folder)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Show):
-            folder_name_show = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+            folder_name_show = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{tvdb-{item.tvdb_id}}}"
             destination_folder = create_folder_path(show_path, folder_name_show)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Season):
             show = item.parent
-            folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
+            folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{tvdb-{show.tvdb_id}}}"
             show_path = create_folder_path(show_path, folder_name_show)
             folder_season_name = f"Season {str(item.number).zfill(2)}"
             destination_folder = create_folder_path(show_path, folder_season_name)
             item.set("update_folder", destination_folder)
         elif isinstance(item, Episode):
             show = item.parent.parent
-            folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
+            folder_name_show = f"{show.title.replace('/', '-')} ({show.aired_at.year}) {{tvdb-{show.tvdb_id}}}"
             show_path = create_folder_path(show_path, folder_name_show)
             season = item.parent
             folder_season_name = f"Season {str(season.number).zfill(2)}"
@@ -242,20 +242,15 @@ class Symlinker:
         """Determine the filename of the symlink."""
         filename = None
         if isinstance(item, Movie):
-            filename = f"{item.title} ({item.aired_at.year}) " + "{imdb-" + item.imdb_id + "}"
+            filename = f"{item.title} ({item.aired_at.year}) " + "{tmdb-" + item.tmdb_id + "}"
         elif isinstance(item, Season):
             showname = item.parent.title
             showyear = item.parent.aired_at.year
             filename = f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
         elif isinstance(item, Episode):
             episodes_from_file = item.get_file_episodes()
-            if len(episodes_from_file) > 1:
-                # Use item.number as the starting point and calculate the last episode number.
-                # Due to the introduction of standard/absolute episode numbering in scraping and downloading processes,
-                # it is no longer possible to assume that the episode numbers in the file align with those in the item.
-                first_episode_number = item.number
-                last_episode_number = first_episode_number + len(episodes_from_file) - 1
-                episode_string = f"e{str(first_episode_number).zfill(2)}-e{str(last_episode_number).zfill(2)}"
+            if len(episodes_from_file) > 1 and item.number in episodes_from_file:
+                episode_string = f"e{str(episodes_from_file[0]).zfill(2)}-e{str(episodes_from_file[-1]).zfill(2)}"
             else:
                 episode_string = f"e{str(item.number).zfill(2)}"
             if episode_string != "":
@@ -272,10 +267,10 @@ class Symlinker:
         item_path = None
         if isinstance(item, Show):
             base_path = self.library_path_anime_shows if item.is_anime else self.library_path_shows
-            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{tvdb-{item.tvdb_id}}}"
         elif isinstance(item, Movie):
             base_path = self.library_path_anime_movies if item.is_anime else self.library_path_movies
-            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{imdb-{item.imdb_id}}}"
+            item_path = base_path / f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{tmdb-{item.tmdb_id}}}"
         return _delete_symlink(item, item_path)
 
     def delete_item_symlinks_by_id(self, item_id: int) -> bool:

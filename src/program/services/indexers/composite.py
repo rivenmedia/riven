@@ -21,7 +21,7 @@ class CompositeIndexer(BaseIndexer):
         self.tmdb_indexer = di[TMDBIndexer]
         self.tvdb_indexer = di[TVDBIndexer]
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
+    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show], None, None]:
         """Run the appropriate indexer based on item type."""
         if not in_item:
             logger.error("Item is None")
@@ -32,20 +32,17 @@ class CompositeIndexer(BaseIndexer):
         if item_type == "movie" or (in_item.tmdb_id and not in_item.tvdb_id):
             logger.debug(f"Using TMDB indexer for movie type: {in_item.log_string}")
             yield from self.tmdb_indexer.run(in_item, log_msg)
-            return
-
         elif item_type in ["show", "season", "episode"] or (in_item.tvdb_id and not in_item.tmdb_id):
             logger.debug(f"Using TVDB indexer for {item_type} type: {in_item.log_string}")
             yield from self.tvdb_indexer.run(in_item, log_msg)
-            return
 
         elif item_type == "mediaitem":
-            if movie_result := self.tmdb_indexer.run(in_item, log_msg=False):
-                logger.debug(f"Successfully indexed as movie: {in_item.log_string}")
-                yield from movie_result
-            elif tvdb_result := self.tvdb_indexer.run(in_item, log_msg=False):
+            if tvdb_result := self.tvdb_indexer.run(in_item, log_msg=False):
                 logger.debug(f"Successfully indexed as {item_type}: {in_item.log_string}")
                 yield from tvdb_result
+            elif movie_result := self.tmdb_indexer.run(in_item, log_msg=False):
+                logger.debug(f"Successfully indexed as movie: {in_item.log_string}")
+                yield from movie_result
 
-        logger.error(f"Unknown item type: {item_type} for {in_item.log_string}")
+        logger.warning(f"Unknown item type, cannot index {in_item.log_string}.. tossing it")
         return

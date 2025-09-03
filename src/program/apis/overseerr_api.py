@@ -47,10 +47,13 @@ class OverseerrAPI:
         try:
             response = self.request_handler.execute(HttpMethod.GET, f"api/v1/request?take={10000}&filter=approved&sort=added")
             if not response.is_ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
-                logger.error(f"Failed to fetch requests from overseerr: {response.data}")
+                if not response.is_ok:
+                    logger.error(f"Failed to get response from overseerr: {response.data}")
+                elif not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
+                    logger.debug(f"No user approved requests found from overseerr")
                 return []
         except Exception as e:
-            logger.error(f"Failed to fetch requests from overseerr: {str(e)}")
+            logger.error(f"Failed to get response from overseerr: {str(e)}")
             return []
 
         # Lets look at approved items only that are only in the pending state

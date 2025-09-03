@@ -221,7 +221,6 @@ class Program(threading.Thread):
             self._update_ongoing: {"interval": 60 * 60 * 4},
             self._retry_library: {"interval": 60 * 60 * 24},
             log_cleaner: {"interval": 60 * 60},
-            db_functions.clear_nones_from_database: {"interval": 60 * 60 * 24},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 

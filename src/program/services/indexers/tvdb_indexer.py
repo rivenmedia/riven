@@ -103,10 +103,6 @@ class TVDBIndexer(BaseIndexer):
                 network = current_network.get('name')
             elif original_network := show_data.get('originalNetwork'):
                 network = original_network.get('name')
-            
-            tmdb_id = None
-            if external_ids := show_data.get('remoteIds'):
-                tmdb_id: Optional[str] = next((item.get('id') for item in external_ids if item.get('sourceName') == 'TheMovieDB.com'), None)
 
             aliases = self.api.get_aliases(show_data) or {}
             slug = (show_data.get('slug') or '').replace('-', ' ').title()
@@ -182,12 +178,13 @@ class TVDBIndexer(BaseIndexer):
 
             try:
                 # TVDB API doesn't return firstAired for seasons so we use the first episode's aired date
-                if first_aired := season_data.get('episodes')[0].get('aired'):
+                episodes = season_data.get('episodes')
+                if episodes and episodes[0].get('aired'):
+                    first_aired = episodes[0].get('aired')
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
             except (ValueError, TypeError):
                 pass
 
-            # Create season item
             season_item = {
                 "number": season_number,
                 "tvdb_id": str(season_data.get('id')),
@@ -205,7 +202,7 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error creating season from TVDB data: {str(e)}")
             return None
-            
+
     def _create_episode_from_data(self, episode_data: dict, season: Season) -> Optional[Episode]:
         """Create an Episode object from TVDB episode data."""
         try:

@@ -470,6 +470,13 @@ class MediaItem(db.Model):
 
     @property
     def log_string(self):
+        if not self.title or not self.id:
+            if self.tmdb_id and not self.imdb_id:
+                return f"TMDB ID {self.tmdb_id}"
+            elif self.tvdb_id and not self.tmdb_id:
+                return f"TVDB ID {self.tvdb_id}"
+            elif self.imdb_id and (not self.tmdb_id or not self.tvdb_id):
+                return f"IMDB ID {self.imdb_id}"
         return self.title or self.id
 
     @property

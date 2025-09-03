@@ -55,4 +55,18 @@ class Event:
 
     @property
     def log_message(self):
-        return f"Item ID {self.item_id}" if self.item_id else f"External ID {self.content_item.imdb_id}"
+        # Defensive: content_item may be None
+        external_id = None
+        if self.content_item:
+            if self.content_item.imdb_id:
+                external_id = f"IMDB ID {self.content_item.imdb_id}"
+            elif self.content_item.tmdb_id:
+                external_id = f"TMDB ID {self.content_item.tmdb_id}"
+            elif self.content_item.tvdb_id:
+                external_id = f"TVDB ID {self.content_item.tvdb_id}"
+        if self.item_id:
+            return f"Item ID {self.item_id}"
+        elif external_id:
+            return f"External ID {external_id}"
+        else:
+            return "Unknown Event"
