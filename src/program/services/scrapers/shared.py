@@ -67,7 +67,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "show":
-                # make sure the torrent has at least 2 episodes
+                # make sure the torrent has at least 2 episodes (should weed out most junk)
                 if torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
@@ -85,10 +85,21 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "season":
+                # make sure the torrent has at least 2 episodes (should weed out most junk)
+                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                    if scraping_settings.parse_debug:
+                        logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
+                    continue
+
                 # disregard torrents with incorrect season number
                 if item.number not in torrent.data.seasons:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping incorrect season torrent for {item.log_string}: {raw_title}")
+                    continue
+
+                if torrent.data.episodes and not all(episode.number in torrent.data.episodes for episode in item.episodes):
+                    if scraping_settings.parse_debug:
+                        logger.debug(f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}")
                     continue
 
             if item.type == "episode":

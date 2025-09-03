@@ -38,7 +38,7 @@ class CompositeIndexer(BaseIndexer):
 
         elif item_type == "mediaitem":
             if tvdb_result := self.tvdb_indexer.run(in_item, log_msg=False):
-                logger.debug(f"Successfully indexed as {item_type}: {in_item.log_string}")
+                logger.debug(f"Successfully indexed as show: {in_item.log_string}")
                 yield from tvdb_result
             elif movie_result := self.tmdb_indexer.run(in_item, log_msg=False):
                 logger.debug(f"Successfully indexed as movie: {in_item.log_string}")

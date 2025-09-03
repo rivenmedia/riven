@@ -87,7 +87,6 @@ class TVDBIndexer(BaseIndexer):
     def _map_show_from_tvdb_data(self, show_data: dict = {}, imdb_id: Optional[str] = None) -> Optional[Show]:
         """Map TVDB show data to our Show object."""
         try:
-
             if not imdb_id:
                 imdb_id: Optional[str] = next((item.get('id') for item in show_data.get('remoteIds') if item.get('sourceName') == 'IMDB'), None)
 
@@ -108,14 +107,14 @@ class TVDBIndexer(BaseIndexer):
             slug = (show_data.get('slug') or '').replace('-', ' ').title()
             aliases.setdefault('eng', []).append(slug.title())
 
-            title = None
+            title = show_data.get('name', None)
             if show_data.get('originalLanguage') != 'eng':
                 if (translation := self.api.get_translation(show_data.get('id'), "eng")):
-                    aliases["eng"].extend([alias for alias in translation.get('data').get('aliases')])
-                    title = translation.get('data').get('name')
-
-            if not title:
-                title = show_data.get('name')
+                    if translation and translation.get('data', {}).get('name'):
+                        additional_aliases = translation.get('data', {}).get('aliases', [])
+                        if additional_aliases:
+                            aliases["eng"].extend([alias for alias in additional_aliases])
+                        title = translation.get('data', {}).get('name')
 
             if aliases:
                 # get rid of duplicate values

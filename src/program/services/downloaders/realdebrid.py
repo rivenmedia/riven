@@ -45,7 +45,7 @@ class RealDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(per_minute=200)  # Real-Debrid allows 250/min, using 200 to be safe
+        rate_limit_params = get_rate_limit_params(per_minute=200, max_delay=10)  # Real-Debrid allows 250/min, using 200 to be safe
         retry_policy = get_retry_policy(retries=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
         self.session = create_service_session(rate_limit_params=rate_limit_params, retry_policy=retry_policy)
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
