@@ -49,7 +49,7 @@ class AllDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(per_minute=600, per_second=12)
+        rate_limit_params = get_rate_limit_params(per_minute=600, per_second=12, enable_bucket_cleanup=True)
         self.session = create_service_session(rate_limit_params=rate_limit_params)
         self.session.headers.update({
             "Authorization": f"Bearer {api_key}"

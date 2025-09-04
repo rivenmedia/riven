@@ -85,6 +85,11 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "season":
+                if torrent.data.seasons and not item.number in torrent.data.seasons:
+                    if scraping_settings.parse_debug:
+                        logger.debug(f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}")
+                    continue
+                
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
                 if torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     if scraping_settings.parse_debug:

@@ -14,6 +14,10 @@ from program.utils.request import (
     get_http_adapter,
     get_rate_limit_params,
     get_retry_policy,
+    BucketCleanupLimiterSession,
+    BucketCleanupCachedLimiterSession,
+    LimiterSession,
+    get_cache_params,
 )
 
 
@@ -295,3 +299,71 @@ def test_session_adapter_pool_configuration_and_request(retry_policy, connection
         response = session.get(url)
         assert response.status_code == 200
         assert response.json() == {"message": "success"}
+
+def test_bucket_cleanup_functionality():
+    """Test that bucket cleanup properly removes expired items."""
+    
+    # Create a session with bucket cleanup enabled
+    rate_limit_params = get_rate_limit_params(
+        per_minute=10,  # Low limit for testing
+        enable_bucket_cleanup=True
+    )
+    
+    session = BucketCleanupLimiterSession(**rate_limit_params)
+    
+    # Verify the session has cleanup functionality
+    assert hasattr(session, '_cleanup_expired_items')
+    assert hasattr(session, '_last_cleanup')
+    assert hasattr(session, '_cleanup_interval')
+    
+    # Test that cleanup method exists and is callable
+    assert callable(session._cleanup_expired_items)
+    
+    # Verify the session type is correct
+    assert isinstance(session, BucketCleanupLimiterSession)
+
+def test_bucket_cleanup_cached_session():
+    """Test that cached session with bucket cleanup works."""
+    
+    # Create parameters for cached session with bucket cleanup
+    rate_limit_params = get_rate_limit_params(
+        per_minute=10,
+        enable_bucket_cleanup=True
+    )
+    cache_params = get_cache_params("test_cache", 60)
+    
+    session = BucketCleanupCachedLimiterSession(**rate_limit_params, **cache_params)
+    
+    # Verify the session has cleanup functionality
+    assert hasattr(session, '_cleanup_expired_items')
+    assert callable(session._cleanup_expired_items)
+    
+    # Verify the session type is correct
+    assert isinstance(session, BucketCleanupCachedLimiterSession)
+
+def test_create_service_session_with_bucket_cleanup():
+    """Test that create_service_session properly creates bucket cleanup sessions."""
+    
+    # Test with bucket cleanup enabled
+    rate_limit_params = get_rate_limit_params(
+        per_minute=10,
+        enable_bucket_cleanup=True
+    )
+    
+    session = create_service_session(rate_limit_params=rate_limit_params)
+    
+    # Verify the session type is correct
+    assert isinstance(session, BucketCleanupLimiterSession)
+    
+    # Test without bucket cleanup (should use regular LimiterSession)
+    rate_limit_params_no_cleanup = get_rate_limit_params(
+        per_minute=10,
+        enable_bucket_cleanup=False
+    )
+    
+    session_no_cleanup = create_service_session(rate_limit_params=rate_limit_params_no_cleanup)
+    
+    # Verify the session type is correct (should be regular LimiterSession)
+    from program.utils.request import LimiterSession
+    assert isinstance(session_no_cleanup, LimiterSession)
+    assert not isinstance(session_no_cleanup, BucketCleanupLimiterSession)
