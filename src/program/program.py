@@ -6,6 +6,7 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from kink import di
 from rich.live import Live
 
 from program.apis import bootstrap_apis
@@ -20,7 +21,7 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import Downloader
-from program.services.indexers.trakt import TraktIndexer
+from program.services.indexers import IndexerService, TMDBIndexer, TVDBIndexer
 from program.services.libraries import SymlinkLibrary
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.services.post_processing import PostProcessing
@@ -30,7 +31,6 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
-from program.utils.request import RateLimitExceeded
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -78,8 +78,14 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
 
+        tmdb_indexer = TMDBIndexer()
+        tvdb_indexer = TVDBIndexer()
+        di[TMDBIndexer] = tmdb_indexer
+        di[TVDBIndexer] = tvdb_indexer
+        composite_indexer = IndexerService()
+
         self.services = {
-            TraktIndexer: TraktIndexer(),
+            IndexerService: composite_indexer,
             Scraping: Scraping(),
             Symlinker: Symlinker(),
             Updater: Updater(),
@@ -92,7 +98,9 @@ class Program(threading.Thread):
 
         self.all_services = {
             **self.requesting_services,
-            **self.services
+            **self.services,
+            TMDBIndexer: tmdb_indexer,
+            TVDBIndexer: tvdb_indexer,
         }
 
         if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
@@ -136,11 +144,6 @@ class Program(threading.Thread):
 
         self.initialize_apis()
         self.initialize_services()
-
-        max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
-        if max_worker_env_vars:
-            for var in max_worker_env_vars:
-                logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
 
         if not self.validate():
             logger.log("PROGRAM", "----------------------------------------------")
@@ -203,9 +206,8 @@ class Program(threading.Thread):
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
             updated_items = db_functions.update_ongoing(session)
-            for item_id, previous_state, new_state in updated_items:
+            for item_id in updated_items:
                 self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                logger.debug(f"Updated state for item {item_id} from {previous_state} to {new_state}")
 
             if updated_items:
                 logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
@@ -226,7 +228,6 @@ class Program(threading.Thread):
                 "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
                 "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
             }
-            # logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -344,7 +345,7 @@ class Program(threading.Thread):
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
-            enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+            enhanced_item = next(self.services[IndexerService].run(item, log_msg=False))
             return enhanced_item
         except StopIteration:
             return None
@@ -378,7 +379,7 @@ class Program(threading.Thread):
 
                             try:
                                 # Skip duplicates
-                                if not item or item.imdb_id in added_items:
+                                if not item or item.log_string in added_items:
                                     errors.append(f"Duplicate symlink directory found for {item.log_string if item else 'Unknown'}")
                                     log_message = f"Skipped duplicate: {item.log_string if item else 'Unknown'}"
                                     progress.update(task, advance=1, log=log_message)
@@ -394,36 +395,37 @@ class Program(threading.Thread):
                                 try:
                                     enhanced_item = self._enhance_item(item)
                                     if not enhanced_item:
-                                        errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
+                                        errors.append(f"Failed to enhance {item.log_string} with Trakt Indexer")
                                         log_message = f"Failed to enhance: {item.log_string}"
                                         progress.update(task, advance=1, log=log_message)
                                         continue
-                                except RateLimitExceeded:
-                                    # Rate limit hit - wait and retry once
-                                    logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
-                                    time.sleep(10)
-                                    try:
-                                        enhanced_item = self._enhance_item(item)
-                                        if not enhanced_item:
-                                            errors.append(f"Failed to enhance {item.log_string} after retry")
-                                            log_message = f"Failed after retry: {item.log_string}"
+                                except Exception as e:
+                                    if "rate limit" in str(e).lower() or "429" in str(e):
+                                        # Rate limit hit - wait and retry once
+                                        logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
+                                        time.sleep(10)
+                                        try:
+                                            enhanced_item = self._enhance_item(item)
+                                            if not enhanced_item:
+                                                errors.append(f"Failed to enhance {item.log_string} after retry")
+                                                log_message = f"Failed after retry: {item.log_string}"
+                                                progress.update(task, advance=1, log=log_message)
+                                                continue
+                                        except Exception as e:
+                                            errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
+                                            log_message = f"Retry failed: {item.log_string}"
                                             progress.update(task, advance=1, log=log_message)
                                             continue
-                                    except Exception as e:
-                                        errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
-                                        log_message = f"Retry failed: {item.log_string}"
+                                    else:
+                                        errors.append(f"Error enhancing {item.log_string}: {str(e)}")
+                                        log_message = f"Error: {item.log_string}"
                                         progress.update(task, advance=1, log=log_message)
                                         continue
-                                except Exception as e:
-                                    errors.append(f"Error enhancing {item.log_string}: {str(e)}")
-                                    log_message = f"Error: {item.log_string}"
-                                    progress.update(task, advance=1, log=log_message)
-                                    continue
 
                                 # Save to database
                                 enhanced_item.store_state()
                                 session.add(enhanced_item)
-                                added_items.add(item.imdb_id)
+                                added_items.add(item.log_string)
 
                                 # Commit every 25 items to avoid large transactions
                                 if processed_count % 25 == 0:

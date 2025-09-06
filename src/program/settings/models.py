@@ -197,16 +197,8 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
-    proxy_url: str = ""
-
-
-class KnightcrawlerConfig(Observable):
-    enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com"
-    timeout: int = 30
     ratelimit: bool = True
+    proxy_url: str = ""
 
 
 class CometConfig(Observable):
@@ -220,7 +212,7 @@ class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
@@ -240,7 +232,7 @@ class OrionoidConfig(Observable):
         "limitcount": 5,
     }
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
@@ -260,6 +252,13 @@ class ProwlarrConfig(Observable):
     limiter_seconds: int = 60
 
 
+class RarbgConfig(Observable):
+    enabled: bool = False
+    url: str = "https://therarbg.to"
+    timeout: int = 30
+    ratelimit: bool = True
+
+
 class ScraperModel(Observable):
     after_2: float = 2
     after_5: float = 6
@@ -270,13 +269,13 @@ class ScraperModel(Observable):
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
     dubbed_anime_only: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
-    knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()
     comet: CometConfig = CometConfig()
+    rarbg: RarbgConfig = RarbgConfig()
 
 
 # Version Ranking Model (set application defaults here!)

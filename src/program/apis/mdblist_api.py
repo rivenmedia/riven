@@ -1,50 +1,42 @@
-﻿from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-    create_service_session,
-    get_rate_limit_params,
-)
+﻿from program.utils.request import SmartSession
 
 
 class MdblistAPIError(Exception):
     """Base exception for MdblistAPI related errors"""
-
-class MdblistRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, base_url: str, api_key: str, request_logging: bool = False):
-        self.api_key = api_key
-        super().__init__(session, base_url=base_url, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=MdblistAPIError, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, ignore_base_url: bool = False, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, ignore_base_url=ignore_base_url, params={"apikey": self.api_key}, **kwargs)
-
 
 class MdblistAPI:
     """Handles Mdblist API communication"""
     BASE_URL = "https://mdblist.com"
 
     def __init__(self, api_key: str):
-        rate_limit_params = get_rate_limit_params(per_minute=60)
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.request_handler = MdblistRequestHandler(session, base_url=self.BASE_URL, api_key=api_key)
+        self.api_key = api_key
+
+        rate_limits = {
+            "mdblist.com": {"rate": 1, "capacity": 60}  # 60 calls per minute
+        }
+        
+        self.session = SmartSession(
+            base_url=self.BASE_URL,
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
 
     def validate(self):
-        return self.request_handler.execute(HttpMethod.GET, f"api/user")
+        return self.session.get("api/user", params={"apikey": self.api_key})
 
     def my_limits(self):
         """Wrapper for mdblist api method 'My limits'"""
-        response = self.request_handler.execute(HttpMethod.GET,f"api/user")
+        response = self.session.get("api/user", params={"apikey": self.api_key})
         return response.data
 
     def list_items_by_id(self, list_id: int):
         """Wrapper for mdblist api method 'List items'"""
-        response = self.request_handler.execute(HttpMethod.GET,f"api/lists/{str(list_id)}/items")
+        response = self.session.get(f"api/lists/{str(list_id)}/items", params={"apikey": self.api_key})
         return response.data
 
     def list_items_by_url(self, url: str):
         url = url if url.endswith("/") else f"{url}/"
         url = url if url.endswith("json/") else f"{url}json/"
-        response = self.request_handler.execute(HttpMethod.GET, url, ignore_base_url=True)
+        response = self.session.get(url, params={"apikey": self.api_key})
         return response.data

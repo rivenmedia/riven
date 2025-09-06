@@ -6,7 +6,7 @@ from kink import di
 from program.apis.listrr_api import ListrrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import logger
+from loguru import logger
 
 
 class Listrr:
@@ -45,11 +45,11 @@ class Listrr:
         try:
             self.api = di[ListrrAPI]
             response = self.api.validate()
-            if not response.is_ok:
+            if not response.ok:
                 logger.error(
                     f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}",
                 )
-            return response.is_ok
+            return response.ok
         except Exception as e:
             logger.error(f"Listrr ping exception: {e}")
             return False
@@ -63,7 +63,22 @@ class Listrr:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
-        imdb_ids = movie_items + show_items
-        listrr_items = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in imdb_ids if imdb_id.startswith("tt")]
+        listrr_items = []
+        for imdb_id in movie_items:
+            if imdb_id.startswith("tt"):
+                listrr_items.append(MediaItem({
+                    "imdb_id": imdb_id, 
+                    "requested_by": self.key,
+                    "type": "movie"
+                }))
+
+        for imdb_id in show_items:
+            if imdb_id.startswith("tt"):
+                listrr_items.append(MediaItem({
+                    "imdb_id": imdb_id, 
+                    "requested_by": self.key,
+                    "type": "show"
+                }))
+
         logger.info(f"Fetched {len(listrr_items)} items from Listrr")
         yield listrr_items

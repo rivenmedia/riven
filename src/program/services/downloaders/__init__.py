@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -15,7 +16,8 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
 )
-from program.services.downloaders.shared import parse_filename
+from program.services.downloaders.shared import parse_filename, _sort_streams_by_quality
+from program.utils.request import CircuitBreakerOpen
 
 from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
@@ -33,6 +35,10 @@ class Downloader:
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()
+        # Track circuit breaker retry attempts per item
+        self._circuit_breaker_retries = {}
+        # Track service-level cooldown when circuit breaker is open
+        self._service_cooldown_until = None
 
     def validate(self):
         if self.service is None:
@@ -42,8 +48,16 @@ class Downloader:
             return False
         return True
 
+
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
+
+        # Check if service is in cooldown due to circuit breaker
+        if self._service_cooldown_until and datetime.now() < self._service_cooldown_until:
+            next_attempt = self._service_cooldown_until
+            logger.warning(f"Downloader service in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
+            yield (item, next_attempt)
+            return
 
         if item.file or item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
@@ -57,32 +71,56 @@ class Downloader:
             logger.debug(f"No streams available for {item.log_string} ({item.id})")
             yield item
 
-        download_success = False
-        for stream in item.streams:
-            container: Optional[TorrentContainer] = self.validate_stream(stream, item)
-            if not container:
-                continue
+        try:
+            download_success = False
+            # Sort streams by resolution and rank (highest first) using simple, fast sorting
+            sorted_streams = _sort_streams_by_quality(item.streams)
+            for stream in sorted_streams:
+                container: Optional[TorrentContainer] = self.validate_stream(stream, item)
+                if not container:
+                    continue
 
-            try:
-                download_result = self.download_cached_stream(stream, container)
-                if self.update_item_attributes(item, download_result):
-                    logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-                    download_success = True
-                    break
-                else:
-                    raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
-            except Exception as e:
-                logger.debug(f"Stream {stream.infohash} failed: {e}")
-                if 'download_result' in locals() and download_result.id:
-                    try:
-                        self.service.delete_torrent(download_result.id)
-                        logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
-                    except Exception as e:
-                        logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service: {e}")
-                item.blacklist_stream(stream)
+                try:
+                    download_result = self.download_cached_stream(stream, container)
+                    if self.update_item_attributes(item, download_result):
+                        logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
+                        download_success = True
+                        break
+                    else:
+                        raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
+                except Exception as e:
+                    logger.debug(f"Stream {stream.infohash} failed: {e}")
+                    if 'download_result' in locals() and download_result.id:
+                        try:
+                            self.service.delete_torrent(download_result.id)
+                            logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
+                        except Exception as e:
+                            logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service: {e}")
+                    item.blacklist_stream(stream)
+        except CircuitBreakerOpen as e:
+            # Circuit breaker is open, set service-level cooldown and reschedule the item
+            cooldown_duration = timedelta(minutes=2)  # 2 minute cooldown
+            self._service_cooldown_until = datetime.now() + cooldown_duration
+            
+            retry_count = self._circuit_breaker_retries.get(item.id, 0)
+            if retry_count >= 6:  # Max retries reached
+                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, max retries reached. Setting service cooldown for 2 minutes.")
+                self._circuit_breaker_retries.pop(item.id, None)
+                yield item
+            else:
+                # Increment retry count and reschedule
+                self._circuit_breaker_retries[item.id] = retry_count + 1
+                next_attempt = self._service_cooldown_until
+                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, retry {retry_count + 1}/6. Setting service cooldown for 2 minutes, rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
+                yield (item, next_attempt)
+            return
 
         if not download_success:
             logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
+        else:
+            # Clear retry count and service cooldown on successful download
+            self._circuit_breaker_retries.pop(item.id, None)
+            self._service_cooldown_until = None
 
         yield item
 
@@ -182,7 +220,7 @@ class Downloader:
                     logger.debug(f"Invalid episode number {file_episode} for {show.log_string}. Skipping '{file.filename}'")
                     continue
 
-                episode: Episode = show.get_episode(file_episode, season_number)
+                episode: Episode = show.get_absolute_episode(file_episode, season_number)
                 if episode is None:
                     logger.debug(f"Episode {file_episode} from file does not match any episode in {show.log_string}. Metadata may be incorrect or wrong torrent for show.")
                     continue

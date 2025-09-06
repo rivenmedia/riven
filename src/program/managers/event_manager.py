@@ -90,6 +90,8 @@ class EventManager:
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
+            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
+            # self.remove_event_from_queue(future.event)
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"
@@ -334,11 +336,11 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        # For now lets just support imdb_ids...
-        if not db_functions.get_item_by_external_id(imdb_id=item.imdb_id):
+        if not db_functions.get_item_by_external_id(imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id):
             if self.add_event(Event(service, content_item=item)):
-                logger.debug(f"Added item with IMDB ID {item.imdb_id} to the queue.")
-
+                logger.debug(f"Added item with {item.log_string} to the queue.")
+                return True
+        return False
 
     def get_event_updates(self) -> Dict[str, List[str]]:
         """

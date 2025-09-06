@@ -8,6 +8,7 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from program.apis.overseerr_api import OverseerrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.utils.request import SmartResponse
 
 
 class Overseerr:
@@ -31,13 +32,12 @@ class Overseerr:
             return False
         try:
             self.api = di[OverseerrAPI]
-            response = self.api.validate()
-            if response.status_code >= 201:
+            if not (response := self.api.validate()):
                 logger.error(
                     f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}"
                 )
                 return False
-            return response.is_ok
+            return True
         except (ConnectionError, RetryError, MaxRetryError, NewConnectionError):
             logger.error("Overseerr URL is not reachable, or it timed out")
             return False

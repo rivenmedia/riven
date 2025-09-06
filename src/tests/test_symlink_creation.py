@@ -170,7 +170,7 @@ def test_symlink_episode(symlinker, episode, fs):
         Simplistic version of Symlinker._create_item_folders
         """
         show = episode.parent.parent
-        show_name = f"{show.title} ({show.aired_at.year}) {{imdb-{show.imdb_id}}}"
+        show_name = f"{show.title} ({show.aired_at.year}) {{tvdb-{show.tvdb_id}}}"
         episode_name = symlinker._determine_file_name(episode)
         return (
             symlinker.library_path_shows
