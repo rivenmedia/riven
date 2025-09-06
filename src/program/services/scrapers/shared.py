@@ -93,8 +93,21 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "episode":
-                # disregard torrents with incorrect episode number
-                if (item.number not in torrent.data.episodes) or (not torrent.data.episodes and item.parent.number not in torrent.data.seasons) or (item.absolute_number not in torrent.data.episodes):
+                # Disregard torrents with incorrect episode number logic:
+                skip = False
+                # If the torrent has episodes, but the episode number is not present
+                if torrent.data.episodes:
+                    if item.number not in torrent.data.episodes and item.absolute_number not in torrent.data.episodes:
+                        skip = True
+                # If the torrent does not have episodes, but has seasons, and the parent season is not present
+                elif torrent.data.seasons:
+                    if item.parent.number not in torrent.data.seasons:
+                        skip = True
+                # If the torrent has neither episodes nor seasons, skip (junk)
+                else:
+                    skip = True
+
+                if skip:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}")
                     continue

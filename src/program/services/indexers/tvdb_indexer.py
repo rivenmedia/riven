@@ -64,13 +64,20 @@ class TVDBIndexer(BaseIndexer):
             elif imdb_id:
                 search_results = self.api.search_by_imdb_id(imdb_id)
                 if search_results and search_results.data:
-                    tvdb_id = str(search_results.data[0].series.id)
-                    show_details = self.api.get_series(tvdb_id)
-                    if show_details:
-                        show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
-                        if show_item:
-                            self._add_seasons_to_show(show_item, show_details, tvdb_id)
-                            return show_item
+                    if hasattr(search_results.data[0], "movie"):
+                        logger.info(f"IMDB ID {imdb_id} is a movie, not a show, skipping")
+                        return None
+                    elif hasattr(search_results.data[0], "series"):
+                        tvdb_id = str(search_results.data[0].series.id)
+                        show_details = self.api.get_series(tvdb_id)
+                        if show_details:
+                            show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
+                            if show_item:
+                                self._add_seasons_to_show(show_item, show_details, tvdb_id)
+                                return show_item
+                    else:
+                        logger.log("NOT_FOUND", f"IMDB ID {imdb_id} is not a show, skipping")
+                        return None
 
         except Exception as e:
             logger.error(f"Error creating show from TVDB ID: {e}")

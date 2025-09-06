@@ -53,12 +53,8 @@ class Jackett:
                 if not isinstance(self.settings.ratelimit, bool):
                     logger.error("Jackett ratelimit must be a valid boolean.")
                     return False
-                indexers = self._get_indexers()
-                if not indexers:
-                    logger.error("No Jackett indexers configured.")
-                    return False
-                self.indexers = indexers
-
+                
+                # Create session first before getting indexers
                 if self.settings.ratelimit:
                     rate_limits = {
                         get_hostname_from_url(self.settings.url): {"rate": 300/60, "capacity": 300}  # Rate limit based on indexer count
@@ -71,6 +67,12 @@ class Jackett:
                     retries=3,
                     backoff_factor=0.3
                 )
+                
+                indexers = self._get_indexers()
+                if not indexers:
+                    logger.error("No Jackett indexers configured.")
+                    return False
+                self.indexers = indexers
                 
                 self._log_indexers()
                 return True

@@ -55,6 +55,9 @@ logs:
 logs-dev:
 	@docker compose -f docker-compose-dev.yml logs -f
 
+kill:
+	@pkill -f "src/main.py" || true
+
 shell:
 	@docker exec -it riven fish
 
