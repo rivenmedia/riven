@@ -38,7 +38,7 @@ class TMDBIndexer(BaseIndexer):
             item = self.copy_items(in_item, item)
             item.indexed_at = datetime.now()
             if log_msg:
-                logger.info(f"Indexed movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
+                logger.log("NEW", f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
             yield item
 
         logger.error(f"Failed to index movie with ids: imdb={in_item.imdb_id}, tmdb={in_item.tmdb_id}")
@@ -61,12 +61,15 @@ class TMDBIndexer(BaseIndexer):
             # Lookup via IMDB ID
             elif imdb_id:
                 results = self.api.get_from_external_id("imdb_id", imdb_id)
-                if results and results.data and getattr(results.data, "movie_results", None):
-                    movie_results = results.data.movie_results
-                    if movie_results:
-                        tmdb_id = str(movie_results[0].id)
-                        result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
-                        movie_details = result.data if result and result.data else None
+                if (results and results.data) and not getattr(results.data, "movie_results", []):
+                    logger.debug(f"IMDB ID {imdb_id} is not a movie, skipping")
+                    return None
+
+                movie_results = results.data.movie_results
+                if movie_results:
+                    tmdb_id = str(movie_results[0].id)
+                    result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+                    movie_details = result.data if result and result.data else None
 
         except Exception as e:
             logger.error(f"Error fetching movie details: {e}")

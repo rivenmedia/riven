@@ -30,24 +30,24 @@ class CompositeIndexer(BaseIndexer):
         item_type = in_item.type or "mediaitem"
 
         if item_type == "movie" or (in_item.tmdb_id and not in_item.tvdb_id):
-            # logger.debug(f"Using TMDB indexer for movie type: {in_item.log_string}")
             yield from self.tmdb_indexer.run(in_item, log_msg)
-            return
-            
         elif item_type in ["show", "season", "episode"] or (in_item.tvdb_id and not in_item.tmdb_id):
-            # logger.debug(f"Using TVDB indexer for {item_type} type: {in_item.log_string}")
             yield from self.tvdb_indexer.run(in_item, log_msg)
-            return
 
         elif item_type == "mediaitem":
-            if tvdb_result := self.tvdb_indexer.run(in_item, log_msg=False):
-                # logger.debug(f"Successfully indexed as show: {in_item.log_string}")
-                yield from tvdb_result
-                return
-            elif movie_result := self.tmdb_indexer.run(in_item, log_msg=False):
-                # logger.debug(f"Successfully indexed as movie: {in_item.log_string}")
-                yield from movie_result
+            item = None
+
+            if not item:
+                movie_result = self.tmdb_indexer.run(in_item, log_msg=False)
+                item = next(movie_result, None)
+
+            if not item:
+                show_result = self.tvdb_indexer.run(in_item, log_msg=False)
+                item = next(show_result, None)
+
+            if item:
+                yield item
                 return
 
-        logger.warning(f"Unknown item type, cannot index {in_item.log_string}.. tossing it")
+        logger.warning(f"Unknown item type, cannot index {in_item.log_string}.. skipping")
         return

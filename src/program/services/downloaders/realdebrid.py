@@ -139,7 +139,7 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(f"No files found in torrent {torrent_id} with infohash {infohash}")
             return None
 
-        if torrent_info.status == "waiting_files_selection":
+        if torrent_info and torrent_info.status == "waiting_files_selection":
             video_file_ids = [
                 file_id for file_id, file_info in torrent_info.files.items()
                 if file_info["filename"].endswith(tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS))
@@ -152,7 +152,7 @@ class RealDebridDownloader(DownloaderBase):
             self.select_files(torrent_id, video_file_ids)
             torrent_info = self.get_torrent_info(torrent_id)
 
-        if torrent_info.status == "downloaded":
+        if torrent_info and torrent_info.status == "downloaded":
             for file_id, file_info in torrent_info.files.items():
                 try:
                     debrid_file = DebridFile.create(
@@ -233,30 +233,34 @@ class RealDebridDownloader(DownloaderBase):
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
 
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: str) -> Optional[TorrentInfo]:
         """Get information about a torrent"""
         try:
-            data = self.api.session.get(f"torrents/info/{torrent_id}")
-            if hasattr(data.data, "files") and data.data.files:
+            response = self.api.session.get(f"torrents/info/{torrent_id}")
+            if not hasattr(response.data, "id") and not response.data.id:
+                return None
+
+            if hasattr(response.data, "files") and response.data.files:
                 files = {
                     file.id: {
                         "path": file.path, # we're gonna need this to weed out the junk files
                         "filename": file.path.split("/")[-1],
                         "bytes": file.bytes,
                         "selected": file.selected
-                    } for file in data.data.files
+                    } for file in response.data.files
                 }
             else:
                 files = {}
+
             return TorrentInfo(
-                id=data.data.id,
-                name=data.data.filename,
-                status=data.data.status,
-                infohash=data.data.hash,
-                bytes=data.data.bytes,
-                created_at=data.data.added,
-                alternative_filename=data.data.original_filename if hasattr(data.data, "original_filename") else None,
-                progress=data.data.progress if hasattr(data.data, "progress") else None,
+                id=response.data.id,
+                name=response.data.filename,
+                status=response.data.status,
+                infohash=response.data.hash,
+                bytes=response.data.bytes,
+                created_at=response.data.added if hasattr(response.data, "added") else None,
+                alternative_filename=response.data.original_filename if hasattr(response.data, "original_filename") else None,
+                progress=response.data.progress if hasattr(response.data, "progress") else None,
                 files=files,
             )
         except CircuitBreakerOpen as e:

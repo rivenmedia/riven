@@ -4,9 +4,6 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import (
-    _get_stremio_identifier,
-)
 from program.settings.manager import settings_manager
 from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
@@ -28,6 +25,7 @@ class Rarbg:
             rate_limits = {}
         
         self.session = SmartSession(
+            base_url=self.settings.url,
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
@@ -48,7 +46,7 @@ class Rarbg:
             logger.error("TheRARBG timeout is not set or invalid.")
             return False
         try:
-            url = f"{self.settings.url}/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
+            url = f"/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
             response = self.session.get(url, timeout=10)
             if response.ok:
                 return True
@@ -71,7 +69,7 @@ class Rarbg:
     def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `TheRARBG` scrape method"""
         search_string = item.log_string if item.type != "movie" else f"{item.log_string} ({item.aired_at.year})"
-        url = f"{self.settings.url}/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
+        url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
         
         torrents: Dict[str, str] = {}
         current_url = url
@@ -82,7 +80,7 @@ class Rarbg:
             if not response.ok or not hasattr(response, 'data'):
                 break
 
-            if hasattr(response.data, 'results'):
+            if hasattr(response.data, 'results') and response.data.results:
                 for result in response.data.results:
                     if not result.h:  # h is the infoHash
                         continue
@@ -91,7 +89,7 @@ class Rarbg:
                     title = result.n  # n is the title
                     torrents[info_hash] = title
 
-            if page == 2: # 50 results per page, 100 results max
+            if page == 4: # 50 results per page, 400 results max
                 break
 
             current_url = None

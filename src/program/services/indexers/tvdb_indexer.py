@@ -38,7 +38,7 @@ class TVDBIndexer(BaseIndexer):
             item = self.copy_items(in_item, item)
             item.indexed_at = datetime.now()
             if log_msg:
-                logger.info(f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
+                logger.log("NEW", f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
             yield item
 
         logger.error(f"Failed to index TV show with ids: imdb={in_item.imdb_id}, tvdb={in_item.tvdb_id}")
