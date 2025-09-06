@@ -6,7 +6,7 @@ from kink import di
 from program.apis.listrr_api import ListrrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import logger
+from loguru import logger
 
 
 class Listrr:
@@ -45,11 +45,11 @@ class Listrr:
         try:
             self.api = di[ListrrAPI]
             response = self.api.validate()
-            if not response.is_ok:
+            if not response.ok:
                 logger.error(
                     f"Listrr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}",
                 )
-            return response.is_ok
+            return response.ok
         except Exception as e:
             logger.error(f"Listrr ping exception: {e}")
             return False

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Union
+from enum import Enum
+from typing import List, Optional, Union
 
 from RTN import ParsedData, parse
 
@@ -10,6 +11,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
+from program.media.stream import Stream
 
 
 class DownloaderBase(ABC):
@@ -50,7 +52,7 @@ class DownloaderBase(ABC):
 
         Returns:
             Union[int, str]: The ID of the added torrent
-        
+
         Notes:
             The return type changes depending on the downloader
         """
@@ -114,3 +116,40 @@ def premium_days_left(expiration: datetime) -> str:
     else:
         expiration_message = "Your account expires soon."
     return expiration_message
+
+class Resolution(Enum):
+    UHD_2160P = 9
+    UHD_1440P = 7
+    FHD_1080P = 6
+    HD_720P = 5
+    SD_576P = 4
+    SD_480P = 3
+    SD_360P = 2
+    UNKNOWN = 1
+
+
+RESOLUTION_MAP: dict[str, Resolution] = {
+    "4k": Resolution.UHD_2160P,
+    "2160p": Resolution.UHD_2160P,
+    "1440p": Resolution.UHD_1440P,
+    "1080p": Resolution.FHD_1080P,
+    "720p": Resolution.HD_720P,
+    "576p": Resolution.SD_576P,
+    "480p": Resolution.SD_480P,
+    "360p": Resolution.SD_360P,
+    "unknown": Resolution.UNKNOWN,
+}
+
+
+def get_resolution(torrent: Stream) -> Resolution:
+    """Get the resolution of a torrent."""
+    resolution = torrent.resolution.lower() if torrent.resolution else "unknown"
+    return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
+
+def _sort_streams_by_quality(streams: List[Stream]) -> List[Stream]:
+    """Sort streams by resolution (highest first) and then by rank (highest first)."""
+    return sorted(
+        streams,
+        key=lambda stream: (get_resolution(stream).value, stream.rank),
+        reverse=True
+    )   

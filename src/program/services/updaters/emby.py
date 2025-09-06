@@ -6,30 +6,15 @@ from loguru import logger
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-    create_service_session,
-)
+from program.utils.request import SmartSession
 
-
-class EmbyRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
 
 class EmbyUpdater:
     def __init__(self):
         self.key = "emby"
         self.initialized = False
         self.settings = settings_manager.settings.updaters.emby
-        session = create_service_session()
-        self.request_handler = EmbyRequestHandler(session)
+        self.session = SmartSession(retries=3, backoff_factor=0.3)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -46,8 +31,8 @@ class EmbyUpdater:
             logger.error("Emby URL is not set!")
             return False
         try:
-            response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/Users?api_key={self.settings.api_key}")
-            if response.is_ok:
+            response = self.session.get(f"{self.settings.url}/Users?api_key={self.settings.api_key}")
+            if response.ok:
                 self.initialized = True
                 return True
         except Exception as e:
@@ -95,12 +80,12 @@ class EmbyUpdater:
         """Update the Emby item"""
         if item.symlinked and item.update_folder != "updated" and item.symlink_path:
             try:
-                response = self.request_handler.execute(HttpMethod.POST,
+                response = self.session.post(
                     f"{self.settings.url}/Library/Media/Updated",
                     json={"Updates": [{"Path": item.symlink_path, "UpdateType": "Created"}]},
                     params={"api_key": self.settings.api_key},
                 )
-                if response.is_ok:
+                if response.ok:
                     return True
             except Exception as e:
                 logger.error(f"Failed to update Emby item: {e}")
@@ -110,11 +95,11 @@ class EmbyUpdater:
     def get_libraries(self) -> list[SimpleNamespace]:
         """Get the libraries from Emby"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET,
+            response = self.session.get(
                 f"{self.settings.url}/Library/VirtualFolders",
                 params={"api_key": self.settings.api_key},
             )
-            if response.is_ok and response.data:
+            if response.ok and response.data:
                 return response.data
         except Exception as e:
             logger.error(f"Failed to get Emby libraries: {e}")

@@ -8,7 +8,6 @@ from loguru import logger
 from program.apis.mdblist_api import MdblistAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import RateLimitExceeded
 
 
 class Mdblist:
@@ -63,8 +62,9 @@ class Mdblist:
                             "requested_by": self.key,
                             "type": media_type
                         }))
-        except RateLimitExceeded:
-            pass
+        except Exception as e:
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                pass
 
         logger.info(f"Fetched {len(items_to_yield)} items from mdblist.com")
         yield items_to_yield

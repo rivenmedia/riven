@@ -201,14 +201,6 @@ class TorrentioConfig(Observable):
     proxy_url: str = ""
 
 
-class KnightcrawlerConfig(Observable):
-    enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com"
-    timeout: int = 30
-    ratelimit: bool = True
-
-
 class CometConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8000"
@@ -277,7 +269,6 @@ class ScraperModel(Observable):
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
     dubbed_anime_only: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
-    knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()

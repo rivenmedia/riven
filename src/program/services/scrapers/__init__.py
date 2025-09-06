@@ -10,7 +10,6 @@ from program.media.stream import Stream
 from program.media.state import States
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
-from program.services.scrapers.knightcrawler import Knightcrawler
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
@@ -29,7 +28,6 @@ class Scraping:
         self.max_failed_attempts = settings_manager.settings.scraping.max_failed_attempts
         self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
             Torrentio: Torrentio(),
-            Knightcrawler: Knightcrawler(),
             Orionoid: Orionoid(),
             Mediafusion: Mediafusion(),
             Comet: Comet()
@@ -38,7 +36,7 @@ class Scraping:
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
             Zilean: Zilean(),
-            # Rarbg: Rarbg()
+            Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,

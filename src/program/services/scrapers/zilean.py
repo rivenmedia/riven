@@ -5,14 +5,8 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Season, Show
-from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession, get_hostname_from_url
 
 
 class Zilean:
@@ -22,9 +16,11 @@ class Zilean:
         self.key = "zilean"
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
-        rate_limit_params = get_rate_limit_params(max_calls=1, period=2) if self.settings.ratelimit else None
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.request_handler = ScraperRequestHandler(session)
+        if self.settings.ratelimit:
+            rate_limits = {get_hostname_from_url(self.settings.url): {"rate": 500/60, "capacity": 500}}
+        else:
+            rate_limits = None
+        self.session = SmartSession(rate_limits=rate_limits, retries=3, backoff_factor=0.3)
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -42,8 +38,8 @@ class Zilean:
             return False
         try:
             url = f"{self.settings.url}/healthchecks/ping"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
-            return response.is_ok
+            response = self.session.get(url, timeout=self.timeout)
+            return response.ok
         except Exception as e:
             logger.error(f"Zilean failed to initialize: {e}")
             return False
@@ -52,10 +48,11 @@ class Zilean:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Zilean rate limit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.exception(f"Zilean exception thrown: {e}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Zilean rate limit exceeded for item: {item.log_string}")
+            else:
+                logger.exception(f"Zilean exception thrown: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> Dict[str, str]:
@@ -75,8 +72,8 @@ class Zilean:
         url = f"{self.settings.url}/dmm/filtered"
         params = self._build_query_params(item)
 
-        response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.timeout)
-        if not response.is_ok or not response.data:
+        response = self.session.get(url, params=params, timeout=self.timeout)
+        if not response.ok or not response.data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 

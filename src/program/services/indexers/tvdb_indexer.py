@@ -63,8 +63,8 @@ class TVDBIndexer(BaseIndexer):
             # Lookup via IMDB ID
             elif imdb_id:
                 search_results = self.api.search_by_imdb_id(imdb_id)
-                if search_results and search_results.get("data"):
-                    tvdb_id = str(search_results["data"][0]["series"]["id"])
+                if search_results and search_results.data:
+                    tvdb_id = str(search_results.data[0].series.id)
                     show_details = self.api.get_series(tvdb_id)
                     if show_details:
                         show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
@@ -84,61 +84,65 @@ class TVDBIndexer(BaseIndexer):
 
         return None
             
-    def _map_show_from_tvdb_data(self, show_data: dict = {}, imdb_id: Optional[str] = None) -> Optional[Show]:
+    def _map_show_from_tvdb_data(self, show_data, imdb_id: Optional[str] = None) -> Optional[Show]:
         """Map TVDB show data to our Show object."""
         try:
             if not imdb_id:
-                imdb_id: Optional[str] = next((item.get('id') for item in show_data.get('remoteIds') if item.get('sourceName') == 'IMDB'), None)
+                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == 'IMDB'), None)
 
             aired_at = None
-            if first_aired := show_data.get('firstAired'):
+            if first_aired := show_data.firstAired:
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
 
             network = None
-            if current_network := show_data.get('currentNetwork'):
-                network = current_network.get('name')
-            elif original_network := show_data.get('originalNetwork'):
-                network = original_network.get('name')
+            if hasattr(show_data, "currentNetwork") and show_data.currentNetwork:
+                network = show_data.currentNetwork.name
+            elif hasattr(show_data, "originalNetwork") and show_data.originalNetwork:
+                network = show_data.originalNetwork.name
 
-            aliases = self.api.get_aliases(show_data) or {}
-            slug = (show_data.get('slug') or '').replace('-', ' ').title()
+            if show_data.aliases:
+                aliases = self.api.get_aliases(show_data)
+
+            else:
+                aliases = {}
+            slug = (show_data.slug or '').replace('-', ' ').title()
             aliases.setdefault('eng', []).append(slug.title())
 
-            title = show_data.get('name', None)
-            if show_data.get('originalLanguage') != 'eng':
-                if (translation := self.api.get_translation(show_data.get('id'), "eng")):
-                    if translation and translation.get('data', {}).get('name'):
-                        additional_aliases = translation.get('data', {}).get('aliases', [])
-                        if additional_aliases:
+            title = show_data.name
+            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != 'eng':
+                if (translation := self.api.get_translation(show_data.id, "eng")):
+                    if translation and hasattr(translation, "data") and translation.data.name:
+                        title = translation.data.name
+                        if hasattr(translation.data, "aliases") and translation.data.aliases:
+                            additional_aliases = translation.data.aliases
                             aliases["eng"].extend([alias for alias in additional_aliases])
-                        title = translation.get('data', {}).get('name')
 
             if aliases:
                 # get rid of duplicate values
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             genres_lower = [
-                (g.get('name') or '').lower() for g in (show_data.get('genres') or []) if isinstance(g, dict)
+                (g.name or '').lower() for g in (show_data.genres or []) if hasattr(g, 'name')
             ]
-            is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.get('originalLanguage') != 'eng')
+            is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.originalLanguage != 'eng')
 
             show_item = {
                 "title": title,
-                "year": int(show_data.get('firstAired', '').split('-')[0]) if show_data.get('firstAired') else None,
-                "tvdb_id": str(show_data.get('id')),
+                "year": int(show_data.firstAired.split('-')[0]) if show_data.firstAired else None,
+                "tvdb_id": str(show_data.id),
                 "tmdb_id": None,
                 "imdb_id": imdb_id,
                 "aired_at": aired_at,
                 "genres": genres_lower,
                 "type": "show",
                 "requested_at": datetime.now(),
-                "overview": show_data.get('overview'),
+                "overview": show_data.overview,
                 "network": network,
-                "country": show_data.get('originalCountry'),
-                "language": show_data.get('originalLanguage'),
+                "country": show_data.originalCountry,
+                "language": show_data.originalLanguage,
                 "is_anime": is_anime,
                 "aliases": aliases,
             }
@@ -149,15 +153,15 @@ class TVDBIndexer(BaseIndexer):
 
         return None
 
-    def _add_seasons_to_show(self, show: Show, show_details: dict, tvdb_id: str):
+    def _add_seasons_to_show(self, show: Show, show_details, tvdb_id: str):
         """Add seasons and episodes to the given show using TVDB API."""
         try:
-            seasons = show_details.get('seasons', [])
-            filtered_seasons: List[dict] = [season for season in seasons if season.get('number') != 0 and season.get('type').get('type') == 'official']
+            seasons = show_details.seasons
+            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == 'official']
             for season_data in filtered_seasons:
-                if (extended_data := self.api.get_season(season_data.get('id')).get('data')):
+                if (extended_data := self.api.get_season(season_data.id).data):
                     if (season_item := self._create_season_from_data(extended_data, show)):
-                        if (episodes := extended_data.get('episodes', [])) and isinstance(episodes, list):
+                        if (episodes := extended_data.episodes) and isinstance(episodes, list):
                             for episode in episodes:
                                 episode_item = self._create_episode_from_data(episode, season_item)
                                 if episode_item:
@@ -166,10 +170,10 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error adding seasons to show: {str(e)}")
             
-    def _create_season_from_data(self, season_data: dict, show: Show) -> Optional[Season]:
+    def _create_season_from_data(self, season_data, show: Show) -> Optional[Season]:
         """Create a Season object from TVDB season data."""
         try:
-            season_number = season_data.get('number')
+            season_number = season_data.number
             if season_number is None:
                 return None
 
@@ -177,19 +181,23 @@ class TVDBIndexer(BaseIndexer):
 
             try:
                 # TVDB API doesn't return firstAired for seasons so we use the first episode's aired date
-                episodes = season_data.get('episodes')
-                if episodes and episodes[0].get('aired'):
-                    first_aired = episodes[0].get('aired')
+                episodes = season_data.episodes
+                if episodes and episodes[0].aired:
+                    first_aired = episodes[0].aired
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
             except (ValueError, TypeError):
                 pass
 
+            year = None
+            if hasattr(season_data, 'year') and season_data.year:
+                year = int(season_data.year)
+
             season_item = {
                 "number": season_number,
-                "tvdb_id": str(season_data.get('id')),
-                "title": season_data.get('name') or f"Season {season_number}",
+                "tvdb_id": str(season_data.id),
+                "title": f"Season {season_number}",
                 "aired_at": aired_at,
-                "year": int(season_data.get('year')) if season_data.get('year') else None,
+                "year": year,
                 "type": "season",
                 "is_anime": show.is_anime,
                 "requested_at": datetime.now()
@@ -202,29 +210,34 @@ class TVDBIndexer(BaseIndexer):
             logger.error(f"Error creating season from TVDB data: {str(e)}")
             return None
 
-    def _create_episode_from_data(self, episode_data: dict, season: Season) -> Optional[Episode]:
+    def _create_episode_from_data(self, episode_data, season: Season) -> Optional[Episode]:
         """Create an Episode object from TVDB episode data."""
         try:
-            episode_number = episode_data.get('number')
+            episode_number = episode_data.number
             if episode_number is None:
                 return None
 
             aired_at = None
-            if first_aired := episode_data.get('aired'):
+            if first_aired := episode_data.aired:
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
 
+            year = None
+            if hasattr(episode_data, 'year') and episode_data.year:
+                year = int(episode_data.year)
+
             episode_item = {
                 "number": episode_number,
-                "tvdb_id": str(episode_data.get('id')),
-                "title": episode_data.get('name') or f"Episode {episode_number}",
+                "tvdb_id": str(episode_data.id),
+                "title": episode_data.name or f"Episode {episode_number}",
                 "aired_at": aired_at,
-                "year": int(episode_data.get('year')) if episode_data.get('year') else None,
+                "year": year,
                 "type": "episode",
                 "is_anime": season.is_anime,
-                "requested_at": datetime.now()
+                "requested_at": datetime.now(),
+                "absolute_number": episode_data.absoluteNumber,
             }
 
             episode = Episode(episode_item)

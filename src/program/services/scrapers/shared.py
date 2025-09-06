@@ -10,28 +10,13 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from program.utils.request import (
-    create_service_session,
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-)
+from program.utils.request import SmartSession
 
 
 scraping_settings = settings_manager.settings.scraping
 ranking_settings = settings_manager.settings.ranking
 ranking_model = models.get(ranking_settings.profile)
 rtn = RTN(ranking_settings, ranking_model)
-
-
-class ScraperRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, overriden_response_type=overriden_response_type, **kwargs)
 
 
 def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = True) -> Dict[str, Stream]:
@@ -109,7 +94,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
 
             if item.type == "episode":
                 # disregard torrents with incorrect episode number
-                if item.number not in torrent.data.episodes or (not torrent.data.episodes and item.parent.number not in torrent.data.seasons):
+                if (item.number not in torrent.data.episodes) or (not torrent.data.episodes and item.parent.number not in torrent.data.seasons) or (item.absolute_number not in torrent.data.episodes):
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}")
                     continue
@@ -184,7 +169,7 @@ def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
 
 def _get_infohash_from_torrent_url(url: str) -> str:
     """Extract the infohash from a torrent URL."""
-    session = create_service_session()
+    session = SmartSession()
     with session.get(url, stream=True) as r:
         r.raise_for_status()
         torrent_data = r.content

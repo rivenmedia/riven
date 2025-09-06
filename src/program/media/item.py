@@ -286,7 +286,7 @@ class MediaItem(db.Model):
             parent_ids["tvdb_id"] = self.parent.parent.tvdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "tvdb_id") else None
             parent_ids["tmdb_id"] = self.parent.parent.tmdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "tmdb_id") else None
 
-        return {
+        data = {
             "id": str(self.id),
             "title": self.title,
             "type": self.__class__.__name__,
@@ -307,6 +307,11 @@ class MediaItem(db.Model):
             "scraped_at": str(self.scraped_at),
             "scraped_times": self.scraped_times,
         }
+
+        if hasattr(self, "seasons") or hasattr(self, "episodes"):
+            data["parent_ids"] = parent_ids
+
+        return data
 
     def to_extended_dict(self, abbreviated_children=False, with_streams=True) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
@@ -649,7 +654,7 @@ class Show(MediaItem):
             for episode in season.episodes:
                 propagate(episode, self)
 
-    def get_episode(self, episode_number: int, season_number: int = None) -> Optional["Episode"]:
+    def get_absolute_episode(self, episode_number: int, season_number: int = None) -> Optional["Episode"]:
         """Get the absolute episode number based on season and episode."""
         if not episode_number or episode_number == 0:
             return None
@@ -788,6 +793,7 @@ class Episode(MediaItem):
     id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
     parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Season.id"), use_existing_column=True)
     parent: Mapped["Season"] = relationship(back_populates="episodes", foreign_keys="Episode.parent_id", lazy="joined")
+    absolute_number: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",

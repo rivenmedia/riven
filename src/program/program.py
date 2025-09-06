@@ -31,7 +31,6 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
-from program.utils.request import RateLimitExceeded
 
 from .state_transition import process_event
 from .symlink import Symlinker
@@ -380,7 +379,7 @@ class Program(threading.Thread):
 
                             try:
                                 # Skip duplicates
-                                if not item or item.imdb_id in added_items:
+                                if not item or item.log_string in added_items:
                                     errors.append(f"Duplicate symlink directory found for {item.log_string if item else 'Unknown'}")
                                     log_message = f"Skipped duplicate: {item.log_string if item else 'Unknown'}"
                                     progress.update(task, advance=1, log=log_message)
@@ -396,36 +395,37 @@ class Program(threading.Thread):
                                 try:
                                     enhanced_item = self._enhance_item(item)
                                     if not enhanced_item:
-                                        errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
+                                        errors.append(f"Failed to enhance {item.log_string} with Trakt Indexer")
                                         log_message = f"Failed to enhance: {item.log_string}"
                                         progress.update(task, advance=1, log=log_message)
                                         continue
-                                except RateLimitExceeded:
-                                    # Rate limit hit - wait and retry once
-                                    logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
-                                    time.sleep(10)
-                                    try:
-                                        enhanced_item = self._enhance_item(item)
-                                        if not enhanced_item:
-                                            errors.append(f"Failed to enhance {item.log_string} after retry")
-                                            log_message = f"Failed after retry: {item.log_string}"
+                                except Exception as e:
+                                    if "rate limit" in str(e).lower() or "429" in str(e):
+                                        # Rate limit hit - wait and retry once
+                                        logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
+                                        time.sleep(10)
+                                        try:
+                                            enhanced_item = self._enhance_item(item)
+                                            if not enhanced_item:
+                                                errors.append(f"Failed to enhance {item.log_string} after retry")
+                                                log_message = f"Failed after retry: {item.log_string}"
+                                                progress.update(task, advance=1, log=log_message)
+                                                continue
+                                        except Exception as e:
+                                            errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
+                                            log_message = f"Retry failed: {item.log_string}"
                                             progress.update(task, advance=1, log=log_message)
                                             continue
-                                    except Exception as e:
-                                        errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
-                                        log_message = f"Retry failed: {item.log_string}"
+                                    else:
+                                        errors.append(f"Error enhancing {item.log_string}: {str(e)}")
+                                        log_message = f"Error: {item.log_string}"
                                         progress.update(task, advance=1, log=log_message)
                                         continue
-                                except Exception as e:
-                                    errors.append(f"Error enhancing {item.log_string}: {str(e)}")
-                                    log_message = f"Error: {item.log_string}"
-                                    progress.update(task, advance=1, log=log_message)
-                                    continue
 
                                 # Save to database
                                 enhanced_item.store_state()
                                 session.add(enhanced_item)
-                                added_items.add(item.imdb_id)
+                                added_items.add(item.log_string)
 
                                 # Commit every 25 items to avoid large transactions
                                 if processed_count % 25 == 0:

@@ -1,31 +1,14 @@
 ﻿"""Overseerr API client"""
 
 from loguru import logger
-from requests.exceptions import ConnectionError, RetryError
-from urllib3.exceptions import MaxRetryError
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession, get_hostname_from_url
 
 
 class OverseerrAPIError(Exception):
     """Base exception for OverseerrAPI related errors"""
-
-class OverseerrRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
-        super().__init__(session, base_url=base_url, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception=OverseerrAPIError, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
 
 
 class OverseerrAPI:
@@ -33,21 +16,35 @@ class OverseerrAPI:
 
     def __init__(self, api_key: str, base_url: str):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(max_calls=1000, period=300)
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.headers = {"X-Api-Key": self.api_key}
-        session.headers.update(self.headers)
-        self.request_handler = OverseerrRequestHandler(session, base_url=base_url)
+        self.base_url = base_url.rstrip("/")
+
+        rate_limits = {
+            get_hostname_from_url(self.base_url): {"rate": 1000/300, "capacity": 1000}  # 1000 calls per 5 minutes
+        }
+        
+        self.session = SmartSession(
+            base_url=base_url,
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
+        self.session.headers.update({"X-Api-Key": self.api_key})
 
     def validate(self):
-        return self.request_handler.execute(HttpMethod.GET, "api/v1/auth/me", timeout=30)
+        """Validate API connection"""
+        try:
+            response = self.session.get("api/v1/auth/me", timeout=15)
+            return response
+        except Exception as e:
+            logger.error(f"Overseerr validation failed: {e}")
+            return None
 
     def get_media_requests(self, service_key: str) -> list[MediaItem]:
         """Get media requests from `Overseerr`"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET, f"api/v1/request?take={10000}&filter=approved&sort=added")
-            if not response.is_ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
-                if not response.is_ok:
+            response = self.session.get(f"api/v1/request?take={10000}&filter=approved&sort=added")
+            if not response.ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
+                if not response.ok:
                     logger.error(f"Failed to get response from overseerr: {response.data}")
                 elif not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
                     logger.debug(f"No user approved requests found from overseerr")
@@ -86,11 +83,10 @@ class OverseerrAPI:
     def delete_request(self, mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
         settings = settings_manager.settings.content.overseerr
-        headers = {"X-Api-Key": settings.api_key}
         try:
-            response = self.request_handler.execute(HttpMethod.DELETE, f"api/v1/request/{mediaId}", headers=headers)
+            response = self.session.delete(f"api/v1/request/{mediaId}")
             logger.debug(f"Deleted request {mediaId} from overseerr")
-            return response.is_ok
+            return response.ok
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")
             return False
@@ -98,31 +94,11 @@ class OverseerrAPI:
     def mark_processing(self, mediaId: int) -> bool:
         """Mark item as processing in overseerr"""
         try:
-            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/pending", data={"is4k": False})
-            logger.info(f"Marked media {mediaId} as processing in overseerr")
-            return response.is_ok
+            response = self.session.put(f"api/v1/request/{mediaId}", json={"status": 3})
+            logger.debug(f"Marked request {mediaId} as processing in overseerr")
+            return response.ok
         except Exception as e:
-            logger.error(f"Failed to mark media as processing in overseerr with id {mediaId}: {str(e)}")
-            return False
-
-    def mark_partially_available(self, mediaId: int) -> bool:
-        """Mark item as partially available in overseerr"""
-        try:
-            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/partial", data={"is4k": False})
-            logger.info(f"Marked media {mediaId} as partially available in overseerr")
-            return response.is_ok
-        except Exception as e:
-            logger.error(f"Failed to mark media as partially available in overseerr with id {mediaId}: {str(e)}")
-            return False
-
-    def mark_completed(self, mediaId: int) -> bool:
-        """Mark item as completed in overseerr"""
-        try:
-            response = self.request_handler.execute(HttpMethod.POST, f"api/v1/media/{mediaId}/available", data={"is4k": False})
-            logger.info(f"Marked media {mediaId} as completed in overseerr")
-            return response.is_ok
-        except Exception as e:
-            logger.error(f"Failed to mark media as completed in overseerr with id {mediaId}: {str(e)}")
+            logger.error(f"Failed to mark request as processing in overseerr: {str(e)}")
             return False
 
 # Statuses for Media Requests endpoint /api/v1/request:

@@ -384,13 +384,13 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
                     if item.type == "show":
-                        if (episode := item.get_episode(episode_number, season_number)):
+                        if (episode := item.get_absolute_episode(episode_number, season_number)):
                             update_item(episode, episode_data, session)
                         else:
                             logger.error(f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}")
                             continue
                     elif item.type == "season":
-                        if (episode := item.parent.get_episode(episode_number, season_number)):
+                        if (episode := item.parent.get_absolute_episode(episode_number, season_number)):
                             update_item(episode, episode_data, session)
                         else:
                             logger.error(f"Failed to find season {season_number} for {item.log_string}")

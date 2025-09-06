@@ -87,6 +87,13 @@ class TokenBucket:
             logger.debug(f"Cleaned up {expired} expired tokens")
 
 
+class CircuitBreakerOpen(RuntimeError):
+    """Raised when a circuit breaker is OPEN and requests should fail fast."""
+    def __init__(self, name: str):
+        super().__init__(f"Circuit breaker OPEN for {name}")
+        self.name = name
+
+
 class CircuitBreaker:
     """
     Circuit breaker for per-domain failure handling.
@@ -99,13 +106,14 @@ class CircuitBreaker:
         state (str): Current state: 'CLOSED', 'OPEN', 'HALF_OPEN'.
     """
 
-    def __init__(self, failure_threshold: int = 5, recovery_time: int = 30):
+    def __init__(self, failure_threshold: int = 5, recovery_time: int = 30, name: str = "unknown"):
         """Initialize the circuit breaker."""
         self.failure_threshold = failure_threshold
         self.recovery_time = recovery_time
         self.failures = 0
         self.last_failure_time: Optional[float] = None
         self.state = "CLOSED"
+        self.name = name
 
     def before_request(self):
         """
@@ -117,8 +125,11 @@ class CircuitBreaker:
         if self.state == "OPEN":
             if (time.monotonic() - self.last_failure_time) > self.recovery_time:
                 self.state = "HALF_OPEN"
+                logger.info(f"Breaker for {self.name} HALF_OPEN (probe)")
             else:
-                raise RuntimeError("Circuit breaker OPEN")
+                logger.warning(f"Breaker for {self.name} OPEN (fail-fast)")
+                # raise a specific exception so callers can abort the whole operation
+                raise CircuitBreakerOpen(self.name)
 
     def after_request(self, success: bool):
         """
@@ -129,19 +140,21 @@ class CircuitBreaker:
         """
         if success:
             if self.state in ("HALF_OPEN", "OPEN"):
+                logger.debug(f"Circuit breaker reset to CLOSED for {self.name}")
                 self._reset()
         else:
             self.failures += 1
             self.last_failure_time = time.monotonic()
             if self.failures >= self.failure_threshold:
                 self.state = "OPEN"
-                logger.warning("Circuit breaker tripped to OPEN")
+                logger.warning(f"Circuit breaker tripped to OPEN for {self.name}")
 
     def _reset(self):
         """Reset the circuit breaker to CLOSED state."""
         self.failures = 0
         self.state = "CLOSED"
         self.last_failure_time = None
+        logger.debug(f"Circuit breaker reset to CLOSED for {self.name}")
 
 
 class SmartResponse(requests.Response):
@@ -213,7 +226,12 @@ class SmartSession(requests.Session):
     SmartSession adds automatic SmartResponse wrapping, rate limiting, circuit breaker, proxies, and retries.
 
     Attributes:
-        response_class: Response class to wrap requests.
+        base_url (str): Optional base URL; relative request URLs will be resolved against this.
+        rate_limits (dict): Optional per-domain rate limits, e.g., {"api.example.com": {"rate": 1, "capacity": 5}}.
+        proxies (dict): Optional dictionary of HTTP/HTTPS proxies.
+        retries (int): Number of retries for failed requests.
+        backoff_factor (float): Backoff factor for retries.
+        response_class (type): Response class to wrap requests.
         limiters (dict): Per-domain TokenBucket instances.
         breakers (dict): Per-domain CircuitBreaker instances.
     """
@@ -222,6 +240,7 @@ class SmartSession(requests.Session):
 
     def __init__(
         self,
+        base_url: Optional[str] = None,
         rate_limits: Optional[Dict[str, Dict[str, int]]] = None,
         proxies: Optional[Dict[str, str]] = None,
         retries: int = 3,
@@ -231,6 +250,7 @@ class SmartSession(requests.Session):
         Initialize SmartSession.
 
         Args:
+            base_url (str): Optional base URL; relative request URLs will be resolved against this.
             rate_limits (dict): Optional per-domain rate limits, e.g., {"api.example.com": {"rate": 1, "capacity": 5}}.
             proxies (dict): Optional dictionary of HTTP/HTTPS proxies.
             retries (int): Number of retries for failed requests.
@@ -251,15 +271,17 @@ class SmartSession(requests.Session):
         self.mount("http://", adapter)
         self.mount("https://", adapter)
 
+        self.base_url = base_url.rstrip("/") if base_url else None
         self.limiters: Dict[str, TokenBucket] = {}
         self.breakers: Dict[str, CircuitBreaker] = {}
 
         if rate_limits:
             for domain, cfg in rate_limits.items():
+
                 self.limiters[domain] = TokenBucket(
                     rate=cfg.get("rate", 1), capacity=cfg.get("capacity", 5)
                 )
-                self.breakers[domain] = CircuitBreaker()
+                self.breakers[domain] = CircuitBreaker(name=domain)
 
         if proxies:
             self.proxies.update(proxies)
@@ -270,13 +292,18 @@ class SmartSession(requests.Session):
 
         Args:
             method (str): HTTP method.
-            url (str): Request URL.
+            url (str): Request URL (relative or absolute).
             **kwargs: Additional requests.Session parameters.
 
         Returns:
             SmartResponse: Parsed response object.
         """
-        domain = self._extract_domain(url)
+        if self.base_url and not url.lower().startswith(("http://", "https://")):
+            url = f"{self.base_url}/{url.lstrip('/')}"
+
+        parsed = urlparse(url)
+        domain = parsed.hostname.lower() if parsed.hostname else ""
+
         breaker = self.breakers.get(domain)
         if breaker:
             breaker.before_request()
@@ -296,16 +323,15 @@ class SmartSession(requests.Session):
                 breaker.after_request(False)
             raise
 
-    @staticmethod
-    def _extract_domain(url: str) -> str:
-        """
-        Extract the hostname from a URL.
+def get_hostname_from_url(url: str) -> str:
+    """
+    Extract the hostname from a URL.
 
-        Args:
-            url (str): URL string.
+    Args:
+        url (str): URL string.
 
-        Returns:
-            str: Lowercase hostname.
-        """
-        parsed = urlparse(url)
-        return parsed.hostname.lower() if parsed.hostname else ""
+    Returns:
+        str: Lowercase hostname.
+    """
+    parsed = urlparse(url)
+    return parsed.hostname.lower() if parsed.hostname else ""

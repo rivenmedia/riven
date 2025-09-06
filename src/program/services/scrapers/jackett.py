@@ -6,22 +6,13 @@ import time
 import xml.etree.ElementTree as ET
 from typing import Dict, Generator, List, Optional, Tuple
 
-import requests
 from loguru import logger
 from pydantic import BaseModel
 from requests import HTTPError, ReadTimeout, RequestException, Timeout
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    ResponseType,
-    create_service_session,
-    get_http_adapter,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession, get_hostname_from_url
 
 
 class JackettIndexer(BaseModel):
@@ -67,11 +58,20 @@ class Jackett:
                     logger.error("No Jackett indexers configured.")
                     return False
                 self.indexers = indexers
-                rate_limit_params = get_rate_limit_params(max_calls=len(self.indexers),
-                                                          period=2) if self.settings.ratelimit else None
-                http_adapter = get_http_adapter(pool_connections=len(self.indexers), pool_maxsize=len(self.indexers))
-                session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
-                self.request_handler = ScraperRequestHandler(session)
+
+                if self.settings.ratelimit:
+                    rate_limits = {
+                        get_hostname_from_url(self.settings.url): {"rate": 300/60, "capacity": 300}  # Rate limit based on indexer count
+                    }
+                else:
+                    rate_limits = {}
+                
+                self.session = SmartSession(
+                    rate_limits=rate_limits,
+                    retries=3,
+                    backoff_factor=0.3
+                )
+                
                 self._log_indexers()
                 return True
             except ReadTimeout:
@@ -88,12 +88,11 @@ class Jackett:
         and update the object with scraped streams"""
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Jackett ratelimit exceeded for item: {item.log_string}")
-        except RequestException as e:
-            logger.error(f"Jackett request exception: {e}")
         except Exception as e:
-            logger.error(f"Jackett failed to scrape item with error: {e}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Jackett ratelimit exceeded for item: {item.log_string}")
+            else:
+                logger.error(f"Jackett failed to scrape item with error: {e}")
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
@@ -206,7 +205,7 @@ class Jackett:
         """Get the indexers from Jackett"""
         url = f"{self.settings.url}/api/v2.0/indexers/all/results/torznab/api?apikey={self.api_key}&t=indexers&configured=true"
         try:
-            response = requests.get(url)
+            response = self.session.get(url)
             response.raise_for_status()
             return self._get_indexer_from_xml(response.text)
         except Exception as e:
@@ -241,15 +240,12 @@ class Jackett:
     def _fetch_results(self, url: str, params: Dict[str, str], indexer_title: str, search_type: str) -> List[Tuple[str, str]]:
         """Fetch results from the given indexer"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET, url, params=params, timeout=self.settings.timeout)
-            return self._parse_xml(response.response.text)
-        except RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded while fetching results for {search_type}: {indexer_title}")
-            return []
-        except (HTTPError, ConnectionError, Timeout):
-            logger.debug(f"Indexer failed to fetch results for {search_type}: {indexer_title}")
+            response = self.session.get(url, params=params, timeout=self.settings.timeout)
+            return self._parse_xml(response.text)
         except Exception as e:
-            if "Jackett.Common.IndexerException" in str(e):
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.warning(f"Rate limit exceeded while fetching results for {search_type}: {indexer_title}")
+            elif "Jackett.Common.IndexerException" in str(e):
                 logger.error(f"Indexer exception while fetching results from {indexer_title} ({search_type}): {e}")
             else:
                 logger.error(f"Exception while fetching results from {indexer_title} ({search_type}): {e}")

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from program.media.item import Episode, MediaItem, Movie, Show
 
 imdbid_pattern = re.compile(r"tt\d+")
+tvdbid_pattern = re.compile(r"tvdb-(\d+)")
+tmdbid_pattern = re.compile(r"tmdb-(\d+)")
 season_pattern = re.compile(r"s(\d+)")
 episode_pattern = re.compile(r"e(\d+)")
 
@@ -89,6 +91,8 @@ class SymlinkLibrary:
 
 def process_items(directory: Path, item_class, item_type: str, is_anime: bool = False):
     """Process items in the given directory and yield MediaItem instances."""
+    from program.media.item import Movie
+
     items = [
         (Path(root), file)
         for root, _, files in os.walk(directory)
@@ -100,13 +104,30 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
         if path.parent not in POSSIBLE_DIRS:
             logger.debug(f"Skipping {path.parent} as it's not a valid media directory.")
             continue
+
         imdb_id = re.search(r"(tt\d+)", filename)
+        tvdb_id = re.search(r"tvdb-(\d+)", filename)
+        tmdb_id = re.search(r"tmdb-(\d+)", filename)
         title = re.search(r"(.+)?( \()", filename)
-        if not imdb_id or not title:
-            logger.error(f"Can't extract {item_type} imdb_id or title at path {path / filename}")
+
+        if not imdb_id and not tvdb_id and not tmdb_id or not title:
+            logger.error(f"Can't extract {item_type} id or title at path {path / filename}")
             continue
 
-        item = item_class({"imdb_id": imdb_id.group(), "title": title.group(1)})
+        if item_class == Movie:
+            item = item_class({
+                "title": title.group(1),
+                "imdb_id": imdb_id.group() if imdb_id else None,
+                "tmdb_id": tmdb_id.group().replace('tmdb-', '') if tmdb_id else None,
+            })
+        else:
+            item = item_class({
+                "title": title.group(1),
+                "imdb_id": imdb_id.group() if imdb_id else None,
+                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+            })
+
+
         resolve_symlink_and_set_attrs(item, path / filename)
         find_subtitles(item, path / filename)
 
@@ -140,11 +161,20 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
     from program.media.item import Episode, Season, Show
     for show in os.listdir(directory):
         imdb_id = re.search(r"(tt\d+)", show)
+        tvdb_id = re.search(r"tvdb-(\d+)", show)
         title = re.search(r"(.+)?( \()", show)
-        if not imdb_id or not title:
-            logger.log("NOT_FOUND", f"Can't extract {item_type} imdb_id or title at path {directory / show}")
+
+        if (not imdb_id and not tvdb_id) or not title:
+            logger.log("NOT_FOUND", f"Can't extract {item_type} id or title at path {directory / show}")
             continue
-        show_item = Show({"imdb_id": imdb_id.group(), "title": title.group(1)})
+
+        show_item = Show(
+            {
+                "title": title.group(1),
+                "imdb_id": imdb_id.group() if imdb_id else None,
+                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+            }
+        )
         if is_anime:
             show_item.is_anime = True
         seasons = {}
@@ -329,14 +359,18 @@ def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"
     from program.db.db_functions import get_item_by_imdb_and_episode, get_item_by_symlink_path
 
     imdb_id_match = imdbid_pattern.search(filepath)
+    tvdb_id_match = tvdbid_pattern.search(filepath)
+    tmdb_id_match = tmdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
 
-    if not imdb_id_match:
+    if not imdb_id_match and not tvdb_id_match and not tmdb_id_match:
         logger.debug(f"File path missing imdb_id: {filepath}")
         return []
 
-    imdb_id = imdb_id_match.group()
+    imdb_id = imdb_id_match.group() if imdb_id_match else None
+    tvdb_id = tvdb_id_match.group() if tvdb_id_match else None
+    tmdb_id = tmdb_id_match.group() if tmdb_id_match else None
     season_number = int(season_number_match.group(1)) if season_number_match else None
     episode_number = int(episode_number_match.group(1)) if episode_number_match else None
 

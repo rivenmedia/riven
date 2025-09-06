@@ -20,7 +20,6 @@ from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
     Comet,
     Jackett,
-    Knightcrawler,
     Mediafusion,
     Orionoid,
     Scraping,
@@ -31,7 +30,7 @@ from program.services.updaters import Updater
 from program.symlink import Symlinker
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Knightcrawler, Mediafusion, Orionoid, Jackett, Zilean, Comet]
+Scraper = Union[Scraping, Torrentio, Mediafusion, Orionoid, Jackett, Zilean, Comet]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[
     RealDebridDownloader,

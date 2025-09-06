@@ -5,17 +5,11 @@ from loguru import logger
 
 from program.media.item import MediaItem
 from program.services.scrapers.shared import (
-    ScraperRequestHandler,
     _get_stremio_identifier,
 )
 from program.settings.manager import settings_manager
 from program.settings.models import TorrentioConfig
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession
 
 
 class Torrentio:
@@ -24,10 +18,20 @@ class Torrentio:
     def __init__(self):
         self.key = "torrentio"
         self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
-        self.timeout: int = self.settings.timeout
-        rate_limit_params = get_rate_limit_params(max_calls=1, period=5) if self.settings.ratelimit else None
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.request_handler = ScraperRequestHandler(session)
+        self.timeout: int = self.settings.timeout or 15
+
+        if self.settings.ratelimit:
+            rate_limits = {
+                "torrentio.strem.fun": {"rate": 150/60, "capacity": 150}  # 150 calls per minute
+            }
+        else:
+            rate_limits = {}
+
+        self.session = SmartSession(
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None
         self.initialized: bool = self.validate()
@@ -47,8 +51,8 @@ class Torrentio:
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=10, headers=self.headers, proxies=self.proxies)
-            if response.is_ok:
+            response = self.session.get(url, timeout=10, headers=self.headers, proxies=self.proxies)
+            if response.ok:
                 return True
         except Exception as e:
             logger.error(f"Torrentio failed to initialize: {e}", )
@@ -59,10 +63,11 @@ class Torrentio:
         """Scrape Torrentio with the given media item for streams"""
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Torrentio rate limit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.exception(f"Torrentio exception thrown: {str(e)}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Torrentio rate limit exceeded for item: {item.log_string}")
+            else:
+                logger.exception(f"Torrentio exception thrown: {str(e)}")
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
@@ -75,8 +80,8 @@ class Torrentio:
         if identifier:
             url += identifier
 
-        response = self.request_handler.execute(HttpMethod.GET, f"{url}.json", timeout=self.timeout, headers=self.headers, proxies=self.proxies)
-        if not response.is_ok or not hasattr(response.data, 'streams') or not response.data.streams:
+        response = self.session.get(f"{url}.json", timeout=self.timeout, headers=self.headers, proxies=self.proxies)
+        if not response.ok or not hasattr(response.data, 'streams') or not response.data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 

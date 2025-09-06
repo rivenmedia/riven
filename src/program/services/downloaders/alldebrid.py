@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import List, Optional
 
 from loguru import logger
-from requests import Session
 from requests.exceptions import ConnectTimeout
 
 from program.services.downloaders.models import (
@@ -13,34 +12,13 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    BaseRequestHandler,
-    BaseRequestParameters,
-    HttpMethod,
-    ResponseType,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession, CircuitBreakerOpen
 
 from .shared import DownloaderBase, premium_days_left
 
 
 class AllDebridError(Exception):
     """Base exception for AllDebrid related errors"""
-
-class AllDebridBaseRequestParameters(BaseRequestParameters):
-    """AllDebrid base request parameters"""
-    agent: Optional[str] = None
-
-class AllDebridRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, base_url: str, base_params: AllDebridBaseRequestParameters, request_logging: bool = False):
-        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, base_params=base_params, custom_exception=AllDebridError, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> dict:
-        response = super()._request(method, endpoint, **kwargs)
-        if not response.is_ok or not response.data or "data" not in response.data:
-            raise AllDebridError("Invalid response from AllDebrid")
-        return response.data["data"]
 
 class AllDebridAPI:
     """Handles AllDebrid API communication"""
@@ -49,16 +27,22 @@ class AllDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(per_minute=600, per_second=12, enable_bucket_cleanup=True)
-        self.session = create_service_session(rate_limit_params=rate_limit_params)
+
+        rate_limits = {
+            "api.alldebrid.com": {"rate": 12, "capacity": 600}  # 12 calls per second, 600 per minute
+        }
+        
+        self.session = SmartSession(
+            base_url=self.BASE_URL,
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
         self.session.headers.update({
             "Authorization": f"Bearer {api_key}"
         })
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
-        base_params = AllDebridBaseRequestParameters()
-        base_params.agent = self.AGENT
-        self.request_handler = AllDebridRequestHandler(self.session, self.BASE_URL, base_params)
 
 
 class AllDebridDownloader(DownloaderBase):
@@ -101,8 +85,8 @@ class AllDebridDownloader(DownloaderBase):
     def _validate_premium(self) -> bool:
         """Validate premium status"""
         try:
-            user_info = self.api.request_handler.execute(HttpMethod.GET, "user")
-            user = user_info.get("user", {})
+            user_info = self.api.session.get("user")
+            user = user_info.data.get("user", {})
 
             if not user.get("isPremium", False):
                 logger.error("Premium membership required")
@@ -154,6 +138,9 @@ class AllDebridDownloader(DownloaderBase):
 
                 if processed_files:
                     return_value = TorrentContainer(infohash=infohash, files=processed_files)
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN for AllDebrid API, skipping {infohash}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except InvalidDebridFileException as e:
             logger.debug(f"{infohash}: {e}")
         except Exception as e:
@@ -172,12 +159,11 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api.request_handler.execute(
-                HttpMethod.GET,
+            response = self.api.session.get(
                 "magnet/upload",
                 params={"magnets[]": infohash}
             )
-            magnet_info = response.get("magnets", [])[0]
+            magnet_info = response.data.get("magnets", [])[0]
             torrent_id = magnet_info.get("id")
 
             if not torrent_id:
@@ -185,6 +171,9 @@ class AllDebridDownloader(DownloaderBase):
 
             return str(torrent_id)
 
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot add torrent {infohash}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to add torrent {infohash}: {e}")
             raise
@@ -211,8 +200,8 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError("Downloader not properly initialized")
 
         try:
-            response = self.api.request_handler.execute(HttpMethod.GET, "magnet/status", params={"id": torrent_id})
-            info = response.get("magnets", {})
+            response = self.api.session.get("magnet/status", params={"id": torrent_id})
+            info = response.data.get("magnets", {})
             if "filename" not in info:
                 raise AllDebridError("Invalid torrent info response")
             return TorrentInfo(
@@ -223,6 +212,9 @@ class AllDebridDownloader(DownloaderBase):
                 created_at=info["uploadDate"],
                 progress=(info["size"] / info["downloaded"]) if info["downloaded"] != 0 else 0
             )
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot get torrent info for {torrent_id}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
@@ -233,7 +225,10 @@ class AllDebridDownloader(DownloaderBase):
         Required by DownloaderBase
         """
         try:
-            self.api.request_handler.execute(HttpMethod.GET, "magnet/delete", params={"id": torrent_id})
+            self.api.session.get("magnet/delete", params={"id": torrent_id})
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot delete torrent {torrent_id}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
             raise
@@ -243,14 +238,16 @@ class AllDebridDownloader(DownloaderBase):
         Get torrent files and links by id
         """
         try:
-            response = self.api.request_handler.execute(
-                HttpMethod.GET,
+            response = self.api.session.get(
                 "magnet/files",
                 params={"id[]": torrent_id}
             )
-            magnet_info = next((info for info in response.get("magnets") if info["id"] == torrent_id), {})
+            magnet_info = next((info for info in response.data.get("magnets") if info["id"] == torrent_id), {})
             return magnet_info.get("files", {})
 
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot get files for {torrent_id}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to get files for {torrent_id}: {e}")
             raise

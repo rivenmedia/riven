@@ -24,8 +24,8 @@ Services currently supported:
 | Type              | Supported                                                                         |
 | ----------------- | --------------------------------------------------------------------------------- |
 | Debrid services   | Real Debrid, All Debrid, TorBox                                                   |
-| Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                           |
-| Scraping services | Comet, Jackett, Torrentio, Orionoid, Knightcrawler, Mediafusion, Prowlarr, Zilean |
+| Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                 |
+| Scraping services | Comet, Jackett, Torrentio, Orionoid, Mediafusion, Prowlarr, Zilean, Rarbg         |
 | Media servers     | Plex, Jellyfin, Emby                                                              |
 
 and more to come!

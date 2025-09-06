@@ -9,17 +9,8 @@ from typing import Dict, Optional
 from kink import inject
 from loguru import logger
 from pydantic import BaseModel
-from requests import Session
 
-from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    create_service_session,
-    get_cache_params,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession
 from program.settings.manager import settings_manager
 from program.utils import data_dir_path
 
@@ -49,13 +40,6 @@ class TVDBToken(BaseModel):
         )
 
 
-class TVDBRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
-        super().__init__(session, base_url=base_url, response_type=ResponseType.DICT, custom_exception=TVDBApiError, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
-
 
 @inject
 class TVDBApi:
@@ -66,11 +50,18 @@ class TVDBApi:
     def __init__(self):
         self.api_key = "6be85335-5c4f-4d8d-b945-d3ed0eb8cdce"
         self.token = None
-        rate_limit_params = get_rate_limit_params(max_calls=150, period=60, max_delay=60)  # TVDB allows 150 requests per minute
-        tvdb_cache = get_cache_params("tvdb", 86400)
-        use_cache = os.environ.get("SKIP_TVDB_CACHE", "false").lower() == "false"
-        self.session = create_service_session(rate_limit_params=rate_limit_params, use_cache=use_cache, cache_params=tvdb_cache)
-        self.request_handler = TVDBRequestHandler(self.session, base_url=self.BASE_URL)
+
+        rate_limits = {
+            "api4.thetvdb.com": {"rate": 25, "capacity": 1000}  # 25 requests per second
+        }
+        
+        self.session = SmartSession(
+            base_url=self.BASE_URL,
+            rate_limits=rate_limits,
+            retries=2,
+            backoff_factor=0.3
+        )
+        
         self.token = self._load_token_from_file()
         if not self.token:
             logger.error("No TVDB token found, exiting.")
@@ -120,8 +111,8 @@ class TVDBApi:
             return self.token.token
 
         payload = {"apikey": self.api_key}
-        response = self.request_handler.execute(HttpMethod.POST, "login", json=payload)
-        if not response.is_ok or not response.data.get("data", {}).get("token"):
+        response = self.session.post("login", json=payload)
+        if not response.ok or not response.data.get("data", {}).get("token"):
             logger.error(f"Failed to obtain TVDB token: {response.status_code}")
             return None
 
@@ -147,31 +138,27 @@ class TVDBApi:
         
     def get_series(self, series_id: str) -> Optional[Dict]:
         """Get TV series details by TVDB ID."""
-        logger.debug(f"Getting series details for TVDB ID: {series_id}")
-
         try:
             headers = self._get_headers()
             url = f"series/{series_id}/extended"
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to get series details: {response.status_code}")
                 return None
                 
-            return response.data.get("data") if response.data and "data" in response.data else None
+            return response.data.data if response.data and hasattr(response.data, "data") else None
         except Exception as e:
             logger.error(f"Error getting series details: {str(e)}")
             return None
 
     def search_by_imdb_id(self, imdb_id: str) -> Optional[Dict]:
         """Search for a series by IMDB ID."""
-        logger.debug(f"Searching for series by IMDB ID: {imdb_id}")
-
         try:
             headers = self._get_headers()
             url = f"search/remoteid/{imdb_id}"
             
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to search by IMDB ID: {response.status_code}")
                 return None
                 
@@ -186,8 +173,8 @@ class TVDBApi:
             headers = self._get_headers()
             url = f"seasons/{season_id}/extended"
 
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to get season details: {response.status_code}")
                 return None
                 
@@ -202,8 +189,8 @@ class TVDBApi:
             headers = self._get_headers()
             url = f"seasons/{season_id}/extended"
             
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to get season episodes: {response.status_code}")
                 return None
                 
@@ -218,8 +205,8 @@ class TVDBApi:
             headers = self._get_headers()
             url = f"episodes/{episode_id}/extended"
             
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to get episode details: {response.status_code}")
                 return None
                 
@@ -234,8 +221,8 @@ class TVDBApi:
             headers = self._get_headers()
             url = f"series/{series_id}/translations/{language}"
             
-            response = self.request_handler.execute(HttpMethod.GET, url, headers=headers)
-            if not response.is_ok:
+            response = self.session.get(url, headers=headers)
+            if not response.ok:
                 logger.error(f"Failed to get translation title: {response.status_code}")
                 return None
 
@@ -244,7 +231,7 @@ class TVDBApi:
             logger.error(f"Error getting translation title: {str(e)}")
             return None
     
-    def get_aliases(self, series_data: Dict) -> Optional[Dict[str, list[str]]]:
+    def get_aliases(self, series_data) -> Optional[Dict[str, list[str]]]:
         """
         Get aliases for a series, grouped by language.
 
@@ -252,9 +239,9 @@ class TVDBApi:
             Dict[str, list[str]]: A dictionary where keys are language codes and values are lists of alias names.
         """
         aliases_by_lang: Dict[str, list[str]] = {}
-        for alias in series_data.get("aliases", []):
-            lang = alias.get("language")
-            name = alias.get("name")
+        for alias in getattr(series_data, "aliases", []):
+            lang = getattr(alias, "language", None)
+            name = getattr(alias, "name", None)
             if lang and name:
                 aliases_by_lang.setdefault(lang, []).append(name)
         return aliases_by_lang

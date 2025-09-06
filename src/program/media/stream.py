@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy
 from RTN import Torrent
@@ -44,6 +44,7 @@ class Stream(db.Model):
     parsed_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     rank: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
     lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
+    resolution: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
 
     parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamRelation", back_populates="streams", lazy="selectin")
     blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams", lazy="selectin")
@@ -53,6 +54,7 @@ class Stream(db.Model):
         Index("ix_stream_raw_title", "raw_title"),
         Index("ix_stream_parsed_title", "parsed_title"),
         Index("ix_stream_rank", "rank"),
+        Index("ix_stream_resolution", "resolution"),
     )
 
     def __init__(self, torrent: Torrent):
@@ -62,6 +64,7 @@ class Stream(db.Model):
         self.parsed_data = torrent.data
         self.rank = torrent.rank
         self.lev_ratio = torrent.lev_ratio
+        self.resolution = torrent.data.resolution.lower() if torrent.data.resolution else "unknown"
 
     def __hash__(self):
         return self.infohash

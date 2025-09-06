@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Union
 from loguru import logger
-from requests import Session, exceptions
+from requests import exceptions
 
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
@@ -11,14 +11,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseType,
-    create_service_session,
-    get_rate_limit_params,
-    get_retry_policy,
-)
+from program.utils.request import SmartSession, CircuitBreakerOpen
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -26,31 +19,6 @@ from .shared import DownloaderBase, premium_days_left
 class RealDebridError(Exception):
     """Base exception for Real-Debrid related errors"""
 
-class RealDebridRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, base_url: str, request_logging: bool = False):
-        super().__init__(session, response_type=ResponseType.DICT, base_url=base_url, custom_exception=RealDebridError, request_logging=request_logging)
-        self.timeout = 30  # Real-Debrid timeout: 30 seconds total
-
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> Union[dict, list]:
-        # Add debugging for rate limiting
-        if hasattr(self.session, 'limiter') and hasattr(self.session.limiter, 'bucket_group') and 'api.real-debrid.com' in self.session.limiter.bucket_group:
-            bucket = self.session.limiter.bucket_group['api.real-debrid.com']
-            bucket_size = f"{bucket._q.unfinished_tasks} / {bucket._q.maxsize}"
-            logger.debug(f"Rate limiter bucket size before request: {bucket_size}")
-
-        response = super()._request(method, endpoint, **kwargs)
-
-        # Add debugging for rate limiting
-        if hasattr(self.session, 'limiter') and hasattr(self.session.limiter, 'bucket_group') and 'api.real-debrid.com' in self.session.limiter.bucket_group:
-            bucket = self.session.limiter.bucket_group['api.real-debrid.com']
-            bucket_size = f"{bucket._q.unfinished_tasks} / {bucket._q.maxsize}"
-            logger.debug(f"Rate limiter bucket size after request: {bucket_size}")
-
-        if response.status_code == 204:
-            return {}
-        if not response.data and not response.is_ok:
-            raise RealDebridError("Invalid JSON response from RealDebrid")
-        return response.data
 
 class RealDebridAPI:
     """Handles Real-Debrid API communication"""
@@ -58,13 +26,16 @@ class RealDebridAPI:
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        rate_limit_params = get_rate_limit_params(per_minute=200, max_delay=15, enable_bucket_cleanup=True)
-        retry_policy = get_retry_policy(retries=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-        self.session = create_service_session(rate_limit_params=rate_limit_params, retry_policy=retry_policy)
+        rate_limits = {"api.real-debrid.com": {"rate": 250/60, "capacity": 250}} # 250 requests per minute
+        self.session = SmartSession(
+            base_url=self.BASE_URL,
+            rate_limits=rate_limits,
+            retries=2,
+            backoff_factor=0.5
+        )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
-            self.session.proxies = {"http": proxy_url, "https": proxy_url}
-        self.request_handler = RealDebridRequestHandler(self.session, self.BASE_URL)
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 class RealDebridDownloader(DownloaderBase):
     """Main Real-Debrid downloader class implementing DownloaderBase"""
@@ -102,13 +73,13 @@ class RealDebridDownloader(DownloaderBase):
     def _validate_premium(self) -> bool:
         """Validate premium status"""
         try:
-            user_info = self.api.request_handler.execute(HttpMethod.GET, "user")
-            if not user_info.get("premium"):
+            user_info = self.api.session.get("user")
+            if not user_info.data.premium:
                 logger.error("Premium membership required")
                 return False
 
             expiration = datetime.fromisoformat(
-                user_info["expiration"].replace("Z", "+00:00")
+                user_info.data.expiration.replace("Z", "+00:00")
             ).replace(tzinfo=None)
             logger.info(premium_days_left(expiration))
             return True
@@ -127,12 +98,15 @@ class RealDebridDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container = self._process_torrent(torrent_id, infohash, item_type)
+        except CircuitBreakerOpen as e:
+            logger.debug(f"Circuit breaker OPEN for Real-Debrid API, skipping {infohash}: {e}")
+            raise
         except InvalidDebridFileException as e:
             logger.debug(f"Invalid Debrid File: {infohash}: {e}")
         except exceptions.ReadTimeout as e:
             logger.debug(f"Failed to get instant availability for {infohash}: [ReadTimeout] {e}")
         except Exception as e:
-            if len(e.args) > 0:
+            if hasattr(e, "args") and len(e.args) > 0:
                 if " 503 " in e.args[0] or "Infringing" in e.args[0]:
                     logger.debug(f"Failed to get instant availability for {infohash}: [503] Infringing Torrent or Service Unavailable")
                 elif " 429 " in e.args[0] or "Rate Limit Exceeded" in e.args[0]:
@@ -206,9 +180,9 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(f"Skipping torrent {torrent_id} with infohash {infohash} because it is downloading. Torrent status on Real-Debrid: {torrent_info.status}")
             return None
 
-        # if torrent_info.status in ("magnet_error", "error", "virus", "dead", "compressing", "uploading"):
-        #     logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
-        #     return None
+        if torrent_info.status in ("magnet_error", "error", "virus", "dead", "compressing", "uploading"):
+            logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
+            return None
 
         logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
         return None
@@ -217,28 +191,32 @@ class RealDebridDownloader(DownloaderBase):
         """Add a torrent by infohash"""
         try:
             magnet = f"magnet:?xt=urn:btih:{infohash}"
-            response = self.api.request_handler.execute(
-                HttpMethod.POST,
+            response = self.api.session.post(
                 "torrents/addMagnet",
                 data={"magnet": magnet.lower()}
             )
-            return response["id"]
+            if hasattr(response.data, "id") and response.data.id:
+                return response.data.id
+            raise RealDebridError("No torrent ID in response")
+        except CircuitBreakerOpen as e:
+            raise
         except Exception as e:
-            if e.response.status_code == 503:
-                logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
-                raise RealDebridError("Infringing Torrent or Service Unavailable")
-            elif e.response.status_code == 429:
-                logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
-                raise RealDebridError("Rate Limit Exceeded")
-            elif e.response.status_code == 404:
-                logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
-                raise RealDebridError("Torrent Not Found or Service Unavailable")
-            elif e.response.status_code == 400:
-                logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid")
-                raise RealDebridError("Torrent file is not valid")
-            elif e.response.status_code == 502:
-                logger.debug(f"Failed to add torrent {infohash}: [502] Bad Gateway")
-                raise RealDebridError("Bad Gateway")
+            if hasattr(e, "response"):
+                if e.response.status_code == 503:
+                    logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
+                    raise RealDebridError("Infringing Torrent or Service Unavailable")
+                elif e.response.status_code == 429:
+                    logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
+                    raise RealDebridError("Rate Limit Exceeded")
+                elif e.response.status_code == 404:
+                    logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
+                    raise RealDebridError("Torrent Not Found or Service Unavailable")
+                elif e.response.status_code == 400:
+                    logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid")
+                    raise RealDebridError("Torrent file is not valid")
+                elif e.response.status_code == 502:
+                    logger.debug(f"Failed to add torrent {infohash}: [502] Bad Gateway")
+                    raise RealDebridError("Bad Gateway")
             else:
                 logger.debug(f"Failed to add torrent {infohash}: {e}")
                 raise RealDebridError(f"Failed to add torrent {infohash}: {e}")
@@ -247,11 +225,10 @@ class RealDebridDownloader(DownloaderBase):
         """Select files from a torrent"""
         try:
             selection = ",".join(str(file_id) for file_id in ids) if ids else "all"
-            self.api.request_handler.execute(
-                HttpMethod.POST,
-                f"torrents/selectFiles/{torrent_id}",
-                data={"files": selection}
-            )
+            self.api.session.post(f"torrents/selectFiles/{torrent_id}", data={"files": selection})
+        except CircuitBreakerOpen as e:
+            logger.debug(f"Circuit breaker OPEN for Real-Debrid API, cannot select files for torrent {torrent_id}: {e}")
+            raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to select files for torrent {torrent_id}: {e}")
             raise
@@ -259,26 +236,31 @@ class RealDebridDownloader(DownloaderBase):
     def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """Get information about a torrent"""
         try:
-            data = self.api.request_handler.execute(HttpMethod.GET, f"torrents/info/{torrent_id}")
-            files = {
-                file["id"]: {
-                    "path": file["path"], # we're gonna need this to weed out the junk files
-                    "filename": file["path"].split("/")[-1],
-                    "bytes": file["bytes"],
-                    "selected": file["selected"]
-                } for file in data["files"]
-            }
+            data = self.api.session.get(f"torrents/info/{torrent_id}")
+            if hasattr(data.data, "files") and data.data.files:
+                files = {
+                    file.id: {
+                        "path": file.path, # we're gonna need this to weed out the junk files
+                        "filename": file.path.split("/")[-1],
+                        "bytes": file.bytes,
+                        "selected": file.selected
+                    } for file in data.data.files
+                }
+            else:
+                files = {}
             return TorrentInfo(
-                id=data["id"],
-                name=data["filename"],
-                status=data["status"],
-                infohash=data["hash"],
-                bytes=data["bytes"],
-                created_at=data["added"],
-                alternative_filename=data.get("original_filename", None),
-                progress=data.get("progress", None),
+                id=data.data.id,
+                name=data.data.filename,
+                status=data.data.status,
+                infohash=data.data.hash,
+                bytes=data.data.bytes,
+                created_at=data.data.added,
+                alternative_filename=data.data.original_filename if hasattr(data.data, "original_filename") else None,
+                progress=data.data.progress if hasattr(data.data, "progress") else None,
                 files=files,
             )
+        except CircuitBreakerOpen as e:
+            raise
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
@@ -286,7 +268,9 @@ class RealDebridDownloader(DownloaderBase):
     def delete_torrent(self, torrent_id: str) -> None:
         """Delete a torrent"""
         try:
-            self.api.request_handler.execute(HttpMethod.DELETE, f"torrents/delete/{torrent_id}")
+            self.api.session.delete(f"torrents/delete/{torrent_id}")
+        except CircuitBreakerOpen as e:
+            raise
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
             raise

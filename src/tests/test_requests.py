@@ -1,186 +1,169 @@
-﻿from types import SimpleNamespace
-from unittest.mock import MagicMock
-
+﻿import json
 import pytest
-from requests import Session
-from requests.exceptions import ConnectTimeout
 
-from program.utils.request import (
-    CachedLimiterSession,
-    CachedSession,
-    LimiterSession,
-    MemoryQueueBucket,
-    RateLimitExceeded,
-    RequestException,
-    Response,
-    ResponseObject,
-    _make_request,
-    create_service_session,
-    delete,
-    get,
-    get_cache_params,
-    get_rate_limit_params,
-    ping,
-    post,
-    put,
-)
+from program.utils.request import SmartSession, SmartResponse, TokenBucket, CircuitBreaker
 
 
-class TestCodeUnderTest:
-    def test_create_service_session_default(self):
-        session = create_service_session()
-        assert isinstance(session, Session)
+class FakeClock:
+    """A monotonic clock you can control; time.sleep() advances it instantly."""
+    def __init__(self, start=0.0):
+        self.t = float(start)
 
-    def test_handle_empty_response_content(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.ok = True
-        mock_response.status_code = 200
-        mock_response.content = b""
-        mock_response.headers = {"Content-Type": "application/json"}
-        response_object = ResponseObject(mock_response)
-        assert response_object.data == {}
+    def monotonic(self):
+        return self.t
 
-    def test_handle_json_response(self, mocker):
-        mock_session = mocker.MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = b'{"key": "value"}'
-        mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.ok = True
-        mock_response.status_code = 200
-        mock_session.request.return_value = mock_response
-        response_object = get(mock_session, "https://example.com")
-        assert response_object.is_ok is True
-        assert response_object.status_code == 200
-        assert response_object.data.key == "value"
-
-    def test_handle_xml_response(self, mocker):
-        mock_session = mocker.MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = b'<root><key>value</key></root>'
-        mock_response.headers = {"Content-Type": "application/xml"}
-        mock_response.ok = True
-        mock_response.status_code = 200
-        mock_session.request.return_value = mock_response
-        response_object = get(mock_session, "https://example.com")
-        assert response_object.is_ok is True
-        assert response_object.status_code == 200
-        assert response_object.data.key.text == "value"
-
-    def test_create_service_session_without_cache_params_raises_error(self):
-        mock_rate_limit_params = get_rate_limit_params(per_minute=60)
-        with pytest.raises(ValueError, match="Cache parameters must be provided if use_cache is True."):
-            create_service_session(rate_limit_params=mock_rate_limit_params, use_cache=True)
-
-    def test_apply_rate_limiting_valid_parameters(self, mocker):
-        mock_rate_limit_params = {'per_minute': 60, 'bucket_class': MemoryQueueBucket, 'bucket_kwargs': {}}
-        session = create_service_session(rate_limit_params=mock_rate_limit_params)
-        assert isinstance(session, LimiterSession)
-
-    def test_apply_caching_valid_parameters(self, mocker):
-        mock_cache_params = {'cache_name': 'test_cache', 'expire_after': 60}
-        session = create_service_session(use_cache=True, cache_params=mock_cache_params)
-        assert isinstance(session, CachedSession)
-
-    def test_apply_rate_limiting_and_caching_valid_parameters(self, mocker):
-        mock_rate_limit_params = {'per_minute': 60, 'bucket_class': MemoryQueueBucket, 'bucket_kwargs': {}}
-        mock_cache_params = {'cache_name': 'test_cache', 'expire_after': 60}
-        session = create_service_session(rate_limit_params=mock_rate_limit_params, use_cache=True, cache_params=mock_cache_params)
-        assert isinstance(session, CachedLimiterSession)
-
-    def test_make_get_request_valid_response(self, mocker):
-        url = "https://api.example.com"
-        expected_response = ResponseObject(SimpleNamespace(ok=True, status_code=200, content={}, headers={}))
-        mocker.patch('program.utils.request.Session')
-        session_instance = Session()
-        mocker.patch('program.utils.request._make_request', return_value=expected_response)
-        response = get(session_instance, url)
-        assert response.is_ok is True
-        assert response.status_code == 200
-
-    def test_make_post_request_valid_response(self, mocker):
-        url = "https://api.example.com"
-        expected_response = ResponseObject(SimpleNamespace(ok=True, status_code=201, content={}, headers={}))
-        mocker.patch('program.utils.request.Session')
-        session_instance = Session()
-        mocker.patch('program.utils.request._make_request', return_value=expected_response)
-        response = post(session_instance, url)
-        assert response.is_ok is True
-        assert response.status_code == 201
-
-    def test_put_request_valid_response(self, mocker):
-        mock_response = MagicMock()
-        mock_response.ok = True
-        mock_response.status_code = 200
-        mock_session = mocker.Mock()
-        mocker.patch('program.utils.request._make_request', return_value=ResponseObject(mock_response))
-        response = put(mock_session, "https://example.com")
-        assert response.is_ok
-        assert response.status_code == 200
+    def sleep(self, seconds):
+        # advance virtual time
+        self.t += float(seconds)
 
 
-    def test_delete_request_valid_response(self, mocker):
-        url = "https://example.com"
-        expected_response = ResponseObject(SimpleNamespace(ok=True, status_code=200, content={}, headers={}))
-        mocker.patch('program.utils.request._make_request', return_value=expected_response)
-        mock_session = mocker.Mock()
-        response = delete(mock_session, url)
-        assert response.is_ok is True
-        assert response.status_code == 200
+def test_smartresponse_json_dot_access():
+    # Build a real Response and coerce to SmartResponse to validate .data
+    from requests import Response
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"movie": {"title": "Fight Club", "year": 1999}}).encode("utf-8")
+    resp.headers["Content-Type"] = "application/json"
 
-    def test_handle_unsupported_content_types(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.headers.get.return_value = "unsupported/type"
-        mock_response.content = b"Unsupported content"
-        mock_session = mocker.Mock()
-        mock_session.request.return_value = mock_response
-        response_object = _make_request(mock_session, "GET", "https://example.com")
-        assert response_object.data == {}
-
-    def test_raise_exceptions_timeout_status_codes(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.ok = False
-        mock_response.status_code = 504
-        mock_session = mocker.Mock()
-        mock_session.request.return_value = mock_response
-        with pytest.raises(ConnectTimeout):
-            _make_request(mock_session, "GET", "https://example.com")
-
-    def test_raise_rate_limit_exceptions(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.ok = False
-        mock_response.status_code = 429
-        mock_response.headers = {"Content-Type": "application/json", "Connection": "keep-alive"}
-        mocker.patch('program.utils.request.Session.request', return_value=mock_response)
-        rate_limit_params = get_rate_limit_params(per_second=10, period=1)
-        cache_params = {'cache_name': 'test_cache', 'expire_after': 60}
-        session = create_service_session(rate_limit_params=rate_limit_params, use_cache=True, cache_params=cache_params)
-        with pytest.raises(RateLimitExceeded):
-            get(session, "https://api.example.com/data")
-
-    def test_raise_client_error_exceptions(self, mocker):
-        mock_response = mocker.Mock()
-        mock_response.ok = False
-        mock_response.status_code = 400
-        mock_response.headers = {"Content-Type": "application/json", "Connection": "keep-alive"}
-        mocker.patch('program.utils.request.Session.request', return_value=mock_response)
-        cache_params = {'cache_name': 'test_cache', 'expire_after': 60}
-        session = create_service_session(rate_limit_params=None, use_cache=True, cache_params=cache_params)
-        with pytest.raises(RequestException):
-            post(session, "https://api.example.com/data", data={"key": "value"})
-
-    def test_raise_exceptions_server_error_status_codes(self, mocker):
-        mocker.patch('program.utils.request._make_request',
-                     side_effect=RequestException("Server error with status 500"))
-        mock_session = mocker.Mock()
-        with pytest.raises(RequestException, match="Server error with status 500"):
-            ping(mock_session, "https://example.com")
+    resp.__class__ = SmartResponse
+    assert isinstance(resp, SmartResponse)
+    assert resp.data.movie.title == "Fight Club"
+    assert resp.data.movie.year == 1999
 
 
-    def test_log_errors_when_parsing_response_content_fails(self, mocker):
-        mock_logger = mocker.patch('logging.Logger.error')
-        response = Response()
-        response._content = b"invalid json content"
-        response.headers = {"Content-Type": "application/json"}
-        response.status_code = 200
-        ResponseObject(response)
-        mock_logger.assert_called_with("Failed to parse response content: Expecting value: line 1 column 1 (char 0)", exc_info=True)
+def test_smartresponse_xml_dot_access():
+    from requests import Response
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <root>
+      <user id="42"><name>alice</name></user>
+    </root>"""
+    resp = Response()
+    resp.status_code = 200
+    resp._content = xml
+    resp.headers["Content-Type"] = "application/xml"
+
+    resp.__class__ = SmartResponse
+    # dot-notation via SimpleNamespace
+    assert resp.data.user.id == "42"
+    assert resp.data.user.name.text.strip() == "alice"
+
+
+def test_smartresponse_non_json_data_is_empty():
+    from requests import Response
+    resp = Response()
+    resp.status_code = 200
+    resp._content = b"hello world"
+    resp.headers["Content-Type"] = "text/plain"
+
+    resp.__class__ = SmartResponse
+    assert resp.data == {}  # safe no-op
+
+
+def test_base_url_resolution_and_get(requests_mock):
+    session = SmartSession(base_url="https://api.example.com")
+    requests_mock.get("https://api.example.com/ping", json={"ok": True})
+    r = session.get("/ping")
+    assert isinstance(r, SmartResponse)
+    assert r.ok
+    assert r.data.ok is True
+
+
+def test_returns_smartresponse_instance(requests_mock):
+    session = SmartSession()
+    requests_mock.get("https://httpbin.local/json", json={"x": 1})
+    r = session.get("https://httpbin.local/json")
+    assert isinstance(r, SmartResponse)
+    assert r.data.x == 1
+
+
+def test_adapter_retries_on_500_then_success(requests_mock):
+    # Configure 1 retry → first 500, second 200 should succeed
+    session = SmartSession(retries=1, backoff_factor=0.0)
+    url = "https://retry.local/thing"
+    requests_mock.get(url, [
+        {"status_code": 500, "json": {"err": "boom"}},
+        {"status_code": 200, "json": {"ok": True}},
+    ])
+    r = session.get(url)
+    assert r.status_code == 200
+    assert r.data.ok is True
+
+
+def test_tokenbucket_waits_without_real_sleep(monkeypatch, requests_mock):
+    """
+    Configure rate=1 rps, capacity=1:
+      - First request consumes the initial token immediately
+      - Second request must wait ~1s for refill
+    We monkeypatch time.monotonic and time.sleep in the module under test
+    to advance virtual time instantly so the test is fast.
+    """
+    clock = FakeClock(start=0.0)
+
+    # Patch time in the module under test
+    import program.utils.request as request_mod
+    monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
+    monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
+
+    # Build session with strict per-host limit
+    session = SmartSession(rate_limits={"ratelimited.local": {"rate": 1, "capacity": 1}})
+
+    url = "https://ratelimited.local/data"
+    requests_mock.get(url, json={"ok": True})
+
+    # First request at t=0 → consumes initial token
+    r1 = session.get(url)
+    assert r1.status_code == 200
+    assert r1.data.ok is True
+    t_after_r1 = clock.monotonic()
+
+    # Second request immediately → should call wait(), which will do sleep(0.05) loops
+    r2 = session.get(url)
+    assert r2.status_code == 200
+    # Since we fast-forward time in sleep(), virtual time should have advanced
+    assert clock.monotonic() > t_after_r1
+
+
+
+def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
+    """
+    Open after 2 failures. Third call should fail fast while OPEN.
+    After recovery window, allow a probe (HALF_OPEN) and then close on success.
+    """
+    clock = FakeClock(start=100.0)
+    import program.utils.request as request_mod
+    monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
+    monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
+
+    session = SmartSession(rate_limits={"cb.local": {"rate": 100, "capacity": 100}})
+    # Override breaker config for this test
+    session.breakers["cb.local"] = CircuitBreaker(failure_threshold=2, recovery_time=5)
+
+    url = "https://cb.local/unstable"
+
+    # First two responses: 500
+    requests_mock.get(url, [
+        {"status_code": 500, "json": {"err": "a"}},
+        {"status_code": 500, "json": {"err": "b"}},
+        {"status_code": 200, "json": {"ok": True}},  # probe success after recovery
+    ])
+
+    # Failure #1
+    with pytest.raises(Exception):
+        session.get(url)
+    # Failure #2 → breaker opens
+    with pytest.raises(Exception):
+        session.get(url)
+
+    br = session.breakers["cb.local"]
+    assert br.state == "OPEN"
+
+    # Immediate call while OPEN → fail fast before sending HTTP
+    with pytest.raises(RuntimeError) as ei:
+        session.get(url)
+    assert "Circuit breaker OPEN" in str(ei.value)
+
+    # Advance time past recovery window → HALF_OPEN
+    clock.t += 6.0  # > recovery_time
+    r = session.get(url)  # probe should be allowed, returns 200
+    assert r.status_code == 200
+    assert br.state == "CLOSED"
