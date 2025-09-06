@@ -39,7 +39,7 @@ class PlexWatchlist:
             for rss_url in self.settings.rss:
                 try:
                     response = self.api.validate_rss(rss_url)
-                    response.response.raise_for_status()
+                    response.raise_for_status()
                     self.api.rss_enabled = True
                 except HTTPError as e:
                     if e.response.status_code == 404:
@@ -58,14 +58,20 @@ class PlexWatchlist:
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
         try:
-            watchlist_items: list[str] = self.api.get_items_from_watchlist()
-            rss_items: list[str] = self.api.get_items_from_rss() if self.api.rss_enabled else []
+            watchlist_items: list[dict[str, str]] = self.api.get_items_from_watchlist()
+            # rss_items: list[dict[str, str]] = self.api.get_items_from_rss() if self.api.rss_enabled else []
         except Exception as e:
             logger.warning(f"Error fetching items: {e}")
             return
 
-        plex_items: set[str] = set(watchlist_items) | set(rss_items)
-        items_to_yield: list[MediaItem] = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in plex_items if imdb_id and imdb_id.startswith("tt")]
+        items_to_yield: list[MediaItem] = []
+        for d in watchlist_items:
+            if d["tvdb_id"] and not d["tmdb_id"]: # show
+                items_to_yield.append(MediaItem({"tvdb_id": d["tvdb_id"], "requested_by": self.key}))
+            elif d["tmdb_id"] and not d["tvdb_id"]: # movie
+                items_to_yield.append(MediaItem({"tmdb_id": d["tmdb_id"], "requested_by": self.key}))
+            elif d["imdb_id"] and not d["tvdb_id"] and not d["tmdb_id"]: # going to have to guess these...
+                items_to_yield.append(MediaItem({"imdb_id": d["imdb_id"], "requested_by": self.key}))
 
         logger.info(f"Fetched {len(items_to_yield)} items from plex watchlist")
         yield items_to_yield
