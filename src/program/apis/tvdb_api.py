@@ -64,8 +64,12 @@ class TVDBApi:
         
         self.token = self._load_token_from_file()
         if not self.token:
-            logger.error("No TVDB token found, exiting.")
-            exit(0)
+            logger.info("No TVDB token found, attempting to get new token...")
+            self.token = self._get_auth_token()
+            if not self.token:
+                logger.error("Failed to obtain TVDB token, exiting.")
+                exit(0)
+            logger.info("Successfully obtained new TVDB token")
 
     def _load_token_from_file(self) -> Optional[TVDBToken]:
         """Load token from file if it exists and is valid"""
@@ -82,9 +86,9 @@ class TVDBApi:
                 else:
                     logger.debug("Loaded TVDB token is expired, refreshing")
                     token = self._get_auth_token()
-                    if not self.token:
-                        exit(0)
-                    self._save_token_to_file(self.token)
+                    if not token:
+                        logger.error("Failed to refresh expired TVDB token")
+                        return None
                     logger.debug("Refreshed TVDB token")
                     return token
             return None
@@ -104,11 +108,11 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error saving TVDB token to file: {str(e)}")
         
-    def _get_auth_token(self) -> Optional[str]:
+    def _get_auth_token(self) -> Optional[TVDBToken]:
         """Get auth token, refreshing if necessary."""
         now = datetime.now()
         if self.token and self.token.expires_at > now:
-            return self.token.token
+            return self.token
 
         payload = {"apikey": self.api_key}
         response = self.session.post("login", json=payload)
@@ -118,9 +122,9 @@ class TVDBApi:
 
         if token := response.data["data"]["token"]:
             expires_at = now + timedelta(days=25)
-            self.token = TVDBToken(token=token, expires_at=expires_at)
-            self._save_token_to_file(self.token)
-            return token
+            token_obj = TVDBToken(token=token, expires_at=expires_at)
+            self._save_token_to_file(token_obj)
+            return token_obj
             
         return None
         
@@ -131,7 +135,7 @@ class TVDBApi:
             raise TVDBApiError("Could not obtain valid TVDB auth token")
 
         return {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {token.token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
