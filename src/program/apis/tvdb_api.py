@@ -116,11 +116,11 @@ class TVDBApi:
 
         payload = {"apikey": self.api_key}
         response = self.session.post("login", json=payload)
-        if not response.ok or not response.data.get("data", {}).get("token"):
+        if not response.ok or not hasattr(response.data, "data") or not response.data.data.token:
             logger.error(f"Failed to obtain TVDB token: {response.status_code}")
             return None
 
-        if token := response.data["data"]["token"]:
+        if token := response.data.data.token:
             expires_at = now + timedelta(days=25)
             token_obj = TVDBToken(token=token, expires_at=expires_at)
             self._save_token_to_file(token_obj)
@@ -213,8 +213,8 @@ class TVDBApi:
             if not response.ok:
                 logger.error(f"Failed to get episode details: {response.status_code}")
                 return None
-                
-            return response.data.get("data") if response.data and "data" in response.data else None
+
+            return response.data.data if response.data and hasattr(response.data, "data") else None
         except Exception as e:
             logger.error(f"Error getting episode details: {str(e)}")
             return None
