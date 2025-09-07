@@ -235,6 +235,11 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_torrent_info(self, torrent_id: str) -> Optional[TorrentInfo]:
         """Get information about a torrent"""
+
+        if not torrent_id:
+            logger.debug("No torrent ID provided")
+            return None
+
         try:
             response = self.api.session.get(f"torrents/info/{torrent_id}")
 
