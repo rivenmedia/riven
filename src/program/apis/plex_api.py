@@ -4,10 +4,14 @@ from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
+import regex
 
 from program.media import Movie, Episode
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
+
+TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
+TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")
 
 
 class PlexAPIError(Exception):
@@ -68,9 +72,9 @@ class PlexAPI:
         logger.debug(f"Failed to fetch IMDb ID for ratingKey: {ratingKey}")
         return None
 
-    def get_items_from_rss(self) -> list[str]:
+    def get_items_from_rss(self) -> list[tuple[str, str]]:
         """Fetch media from Plex RSS Feeds."""
-        rss_items: list[str] = []
+        rss_items: list[tuple[str, str]] = []
         for rss_url in self.rss_urls:
             try:
                 response = self.session.get(rss_url + "?format=json", timeout=60)
@@ -79,11 +83,20 @@ class PlexAPI:
                     continue
 
                 for _item in response.data.items:
-                    imdb_id = self.extract_imdb_ids(_item.get("guids", []))
-                    if imdb_id and imdb_id.startswith("tt"):
-                        rss_items.append(imdb_id)
-                    else:
-                        logger.log("NOT_FOUND", f"Failed to extract IMDb ID from {_item['title']}")
+                    if _item.category == "movie":
+                        tmdb_id = next((guid.split("//")[-1] for guid in _item.guids if guid.startswith("tmdb://")), "")
+                        if tmdb_id:
+                            rss_items.append(("movie", tmdb_id))
+                        else:
+                            logger.log("NOT_FOUND", f"Failed to extract appropriate ID from {_item.title}")
+
+                    elif _item.category == "show":
+                        tvdb_id = next((guid.split("//")[-1] for guid in _item.guids if guid.startswith("tvdb://")), "")
+                        if tvdb_id:
+                            rss_items.append(("show", tvdb_id))
+                        else:
+                            logger.log("NOT_FOUND", f"Failed to extract appropriate ID from {_item.title}")
+
             except Exception as e:
                 logger.error(f"An unexpected error occurred while fetching Plex RSS feed from {rss_url}: {e}")
         return rss_items
@@ -116,15 +129,6 @@ class PlexAPI:
                 logger.error(f"An unexpected error occurred while fetching Plex watchlist item {item.title}: {e}")
 
         return watchlist_items
-
-    def extract_imdb_ids(self, guids: list) -> str | None:
-        """Helper method to extract IMDb IDs from guids"""
-        for guid in guids:
-            if guid and guid.startswith("imdb://"):
-                imdb_id = guid.split("//")[-1]
-                if imdb_id:
-                    return imdb_id
-        return None
 
     def update_section(self, section, item: Union[Movie, Episode]) -> bool:
         """Update the Plex section for the given item"""

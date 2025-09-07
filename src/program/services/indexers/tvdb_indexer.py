@@ -82,13 +82,6 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error creating show from TVDB ID: {e}")
 
-        if tvdb_id:
-            logger.error(f"Failed to get show details for TVDB ID: {tvdb_id}")
-        elif imdb_id:
-            logger.error(f"Failed to get show details for IMDB ID: {imdb_id}")
-        else:
-            logger.error("Failed to get show details for unknown ID")
-
         return None
             
     def _map_show_from_tvdb_data(self, show_data, imdb_id: Optional[str] = None) -> Optional[Show]:

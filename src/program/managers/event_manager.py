@@ -336,7 +336,7 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        if not db_functions.get_item_by_external_id(imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id):
+        if not db_functions.item_exists_by_any_id(item.id, item.tvdb_id, item.tmdb_id, item.imdb_id):
             if self.add_event(Event(service, content_item=item)):
                 logger.debug(f"Added item with {item.log_string} to the queue.")
                 return True

@@ -4,7 +4,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.program import Program
 from program.services.downloaders.realdebrid import RealDebridDownloader
-from program.services.indexers.trakt import TraktIndexer
+from program.services.indexers import CompositeIndexer
 from program.services.scrapers import Scraping
 from program.services.updaters.plex import PlexUpdater
 from program.state_transition import process_event
@@ -124,9 +124,9 @@ def test_show_state_transitions(show):
     assert show.state == States.Completed, "Show should transition to Completed state"
 
 @pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, TraktIndexer),
-    # (States.Requested, TraktIndexer, TraktIndexer),
-    (States.Indexed, TraktIndexer, Scraping),
+    (States.Unknown, Program, CompositeIndexer),
+    # (States.Requested, CompositeIndexer, CompositeIndexer),
+    (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
     (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),
@@ -148,9 +148,9 @@ def test_process_event_transitions_movie(state, service, next_service, movie):
 
 
 @pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, TraktIndexer),
-    # (States.Requested, TraktIndexer, TraktIndexer),
-    (States.Indexed, TraktIndexer, Scraping),
+    (States.Unknown, Program, CompositeIndexer),
+    # (States.Requested, CompositeIndexer, CompositeIndexer),
+    (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
     (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),
@@ -179,9 +179,9 @@ def test_process_event_transition_shows(state, service, next_service, show):
 
 # test media item movie
 @pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, TraktIndexer),
-    # (States.Requested, TraktIndexer, TraktIndexer),
-    (States.Indexed, TraktIndexer, Scraping),
+    (States.Unknown, Program, CompositeIndexer),
+    # (States.Requested, CompositeIndexer, CompositeIndexer),
+    (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
     (States.Downloaded, RealDebridDownloader, Symlinker),
     (States.Symlinked, Symlinker, PlexUpdater),

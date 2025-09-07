@@ -1,9 +1,6 @@
 import argparse
 
-from program.db.db_functions import (
-    hard_reset_database,
-    hard_reset_database_pre_migration,
-)
+from program.db.db_functions import hard_reset_database
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 from program.utils.logging import log_cleaner, logger
@@ -47,11 +44,6 @@ def handle_args():
 
     if args.hard_reset_db:
         hard_reset_database()
-        logger.info("Hard reset the database")
-        exit(0)
-
-    if args.hard_reset_db_pre_migration:
-        hard_reset_database_pre_migration()
         logger.info("Hard reset the database")
         exit(0)
 

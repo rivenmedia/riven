@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 import os
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,6 +16,7 @@ from program.db import db_functions
 from program.db.db import db, get_db
 from program.media.item import MediaItem
 from program.media.state import States
+from program.services.indexers import CompositeIndexer
 from program.services.content import Overseerr
 
 from program.symlink import Symlinker
@@ -409,43 +410,72 @@ class RemoveResponse(BaseModel):
     summary="Remove Media Items",
     description="Remove media items based on item IDs",
     operation_id="remove_item",
+    response_model=RemoveResponse,  # keep if you already use this
 )
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
-    ids: list[str] = handle_ids(ids)
-    try:
-        media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
-        if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
-        for item in media_items:
-            if not item or not isinstance(item, MediaItem):
-                continue
-            logger.debug(f"Removing item with ID {item.id}")
-            request.app.program.em.cancel_job(item.id)  # this will cancel the item and all its children
-            await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            if item.type == "show":
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        db_functions.delete_media_item_by_id(episode.id)
-                    db_functions.delete_media_item_by_id(season.id)
-            db_functions.clear_streams_by_id(item.id)
+    """
+    Remove one or more media items by their IDs.
 
-            symlink_service = request.app.program.services.get(Symlinker)
-            if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(item.id)
+    This uses ON DELETE CASCADE, so deleting the root MediaItem row also removes:
+      - joined-table rows (Movie/Show/Season/Episode),
+      - hierarchy children (Season/Episode via parent_id),
+      - Subtitle rows (Subtitle.parent_id → MediaItem.id),
+      - StreamRelation / StreamBlacklistRelation rows.
 
-            if item.overseerr_id:
-                overseerr: Overseerr = request.app.program.services.get(Overseerr)
-                if overseerr:
-                    overseerr.delete_request(item.overseerr_id)
-                    logger.debug(f"Deleted request from Overseerr with ID {item.overseerr_id}")
+    We explicitly avoid pre-deleting seasons/episodes or clearing stream links—
+    that work is delegated to the database for speed and consistency.
+    """
+    item_ids: List[str] = handle_ids(ids)
+    if not item_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
-            logger.debug(f"Deleting item from database with ID {item.id}")
-            db_functions.delete_media_item_by_id(item.id)
-            logger.info(f"Successfully removed item with ID {item.id}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Load items (allow any concrete type; callers may pass show/movie/season/episode)
+    items: List[MediaItem] = db_functions.get_items_by_ids(item_ids)
+    found_ids = {it.id for it in items}
+    missing = [i for i in item_ids if i not in found_ids]
+    if missing:
+        # Keep existing behavior: all must exist, otherwise 404
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item(s) not found: {missing}",
+        )
 
-    return {"message": f"Removed items with ids {ids}", "ids": ids}
+    # Cancel active jobs first (your EventManager cancels children too)
+    for item in items:
+        logger.debug(f"Canceling jobs for {item.id}")
+        request.app.program.em.cancel_job(item.id)
+
+    # Give the scheduler a tick to process cancellations (non-blocking)
+    await asyncio.sleep(0.2)
+
+    # Side-effects outside the DB (symlinks, Overseerr) before deleting rows
+    symlinker: Symlinker | None = request.app.program.services.get(Symlinker)
+    overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
+
+    for item in items:
+        if symlinker:
+            try:
+                symlinker.delete_item_symlinks_by_id(item.id)
+            except Exception as e:
+                logger.warning(f"Failed to remove symlinks for {item.id}: {e}")
+
+        if item.overseerr_id and overseerr:
+            try:
+                overseerr.delete_request(item.overseerr_id)
+                logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id} for {item.id}: {e}")
+
+    # Single responsibility: remove root MediaItem(s); cascades handle the rest
+    for item in items:
+        logger.debug(f"Deleting item {item.id} via cascade")
+        ok = db_functions.delete_media_item_by_id(item.id)
+        if not ok:
+            # If one fails, continue deleting the rest but report a 500 afterward
+            logger.error(f"Failed to delete item {item.id}")
+
+    logger.info(f"Successfully removed items: {item_ids}")
+    return {"message": f"Removed items with ids {item_ids}", "ids": item_ids}
 
 @router.get(
     "/{item_id}/streams"
@@ -486,7 +516,7 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.blacklist_stream(item, stream, db)
+    db_functions.set_stream_blacklisted(item, stream, blacklisted=True, session=db)
 
     return {
         "message": f"Blacklisted stream {stream_id} for item {item_id}",
@@ -510,7 +540,7 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.unblacklist_stream(item, stream, db)
+    db_functions.set_stream_blacklisted(item, stream, blacklisted=False, session=db)
 
     return {
         "message": f"Unblacklisted stream {stream_id} for item {item_id}",
@@ -608,49 +638,49 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
 
     return {"message": f"Successfully unpaused items.", "ids": ids}
 
-# class ReindexResponse(BaseModel):
-#     message: str
+class ReindexResponse(BaseModel):
+    message: str
 
-# @router.post(
-#     "/reindex",
-#     summary="Reindex item with Trakt Indexer to pick up new season & episode releases.",
-#     description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
-#     operation_id="trakt_reindexer"
-# )
-# async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
-#     """Reindex item through Trakt manually"""
-#     if item_id:
-#         item: MediaItem = db_functions.get_item_by_id(item_id)
-#     elif imdb_id:
-#         item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
-#     else:
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
+@router.post(
+    "/reindex",
+    summary="Reindex item with Composite Indexer to pick up new season & episode releases.",
+    description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
+    operation_id="composite_reindexer"
+)
+async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
+    """Reindex item through Composite Indexer manually"""
+    if item_id:
+        item: MediaItem = db_functions.get_item_by_id(item_id)
+    elif imdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
 
-#     if not item:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-#     if item.type not in ("movie", "show"):
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
+    if item.type not in ("movie", "show"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
 
-#     try:
-#         trakt_indexer = request.app.program.all_services[TraktIndexer]
-#         item.indexed_at = None
-#         reindexed_item = next(trakt_indexer.run(item, log_msg=True))
+    try:
+        c_indexer = request.app.program.all_services[CompositeIndexer]
+        item.indexed_at = None
+        reindexed_item = next(c_indexer.run(item, log_msg=True))
         
-#         if reindexed_item:
-#             with db.Session() as session:
-#                 session.merge(reindexed_item)
-#                 session.commit()
+        if reindexed_item:
+            with db.Session() as session:
+                session.merge(reindexed_item)
+                session.commit()
             
-#             logger.info(f"Successfully reindexed {item.log_string}")
-#             request.app.program.em.add_event(Event("RetryItem", item.id))
-#             return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
-#         else:
-#             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Trakt")
+            logger.info(f"Successfully reindexed {item.log_string}")
+            request.app.program.em.add_event(Event("RetryItem", item.id))
+            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
 
-#     except Exception as e:
-#         logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
 
 class FfprobeResponse(BaseModel):
     message: str

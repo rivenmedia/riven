@@ -1,289 +1,446 @@
+# program/services/db_functions.py
+from __future__ import annotations
+
 import os
 import shutil
 import alembic
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+
 from loguru import logger
 from threading import Event
-from typing import TYPE_CHECKING, Optional
-from datetime import datetime, timedelta
-from sqlalchemy import delete, func, insert, inspect, or_, select, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import delete, func, insert, inspect, or_, select, text, case
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, object_session, selectinload
+from typing import TYPE_CHECKING
+
+from sqlalchemy.sql import bindparam
 
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-from program.utils import root_dir
 from program.media.state import States
-
 from .db import db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 
-def get_item_by_id(item_id: str, item_types: list[str] = None, session: Session = None) -> "MediaItem":
-    """Get a MediaItem by its ID."""
+@contextmanager
+def _maybe_session(session: Optional[Session]) -> Iterator[Tuple[Session, bool]]:
+    """
+    Yield a (session, owns_session) pair.
+
+    If `session` is None, create a new db.Session() and close it on exit.
+    Otherwise, yield the caller-provided session and do not close it.
+    """
+    if session is not None:
+        yield session, False
+        return
+    _s = db.Session()
+    try:
+        yield _s, True
+    finally:
+        _s.close()
+
+
+def get_item_by_id(
+    item_id: str,
+    item_types: Optional[List[str]] = None,
+    session: Optional[Session] = None,
+) -> "MediaItem" | None:
+    """
+    Get a MediaItem by its ID, optionally constraining by type.
+    Loads seasons/episodes for shows via selectinload.
+    Returns a detached instance safe for use outside the session.
+    """
     if not item_id:
         return None
 
     from program.media.item import MediaItem, Season, Show
-    _session = session if session else db.Session()
 
-    with _session:
-        query = (select(MediaItem)
+    with _maybe_session(session) as (_s, _owns):
+        query = (
+            select(MediaItem)
             .where(MediaItem.id == item_id)
-            .options(
-                selectinload(Show.seasons)
-                .selectinload(Season.episodes)
-            ))
+            .options(selectinload(Show.seasons).selectinload(Season.episodes))
+        )
         if item_types:
             query = query.where(MediaItem.type.in_(item_types))
 
-        item = _session.execute(query).unique().scalar_one_or_none()
+        item = _s.execute(query).unique().scalar_one_or_none()
         if item:
-            _session.expunge(item)
+            _s.expunge(item)
         return item
 
-def get_items_by_ids(ids: list, item_types: list[str] = None, session: Session = None) -> list["MediaItem"]:
-    """Get a list of MediaItems by their IDs."""
-    items = []
-    for id in ids:
-        items.append(get_item_by_id(id, item_types,  session))
-    return items
 
-def get_item_by_external_id(imdb_id: str = None, tvdb_id: int = None, tmdb_id: int = None, session: Session = None) -> "MediaItem":
-    """Get a MediaItem by its external ID."""
+def get_items_by_ids(
+    ids: Sequence[str],
+    item_types: Optional[List[str]] = None,
+    session: Optional[Session] = None,
+) -> List["MediaItem"]:
+    """
+    Fetch a list of MediaItems by their IDs using one round trip.
+
+    - Preserves the input order at the SQL layer via CASE(..) ORDER BY.
+    - Eager-loads Show -> seasons -> episodes using select-in.
+    - Calls .unique() to collapse duplicates that arise from joined eager loads.
+    - Returns detached instances (expunged) to avoid lazy-loads on closed sessions.
+    """
+    if not ids:
+        return []
+
     from program.media.item import MediaItem, Season, Show
 
-    _session = session if session else db.Session()
-    query = (
-        select(MediaItem)
-        .options(
-            selectinload(Show.seasons)
-            .selectinload(Season.episodes)
-        )
-        .where(or_(MediaItem.type == "movie", MediaItem.type == "show"))
-    )
+    pos = {v: i for i, v in enumerate(ids)}
+    order_clause = case(pos, value=MediaItem.id, else_=len(ids))
+    id_param = bindparam("item_ids", expanding=True)
 
-    conditions = []
+    stmt = (
+        select(MediaItem)
+        .where(MediaItem.id.in_(id_param))
+        .options(selectinload(Show.seasons).selectinload(Season.episodes))
+        .order_by(order_clause)
+    )
+    if item_types:
+        stmt = stmt.where(MediaItem.type.in_(item_types))
+
+    close_me = False
+    if session is None:
+        from program.db.db import db
+        _s: Session = db.Session()
+        close_me = True
+    else:
+        _s = session
+
+    try:
+        # NOTE: .unique() is required with joined eager loads on collections.
+        rows = _s.execute(stmt, {"item_ids": list(ids)}).unique().scalars().all()
+
+        # Only expunge if this *exact* session owns the instance
+        for obj in rows:
+            if object_session(obj) is _s:
+                _s.expunge(obj)
+
+        by_id: Dict[str, "MediaItem"] = {m.id: m for m in rows}
+        return [by_id[i] for i in ids if i in by_id]
+    finally:
+        if close_me:
+            _s.close()
+
+
+def get_item_by_external_id(
+    imdb_id: Optional[str] = None,
+    tvdb_id: Optional[int] = None,
+    tmdb_id: Optional[int] = None,
+    session: Optional[Session] = None,
+) -> "MediaItem" | None:
+    """
+    Get a movie/show by any external ID (IMDb/TVDB/TMDB).
+    Loads seasons/episodes for shows via selectinload.
+    """
+    from program.media.item import MediaItem, Season, Show
+
+    conditions: List[Any] = []
     if imdb_id:
         conditions.append(MediaItem.imdb_id == str(imdb_id))
     if tvdb_id:
         conditions.append(MediaItem.tvdb_id == str(tvdb_id))
     if tmdb_id:
         conditions.append(MediaItem.tmdb_id == str(tmdb_id))
-    
+
     if not conditions:
         raise ValueError("At least one external ID must be provided")
 
-    query = query.where(or_(*conditions))
-
-    with _session:
-        item = _session.execute(query).unique().scalar_one_or_none()
+    with _maybe_session(session) as (_s, _owns):
+        query = (
+            select(MediaItem)
+            .options(selectinload(Show.seasons).selectinload(Season.episodes))
+            .where(MediaItem.type.in_(["movie", "show"]))
+            .where(or_(*conditions))
+        )
+        item = _s.execute(query).unique().scalar_one_or_none()
         if item:
-            _session.expunge(item)
+            _s.expunge(item)
         return item
 
-def delete_media_item(item: "MediaItem"):
-    """Delete a MediaItem and all its associated relationships."""
-    with db.Session() as session:
-        item = session.merge(item)
-        session.delete(item)
-        session.commit()
 
-def delete_media_item_by_id(media_item_id: str, batch_size: int = 30) -> bool:
-    """Delete a Movie or Show by _id. If it's a Show, delete its Seasons and Episodes in batches, committing after each batch."""
+def item_exists_by_any_id(
+    item_id: Optional[str] = None,
+    tvdb_id: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
+    imdb_id: Optional[str] = None,
+    session: Optional[Session] = None,
+) -> bool:
+    """
+    Return True if ANY provided identifier matches an existing MediaItem.
+
+    Previous behavior chained .where() equalities on all fields, which only
+    matched when *all* IDs belonged to the same row. This version matches ANY.
+    """
+    from program.media.item import MediaItem
+
+    if not any([item_id, tvdb_id, tmdb_id, imdb_id]):
+        raise ValueError("At least one ID must be provided")
+
+    clauses: List[Any] = []
+    if item_id is not None:
+        clauses.append(MediaItem.id == str(item_id))
+    if tvdb_id is not None:
+        clauses.append(MediaItem.tvdb_id == str(tvdb_id))
+    if tmdb_id is not None:
+        clauses.append(MediaItem.tmdb_id == str(tmdb_id))
+    if imdb_id is not None:
+        clauses.append(MediaItem.imdb_id == str(imdb_id))
+
+    with _maybe_session(session) as (_s, _owns):
+        count = _s.execute(
+            select(func.count()).select_from(MediaItem).where(or_(*clauses)).limit(1)
+        ).scalar_one()
+        return count > 0
+
+
+def get_item_by_symlink_path(
+    filepath: str,
+    session: Optional[Session] = None,
+) -> List["MediaItem"]:
+    """
+    Return items that match an exact symlink_path. Returns detached instances.
+    """
+    from program.media.item import MediaItem
+
+    with _maybe_session(session) as (_s, _owns):
+        items = (
+            _s.execute(select(MediaItem).where(MediaItem.symlink_path == filepath))
+            .unique()
+            .scalars()
+            .all()
+        )
+        for itm in items:
+            _s.expunge(itm)
+        return items
+
+
+def get_item_by_imdb_and_episode(
+    imdb_id: str,
+    season_number: Optional[int] = None,
+    episode_number: Optional[int] = None,
+    session: Optional[Session] = None,
+) -> List["MediaItem"]:
+    """
+    If season+episode provided, return matching Episode(s) for the show with imdb_id.
+    Otherwise, return Movie(s) with that imdb_id.
+    Returns detached instances.
+    """
+    from program.media.item import Episode, Movie, Season, Show
+
+    with _maybe_session(session) as (_s, _owns):
+        if season_number is not None and episode_number is not None:
+            rows = _s.execute(
+                select(Episode)
+                .options(selectinload(Episode.parent).selectinload(Season.parent))
+                .where(
+                    Episode.parent.has(Season.parent.has(Show.imdb_id == imdb_id)),
+                    Episode.parent.has(Season.number == season_number),
+                    Episode.number == episode_number,
+                )
+            ).scalars().all()
+            for r in rows:
+                _s.expunge(r)
+            return rows
+
+        rows = _s.execute(select(Movie).where(Movie.imdb_id == imdb_id)).scalars().all()
+        for r in rows:
+            _s.expunge(r)
+        return rows
+
+
+# --------------------------------------------------------------------------- #
+# Stream Operations (unified + transactional)
+# --------------------------------------------------------------------------- #
+
+def clear_streams(
+    *,
+    media_item_id: str,
+    session: Optional[Session] = None,
+) -> None:
+    """
+    Remove ALL stream relations and blacklists for a media item in one transaction.
+    """
+    with _maybe_session(session) as (_s, _owns):
+        _s.execute(delete(StreamRelation).where(StreamRelation.parent_id == media_item_id))
+        _s.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id))
+        _s.commit()
+
+
+def set_stream_blacklisted(
+    item: "MediaItem",
+    stream: Stream,
+    *,
+    blacklisted: bool,
+    session: Optional[Session] = None,
+) -> bool:
+    """
+    Toggle blacklist state for a (item, stream) pair atomically.
+    Returns True if a change was applied.
+    """
+    with _maybe_session(session) as (_s, _owns):
+        m_item = _s.merge(item)
+
+        if blacklisted:
+            # If the stream is currently linked, remove the link and add a blacklist row.
+            linked = _s.query(
+                _s.query(StreamRelation)
+                .filter(
+                    StreamRelation.parent_id == m_item.id,
+                    StreamRelation.child_id == stream.id,
+                )
+                .exists()
+            ).scalar()
+
+            if not linked:
+                return False
+
+            _s.execute(
+                delete(StreamRelation).where(
+                    StreamRelation.parent_id == m_item.id,
+                    StreamRelation.child_id == stream.id,
+                )
+            )
+            _s.execute(
+                insert(StreamBlacklistRelation).values(
+                    media_item_id=m_item.id, stream_id=stream.id
+                )
+            )
+
+        else:
+            # If the stream is blacklisted, remove blacklist and restore link.
+            bl = _s.query(
+                _s.query(StreamBlacklistRelation)
+                .filter(
+                    StreamBlacklistRelation.media_item_id == m_item.id,
+                    StreamBlacklistRelation.stream_id == stream.id,
+                )
+                .exists()
+            ).scalar()
+
+            if not bl:
+                return False
+
+            _s.execute(
+                delete(StreamBlacklistRelation).where(
+                    StreamBlacklistRelation.media_item_id == m_item.id,
+                    StreamBlacklistRelation.stream_id == stream.id,
+                )
+            )
+            _s.execute(
+                insert(StreamRelation).values(parent_id=m_item.id, child_id=stream.id)
+            )
+
+        m_item.store_state()
+        _s.commit()
+        return True
+
+def delete_media_item_by_id(media_item_id: str) -> bool:
+    """
+    Delete any MediaItem (movie/show/season/episode) and all dependents.
+
+    Steps:
+      - Resolve root type and collect descendant Season/Episode MediaItem ids.
+      - DELETE descendant MediaItem rows (DB cascades remove concrete rows + links + subtitles).
+      - DELETE root MediaItem row.
+      - PURGE orphan Stream rows (those with no remaining associations).
+
+    Returns:
+      True on success, False on error.
+    """
     from sqlalchemy.exc import IntegrityError
-    from program.media.item import Episode, MediaItem, Movie, Season, Show
+    from program.media.item import Episode, MediaItem, Season
 
     if not media_item_id:
         logger.error("Item ID can not be empty")
         return False
 
-    with db.Session() as session:
+    with db.Session() as s:
         try:
-            # First, retrieve the media item's type
-            media_item_type = session.execute(
-                select(MediaItem.type)
-                .where(MediaItem.id == media_item_id)
+            root_type = s.execute(
+                select(MediaItem.type).where(MediaItem.id == media_item_id)
             ).scalar_one_or_none()
 
-            if not media_item_type:
+            if not root_type:
                 logger.error(f"No item found with ID {media_item_id}")
                 return False
 
-            if media_item_type == "show":
-                season_ids = session.execute(
+            season_ids: list[str] = []
+            episode_ids: list[str] = []
+
+            if root_type == "show":
+                season_ids = s.execute(
                     select(Season.id).where(Season.parent_id == media_item_id)
                 ).scalars().all()
+                if season_ids:
+                    episode_ids = s.execute(
+                        select(Episode.id).where(Episode.parent_id.in_(season_ids))
+                    ).scalars().all()
 
-                delete_seasons_and_episodes(session, season_ids, batch_size)
-                session.execute(delete(Show).where(Show.id == media_item_id))
+            elif root_type == "season":
+                episode_ids = s.execute(
+                    select(Episode.id).where(Episode.parent_id == media_item_id)
+                ).scalars().all()
 
-            if media_item_type == "movie":
-                session.execute(delete(Movie).where(Movie.id == media_item_id))
+            # 1) remove descendant items
+            if episode_ids:
+                s.execute(delete(MediaItem).where(MediaItem.id.in_(episode_ids)))
+            if season_ids:
+                s.execute(delete(MediaItem).where(MediaItem.id.in_(season_ids)))
 
-            if media_item_type == "season":
-                delete_seasons_and_episodes(session, [media_item_id], batch_size)
-                session.execute(delete(Season).where(Season.id == media_item_id))
+            # 2) remove root
+            s.execute(delete(MediaItem).where(MediaItem.id == media_item_id))
 
-            if media_item_type == "episode":
-                session.execute(delete(Episode).where(Episode.id == media_item_id))
+            # 3) purge orphan streams *within the same transaction*
+            _purge_orphan_streams_tx(s)
 
-            session.execute(delete(MediaItem).where(MediaItem.id == media_item_id))
-            session.commit()
+            s.commit()
             return True
 
         except IntegrityError as e:
             logger.error(f"Integrity error while deleting media item with ID {media_item_id}: {e}")
-            session.rollback()
+            s.rollback()
             return False
         except Exception as e:
             logger.error(f"Unexpected error while deleting media item with ID {media_item_id}: {e}")
-            session.rollback()
+            s.rollback()
             return False
 
-def delete_seasons_and_episodes(session: Session, season_ids: list[str], batch_size: int = 30):
-    """Delete seasons and episodes of a show in batches, committing after each batch."""
-    from program.media.item import Episode, Season
-    from program.media.stream import StreamBlacklistRelation, StreamRelation
-    from program.media.subtitle import Subtitle
 
-    for season_id in season_ids:
-        season = session.query(Season).get(season_id)
-        session.execute(delete(StreamRelation).where(StreamRelation.parent_id == season_id))
-        session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == season_id))
-        session.execute(delete(Subtitle).where(Subtitle.parent_id == season_id))
-        session.commit()
+def delete_media_item(item: "MediaItem") -> None:
+    """
+    Backwards-compatible convenience wrapper around delete_media_item_by_id().
+    """
+    delete_media_item_by_id(item.id)
 
-        while True:
-            episode_ids = session.execute(
-                select(Episode.id).where(Episode.parent_id == season_id).limit(batch_size)
-            ).scalars().all()
 
-            if not episode_ids:
-                break
-
-            session.execute(delete(Episode).where(Episode.id.in_(episode_ids)))
-            session.commit()
-
-        session.delete(season)
-        session.commit()
-
-def reset_media_item(item: "MediaItem"):
-    """Reset a MediaItem."""
-    with db.Session() as session:
-        item = session.merge(item)
-        item.reset()
-        session.commit()
-
-def reset_streams(item: "MediaItem"):
-    """Reset streams associated with a MediaItem."""
-    with db.Session() as session:
-        session.execute(delete(StreamRelation).where(StreamRelation.parent_id == item.id))
-        session.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == item.id))
-        session.commit()
-
-def clear_streams(item: "MediaItem"):
-    """Clear all streams for a media item."""
-    reset_streams(item)
-
-def clear_streams_by_id(media_item_id: str):
-    """Clear all streams for a media item by the MediaItem id."""
-    with db.Session() as session:
-        session.execute(
-            delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
-        )
-        session.execute(
-            delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id)
-        )
-        session.commit()
-
-def blacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
-    """Blacklist a stream for a media item."""
-    close_session = False
-    if session is None:
-        session = db.Session()
-        item = session.execute(select(type(item)).where(type(item).id == item.id)).unique().scalar_one()
-        close_session = True
-
-    try:
-        item = session.merge(item)
-        association_exists = session.query(
-            session.query(StreamRelation)
-            .filter(StreamRelation.parent_id == item.id)
-            .filter(StreamRelation.child_id == stream.id)
-            .exists()
-        ).scalar()
-
-        if association_exists:
-            session.execute(
-                delete(StreamRelation)
-                .where(StreamRelation.parent_id == item.id)
-                .where(StreamRelation.child_id == stream.id)
-            )
-            session.execute(
-                insert(StreamBlacklistRelation)
-                .values(media_item_id=item.id, stream_id=stream.id)
-            )
-            item.store_state()
-            session.commit()
-            return True
-        return False
-    finally:
-        if close_session:
-            session.close()
-
-def unblacklist_stream(item: "MediaItem", stream: Stream, session: Session = None) -> bool:
-    """Unblacklist a stream for a media item."""
-    close_session = False
-    if session is None:
-        session = db.Session()
-        item = session.execute(select(type(item)).where(type(item).id == item.id)).unique().scalar_one()
-        close_session = True
-
-    try:
-        item = session.merge(item)
-        association_exists = session.query(
-            session.query(StreamBlacklistRelation)
-            .filter(StreamBlacklistRelation.media_item_id == item.id)
-            .filter(StreamBlacklistRelation.stream_id == stream.id)
-            .exists()
-        ).scalar()
-
-        if association_exists:
-            session.execute(
-                delete(StreamBlacklistRelation)
-                .where(StreamBlacklistRelation.media_item_id == item.id)
-                .where(StreamBlacklistRelation.stream_id == stream.id)
-            )
-            session.execute(
-                insert(StreamRelation)
-                .values(parent_id=item.id, child_id=stream.id)
-            )
-            item.store_state()
-            session.commit()
-            return True
-        return False
-    finally:
-        if close_session:
-            session.close()
-
-def get_item_ids(session: Session, item_id: str) -> tuple[str, list[str]]:
-    """Get the item ID and all related item IDs for a given MediaItem."""
+def get_item_ids(session: Session, item_id: str) -> Tuple[str, List[str]]:
+    """
+    Return (root_id, related_ids) where related_ids are all children under the root,
+    depending on the root type. Uses set-based selects.
+    """
     from program.media.item import Episode, MediaItem, Season
 
-    item_type = session.query(MediaItem.type).filter(MediaItem.id == item_id).scalar()
-    related_ids = []
+    item_type = session.execute(
+        select(MediaItem.type).where(MediaItem.id == item_id)
+    ).scalar_one_or_none()
 
+    related_ids: List[str] = []
     if item_type == "show":
         season_ids = session.execute(
             select(Season.id).where(Season.parent_id == item_id)
         ).scalars().all()
-
-        for season_id in season_ids:
+        if season_ids:
             episode_ids = session.execute(
-                select(Episode.id).where(Episode.parent_id == season_id)
+                select(Episode.id).where(Episode.parent_id.in_(season_ids))
             ).scalars().all()
             related_ids.extend(episode_ids)
         related_ids.extend(season_ids)
@@ -296,109 +453,76 @@ def get_item_ids(session: Session, item_id: str) -> tuple[str, list[str]]:
 
     return item_id, related_ids
 
-def get_item_by_symlink_path(filepath: str, session: Session = None) -> list["MediaItem"]:
-    """Get a list of MediaItems by their symlink path."""
+
+# --------------------------------------------------------------------------- #
+# State-Machine Adjacent Helpers
+# --------------------------------------------------------------------------- #
+
+def retry_library(session: Optional[Session] = None) -> List[str]:
+    """
+    Return IDs of items that should be retried. Single query, no pre-count.
+    """
     from program.media.item import MediaItem
-    _session = session if session else db.Session()
 
-    with _session:
-        items = _session.execute(
-            select(MediaItem).where(MediaItem.symlink_path == filepath)
-        ).unique().scalars().all()
-        for item in items:
-            _session.expunge(item)
-        return items
-
-def get_item_by_imdb_and_episode(imdb_id: str, season_number: Optional[int] = None, episode_number: Optional[int] = None, session: Session = None) -> list["MediaItem"]:
-    """Get a MediaItem by its IMDb ID and optionally season and episode numbers."""
-    from program.media.item import Episode, Movie, Season, Show
-
-    _session = session if session else db.Session()
-
-    with _session:
-        if season_number is not None and episode_number is not None:
-            # Look for an episode
-            items = _session.execute(
-                select(Episode).options(
-                    selectinload(Episode.parent).selectinload(Season.parent)
-                ).where(
-                    Episode.parent.has(Season.parent.has(Show.imdb_id == imdb_id)),
-                    Episode.parent.has(Season.number == season_number),
-                    Episode.number == episode_number
+    with _maybe_session(session) as (s, owns):
+        ids = s.execute(
+            select(MediaItem.id)
+            .where(
+                MediaItem.last_state.not_in(
+                    [States.Completed, States.Unreleased, States.Paused, States.Failed]
                 )
-            ).scalars().all()
-        else:
-            # Look for a movie
-            items = _session.execute(
-                select(Movie).where(Movie.imdb_id == imdb_id)
-            ).scalars().all()
+            )
+            .where(MediaItem.type.in_(["movie", "show"]))
+            .order_by(MediaItem.requested_at.desc())
+        ).scalars().all()
+        return ids
 
+
+def update_ongoing(session: Optional[Session] = None) -> List[str]:
+    """
+    Update state for ongoing/unreleased items with one commit.
+    Calls store_state() per item (state machine), aggregates changed IDs.
+    """
+    from program.media.item import MediaItem
+
+    with _maybe_session(session) as (s, owns):
+        item_ids = s.execute(
+            select(MediaItem.id)
+            .where(MediaItem.type.in_(["movie", "episode"]))
+            .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
+        ).scalars().all()
+
+        if not item_ids:
+            logger.debug("No ongoing or unreleased items to update.")
+            return []
+
+        logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
+
+        changed: List[str] = []
+        items = s.execute(select(MediaItem).where(MediaItem.id.in_(item_ids))).unique().scalars().all()
         for item in items:
-            _session.expunge(item)
-        return items
-
-def retry_library(session: Session) -> list[str]:
-    """Retry items that failed to download."""
-    from program.media.item import MediaItem
-    session = session if session else db.Session()
-
-    count = session.execute(
-        select(func.count(MediaItem.id))
-        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
-        .where(MediaItem.type.in_(["movie", "show"]))
-    ).scalar_one()
-
-    if count == 0:
-        return []
-
-    logger.log("PROGRAM", f"Starting retry process for {count} items.")
-
-    items_query = (
-        select(MediaItem.id)
-        .where(MediaItem.last_state.not_in([States.Completed, States.Unreleased, States.Paused, States.Failed]))
-        .where(MediaItem.type.in_(["movie", "show"]))
-        .order_by(MediaItem.requested_at.desc())
-    )
-
-    result = session.execute(items_query)
-    return [item_id for item_id in result.scalars()]
-
-def update_ongoing(session: Session) -> list[tuple[str, str, str]]:
-    """Update state for ongoing and unreleased items."""
-    from program.media.item import MediaItem
-    session = session if session else db.Session()
-
-    item_ids = session.execute(
-        select(MediaItem.id)
-        .where(MediaItem.type.in_(["movie", "episode"]))
-        .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-    ).scalars().all()
-
-    if not item_ids:
-        logger.debug("No ongoing or unreleased items to update.")
-        return []
-
-    logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
-
-    updated_items = []
-    for item_id in item_ids:
-        try:
-            item = session.execute(select(MediaItem).filter_by(id=item_id)).unique().scalar_one_or_none()
-            if item:
+            try:
                 previous_state, new_state = item.store_state()
                 if previous_state != new_state:
-                    updated_items.append(item_id)
-                    session.merge(item)
-                    session.commit()
-                    logger.log("PROGRAM", f"Updated state for {item.log_string}. Previous State: {previous_state.name} -> New State: {new_state.name}")
-        except Exception as e:
-            logger.error(f"Failed to update state for item with ID {item_id}: {e}")
+                    changed.append(item.id)
+            except Exception as e:
+                logger.error(f"Failed to update state for item with ID {item.id}: {e}")
 
-    return updated_items
+        if changed:
+            s.commit()
+            for iid in changed:
+                logger.log("PROGRAM", f"Updated state for {iid}.")
 
-def create_calendar(session: Session) -> dict:
-    """Create a calendar of all the items in the library."""
+        return changed
+
+
+def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, Any]]:
+    """
+    Create a calendar of all upcoming/ongoing items in the library.
+    Returns a dict keyed by item.id with minimal metadata for scheduling.
+    """
     from program.media.item import MediaItem, Show, Season
+
     session = session if session else db.Session()
 
     results = session.execute(
@@ -410,14 +534,15 @@ def create_calendar(session: Session) -> dict:
         .where(MediaItem.aired_at >= datetime.now() - timedelta(days=1))
     ).unique().scalars().all()
 
-    calendar = {}
+    calendar: Dict[str, Dict[str, Any]] = {}
     for item in results:
-        calendar[item.id] = {}
-        calendar[item.id]["trakt_id"] = item.trakt_id
-        calendar[item.id]["imdb_id"] = item.imdb_id
-        calendar[item.id]["tvdb_id"] = item.tvdb_id
-        calendar[item.id]["tmdb_id"] = item.tmdb_id
-        calendar[item.id]["aired_at"] = item.aired_at
+        calendar[item.id] = {
+            "trakt_id": item.trakt_id,
+            "imdb_id": item.imdb_id,
+            "tvdb_id": item.tvdb_id,
+            "tmdb_id": item.tmdb_id,
+            "aired_at": item.aired_at,
+        }
         if item.type == "episode":
             calendar[item.id]["title"] = item.parent.parent.title
             calendar[item.id]["season"] = item.parent.number
@@ -427,9 +552,17 @@ def create_calendar(session: Session) -> dict:
 
     return calendar
 
+
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
-    """Run a thread with a MediaItem."""
+    """
+    Run a worker function `fn` against an existing or soon-to-exist MediaItem.
+    Supports both:
+      - event.item_id path: load + process item, update parent state if needed
+      - event.content_item path: index new item (idempotent via item_exists_by_any_id)
+      - generator path (no event): emit items into the program.em queue
+    """
     from program.media.item import MediaItem
+
     if event:
         with db.Session() as session:
             if event.item_id:
@@ -440,16 +573,20 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                     if res:
                         if isinstance(res, tuple):
                             item, run_at = res
-                            res = item.id, run_at
+                            res = (item.id, run_at)
                         else:
                             item = res
                             res = item.id
+
                         if not isinstance(item, MediaItem):
-                            logger.log("PROGRAM", f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.")
+                            logger.log(
+                                "PROGRAM",
+                                f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
+                            )
                             program.em.remove_id_from_queues(input_item.id)
 
                         if not cancellation_event.is_set():
-                            # Update parent item
+                            # Update parent item based on type
                             if input_item.type == "episode":
                                 input_item.parent.parent.store_state()
                             elif input_item.type == "season":
@@ -458,20 +595,40 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                                 input_item.store_state()
                             session.commit()
                         return res
-            # This is in bad need of indexing...
+
             if event.content_item:
                 indexed_item = next(fn(event.content_item), None)
                 if indexed_item is None:
-                    logger.debug(f"Unable to index {event.content_item.log_string if event.content_item.log_string is not None else event.content_item.imdb_id}")
+                    msg = (
+                        event.content_item.log_string
+                        if getattr(event.content_item, "log_string", None) is not None
+                        else event.content_item.imdb_id
+                    )
+                    logger.debug(f"Unable to index {msg}")
                     return None
+
+                # Idempotent insert: skip if any known ID already exists
+                if item_exists_by_any_id(
+                    indexed_item.id, indexed_item.tvdb_id, indexed_item.tmdb_id, indexed_item.imdb_id, session
+                ):
+                    logger.debug(f"Item with ID {indexed_item.id} already exists, skipping save")
+                    return indexed_item.id
+
                 indexed_item.store_state()
                 session.add(indexed_item)
                 item_id = indexed_item.id
                 if not cancellation_event.is_set():
-                    session.commit()
+                    try:
+                        session.commit()
+                    except IntegrityError as e:
+                        if "duplicate key value violates unique constraint" in str(e):
+                            logger.debug(f"Item with ID {item_id} was added by another process, skipping")
+                            session.rollback()
+                            return item_id
+                        raise
                 return item_id
-    # Content services dont pass events, get ready for a ride!
     else:
+        # Content services dont pass events
         for i in fn():
             if isinstance(i, MediaItem):
                 i = [i]
@@ -480,6 +637,34 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                     if isinstance(item, MediaItem):
                         program.em.add_item(item, service)
     return None
+
+def _purge_orphan_streams_tx(session: Session) -> int:
+    """
+    Delete Stream rows that have no parent references in either association table.
+    Must be called *inside* a transaction after cascades have removed association rows.
+
+    Returns:
+        int: number of Stream rows deleted.
+    """
+    # Streams with zero links in BOTH association tables
+    orphan_ids_subq = (
+        select(Stream.id)
+        .outerjoin(StreamRelation, StreamRelation.child_id == Stream.id)
+        .outerjoin(StreamBlacklistRelation, StreamBlacklistRelation.stream_id == Stream.id)
+        .group_by(Stream.id)
+        .having(
+            func.count(StreamRelation.id) == 0,
+            func.count(StreamBlacklistRelation.id) == 0,
+        )
+        .subquery()
+    )
+
+    result = session.execute(
+        delete(Stream).where(Stream.id.in_(select(orphan_ids_subq.c.id)))
+    )
+    # SQLAlchemy 2.0 returns rowcount in result.rowcount (may be -1 depending on DB)
+    return int(result.rowcount or 0)
+
 
 def hard_reset_database() -> None:
     """Resets the database to a fresh state while maintaining migration capability."""
@@ -501,12 +686,16 @@ def hard_reset_database() -> None:
         try:
             # Terminate existing connections for PostgreSQL
             if db.engine.name == "postgresql":
-                connection.execute(text("""
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = current_database()
-                    AND pid <> pg_backend_pid()
-                """))
+                connection.execute(
+                    text(
+                        """
+                        SELECT pg_terminate_backend(pid)
+                        FROM pg_stat_activity
+                        WHERE datname = current_database()
+                        AND pid <> pg_backend_pid()
+                        """
+                    )
+                )
 
                 # Drop and recreate schema
                 connection.execute(text("DROP SCHEMA public CASCADE"))
@@ -518,12 +707,10 @@ def hard_reset_database() -> None:
             elif db.engine.name == "sqlite":
                 connection.execute(text("PRAGMA foreign_keys = OFF"))
 
-                # Get all tables
-                tables = connection.execute(text(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )).scalars().all()
+                tables = connection.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table'")
+                ).scalars().all()
 
-                # Drop each table
                 for table in tables:
                     connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
@@ -536,9 +723,15 @@ def hard_reset_database() -> None:
 
             # If we had a previous version, restore it
             if current_version:
-                connection.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
-                connection.execute(text("INSERT INTO alembic_version (version_num) VALUES (:version)"), 
-                                {"version": current_version})
+                connection.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"
+                    )
+                )
+                connection.execute(
+                    text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
+                    {"version": current_version},
+                )
                 logger.log("DATABASE", f"Restored alembic version to: {current_version}")
             else:
                 # Stamp with head version if no previous version
@@ -554,12 +747,10 @@ def hard_reset_database() -> None:
     # Verify database state
     try:
         with db.engine.connect() as connection:
-            # Check if all tables exist
             inspector = inspect(db.engine)
             all_tables = inspector.get_table_names()
             logger.log("DATABASE", f"Verified tables: {', '.join(all_tables)}")
 
-            # Verify alembic version
             result = connection.execute(text("SELECT version_num FROM alembic_version"))
             version = result.scalar()
             logger.log("DATABASE", f"Verified alembic version: {version}")
@@ -568,71 +759,11 @@ def hard_reset_database() -> None:
         logger.error(f"Error verifying database state: {str(e)}")
         raise
 
-def hard_reset_database_pre_migration() -> None:
-    """Resets the database to a fresh state."""
-    logger.log("DATABASE", "Starting Hard Reset of Database")
 
-    # Disable foreign key checks temporarily
-    with db.engine.connect() as connection:
-        if db.engine.name == "sqlite":
-            connection.execute(text("PRAGMA foreign_keys = OFF"))
-        elif db.engine.name == "postgresql":
-            connection.execute(text("SET CONSTRAINTS ALL DEFERRED"))
-
-        try:
-            for table in reversed(db.Model.metadata.sorted_tables):
-                try:
-                    table.drop(connection, checkfirst=True)
-                    logger.log("DATABASE", f"Dropped table: {table.name}")
-                except Exception as e:
-                    logger.log("DATABASE", f"Error dropping table {table.name}: {str(e)}")
-
-            try:
-                connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
-                logger.log("DATABASE", "Alembic version table dropped")
-            except Exception as e:
-                logger.log("DATABASE", f"Error dropping alembic_version table: {str(e)}")
-
-            db.Model.metadata.create_all(connection)
-            logger.log("DATABASE", "All tables recreated")
-
-            # Re-enable foreign key checks
-            if db.engine.name == "sqlite":
-                connection.execute(text("PRAGMA foreign_keys = ON"))
-            elif db.engine.name == "postgresql":
-                connection.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
-
-            connection.commit()
-        except Exception as e:
-            connection.rollback()
-            logger.log("DATABASE", f"Error during database reset: {str(e)}")
-            raise
-
-    try:
-        alembic_dir = root_dir / "data" / "alembic"
-        logger.log("DATABASE", "Removing Alembic Directory")
-        shutil.rmtree(alembic_dir, ignore_errors=True)
-        os.makedirs(alembic_dir, exist_ok=True)
-        alembic.init(alembic_dir)
-        logger.log("DATABASE", "Alembic reinitialized")
-    except Exception as e:
-        logger.log("DATABASE", f"Error reinitializing Alembic: {str(e)}")
-
-    logger.log("DATABASE", "Pre Migration - Hard Reset Complete")
-
-# Hard Reset Database
-reset = os.getenv("HARD_RESET", None)
-if reset is not None and reset.lower() in ["true","1"]:
+if os.getenv("HARD_RESET", None) is not None and os.getenv("HARD_RESET", "").lower() in ["true", "1"]:
     hard_reset_database()
-    exit(0)
+    raise SystemExit(0)
 
-# Hard Reset Database
-reset = os.getenv("HARD_RESET_PRE_MIGRATION", None)
-if reset is not None and reset.lower() in ["true","1"]:
-    hard_reset_database_pre_migration()
-    exit(0)
-
-# Repair Symlinks
-if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true","1"]:
+if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true", "1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
-    exit(0)
+    raise SystemExit(0)

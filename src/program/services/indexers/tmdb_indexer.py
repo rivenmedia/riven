@@ -127,4 +127,5 @@ class TMDBIndexer(BaseIndexer):
 
         except Exception as e:
             logger.error(f"Error mapping TMDB movie data: {e}")
-            return None
+        
+        return None

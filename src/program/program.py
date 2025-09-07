@@ -40,6 +40,7 @@ if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from program.db import db_functions
 from program.db.db import (
@@ -429,7 +430,14 @@ class Program(threading.Thread):
 
                                 # Commit every 25 items to avoid large transactions
                                 if processed_count % 25 == 0:
-                                    session.commit()
+                                    try:
+                                        session.commit()
+                                    except IntegrityError as e:
+                                        if "duplicate key value violates unique constraint" in str(e):
+                                            logger.debug(f"Item with ID {enhanced_item.id} was added by another process during symlink initialization")
+                                            session.rollback()
+                                        else:
+                                            raise
 
                                 log_message = f"Successfully Indexed {enhanced_item.log_string}"
                                 progress.update(task, advance=1, log=log_message)
@@ -439,7 +447,14 @@ class Program(threading.Thread):
                                 continue
 
                         # Final commit for any remaining items
-                        session.commit()
+                        try:
+                            session.commit()
+                        except IntegrityError as e:
+                            if "duplicate key value violates unique constraint" in str(e):
+                                logger.debug("Some items were added by another process during symlink initialization")
+                                session.rollback()
+                            else:
+                                raise
                         progress.update(task, log="Finished Indexing Symlinks!")
 
                     if errors:

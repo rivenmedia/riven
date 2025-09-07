@@ -14,7 +14,7 @@ from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
 
-from ..db.db_functions import blacklist_stream, reset_streams
+from ..db.db_functions import set_stream_blacklisted, clear_streams
 from .stream import Stream
 
 
@@ -35,8 +35,8 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all")
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all")
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all", passive_deletes=True)
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all", passive_deletes=True)
     symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
@@ -57,7 +57,7 @@ class MediaItem(db.Model):
     update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan")
+    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
     failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
     __mapper_args__ = {
@@ -197,7 +197,7 @@ class MediaItem(db.Model):
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
-        value = blacklist_stream(self, stream)
+        value = set_stream_blacklisted(self, stream, blacklisted=True)
         if value:
             logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
         return value
@@ -443,7 +443,7 @@ class MediaItem(db.Model):
         self.set("folder", None)
         self.set("alternative_folder", None)
 
-        reset_streams(self)
+        clear_streams(media_item_id=self.id)
         self.active_stream = {}
 
         self.set("active_stream", {})
@@ -522,7 +522,7 @@ class MediaItem(db.Model):
 class Movie(MediaItem):
     """Movie class"""
     __tablename__ = "Movie"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
+    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     __mapper_args__ = {
         "polymorphic_identity": "movie",
         "polymorphic_load": "inline",
@@ -546,8 +546,15 @@ class Movie(MediaItem):
 class Show(MediaItem):
     """Show class"""
     __tablename__ = "Show"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
-    seasons: Mapped[List["Season"]] = relationship(back_populates="parent", foreign_keys="Season.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Season.number")
+    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    seasons: Mapped[List["Season"]] = relationship(
+        back_populates="parent",
+        foreign_keys="Season.parent_id",
+        lazy="joined",
+        cascade="all, delete-orphan",
+        order_by="Season.number",
+        passive_deletes=True, # don't pre-load children on delete
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -678,10 +685,22 @@ class Show(MediaItem):
 class Season(MediaItem):
     """Season class"""
     __tablename__ = "Season"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
-    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Show.id"), use_existing_column=True)
-    parent: Mapped["Show"] = relationship(lazy=False, back_populates="seasons", foreign_keys="Season.parent_id")
-    episodes: Mapped[List["Episode"]] = relationship(back_populates="parent", foreign_keys="Episode.parent_id", lazy="joined", cascade="all, delete-orphan", order_by="Episode.number")
+    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True)
+    parent: Mapped["Show"] = relationship(
+        lazy=False,
+        back_populates="seasons",
+        foreign_keys="Season.parent_id",
+        passive_deletes=True, # avoid ORM deletes doing SELECTs
+    )
+    episodes: Mapped[List["Episode"]] = relationship(
+        back_populates="parent",
+        foreign_keys="Episode.parent_id",
+        lazy="joined",
+        cascade="all, delete-orphan",
+        order_by="Episode.number",
+        passive_deletes=True, # avoid ORM deletes doing SELECTs
+    )
     __mapper_args__ = {
         "polymorphic_identity": "season",
         "polymorphic_load": "inline",
@@ -790,9 +809,14 @@ class Season(MediaItem):
 class Episode(MediaItem):
     """Episode class"""
     __tablename__ = "Episode"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id"), primary_key=True)
-    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Season.id"), use_existing_column=True)
-    parent: Mapped["Season"] = relationship(back_populates="episodes", foreign_keys="Episode.parent_id", lazy="joined")
+    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True)
+    parent: Mapped["Season"] = relationship(
+        back_populates="episodes",
+        foreign_keys="Episode.parent_id",
+        lazy="joined",
+        passive_deletes=True, # avoid ORM deletes doing SELECTs
+    )
     absolute_number: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=True)
 
     __mapper_args__ = {
