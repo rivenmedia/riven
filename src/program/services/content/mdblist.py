@@ -77,7 +77,7 @@ class Mdblist:
             else:
                 logger.error(f"Mdblist error: {e}")
 
-        logger.info(f"Fetched {len(items_to_yield)} items from Mdblist")
+        logger.info(f"Fetched {len(items_to_yield)} new items from Mdblist")
         yield items_to_yield
 
     def _calculate_request_time(self):
