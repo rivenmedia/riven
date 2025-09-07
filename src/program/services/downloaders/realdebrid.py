@@ -237,8 +237,6 @@ class RealDebridDownloader(DownloaderBase):
         """Get information about a torrent"""
         try:
             response = self.api.session.get(f"torrents/info/{torrent_id}")
-            if not hasattr(response.data, "id") and not response.data.id:
-                return None
 
             if hasattr(response.data, "files") and response.data.files:
                 files = {
@@ -253,7 +251,7 @@ class RealDebridDownloader(DownloaderBase):
                 files = {}
 
             return TorrentInfo(
-                id=response.data.id,
+                id=torrent_id,
                 name=response.data.filename,
                 status=response.data.status,
                 infohash=response.data.hash,
