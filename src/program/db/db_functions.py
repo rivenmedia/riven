@@ -45,7 +45,6 @@ def _maybe_session(session: Optional[Session]) -> Iterator[Tuple[Session, bool]]
     finally:
         _s.close()
 
-
 def get_item_by_id(
     item_id: str,
     item_types: Optional[List[str]] = None,
@@ -74,7 +73,6 @@ def get_item_by_id(
         if item:
             _s.expunge(item)
         return item
-
 
 def get_items_by_ids(
     ids: Sequence[str],
@@ -116,10 +114,7 @@ def get_items_by_ids(
         _s = session
 
     try:
-        # NOTE: .unique() is required with joined eager loads on collections.
         rows = _s.execute(stmt, {"item_ids": list(ids)}).unique().scalars().all()
-
-        # Only expunge if this *exact* session owns the instance
         for obj in rows:
             if object_session(obj) is _s:
                 _s.expunge(obj)
@@ -129,7 +124,6 @@ def get_items_by_ids(
     finally:
         if close_me:
             _s.close()
-
 
 def get_item_by_external_id(
     imdb_id: Optional[str] = None,
@@ -166,7 +160,6 @@ def get_item_by_external_id(
             _s.expunge(item)
         return item
 
-
 def item_exists_by_any_id(
     item_id: Optional[str] = None,
     tvdb_id: Optional[str] = None,
@@ -201,7 +194,6 @@ def item_exists_by_any_id(
         ).scalar_one()
         return count > 0
 
-
 def get_item_by_symlink_path(
     filepath: str,
     session: Optional[Session] = None,
@@ -222,19 +214,22 @@ def get_item_by_symlink_path(
             _s.expunge(itm)
         return items
 
-
 def get_item_by_imdb_and_episode(
-    imdb_id: str,
+    tvdb_id: str = None,
+    tmdb_id: str = None,
     season_number: Optional[int] = None,
     episode_number: Optional[int] = None,
     session: Optional[Session] = None,
 ) -> List["MediaItem"]:
     """
-    If season+episode provided, return matching Episode(s) for the show with imdb_id.
-    Otherwise, return Movie(s) with that imdb_id.
+    If season+episode provided, return matching Episode(s) for the show with tvdb_id.
+    Otherwise, return Movie(s) with that tvdb_id.
     Returns detached instances.
     """
     from program.media.item import Episode, Movie, Season, Show
+
+    if not tvdb_id and not tmdb_id:
+        raise ValueError("Either tvdb_id or tmdb_id must be provided")
 
     with _maybe_session(session) as (_s, _owns):
         if season_number is not None and episode_number is not None:
@@ -242,7 +237,7 @@ def get_item_by_imdb_and_episode(
                 select(Episode)
                 .options(selectinload(Episode.parent).selectinload(Season.parent))
                 .where(
-                    Episode.parent.has(Season.parent.has(Show.imdb_id == imdb_id)),
+                    Episode.parent.has(Season.parent.has(Show.tvdb_id == tvdb_id)),
                     Episode.parent.has(Season.number == season_number),
                     Episode.number == episode_number,
                 )
@@ -251,15 +246,10 @@ def get_item_by_imdb_and_episode(
                 _s.expunge(r)
             return rows
 
-        rows = _s.execute(select(Movie).where(Movie.imdb_id == imdb_id)).scalars().all()
+        rows = _s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id)).scalars().all()
         for r in rows:
             _s.expunge(r)
         return rows
-
-
-# --------------------------------------------------------------------------- #
-# Stream Operations (unified + transactional)
-# --------------------------------------------------------------------------- #
 
 def clear_streams(
     *,

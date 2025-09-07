@@ -8,6 +8,7 @@ from loguru import logger
 from program.apis.mdblist_api import MdblistAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.db.db_functions import item_exists_by_any_id
 
 
 class Mdblist:
@@ -29,12 +30,12 @@ class Mdblist:
             logger.error("Mdblist api key is not set.")
             return False
         if not self.settings.lists:
-            logger.error("Mdblist is enabled, but list is empty.")
+            logger.error("Mdblist is enabled, but you havent added any lists.")
             return False
         self.api = di[MdblistAPI]
         response = self.api.validate()
-        if "Invalid API key!" in response.response.text:
-            logger.error("Mdblist api key is invalid.")
+        if response.data and hasattr(response.data, "error") and response.data.error:
+            logger.error(f"Mdblist error: {response.data.error}")
             return False
         return True
 
@@ -52,21 +53,31 @@ class Mdblist:
                     items = self.api.list_items_by_url(list_id)
                     
                 for item in items:
-                    if hasattr(item, "error") or not item or item.imdb_id is None:
+                    if hasattr(item, "error"):
+                        logger.error(f"Mdblist error: {item.error}")
                         continue
-                        
-                    if item.imdb_id.startswith("tt"):
-                        media_type = "movie" if hasattr(item, "media_type") and item.media_type == "movie" else "show"
+
+                    if item.mediatype == "movie" and not item_exists_by_any_id(imdb_id=item.imdb_id, tmdb_id=str(item.id)):
                         items_to_yield.append(MediaItem({
-                            "imdb_id": item.imdb_id, 
+                            "imdb_id": item.imdb_id,
+                            "tmdb_id": item.id,
                             "requested_by": self.key,
-                            "type": media_type
                         }))
+
+                    elif item.mediatype == "show" and not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=str(item.tvdbid)):
+                        items_to_yield.append(MediaItem({
+                            "imdb_id": item.imdb_id,
+                            "tvdb_id": item.tvdbid,
+                            "requested_by": self.key,
+                        }))
+
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
                 pass
+            else:
+                logger.error(f"Mdblist error: {e}")
 
-        logger.info(f"Fetched {len(items_to_yield)} items from mdblist.com")
+        logger.info(f"Fetched {len(items_to_yield)} items from Mdblist")
         yield items_to_yield
 
     def _calculate_request_time(self):

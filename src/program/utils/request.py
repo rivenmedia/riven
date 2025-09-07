@@ -125,10 +125,9 @@ class CircuitBreaker:
         if self.state == "OPEN":
             if (time.monotonic() - self.last_failure_time) > self.recovery_time:
                 self.state = "HALF_OPEN"
-                logger.info(f"Breaker for {self.name} HALF_OPEN (probe)")
+                logger.debug(f"Breaker for {self.name} HALF_OPEN (probe)")
             else:
-                logger.warning(f"Breaker for {self.name} OPEN (fail-fast)")
-                # raise a specific exception so callers can abort the whole operation
+                logger.debug(f"Breaker for {self.name} OPEN (fail-fast)")
                 raise CircuitBreakerOpen(self.name)
 
     def after_request(self, success: bool):
@@ -140,7 +139,6 @@ class CircuitBreaker:
         """
         if success:
             if self.state in ("HALF_OPEN", "OPEN"):
-                logger.debug(f"Circuit breaker reset to CLOSED for {self.name}")
                 self._reset()
         else:
             self.failures += 1
@@ -154,7 +152,7 @@ class CircuitBreaker:
         self.failures = 0
         self.state = "CLOSED"
         self.last_failure_time = None
-        logger.debug(f"Circuit breaker reset to CLOSED for {self.name}")
+        logger.info(f"Circuit breaker reset to CLOSED for {self.name}")
 
 
 class SmartResponse(requests.Response):
@@ -322,6 +320,7 @@ class SmartSession(requests.Session):
             if breaker:
                 breaker.after_request(False)
             raise
+
 
 def get_hostname_from_url(url: str) -> str:
     """

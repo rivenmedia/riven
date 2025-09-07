@@ -358,17 +358,15 @@ def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"
     """Get an item by its filepath."""
     from program.db.db_functions import get_item_by_imdb_and_episode, get_item_by_symlink_path
 
-    imdb_id_match = imdbid_pattern.search(filepath)
     tvdb_id_match = tvdbid_pattern.search(filepath)
     tmdb_id_match = tmdbid_pattern.search(filepath)
     season_number_match = season_pattern.search(filepath)
     episode_number_match = episode_pattern.search(filepath)
 
-    if not imdb_id_match and not tvdb_id_match and not tmdb_id_match:
-        logger.debug(f"File path missing imdb_id: {filepath}")
+    if not tvdb_id_match and not tmdb_id_match:
+        logger.debug(f"File path missing suitable ID: {filepath}")
         return []
 
-    imdb_id = imdb_id_match.group() if imdb_id_match else None
     tvdb_id = tvdb_id_match.group() if tvdb_id_match else None
     tmdb_id = tmdb_id_match.group() if tmdb_id_match else None
     season_number = int(season_number_match.group(1)) if season_number_match else None
@@ -377,6 +375,6 @@ def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"
     with session:
         items = get_item_by_symlink_path(filepath, session)
         if not items:
-            items = get_item_by_imdb_and_episode(imdb_id, season_number, episode_number, session)
+            items = get_item_by_imdb_and_episode(tvdb_id, tmdb_id, season_number, episode_number, session)
 
         return items

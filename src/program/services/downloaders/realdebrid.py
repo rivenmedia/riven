@@ -242,6 +242,9 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             response = self.api.session.get(f"torrents/info/{torrent_id}")
+            if response.data and hasattr(response.data, "error") and response.data.error:
+                logger.debug(f"Failed to get torrent info for {torrent_id}: '{response.data.error}' with code: {response.data.error_code}")
+                return None
 
             if hasattr(response.data, "files") and response.data.files:
                 files = {
@@ -261,7 +264,7 @@ class RealDebridDownloader(DownloaderBase):
                 status=response.data.status,
                 infohash=response.data.hash,
                 bytes=response.data.bytes,
-                created_at=response.data.added if hasattr(response.data, "added") else None,
+                created_at=response.data.added,
                 alternative_filename=response.data.original_filename if hasattr(response.data, "original_filename") else None,
                 progress=response.data.progress if hasattr(response.data, "progress") else None,
                 files=files,

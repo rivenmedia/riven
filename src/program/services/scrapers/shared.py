@@ -114,7 +114,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
 
             if torrent.data.country and not item.is_anime:
                 # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
-                if torrent.data.country and (_get_item_country(item) != torrent.data.country):
+                if torrent.data.country and torrent.data.country not in _get_item_country(item):
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
                     continue
@@ -159,12 +159,20 @@ def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
     return data.year in [item.aired_at.year - 1, item.aired_at.year, item.aired_at.year + 1]
 
 def _get_item_country(item: MediaItem) -> str:
-    """Get the country code for a country."""
+    """Get the country code for a country.""" 
+    country = ""
+    
     if item.type == "season":
-        return item.parent.country.upper()
+        country = item.parent.country.upper()
     elif item.type == "episode":
-        return item.parent.parent.country.upper()
-    return item.country.upper()
+        country = item.parent.parent.country.upper()
+    else:
+        country = item.country.upper()
+
+    if country == "USA":
+        country = "US"
+
+    return country
 
 def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
     """Get the stremio identifier for a media item based on its type."""
