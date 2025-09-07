@@ -8,6 +8,7 @@ from requests import HTTPError
 from program.apis.plex_api import PlexAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.db.db_functions import item_exists_by_any_id
 
 
 class PlexWatchlist:
@@ -78,24 +79,13 @@ class PlexWatchlist:
         if rss_items:
             for r in rss_items:
                 _type, _id = r
-
                 if _type == "show":
                     items_to_yield.append(MediaItem({"tvdb_id": _id, "requested_by": self.key}))
                 elif _type == "movie":
                     items_to_yield.append(MediaItem({"tmdb_id": _id, "requested_by": self.key}))
 
+        if items_to_yield:
+            items_to_yield = [item for item in items_to_yield if not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id)]
+
         logger.info(f"Fetched {len(items_to_yield)} items from plex watchlist")
         yield items_to_yield
-
-# def parse_plex_feed(url):
-#     """Extract TVDB IDs from Plex RSS feed"""
-#     feed = feedparser.parse(url)
-#     tvdb_ids = []
-    
-#     for entry in feed.entries:
-#         if hasattr(entry, 'guid'):
-#             match = re.search(r'tvdb://(\d+)', entry.guid)
-#             if match:
-#                 tvdb_ids.append(match.group(1))
-    
-#     return tvdb_ids

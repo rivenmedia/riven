@@ -41,7 +41,7 @@ requests-ratelimiter = "^0.7.0"
 requests-cache = "^1.2.1"
 kink = "^0.8.1"
 bencodepy = "^0.9.5"
-plexapi = {git = "https://github.com/simonc56/python-plexapi.git", rev = "bef199e4e1ce27569091a3ebc35e49c2777e2a9c"}
+plexapi = "^4.17.1"
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"

@@ -8,7 +8,7 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from program.apis.overseerr_api import OverseerrAPI
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import SmartResponse
+from program.db.db_functions import item_exists_by_any_id
 
 
 class Overseerr:
@@ -34,7 +34,7 @@ class Overseerr:
             self.api = di[OverseerrAPI]
             if not (response := self.api.validate()):
                 logger.error(
-                    f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.response.reason}"
+                    f"Overseerr ping failed - Status Code: {response.status_code}, Reason: {response.reason}"
                 )
                 return False
             return True
@@ -53,8 +53,17 @@ class Overseerr:
         overseerr_items: list[MediaItem] = self.api.get_media_requests(self.key)
 
         if self.settings.use_webhook:
-            logger.debug("Webhook is enabled. Running Overseerr once before switching to webhook only mode")
+            logger.info("Webhook is enabled. Running Overseerr once before switching to webhook only mode")
             self.run_once = True
+
+        if overseerr_items:
+            overseerr_items = [
+                item for item in overseerr_items
+                if not item_exists_by_any_id(
+                    imdb_id=item.imdb_id,
+                    tvdb_id=item.tvdb_id,
+                    tmdb_id=item.tmdb_id
+                )]
 
         logger.info(f"Fetched {len(overseerr_items)} items from overseerr")
 
