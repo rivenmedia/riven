@@ -5,6 +5,7 @@ from typing import Generator, List, Optional
 
 from kink import di
 from loguru import logger
+import regex
 
 from program.media.item import MediaItem, Show, Season, Episode
 from program.services.indexers.base import BaseIndexer
@@ -128,6 +129,9 @@ class TVDBIndexer(BaseIndexer):
                 (g.name or '').lower() for g in (show_data.genres or []) if hasattr(g, 'name')
             ]
             is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.originalLanguage != 'eng')
+
+            # last minute title cleanup to remove '(year)' and '(country code)'
+            title = regex.sub(r'\s*\(.*\)\s*$', '', title)
 
             show_item = {
                 "title": title,

@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from loguru import logger
 from pydantic import BaseModel
@@ -297,11 +297,13 @@ class EventManager:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
-        Args:
-            event (Event): The event to add to the queue.
+        - If the event has a DB-backed item_id, we keep your existing parent/child
+        dedupe logic based on item_id + related ids.
+        - If the event is content-only (no item_id), we now dedupe using *all* known ids
+        (tmdb/tvdb/imdb) against both queued and running events with a single-pass check.
 
         Returns:
-            bool: True if the event was added to the queue, False if it was already present.
+            True if queued; False if deduped away.
         """
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
@@ -318,12 +320,15 @@ class EventManager:
                     logger.debug(f"Child of Item ID {item_id} is already in the queue or running, skipping.")
                     return False
         else:
-            imdb_id = event.content_item.imdb_id
-            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._queued_events):
-                logger.debug(f"Content Item with IMDB ID {imdb_id} is already in queue, skipping.")
+            # Content-only
+            ci: Optional[MediaItem] = getattr(event, "content_item", None)
+            if ci is None:
+                logger.debug("Event has neither item_id nor content_item; skipping.")
                 return False
-            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._running_events):
-                logger.debug(f"Content Item with IMDB ID {imdb_id} is already running, skipping.")
+
+            # Single-pass checks: queued and running
+            if self.item_exists_in_queue(ci, self._queued_events) or self.item_exists_in_queue(ci, self._running_events):
+                logger.debug(f"Content Item with {ci.log_string} is already queued or running, skipping.")
                 return False
 
         self.add_event_to_queue(event)
@@ -359,3 +364,43 @@ class EventManager:
                 table.append(event.item_id)
 
         return updates
+
+    def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
+        """
+        Check in a single pass whether any of the item's identifying ids (id, tmdb_id,
+        tvdb_id, imdb_id) is already represented in the given event queue.
+
+        This avoids building temporary sets (lower allocs) and returns early on first match.
+        Worst-case O(n), typically faster in practice.
+
+        Args:
+            item: The media item to check. Only non-None ids are considered.
+            queue: The event list to search.
+
+        Returns:
+            True if a match is found; otherwise False.
+        """
+        item_id: Optional[str] = getattr(item, "id", None)
+        tmdb_id: Optional[str] = getattr(item, "tmdb_id", None)
+        tvdb_id: Optional[str] = getattr(item, "tvdb_id", None)
+        imdb_id: Optional[str] = getattr(item, "imdb_id", None)
+
+        if not (item_id or tmdb_id or tvdb_id or imdb_id):
+            return False
+
+        for ev in queue:
+            if item_id is not None and getattr(ev, "item_id", None) == item_id:
+                return True
+
+            ci = getattr(ev, "content_item", None)
+            if ci is None:
+                continue
+
+            if tmdb_id is not None and getattr(ci, "tmdb_id", None) == tmdb_id:
+                return True
+            if tvdb_id is not None and getattr(ci, "tvdb_id", None) == tvdb_id:
+                return True
+            if imdb_id is not None and getattr(ci, "imdb_id", None) == imdb_id:
+                return True
+
+        return False

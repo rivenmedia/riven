@@ -161,7 +161,7 @@ def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
 def _get_item_country(item: MediaItem) -> str:
     """Get the country code for a country.""" 
     country = ""
-    
+
     if item.type == "season":
         country = item.parent.country.upper()
     elif item.type == "episode":
@@ -169,8 +169,11 @@ def _get_item_country(item: MediaItem) -> str:
     else:
         country = item.country.upper()
 
+    # need to normalize 
     if country == "USA":
         country = "US"
+    elif country == "GB":
+        country = "UK"
 
     return country
 

@@ -73,8 +73,8 @@ class PlexWatchlist:
                     items_to_yield.append(MediaItem({"tvdb_id": d["tvdb_id"], "requested_by": self.key}))
                 elif d["tmdb_id"] and not d["tvdb_id"]: # movie
                     items_to_yield.append(MediaItem({"tmdb_id": d["tmdb_id"], "requested_by": self.key}))
-                elif d["imdb_id"] and not d["tvdb_id"] and not d["tmdb_id"]: # going to have to guess these...
-                    items_to_yield.append(MediaItem({"imdb_id": d["imdb_id"], "requested_by": self.key}))
+                # elif d["imdb_id"] and not d["tvdb_id"] and not d["tmdb_id"]: # going to have to guess these...
+                #     items_to_yield.append(MediaItem({"imdb_id": d["imdb_id"], "requested_by": self.key}))
 
         if rss_items:
             for r in rss_items:
@@ -87,5 +87,5 @@ class PlexWatchlist:
         if items_to_yield:
             items_to_yield = [item for item in items_to_yield if not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id)]
 
-        logger.info(f"Fetched {len(items_to_yield)} items from plex watchlist")
+        logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
         yield items_to_yield

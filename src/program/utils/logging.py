@@ -61,6 +61,7 @@ def setup_logger(level):
 
     # Default log levels
     debug_color, debug_icon = get_log_settings("DEBUG", "98C1D9", "🐞")
+    trace_color, trace_icon = get_log_settings("TRACE", "27F5E7", "✏️ ")
     info_color, info_icon = get_log_settings("INFO", "818589", "📰")
     warning_color, warning_icon = get_log_settings("WARNING", "ffcc00", "⚠️ ")
     critical_color, critical_icon = get_log_settings("CRITICAL", "ff0000", "")
@@ -71,6 +72,7 @@ def setup_logger(level):
     logger.level("WARNING", color=warning_color, icon=warning_icon)
     logger.level("CRITICAL", color=critical_color, icon=critical_icon)
     logger.level("SUCCESS", color=success_color, icon=success_icon)
+    logger.level("TRACE", color=trace_color, icon=trace_icon)
 
     # Log format to match the old log format, but with color
     log_format = (
@@ -134,5 +136,5 @@ def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
 
 
 console = Console()
-log_level = "DEBUG" if settings_manager.settings.debug else "INFO"
+log_level = "TRACE" if settings_manager.settings.debug else "INFO"
 setup_logger(log_level)
