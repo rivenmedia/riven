@@ -36,7 +36,7 @@ class Scraping:
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
             Zilean: Zilean(),
-            Rarbg: Rarbg()
+            # Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,
