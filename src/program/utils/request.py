@@ -10,6 +10,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from lxml import etree
+from email.utils import parsedate_to_datetime
 
 
 class TokenBucket:
@@ -219,6 +220,40 @@ class SmartResponse(requests.Response):
         return element_to_simplenamespace(root)
 
 
+class LogRetry(Retry):
+    """Retry that logs Retry-After-derived sleep before the next retry."""
+
+    def increment(self, method=None, url=None, response=None, error=None, *_args, **kwargs):
+        """Let urllib3 compute the next retry state first"""
+        new_retry = super().increment(method=method, url=url, response=response, error=error, *_args, **kwargs)
+
+        try:
+            if response is not None and self.respect_retry_after_header:
+                ra = response.headers.get("Retry-After")
+                if ra:
+                    delay = None
+                    try:
+                        delay = int(ra)
+                    except ValueError:
+                        try:
+                            dt = parsedate_to_datetime(ra)
+                            delay = max(0, int(round(dt.timestamp() - time.time())))
+                        except Exception:
+                            delay = None
+
+                    # If parsing failed, fall back to exponential backoff time (for completeness)
+                    if delay is None:
+                        delay = new_retry.get_backoff_time() or 0
+
+                    status = getattr(response, "status", None) or getattr(response, "status_code", "unknown")
+                    logger.warning(f"Retry-After detected for {method.upper()} {url}: status={status}, retrying in {int(round(delay))}s")
+        except Exception:
+            # Never break the retry pipeline due to logging
+            pass
+
+        return new_retry
+
+
 class SmartSession(requests.Session):
     """
     SmartSession adds automatic SmartResponse wrapping, rate limiting, circuit breaker, proxies, and retries.
@@ -260,10 +295,11 @@ class SmartSession(requests.Session):
             pool_connections=50,
             pool_maxsize=100,
             pool_block=True,
-            max_retries=Retry(
+            max_retries=LogRetry(
                 total=retries,
                 backoff_factor=backoff_factor,
                 status_forcelist=[429, 500, 502, 503, 504],
+                respect_retry_after_header=True, # honor server-provided delay
             )
         )
         self.mount("http://", adapter)
@@ -313,8 +349,9 @@ class SmartSession(requests.Session):
         try:
             resp: SmartResponse = super().request(method, url, **kwargs)
             resp.__class__ = SmartResponse
+            success_for_breaker = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
             if breaker:
-                breaker.after_request(resp.ok)
+                breaker.after_request(success_for_breaker)
             return resp
         except Exception:
             if breaker:

@@ -3,7 +3,7 @@ from typing import List, Optional, Union
 
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.services.downloaders.models import (
@@ -99,12 +99,12 @@ class Downloader:
                     item.blacklist_stream(stream)
         except CircuitBreakerOpen as e:
             # Circuit breaker is open, set service-level cooldown and reschedule the item
-            cooldown_duration = timedelta(minutes=2)  # 2 minute cooldown
+            cooldown_duration = timedelta(minutes=1)  # 2 minute cooldown
             self._service_cooldown_until = datetime.now() + cooldown_duration
             
             retry_count = self._circuit_breaker_retries.get(item.id, 0)
             if retry_count >= 6:  # Max retries reached
-                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, max retries reached. Setting service cooldown for 2 minutes.")
+                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, max retries reached. Setting service cooldown for 1 minute.")
                 self._circuit_breaker_retries.pop(item.id, None)
                 yield item
             else:
