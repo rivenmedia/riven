@@ -9,7 +9,6 @@ from RTN import parse_media_file
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from program.db import db_functions
@@ -191,63 +190,93 @@ async def get_items(
 @router.post(
     "/add",
     summary="Add Media Items",
-    description="Add media items with bases on imdb IDs",
+    description="Add media items with bases on TMDB ID or TVDB ID",
     operation_id="add_items",
 )
-async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
-    if not imdb_ids:
-        raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
+async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: Optional[str] = None, media_type: Optional[Literal["movie", "tv"]] = None) -> MessageResponse:
+    if (not tmdb_ids and not tvdb_ids) or not media_type:
+        raise HTTPException(status_code=400, detail="No ID(s) or media type provided")
 
-    ids = imdb_ids.split(",")
+    if tmdb_ids:
+        all_tmdb_ids = [id.strip() for id in tmdb_ids.split(",")] if "," in tmdb_ids else [tmdb_ids.strip()]
+        all_tmdb_ids = [id for id in all_tmdb_ids if id]
+    else:
+        all_tmdb_ids = []
 
-    valid_ids = []
-    for id in ids:
-        if not id.startswith("tt"):
-            logger.warning(f"Invalid IMDb ID {id}, skipping")
-        else:
-            valid_ids.append(id)
+    if tvdb_ids:
+        all_tvdb_ids = [id.strip() for id in tvdb_ids.split(",")] if "," in tvdb_ids else [tvdb_ids.strip()]
+        all_tvdb_ids = [id for id in all_tvdb_ids if id]
+    else:
+        all_tvdb_ids = []
 
-    if not valid_ids:
-        raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
+    added_count = 0
+    items = []
 
-    with db.Session() as _:
-        for id in valid_ids:
-            item = MediaItem(
-                {"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()}
-            )
-            request.app.program.em.add_item(item)
+    with db.Session() as session:
+        for id in all_tmdb_ids:
+            if media_type == "movie" and not db_functions.item_exists_by_any_id(tmdb_id=id):
+                item = MediaItem({"tmdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+                if item:
+                    items.append(item)
+            else:
+                logger.debug(f"Item with TMDB ID {id} already exists")
 
-    return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
+        for id in all_tvdb_ids:
+            if media_type == "tv" and not db_functions.item_exists_by_any_id(tvdb_id=id):
+                item = MediaItem({"tvdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+                if item:
+                    items.append(item)
+            else:
+                logger.debug(f"Item with TVDB ID {id} already exists")
+
+        if items:
+            for item in items:
+                request.app.program.em.add_item(item)
+                added_count += 1
+
+    return {"message": f"Added {added_count} item(s) to the queue", "tmdb_ids": all_tmdb_ids, "tvdb_ids": all_tvdb_ids}
 
 @router.get(
     "/{id}",
     summary="Retrieve Media Item",
-    description="Fetch a single media item by ID",
+    description="Fetch a single media item by TMDB ID or TVDB ID",
     operation_id="get_item",
 )
-async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
+async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"] = None, with_streams: Optional[bool] = False) -> dict:
+    if not id or not media_type:
+        raise HTTPException(status_code=400, detail="No ID or media type provided")
+
     with db.Session() as session:
-        query = select(MediaItem)
-        if use_tmdb_id:
-            query = query.where(MediaItem.tmdb_id == id).where(MediaItem.type.in_(["movie", "show"]))
+        if media_type == "movie":
+            query = select(MediaItem).where(
+                MediaItem.tmdb_id == id,
+                MediaItem.type.in_(["movie"])
+            )
+        elif media_type == "tv":
+            query = select(MediaItem).where(
+                MediaItem.tvdb_id == id,
+                MediaItem.type.in_(["show"])
+            )
         else:
-            query = query.where(MediaItem.id == id)
+            raise HTTPException(status_code=400, detail="Invalid media type")
+
         try:
             item = session.execute(query).unique().scalar_one_or_none()
             if item:
-                return item.to_extended_dict(with_streams=False)
-            raise NoResultFound
-        except NoResultFound:
-            raise HTTPException(status_code=404, detail="Item not found")
-        except Exception as e:
-            if "Multiple rows were found when one or none was required" in str(e):
-                duplicate_ids = set()
-                items = session.execute(query).unique().scalars().all()
-                for item in items:
-                    duplicate_ids.add(item.id)
-                logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+                return item.to_extended_dict(with_streams=with_streams)
             else:
-                logger.error(f"Error fetching item with ID {id}: {str(e)}")
+                raise HTTPException(status_code=404, detail="Item not found")
+        except Exception as e:
+            # Handle multiple results
+            if "Multiple rows were found when one or none was required" in str(e):
+                items = session.execute(query).unique().scalars().all()
+                duplicate_ids = {item.id for item in items}
+                logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Multiple items found with ID {id}: {duplicate_ids}"
+                )
+            logger.error(f"Error fetching item with ID {id}: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.get(

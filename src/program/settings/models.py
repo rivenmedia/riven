@@ -227,7 +227,7 @@ class OrionoidConfig(Observable):
     api_key: str = ""
     cached_results_only: bool = False
     parameters: dict[str, Any] = {
-        "video3d": "false",
+        "video3d": False,
         "videoquality": "sd_hd8k",
         "limitcount": 5,
     }
@@ -251,14 +251,6 @@ class ProwlarrConfig(Observable):
     ratelimit: bool = True
     limiter_seconds: int = 60
 
-# will be removed in a future version
-class KnightcrawlerConfig(Observable):
-    enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com"
-    timeout: int = 30
-    ratelimit: bool = True
-    proxy_url: str = ""
 
 class RarbgConfig(Observable):
     enabled: bool = False
@@ -277,7 +269,6 @@ class ScraperModel(Observable):
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
     dubbed_anime_only: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
-    knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()

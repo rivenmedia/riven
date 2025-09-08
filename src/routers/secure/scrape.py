@@ -95,9 +95,13 @@ class ShowFileData(RootModel[SeasonEpisodeMap]):
     root: SeasonEpisodeMap
 
 class ScrapingSession:
-    def __init__(self, id: str, item_id: str, magnet: str):
+    def __init__(self, id: str, item_id: str, media_type: Optional[Literal["movie", "tv"]] = None, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None, tvdb_id: Optional[str] = None, magnet: str = None):
         self.id = id
         self.item_id = item_id
+        self.media_type = media_type
+        self.imdb_id = imdb_id
+        self.tmdb_id = tmdb_id
+        self.tvdb_id = tvdb_id
         self.magnet = magnet
         self.torrent_id: Optional[Union[int, str]] = None
         self.torrent_info: Optional[TorrentInfo] = None
@@ -115,10 +119,10 @@ class ScrapingSessionManager:
         """Set the downloader for the session manager"""
         self.downloader = downloader
 
-    def create_session(self, item_id: str, magnet: str) -> ScrapingSession:
+    def create_session(self, item_id: str, magnet: str, media_type: Optional[Literal["movie", "tv"]] = None, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None, tvdb_id: Optional[str] = None) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
-        session = ScrapingSession(session_id, item_id, magnet)
+        session = ScrapingSession(session_id, item_id, media_type, imdb_id, tmdb_id, tvdb_id, magnet)
         self.sessions[session_id] = session
         return session
 
@@ -187,18 +191,19 @@ def initialize_downloader(downloader: Downloader):
         session_manager.set_downloader(downloader)
 
 @router.get(
-    "/scrape/{id}",
+    "/scrape",
     summary="Get streams for an item",
     operation_id="scrape_item"
 )
-def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
-    """Get streams for an item"""
-    if id.startswith("tt"):
-        imdb_id = id
-        item_id = None
-    else:
-        imdb_id = None
-        item_id = id
+def scrape_item(
+    request: Request,
+    item_id: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
+    tvdb_id: Optional[str] = None,
+    imdb_id: Optional[str] = None,
+    media_type: Optional[Literal["movie", "tv"]] = None
+) -> ScrapeItemResponse:
+    """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
     if services := request.app.program.services:
         indexer = services[IndexerService]
@@ -207,20 +212,22 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
     log_string = None
-    with db.Session() as db_session:
+    item = None
 
-        if imdb_id:
-            prepared_item = MediaItem({"imdb_id": imdb_id})
-            item = next(indexer.run(prepared_item))
+    with db.Session() as db_session:
+        if item_id:
+            item = db_functions.get_item_by_id(item_id)
+        elif tmdb_id and media_type == "movie":
+            prepared_item = MediaItem({"tmdb_id": tmdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+            item = next(indexer.run(prepared_item), None)
+        elif tvdb_id and media_type == "tv":
+            prepared_item = MediaItem({"tvdb_id": tvdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+            item = next(indexer.run(prepared_item), None)
+        elif imdb_id:
+            prepared_item = MediaItem({"imdb_id": imdb_id, "tvdb_id": tvdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+            item = next(indexer.run(prepared_item), None)
         else:
-            item: MediaItem = (
-                db_session.execute(
-                    select(MediaItem)
-                    .where(MediaItem.id == item_id)
-                )
-                .unique()
-                .scalar_one_or_none()
-            )
+            raise HTTPException(status_code=400, detail="No valid ID provided")
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -241,8 +248,12 @@ def scrape_item(request: Request, id: str) -> ScrapeItemResponse:
 async def start_manual_session(
     request: Request,
     background_tasks: BackgroundTasks,
-    item_id: str,
-    magnet: str
+    item_id: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
+    tvdb_id: Optional[str] = None,
+    imdb_id: Optional[str] = None,
+    media_type: Optional[Literal["movie", "tv"]] = None,
+    magnet: Optional[str] = None
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
@@ -255,14 +266,6 @@ async def start_manual_session(
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
-    # Identify item based on IMDb or database ID
-    if item_id.startswith("tt"):
-        imdb_id = item_id
-        item_id = None
-    else:
-        imdb_id = None
-        item_id = item_id
-
     if services := request.app.program.services:
         indexer = services[IndexerService]
         downloader = services[Downloader]
@@ -271,11 +274,19 @@ async def start_manual_session(
 
     initialize_downloader(downloader)
 
-    if imdb_id:
-        prepared_item = MediaItem({"imdb_id": imdb_id})
-        item = next(indexer.run(prepared_item))
-    else:
+    if item_id:
         item = db_functions.get_item_by_id(item_id)
+    elif tmdb_id and media_type == "movie":
+        prepared_item = MediaItem({"tmdb_id": tmdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+        item = next(indexer.run(prepared_item), None)
+    elif tvdb_id and media_type == "tv":
+        prepared_item = MediaItem({"tvdb_id": tvdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+        item = next(indexer.run(prepared_item), None)
+    elif imdb_id:
+        prepared_item = MediaItem({"imdb_id": imdb_id, "requested_by": "riven", "requested_at": datetime.now()})
+        item = next(indexer.run(prepared_item), None)
+    else:
+        raise HTTPException(status_code=400, detail="No valid ID provided")
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -285,7 +296,14 @@ async def start_manual_session(
     if not container or not container.cached:
         raise HTTPException(status_code=400, detail="Torrent is not cached, please try another stream")
 
-    session = session_manager.create_session(item_id or imdb_id, info_hash)
+    session = session_manager.create_session(
+        item.id, 
+        info_hash, 
+        media_type=media_type,
+        imdb_id=imdb_id, 
+        tmdb_id=tmdb_id, 
+        tvdb_id=tvdb_id
+    )
 
     try:
         torrent_id: str = downloader.add_torrent(info_hash)
@@ -350,15 +368,31 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         raise HTTPException(status_code=500, detail="No item ID found")
 
     with db.Session() as db_session:
-        if str(session.item_id).startswith("tt") and not db_functions.get_item_by_external_id(imdb_id=session.item_id) and not db_functions.get_item_by_id(session.item_id):
-            prepared_item = MediaItem({"imdb_id": session.item_id})
-            item = next(IndexerService().run(prepared_item))
-            if not item:
-                raise HTTPException(status_code=404, detail="Unable to index item")
-            db_session.merge(item)
-            db_session.commit()
-        else:
-          item = db_functions.get_item_by_id(session.item_id)
+        item = None
+        if session.media_type == "tv" and session.tvdb_id:
+            item = db_functions.get_item_by_external_id(tvdb_id=session.tvdb_id)
+        elif session.media_type == "movie" and session.tmdb_id:
+            item = db_functions.get_item_by_external_id(tmdb_id=session.tmdb_id)
+        elif session.imdb_id:
+            item = db_functions.get_item_by_external_id(imdb_id=session.imdb_id)
+
+        if not item:
+            item_data = {}
+            if session.imdb_id:
+                item_data["imdb_id"] = session.imdb_id
+            if session.tmdb_id:
+                item_data["tmdb_id"] = session.tmdb_id
+            if session.tvdb_id:
+                item_data["tvdb_id"] = session.tvdb_id
+            
+            if item_data:
+                item_data["requested_by"] = "riven"
+                item_data["requested_at"] = datetime.now()
+                prepared_item = MediaItem(item_data)
+                item = next(IndexerService().run(prepared_item), None)
+                if item:
+                    db_session.merge(item)
+                    db_session.commit()
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
