@@ -1,10 +1,9 @@
 """ Prowlarr scraper module """
 
 import concurrent.futures
-import queue
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict
 
 import regex
 from loguru import logger
@@ -14,7 +13,7 @@ from requests import ReadTimeout, RequestException
 from program.media.item import MediaItem
 from program.services.scrapers.shared import _get_infohash_from_torrent_url
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, get_hostname_from_url
+from program.utils.request import SmartSession
 
 
 class SearchParams(BaseModel):

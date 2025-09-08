@@ -3,12 +3,9 @@ import base64
 import json
 from typing import Dict
 
-import regex
 from loguru import logger
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
 
-from program.media.item import MediaItem, Show
+from program.media.item import MediaItem
 from program.services.scrapers.shared import (
     _get_stremio_identifier,
 )
@@ -54,6 +51,7 @@ class Comet:
             rate_limits = None
         
         self.session = SmartSession(
+            base_url=self.settings.url.rstrip('/'),
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
@@ -77,8 +75,7 @@ class Comet:
             logger.error("Comet ratelimit must be a valid boolean.")
             return False
         try:
-            url = f"{self.settings.url}/manifest.json"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get("/manifest.json", timeout=self.timeout)
             if response.ok:
                 return True
         except Exception as e:
@@ -102,7 +99,7 @@ class Comet:
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
-        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
+        url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
         response = self.session.get(url, timeout=self.timeout)
         if not response.ok or not getattr(response.data, "streams", None):
@@ -110,7 +107,7 @@ class Comet:
             return {}
 
         torrents = {
-            stream.infoHash: stream.description.split("\n")[0] 
+            stream.infoHash: stream.description.split("\n")[0].replace("📄 ", "")
             for stream in response.data.streams if hasattr(stream, "infoHash")
             and stream.infoHash
         }
