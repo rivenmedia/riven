@@ -33,6 +33,7 @@ class Mediafusion:
             rate_limits = {}
         
         self.session = SmartSession(
+            base_url=self.settings.url.rstrip('/'),
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
@@ -60,10 +61,6 @@ class Mediafusion:
             return False
 
         payload = {
-            # "selected_resolutions": [
-            #     "4k", "2160p", "1440p",
-            #     "1080p", "720p", "480p", None
-            # ],
             "max_streams_per_resolution": 100,
             "live_search_streams": True,
             "show_full_torrent_name": True,
@@ -72,26 +69,20 @@ class Mediafusion:
             "certification_filter": ["Disable"],
         }
 
-        url = f"{self.settings.url}/encrypt-user-data"
         headers = {"Content-Type": "application/json"}
 
         try:
-            response = self.session.post(
-                url,
-                json=payload,
-                headers=headers,
-            )
-            if not response.data or response.data["status"] != "success":
-                logger.error(f"Failed to encrypt user data: {response.data['message']}")
+            response = self.session.post("/encrypt-user-data", json=payload, headers=headers)
+            if not response.data or response.data.status != "success":
+                logger.error(f"Failed to encrypt user data: {response.data.message}")
                 return False
-            self.encrypted_string = response.data["encrypted_str"]
+            self.encrypted_string = response.data.encrypted_str
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
             return False
 
         try:
-            url = f"{self.settings.url}/manifest.json"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get("/manifest.json", timeout=self.timeout)
             return response.ok
         except Exception as e:
             logger.error(f"Mediafusion failed to initialize: {e}")
@@ -118,7 +109,7 @@ class Mediafusion:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
 
-        url = f"{self.settings.url}/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
+        url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:
             url += identifier
 
