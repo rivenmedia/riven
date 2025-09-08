@@ -64,16 +64,9 @@ class Prowlarr:
         logger.success("Prowlarr initialized!")
 
     def _create_session(self) -> SmartSession:
-        # Configure rate limiting for Prowlarr based on settings
-        if self.settings.ratelimit:
-            rate_limits = {
-                get_hostname_from_url(self.settings.url): {"rate": 1/self.settings.limiter_seconds, "capacity": 1}  # Based on limiter_seconds
-            }
-        else:
-            rate_limits = {}
-        
+        """Create a session for Prowlarr"""
         return SmartSession(
-            rate_limits=rate_limits,
+            base_url=f"{self.settings.url.rstrip('/')}/api/v1",
             retries=3,
             backoff_factor=0.3
         )
@@ -107,8 +100,8 @@ class Prowlarr:
         return False
 
     def get_indexers(self) -> list[Indexer]:
-        statuses = self.session.get(f"{self.settings.url}/api/v1/indexerstatus", timeout=15, headers=self.headers)
-        response = self.session.get(f"{self.settings.url}/api/v1/indexer", timeout=15, headers=self.headers)
+        statuses = self.session.get(f"/indexerstatus", timeout=15, headers=self.headers)
+        response = self.session.get(f"/indexer", timeout=15, headers=self.headers)
         data = response.data
         statuses = statuses.data
         indexers = []
@@ -319,7 +312,7 @@ class Prowlarr:
             return {}
 
         start_time = time.time()
-        response = self.session.get(f"{self.settings.url}/api/v1/search", params=params, timeout=self.timeout, headers=self.headers)
+        response = self.session.get(f"/search", params=params, timeout=self.timeout, headers=self.headers)
         if not response.ok:
             message = response.data.message or "Unknown error"
             logger.debug(f"Failed to scrape {indexer.name}: [{response.status_code}] {message}")
