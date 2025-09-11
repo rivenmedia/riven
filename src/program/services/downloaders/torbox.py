@@ -128,6 +128,10 @@ class TorBoxDownloader(DownloaderBase):
                         file_id=file_id
                     )
                     if isinstance(debrid_file, DebridFile):
+                        # Get download URL for this file
+                        download_url = self.get_download_url(infohash, str(file_id))
+                        if download_url:
+                            debrid_file.download_url = download_url
                         torrent_files.append(debrid_file)
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")
@@ -250,6 +254,18 @@ class TorBoxDownloader(DownloaderBase):
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
             raise
+
+    def get_download_url(self, torrent_id: str, file_id: str) -> Optional[str]:
+        """Get download URL for a specific file"""
+        try:
+            response = self.api.request_handler.execute(
+                HttpMethod.GET,
+                f"torrents/requestdl?token={self.api.api_key}&torrent_id={torrent_id}&file_id={file_id}&zip_link=false"
+            )
+            return response.get("data")
+        except Exception as e:
+            logger.error(f"Failed to get download URL for torrent {torrent_id}, file {file_id}: {e}")
+            return None
 
     def delete_torrent(self, torrent_id: str) -> None:
         """Delete a torrent"""

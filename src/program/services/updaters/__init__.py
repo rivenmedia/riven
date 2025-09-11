@@ -1,7 +1,7 @@
 """Updater module"""
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -33,19 +33,15 @@ class Updater:
                     item = next(service.run(item))
                 except Exception as e:
                     logger.error(f"{service_cls.__name__} failed to update {item.log_string}: {e}")
-
-        # Lets update the attributes of the item and its children, we dont care if the service updated it or not.
-        for _item in get_items_to_update(item):
-            _item.set("update_folder", "updated")
+        
+        for item in get_items_to_update(item):
+            item.updated = True
         yield item
 
 def get_items_to_update(item: MediaItem) -> list[MediaItem]:
-    """Get items to update for a given item."""
-    items_to_update = []
-    if item.type in ["movie", "episode"]:
-        items_to_update = [item]
-    if item.type == "show":
-        items_to_update = [e for s in item.seasons for e in s.episodes if e.symlinked and e.get("update_folder") != "updated"]
-    elif item.type == "season":
-        items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
-    return items_to_update
+    if isinstance(item, (Movie, Episode)):
+        return [item]
+    elif isinstance(item, Show):
+        return [e for season in item.seasons for e in season.episodes if e.available_in_vfs]
+    elif isinstance(item, Season):
+        return [e for e in item.episodes if e.available_in_vfs]

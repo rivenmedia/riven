@@ -1,4 +1,5 @@
 """Emby Updater module"""
+import os
 from types import SimpleNamespace
 from typing import Generator
 
@@ -15,6 +16,10 @@ class EmbyUpdater:
         self.initialized = False
         self.settings = settings_manager.settings.updaters.emby
         self.session = SmartSession(retries=3, backoff_factor=0.3)
+        # Use same library path logic as PlexUpdater
+        self.library_path = os.path.abspath(
+            os.path.dirname(settings_manager.settings.filesystem.library_path)
+        )
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -47,9 +52,15 @@ class EmbyUpdater:
             items_to_update = [item]
         elif item.type == "show":
             for season in item.seasons:
-                items_to_update += [e for e in season.episodes if e.symlinked and e.update_folder != "updated"]
+                items_to_update += [
+                    e for e in season.episodes
+                    if e.available_in_vfs
+                ]
         elif item.type == "season":
-            items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
+            items_to_update = [
+                e for e in item.episodes
+                if e.available_in_vfs
+            ]
 
         if not items_to_update:
             logger.debug(f"No items to update for {item.log_string}")
@@ -78,11 +89,14 @@ class EmbyUpdater:
 
     def update_item(self, item: MediaItem) -> bool:
         """Update the Emby item"""
-        if item.symlinked and item.update_folder != "updated" and item.symlink_path:
+        # Build absolute path inside the server's library using the VFS path
+        vfs_path = item.filesystem_entry.path if item.filesystem_entry else None
+        if item.available_in_vfs and vfs_path and not vfs_path.startswith("/__incoming__/"):
+            abs_path = os.path.join(self.library_path, vfs_path.lstrip("/"))
             try:
                 response = self.session.post(
                     f"{self.settings.url}/Library/Media/Updated",
-                    json={"Updates": [{"Path": item.symlink_path, "UpdateType": "Created"}]},
+                    json={"Updates": [{"Path": abs_path, "UpdateType": "Created"}]},
                     params={"api_key": self.settings.api_key},
                 )
                 if response.ok:

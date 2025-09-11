@@ -8,9 +8,15 @@ RUN apk add --no-cache \
     libffi-dev \
     python3-dev \
     build-base \
-    curl
+    curl \
+    curl-dev \
+    openssl-dev \
+    fuse3-dev \
+    pkgconf \
+    fuse3
 
 # Upgrade pip and install poetry
+ENV PYCURL_SSL_LIBRARY=openssl
 RUN pip install --upgrade pip && pip install poetry==1.8.3
 
 ENV POETRY_NO_INTERACTION=1 \
@@ -34,6 +40,8 @@ LABEL name="Riven" \
 ENV PYTHONUNBUFFERED=1
 RUN apk add --no-cache \
     curl \
+    libcurl \
+    openssl \
     shadow \
     rclone \
     unzip \
@@ -42,8 +50,13 @@ RUN apk add --no-cache \
     musl-dev \
     libffi-dev \
     python3-dev \
-    libpq-dev \ 
-    libtorrent
+    libpq-dev \
+    fuse3
+
+# Ensure FUSE allows allow_other (uncomment or add user_allow_other)
+RUN (sed -i 's/^#\s*user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true) \
+    && (grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo 'user_allow_other' >> /etc/fuse.conf)
+
 
 # Install Poetry
 RUN pip install poetry==1.8.3

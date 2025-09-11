@@ -8,7 +8,7 @@ from program.services.indexers import CompositeIndexer
 from program.services.scrapers import Scraping
 from program.services.updaters.plex import PlexUpdater
 from program.state_transition import process_event
-from program.symlink import Symlinker
+from program.services.filesystem import FilesystemService
 
 
 @pytest.fixture
@@ -93,20 +93,12 @@ def test_downloaded_state(episode):
     # Then: The item's state should be Downloaded
     assert episode.state == States.Downloaded, "Episode should transition to Downloaded state"
 
-def test_symlinked_state(episode):
-    """Test transition to the Symlinked state."""
-    # Given: A media item (episode)
-    episode.set("symlinked", True)
-    # When: The item is symlinked
-    # Then: The item's state should be Symlinked
-    assert episode.state == States.Symlinked, "Episode should transition to Symlinked state"
 
 def test_completed_state(movie):
     """Test transition to the Completed state."""
     # Given: A media item (movie)
     movie.set("key", "some_key")
-    movie.set("update_folder", "updated")
-    # When: The item has a key and update_folder set
+    # When: The item has a key set
     # Then: The item's state should be Completed
     assert movie.state == States.Completed, "Movie should transition to Completed state"
 
@@ -114,11 +106,7 @@ def test_show_state_transitions(show):
     """Test full state transitions of a show."""
     # Given: A media item (show)
     # When: The show has various states set for its episodes and seasons
-    show.seasons[0].episodes[0].set("file", "/path/to/file")
-    show.seasons[0].episodes[0].set("folder", "/path/to/folder")
-    show.seasons[0].episodes[0].set("symlinked", True)
     show.seasons[0].episodes[0].set("key", "some_key")
-    show.seasons[0].episodes[0].set("update_folder", "updated")
 
     # Then: The show's state should transition based on its episodes and seasons
     assert show.state == States.Completed, "Show should transition to Completed state"
@@ -128,8 +116,8 @@ def test_show_state_transitions(show):
     # (States.Requested, CompositeIndexer, CompositeIndexer),
     (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, Symlinker),
-    (States.Symlinked, Symlinker, PlexUpdater),
+    (States.Downloaded, RealDebridDownloader, FilesystemService),
+    (States.Symlinked, FilesystemService, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])
 def test_process_event_transitions_movie(state, service, next_service, movie):
@@ -152,8 +140,8 @@ def test_process_event_transitions_movie(state, service, next_service, movie):
     # (States.Requested, CompositeIndexer, CompositeIndexer),
     (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, Symlinker),
-    (States.Symlinked, Symlinker, PlexUpdater),
+    (States.Downloaded, RealDebridDownloader, FilesystemService),
+    (States.Symlinked, FilesystemService, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])
 def test_process_event_transition_shows(state, service, next_service, show):
@@ -183,8 +171,8 @@ def test_process_event_transition_shows(state, service, next_service, show):
     # (States.Requested, CompositeIndexer, CompositeIndexer),
     (States.Indexed, CompositeIndexer, Scraping),
     (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, Symlinker),
-    (States.Symlinked, Symlinker, PlexUpdater),
+    (States.Downloaded, RealDebridDownloader, FilesystemService),
+    (States.Symlinked, FilesystemService, PlexUpdater),
     (States.Completed, PlexUpdater, None)
 ])
 def test_process_event_transitions_media_item_movie(state, service, next_service, media_item_movie):
@@ -207,8 +195,8 @@ def test_process_event_transitions_media_item_movie(state, service, next_service
 #     # (States.Requested, TraktIndexer, TraktIndexer),
 #     (States.Indexed, TraktIndexer, Scraping),
 #     (States.Scraped, Scraping, Debrid),
-#     (States.Downloaded, Debrid, Symlinker),
-#     (States.Symlinked, Symlinker, PlexUpdater),
+#     (States.Downloaded, Debrid, FilesystemService),
+#     (States.Symlinked, FilesystemService, PlexUpdater),
 #     (States.Completed, PlexUpdater, None)
 # ])
 # def test_process_event_transitions_media_item_show(state, service, next_service, media_item_show):

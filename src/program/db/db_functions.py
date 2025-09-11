@@ -18,7 +18,6 @@ import alembic
 from program.apis.tvdb_api import TVDBApi
 from program.media.state import States
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
-from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 
 from .db import db
@@ -670,7 +669,7 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                             elif input_item.type == "season":
                                 input_item.parent.store_state()
                             else:
-                                input_item.store_state()
+                                item.store_state()
                             session.commit()
                         return res
 
@@ -812,7 +811,8 @@ def hard_reset_database() -> None:
                 logger.log("DATABASE", f"Restored alembic version to: {current_version}")
             else:
                 # Stamp with head version if no previous version
-                alembic.stamp("head")
+                alembic_cfg = alembic.config.Config(root_dir / "src" / "alembic.ini")
+                alembic.command.stamp(alembic_cfg, "head")
                 logger.log("DATABASE", "Database stamped with head revision")
 
         except Exception as e:
@@ -836,11 +836,9 @@ def hard_reset_database() -> None:
         logger.error(f"Error verifying database state: {str(e)}")
         raise
 
-
-if os.getenv("HARD_RESET", None) is not None and os.getenv("HARD_RESET", "").lower() in ["true", "1"]:
+# Hard Reset Database
+reset = os.getenv("HARD_RESET", None)
+if reset is not None and reset.lower() in ["true","1"]:
     hard_reset_database()
-    raise SystemExit(0)
+    exit(0)
 
-if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true", "1"]:
-    fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
-    raise SystemExit(0)

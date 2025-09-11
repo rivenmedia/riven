@@ -3,18 +3,45 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: riven:dev
+      no_cache: true
     container_name: riven
     restart: unless-stopped
-    network_mode: host
     tty: true
+    ports:
+      - "8080:8080"
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=UTC
       - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
-      - RIVEN_FORCE_ENV=true
-      - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
     volumes:
-      - ./data:/riven/data
-      - /mnt:/mnt
+      - ./riven/data:/riven/data
+      - ./mount:/mount:rshared,z
+    depends_on:
+      riven_postgres:
+        condition: service_healthy
+
+  riven_postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: riven
+    volumes:
+      - ./riven_db:/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

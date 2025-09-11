@@ -25,7 +25,9 @@ else
     # Default USERNAME and GROUPNAME if not set
     USERNAME=${USERNAME:-riven}
     GROUPNAME=${GROUPNAME:-riven}
-    
+    # Set USER_HOME before user creation
+    USER_HOME="/home/$USERNAME"
+
     # Create group if it doesn't exist
     if ! getent group "$PGID" > /dev/null; then
         addgroup --gid "$PGID" "$GROUPNAME"
@@ -56,10 +58,16 @@ else
         fi
     fi
     
-    USER_HOME="/home/$USERNAME"
     mkdir -p "$USER_HOME"
     chown -R "$PUID:$PGID" "$USER_HOME"
-    chown -R "$PUID:$PGID" /riven/data
+    # Avoid crossing into other mounts under /riven/data (e.g., /riven/data/mount)
+    if [ -d "/riven/data" ]; then
+        find /riven/data -xdev -exec chown "$PUID:$PGID" {} + 2>/dev/null || true
+    fi
+    # Ensure mountpoint is writable by the app user (best-effort)
+    if [ -d "/mount" ]; then
+        chown "$PUID:$PGID" /mount 2>/dev/null || true
+    fi
 fi
 
 umask 002
@@ -86,6 +94,6 @@ else
         poetry add debugpy 
         exec su -m $USERNAME -c "cd /riven/src && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py"
     else
-        su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
+        exec su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
     fi
 fi
