@@ -202,6 +202,9 @@ class RealDebridDownloader(DownloaderBase):
         if info.status == "downloaded":
             files: List[DebridFile] = []
             for file_id, meta in info.files.items():
+                if meta.get("selected", 0) != 1:
+                    continue
+
                 try:
                     df = DebridFile.create(
                         path=meta["path"],
@@ -210,7 +213,15 @@ class RealDebridDownloader(DownloaderBase):
                         filetype=item_type,
                         file_id=file_id,
                     )
+
                     if isinstance(df, DebridFile):
+                        # Download URL is already available from get_torrent_info()
+                        download_url = meta.get("download_url", "")
+                        if download_url:  # Empty string is falsy, so this works
+                            df.download_url = download_url
+                            logger.debug(f"Using correlated download URL for {meta['filename']}")
+                        else:
+                            logger.warning(f"No download URL available for {meta['filename']}")
                         files.append(df)
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")  # noisy per-file details kept at debug
@@ -285,28 +296,56 @@ class RealDebridDownloader(DownloaderBase):
             )
             return None
 
-        files: Dict[int, Dict[str, Any]] = {}
-        if getattr(data, "files", None):
-            files = {
-                file.id: {
-                    "path": file.path,  # used to weed out junk files
-                    "filename": file.path.split("/")[-1],
-                    "bytes": file.bytes,
-                    "selected": file.selected,
-                }
-                for file in data.files
-            }
+        # Build initial files dict
+        files = {
+            file.id: {
+                "path": file.path, # we're gonna need this to weed out the junk files
+                "filename": file.path.split("/")[-1],
+                "bytes": file.bytes,
+                "selected": file.selected,
+                "download_url": ""  # Will be populated by correlation, empty string instead of None
+            } for file in data.files
+        }
+
+        # Correlate files to torrent links if torrent is downloaded
+        links = data.links
+        if data.status == "downloaded" and links:
+            try:
+                # Get selected files in order (these correspond to links by index)
+                selected_files = [
+                    (file.id, file) for file in data.files
+                    if file.selected == 1
+                ]
+
+                logger.debug(f"Correlating {len(selected_files)} selected files with {len(links)} links for torrent {torrent_id}")
+
+                # Correlate selected files to links by index - use torrent links directly
+                for i in range(min(len(selected_files), len(links))):
+                    file_id, file_data = selected_files[i]
+                    torrent_link = links[i]
+
+                    # Use the torrent link directly as download_url - VFS will handle unrestricting
+                    if file_id in files:
+                        files[file_id]["download_url"] = torrent_link
+                        logger.debug(f"Added torrent link for file {file_data.path}")
+                    else:
+                        logger.warning(f"File key {file_id} not found in files dict")
+
+            except Exception as e:
+                logger.warning(f"Failed to correlate torrent links for torrent {torrent_id}: {e}")
+                # Continue without download URLs - files will have download_url=""
 
         return TorrentInfo(
-            id=torrent_id,
+            id=data.id,
             name=data.filename,
             status=data.status,
             infohash=data.hash,
             bytes=data.bytes,
             created_at=data.added,
-            alternative_filename=getattr(data, "original_filename", None),
-            progress=getattr(data, "progress", None),
+            alternative_filename=data.original_filename,
+            progress=data.progress,
             files=files,
+            links=links
         )
 
     def delete_torrent(self, torrent_id: str) -> None:
@@ -349,3 +388,40 @@ class RealDebridDownloader(DownloaderBase):
         if code == 502:
             return "[502] Bad Gateway"
         return response.reason or f"HTTP {code}"
+
+    def get_downloads(self) -> list[dict]:
+        """Get all downloads from Real-Debrid"""
+        resp: SmartResponse = self.api.session.get(f"downloads")
+        self._maybe_backoff(resp)
+        if not resp.ok:
+            raise RealDebridError(self._handle_error(resp))
+        return resp.data
+
+    def unrestrict_link(self, link: str) -> Optional[dict]:
+        """Unrestrict a link using Real-Debrid API"""
+        resp: SmartResponse = self.api.session.post(f"unrestrict/link", data={"link": link})
+        self._maybe_backoff(resp)
+        if not resp.ok:
+            raise RealDebridError(self._handle_error(resp))
+        return resp.data
+
+    def resolve_link(self, link: str) -> Optional[Dict]:
+        try:
+            for d in self.get_downloads():
+                if d.link == link or d.download == link:
+                    return {
+                        'download_url': d.download,
+                        'name': d.filename,
+                        'size': int(d.filesize or 0),
+                    }
+        except Exception:
+            pass
+        try:
+            resp = self.unrestrict_link(link)
+            return {
+                'download_url': resp.download,
+                'name': resp.filename or resp.original_filename,
+                'size': int(resp.filesize or 0),
+            }
+        except Exception:
+            return None

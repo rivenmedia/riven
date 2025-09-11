@@ -17,10 +17,8 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.services.indexers import CompositeIndexer
 from program.services.content import Overseerr
-
-from program.symlink import Symlinker
+from program.services.filesystem import FilesystemService
 from program.types import Event
-from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
 
 from ..models.shared import MessageResponse
@@ -404,29 +402,7 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
         ]
     }
 
-class RepairSymlinksResponse(BaseModel):
-    message: str
 
-@router.post(
-    "/repair_symlinks",
-    summary="Repair Broken Symlinks",
-    description="Repair broken symlinks in the library. Optionally, provide a directory path to only scan that directory.",
-    operation_id="repair_symlinks",
-)
-async def repair_symlinks(request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
-    library_path = settings_manager.settings.symlink.library_path
-    rclone_path = settings_manager.settings.symlink.rclone_path
-
-    if directory:
-        specific_directory = os.path.join(library_path, directory)
-        if not os.path.isdir(specific_directory):
-            raise HTTPException(status_code=400, detail=f"Directory {specific_directory} does not exist.")
-    else:
-        specific_directory = None
-
-    fix_broken_symlinks(library_path, rclone_path, specific_directory=specific_directory)
-
-    return {"message": "Symlink repair process completed."}
 
 
 class RemoveResponse(BaseModel):
@@ -454,14 +430,39 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     We explicitly avoid pre-deleting seasons/episodes or clearing stream links—
     that work is delegated to the database for speed and consistency.
     """
-    item_ids: List[str] = handle_ids(ids)
-    if not item_ids:
+    ids: List[str] = handle_ids(ids)
+    if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
+    media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
+    if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
+    for item in media_items:
+        if not item or not isinstance(item, MediaItem):
+            continue
+        logger.debug(f"Removing item with ID {item.id}")
+        request.app.program.em.cancel_job(item.id)  # this will cancel the item and all its children
+        await asyncio.sleep(0.2)  # Ensure cancellation is processed
+
+        # Remove VFS entries recursively before DB deletions
+        filesystem_service = request.app.program.services.get(FilesystemService)
+        filesystem_service.delete_item_files_by_id(item.id)
+        if item.type == "show":
+            for season in item.seasons:
+                for episode in season.episodes:
+                    db_functions.delete_media_item_by_id(episode.id)
+                db_functions.delete_media_item_by_id(season.id)
+        db_functions.clear_streams_by_id(item.id)
+
+        if item.overseerr_id:
+            overseerr: Overseerr = request.app.program.services.get(Overseerr)
+            if overseerr:
+                overseerr.delete_request(item.overseerr_id)
+                logger.debug(f"Deleted request from Overseerr with ID {item.overseerr_id}")
 
     # Load items (allow any concrete type; callers may pass show/movie/season/episode)
-    items: List[MediaItem] = db_functions.get_items_by_ids(item_ids)
+    items: List[MediaItem] = db_functions.get_items_by_ids(ids)
     found_ids = {it.id for it in items}
-    missing = [i for i in item_ids if i not in found_ids]
+    missing = [i for i in ids if i not in found_ids]
     if missing:
         # Keep existing behavior: all must exist, otherwise 404
         raise HTTPException(
@@ -478,16 +479,9 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     await asyncio.sleep(0.2)
 
     # Side-effects outside the DB (symlinks, Overseerr) before deleting rows
-    symlinker: Symlinker | None = request.app.program.services.get(Symlinker)
     overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
 
     for item in items:
-        if symlinker:
-            try:
-                symlinker.delete_item_symlinks_by_id(item.id)
-            except Exception as e:
-                logger.warning(f"Failed to remove symlinks for {item.id}: {e}")
-
         if item.overseerr_id and overseerr:
             try:
                 overseerr.delete_request(item.overseerr_id)
@@ -503,8 +497,8 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
             # If one fails, continue deleting the rest but report a 500 afterward
             logger.error(f"Failed to delete item {item.id}")
 
-    logger.info(f"Successfully removed items: {item_ids}")
-    return {"message": f"Removed items with ids {item_ids}", "ids": item_ids}
+    logger.info(f"Successfully removed items: {ids}")
+    return {"message": f"Removed items with ids {ids}", "ids": ids}
 
 @router.get(
     "/{item_id}/streams"
@@ -730,19 +724,19 @@ async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
     data = {}
     try:
         if item.type in ("movie", "episode"):
-            if item.symlink_path:
-                data[item.id] = parse_media_file(item.symlink_path)
+            if item.filesystem_path:
+                data[item.id] = parse_media_file(item.filesystem_path)
 
         elif item.type == "show":
             for season in item.seasons:
                 for episode in season.episodes:
-                    if episode.symlink_path:
-                        data[episode.id] = parse_media_file(episode.symlink_path)
+                    if episode.filesystem_path:
+                        data[episode.id] = parse_media_file(episode.filesystem_path)
 
         elif item.type == "season":
             for episode in item.episodes:
-                if episode.symlink_path:
-                    data[episode.id] = parse_media_file(episode.symlink_path)
+                if episode.filesystem_path:
+                    data[episode.id] = parse_media_file(episode.filesystem_path)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 

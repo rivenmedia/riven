@@ -127,6 +127,8 @@ class AllDebridDownloader(DownloaderBase):
                                 filesize_bytes=entry['s'],
                                 filetype=item_type
                             ):
+                                # AllDebrid provides direct download links in the 'l' field
+                                debrid_file.download_url = entry['l']
                                 processed_files.append(debrid_file)
                         # directory entries
                         elif 'e' in entry:
@@ -251,3 +253,8 @@ class AllDebridDownloader(DownloaderBase):
         except Exception as e:
             logger.error(f"Failed to get files for {torrent_id}: {e}")
             raise
+
+    def get_download_url(self, torrent_id: str, file_link: str) -> Optional[str]:
+        """Get download URL for a specific file - AllDebrid already provides direct links"""
+        # AllDebrid provides direct download links in the 'l' field of get_files_and_links
+        return file_link

@@ -1,8 +1,7 @@
 """MediaItem class"""
 from PTT import parse_title
 from datetime import datetime
-from pathlib import Path
-from typing import Any, List, Optional, Self
+from typing import Any, List, Optional, Self, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
@@ -16,6 +15,9 @@ from program.media.subtitle import Subtitle
 
 from ..db.db_functions import set_stream_blacklisted, clear_streams
 from .stream import Stream
+
+if TYPE_CHECKING:
+    from program.media.filesystem_entry import FilesystemEntry
 
 
 class MediaItem(db.Model):
@@ -35,15 +37,9 @@ class MediaItem(db.Model):
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all", passive_deletes=True)
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all", passive_deletes=True)
-    symlinked: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
-    symlinked_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    symlinked_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    symlink_path: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    file: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    alternative_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all")
+    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all")
+
     aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -52,13 +48,15 @@ class MediaItem(db.Model):
     aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    key: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    updated: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    update_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
     subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
     failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
+    filesystem_entry_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, sqlalchemy.ForeignKey("FilesystemEntry.id"), nullable=True)
+    filesystem_entry: Mapped[Optional["FilesystemEntry"]] = relationship("FilesystemEntry", back_populates="media_items", lazy="selectin")
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -99,14 +97,6 @@ class MediaItem(db.Model):
         self.streams: List[Stream] = []
         self.blacklisted_streams: List[Stream] = []
 
-        self.symlinked = False
-        self.symlinked_at = None
-        self.symlinked_times = 0
-
-        self.file  = None
-        self.folder = None
-        self.is_anime = item.get("is_anime", False)
-
         # Media related
         self.title = item.get("title")
         self.imdb_id = item.get("imdb_id")
@@ -119,11 +109,11 @@ class MediaItem(db.Model):
         self.year = item.get("year")
         self.genres = item.get("genres", [])
         self.aliases = item.get("aliases", {})
+        self.is_anime = item.get("is_anime", False)
 
-        # Plex related
-        self.key = item.get("key")
+        # Media server related
+        self.updated = item.get("updated", False)
         self.guid = item.get("guid")
-        self.update_folder = item.get("update_folder")
 
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
@@ -218,11 +208,13 @@ class MediaItem(db.Model):
             return States.Paused
         if self.last_state == States.Failed:
             return States.Failed
-        if self.key or self.update_folder == "updated":
+        if self.updated:
             return States.Completed
-        elif self.symlinked:
+        elif self.available_in_vfs:
+            # Consider Symlinked (available) when VFS has the entry mounted
             return States.Symlinked
-        elif self.file and self.folder:
+        elif self.filesystem_entry:
+            # Downloaded if we have filesystem_entry (from downloader)
             return States.Downloaded
         elif self.is_scraped():
             return States.Scraped
@@ -297,7 +289,8 @@ class MediaItem(db.Model):
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "parent_ids": parent_ids,
-            "state": self.last_state.name,
+            "state": self.last_state.name if self.last_state else self.state.name,
+            "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": str(self.aired_at),
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
@@ -339,20 +332,9 @@ class MediaItem(db.Model):
                 self.active_stream if hasattr(self, "active_stream") else None
             )
         dict["number"] = self.number if hasattr(self, "number") else None
-        dict["symlinked"] = self.symlinked if hasattr(self, "symlinked") else None
-        dict["symlinked_at"] = (
-            self.symlinked_at if hasattr(self, "symlinked_at") else None
-        )
-        dict["symlinked_times"] = (
-            self.symlinked_times if hasattr(self, "symlinked_times") else None
-        )
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
-        dict["update_folder"] = (
-            self.update_folder if hasattr(self, "update_folder") else None
-        )
-        dict["file"] = self.file if hasattr(self, "file") else None
-        dict["folder"] = self.folder if hasattr(self, "folder") else None
-        dict["symlink_path"] = self.symlink_path if hasattr(self, "symlink_path") else None
+
+        dict["filesystem_entry"] = self.filesystem_entry.to_dict() if self.filesystem_entry else None
         dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
         return dict
 
@@ -389,6 +371,26 @@ class MediaItem(db.Model):
             return self.parent.parent.title
         else:
             return self.title
+
+    # Filesystem entry properties
+    @property
+    def filesystem_path(self) -> Optional[str]:
+        """Get the filesystem path"""
+        return self.filesystem_entry.path if self.filesystem_entry else None
+
+    @property
+    def available_in_vfs(self) -> bool:
+        """Whether this item is available in the mounted VFS (safe, handles None)."""
+        return self.filesystem_entry and self.filesystem_entry.available_in_vfs
+
+    @property
+    def mounted_vfs_path(self) -> Optional[str]:
+        """Absolute path in the mounted VFS if available, else None"""
+        if self.available_in_vfs:
+            from program.settings.manager import settings_manager as _sm
+            mount = _sm.settings.filesystem.library_path
+            return str(mount / self.filesystem_entry.path.lstrip('/'))
+        return None
 
     def get_top_imdb_id(self) -> str:
         """Get the imdb_id of the item at the top of the hierarchy."""
@@ -428,10 +430,13 @@ class MediaItem(db.Model):
 
     def _reset(self):
         """Reset item attributes for rescraping."""
-        if self.symlink_path:
-            if Path(self.symlink_path).exists():
-                Path(self.symlink_path).unlink()
-            self.set("symlink_path", None)
+        # Remove filesystem entry if it exists
+        if self.filesystem_entry:
+            from program.services.filesystem.filesystem_service import FilesystemService
+            from program.program import program
+            filesystem_service = program.services.get(FilesystemService)
+            if filesystem_service:
+                filesystem_service.delete_item_files_by_id(self.id)
 
         try:
             for subtitle in self.subtitles:
@@ -439,19 +444,12 @@ class MediaItem(db.Model):
         except Exception as e:
             logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
-        self.set("file", None)
-        self.set("folder", None)
-        self.set("alternative_folder", None)
-
-        clear_streams(media_item_id=self.id)
+        clear_streams(self)
         self.active_stream = {}
 
         self.set("active_stream", {})
-        self.set("symlinked", False)
-        self.set("symlinked_at", None)
-        self.set("update_folder", None)
+
         self.set("scraped_at", None)
-        self.set("symlinked_times", 0)
         self.set("scraped_times", 0)
         self.set("failed_attempts", 0)
 
@@ -460,13 +458,14 @@ class MediaItem(db.Model):
     def soft_reset(self):
         """Soft reset item attributes."""
         self.blacklist_active_stream()
-        self.set("file", None)
-        self.set("folder", None)
-        self.set("alternative_folder", None)
         self.set("active_stream", {})
-        self.set("symlinked", False)
-        self.set("symlinked_at", None)
-        self.set("symlinked_times", 0)
+        # Remove filesystem entry if it exists
+        if self.filesystem_entry:
+            from program.services.filesystem.filesystem_service import FilesystemService
+            from program.program import program
+            filesystem_service = program.services.get(FilesystemService)
+            if filesystem_service:
+                filesystem_service.delete_item_files_by_id(self.id)
 
     @property
     def log_string(self):
@@ -492,7 +491,7 @@ class MediaItem(db.Model):
         """
         if self.last_state == States.Paused:
             return True
-            
+
         session = object_session(self)
         if session and hasattr(self, "parent"):
             session.refresh(self, ["parent"])
@@ -510,7 +509,7 @@ class MediaItem(db.Model):
         """
         if self.last_state == States.Paused:
             return self
-            
+
         session = object_session(self)
         if session and hasattr(self, "parent"):
             session.refresh(self, ["parent"])
@@ -534,7 +533,6 @@ class Movie(MediaItem):
 
     def __init__(self, item):
         self.type = "movie"
-        self.file = item.get("file", None)
         super().__init__(item)
 
     def __repr__(self):
@@ -734,7 +732,7 @@ class Season(MediaItem):
                 return States.PartiallyCompleted
             if any(episode.state == States.Symlinked for episode in self.episodes):
                 return States.Symlinked
-            if any(episode.file and episode.folder for episode in self.episodes):
+            if any(episode.state == States.Downloaded for episode in self.episodes):
                 return States.Downloaded
             if self.is_scraped():
                 return States.Scraped
@@ -827,7 +825,6 @@ class Episode(MediaItem):
     def __init__(self, item):
         self.type = "episode"
         self.number = item.get("number", None)
-        self.file = item.get("file", None)
         super().__init__(item)
         if self.parent and isinstance(self.parent, Season):
             self.is_anime = self.parent.parent.is_anime
@@ -845,10 +842,10 @@ class Episode(MediaItem):
         return self
 
     def get_file_episodes(self) -> List[int]:
-        if not self.file or not isinstance(self.file, str):
-            raise ValueError("The file attribute must be a non-empty string.")
+        if not self.filesystem_entry or not self.filesystem_entry.original_filename:
+            raise ValueError("The filesystem entry must have an original filename.")
         # return list of episodes
-        return parse_title(self.file)["episodes"]
+        return parse_title(self.filesystem_entry.original_filename)["episodes"]
 
     @property
     def log_string(self):

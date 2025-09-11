@@ -403,9 +403,50 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
             request.app.program.em.cancel_job(item.id)
             item.reset()
-            item.file = data.filename
-            item.folder = data.filename
-            item.alternative_folder = session.torrent_info.alternative_filename
+
+            # Ensure a staging FilesystemEntry exists and is linked
+            from sqlalchemy import select
+            from program.media.filesystem_entry import FilesystemEntry
+
+            staging_path = f"/__incoming__/{item.id}/{data.filename}"
+            fs_entry = None
+
+            if item.filesystem_entry:
+                fs_entry = item.filesystem_entry
+                # Update source metadata on existing entry
+                fs_entry.original_filename = data.filename
+                fs_entry.original_folder = session.torrent_info.alternative_filename or session.torrent_info.name
+                if not fs_entry.path:
+                    fs_entry.path = staging_path
+            else:
+                # Try to reuse an existing staging entry for this item+filename
+                existing = db_session.execute(
+                    select(FilesystemEntry).where(
+                        FilesystemEntry.path == staging_path,
+                    )
+                ).scalar_one_or_none()
+
+                if existing:
+                    fs_entry = existing
+                else:
+                    # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+                    fs_entry = FilesystemEntry(
+                        path=staging_path,
+                        download_url=getattr(data, "download_url", None),
+                        provider=None,
+                        provider_download_id=None,
+                        file_size=(data.filesize or 0),
+                        original_filename=data.filename,
+                        original_folder=(session.torrent_info.alternative_filename or session.torrent_info.name),
+                    )
+                    db_session.add(fs_entry)
+                    db_session.commit()
+                    db_session.refresh(fs_entry)
+
+                # Link MediaItem to FilesystemEntry
+                item.filesystem_entry_id = fs_entry.id
+                item = db_session.merge(item)
+
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
             torrent = rtn.rank(session.torrent_info.name, session.magnet)
             item.streams.append(ItemStream(torrent))

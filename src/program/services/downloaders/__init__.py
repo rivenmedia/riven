@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from loguru import logger
+from sqlalchemy.orm import object_session
 
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.media.stream import Stream
+from program.media.filesystem_entry import FilesystemEntry
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
@@ -59,7 +61,8 @@ class Downloader:
             yield (item, next_attempt)
             return
 
-        if item.file or item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
+        # Skip only based on item state; presence of a staging entry or active_stream alone should not skip
+        if item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
             yield item
 
@@ -163,38 +166,50 @@ class Downloader:
 
     def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
-        if not download_result.container:
-            raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
+        try:
+            if not download_result.container:
+                raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
 
-        episode_cap: int = None
-        show: Optional[Show] = None
-        if item.type in ("show", "season", "episode"):
-            show: Optional[Show] = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
-            method_1 = sum(len(season.episodes) for season in show.seasons)
-            try:
-                method_2 = show.seasons[-1].episodes[-1].number
-            except IndexError:
-                # happens if theres a new season with no episodes yet
-                method_2 = show.seasons[-2].episodes[-1].number
-            episode_cap = max([method_1, method_2])
-
-        found = False
-        for file in download_result.container.files:
-            file_data: ParsedFileData = parse_filename(file.filename)
+            episode_cap: int = None
+            show: Optional[Show] = None
             if item.type in ("show", "season", "episode"):
-                if not file_data.episodes:
-                    logger.debug(f"Skipping '{file.filename}' as it has no episodes")
-                    continue
-                elif 0 in file_data.episodes and len(file_data.episodes) == 1:
-                    logger.debug(f"Skipping '{file.filename}' as it has an episode number of 0")
-                    continue
-                elif file_data.season == 0:
-                    logger.debug(f"Skipping '{file.filename}' as it has a season number of 0")
-                    continue
-            if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap):
-                found = True
+                show = item if item.type == "show" else (item.parent if item.type == "season" else item.parent.parent)
+                try:
+                    method_1 = sum(len(season.episodes) for season in show.seasons)
+                    try:
+                        method_2 = show.seasons[-1].episodes[-1].number
+                    except IndexError:
+                        # happens if theres a new season with no episodes yet
+                        method_2 = show.seasons[-2].episodes[-1].number
+                    episode_cap = max([method_1, method_2])
+                except Exception as e:
+                    pass
+            found = False
+            files = list(download_result.container.files or [])
+            # Track episodes we've already processed to avoid duplicates
+            processed_episode_ids: set[str] = set()
 
-        return found
+            for file in files:
+                try:
+                    file_data: ParsedFileData = parse_filename(file.filename)
+                except Exception as e:
+                    continue
+
+                if item.type in ("show", "season", "episode"):
+                    if not file_data.episodes:
+                        continue
+                    elif 0 in file_data.episodes and len(file_data.episodes) == 1:
+                        continue
+                    elif file_data.season == 0:
+                        continue
+
+                if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap, processed_episode_ids):
+                    found = True
+
+            return found
+        except Exception as e:
+            logger.debug(f"update_item_attributes: exception for item {item.id}: {e}")
+            raise
 
     def match_file_to_item(self,
             item: MediaItem,
@@ -202,12 +217,15 @@ class Downloader:
             file: DebridFile,
             download_result: DownloadedTorrent,
             show: Optional[Show] = None,
-            episode_cap: int = None
+            episode_cap: int = None,
+            processed_episode_ids: Optional[set[str]] = None
         ) -> bool:
         """Check if the file matches the item and update attributes."""
+        logger.debug(f"match_file_to_item: item={item.id} type={item.type} file='{file.filename}'")
         found = False
 
         if item.type == "movie" and file_data.item_type == "movie":
+            logger.debug("match_file_to_item: movie match -> updating attributes")
             self._update_attributes(item, file, download_result)
             return True
 
@@ -215,21 +233,26 @@ class Downloader:
             season_number = file_data.season
             for file_episode in file_data.episodes:
                 if episode_cap and file_episode > episode_cap:
-                    # This is a sanity check to ensure the episode number is not greater than the total number of episodes in the show.
-                    # If it is, we skip the episode as it is likely a mistake.
-                    logger.debug(f"Invalid episode number {file_episode} for {show.log_string}. Skipping '{file.filename}'")
+                    logger.debug(f"Invalid episode number {file_episode} for {getattr(show, 'log_string', 'show?')}. Skipping '{file.filename}'")
                     continue
 
                 episode: Episode = show.get_absolute_episode(file_episode, season_number)
                 if episode is None:
-                    logger.debug(f"Episode {file_episode} from file does not match any episode in {show.log_string}. Metadata may be incorrect or wrong torrent for show.")
+                    logger.debug(f"Episode {file_episode} from file does not match any episode in {getattr(show, 'log_string', 'show?')}")
                     continue
 
-                if episode.file:
+                if episode.filesystem_entry:
+                    logger.debug(f"Episode {episode.log_string} already has filesystem_entry; skipping")
                     continue
 
                 if episode and episode.state not in [States.Completed, States.Symlinked, States.Downloaded]:
+                    # Skip if we've already processed this episode in this container
+                    if processed_episode_ids is not None and str(episode.id) in processed_episode_ids:
+                        continue
+                    logger.debug(f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'")
                     self._update_attributes(episode, file, download_result)
+                    if processed_episode_ids is not None:
+                        processed_episode_ids.add(str(episode.id))
                     logger.debug(f"Matched episode {episode.log_string} to file {file.filename}")
                     found = True
 
@@ -247,11 +270,31 @@ class Downloader:
         return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
 
     def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent) -> None:
-        """Update the item attributes with the downloaded files and active stream"""
-        item.file = debrid_file.filename
-        item.folder = download_result.info.name
-        item.alternative_folder = download_result.info.alternative_filename
+        """Update the item attributes"""
         item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
+
+        # Create FilesystemEntry for virtual file if download URL is available
+        if debrid_file.download_url:
+            session = object_session(item)
+            path = f"/__incoming__/{item.id}/{debrid_file.filename}"
+            filesystem_entry = session.query(FilesystemEntry).filter_by(path=path).first()
+            if not filesystem_entry:
+                filesystem_entry = FilesystemEntry.create_virtual_entry(
+                    path=path,
+                    download_url=debrid_file.download_url,
+                    provider=self.service.key,
+                    provider_download_id=str(download_result.info.id),
+                    file_size=debrid_file.filesize or 0,
+                    original_filename=debrid_file.filename,
+                    original_folder=download_result.info.alternative_filename or download_result.info.name
+                )
+                session.add(filesystem_entry)
+                session.flush()  # Ensure filesystem_entry.id is populated
+
+            # Link via relationship so in-memory state is updated immediately
+            item.filesystem_entry = filesystem_entry
+            item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
+            session.flush()
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """Check if the torrent is cached"""
@@ -272,3 +315,7 @@ class Downloader:
     def delete_torrent(self, torrent_id: int) -> None:
         """Delete a torrent"""
         self.service.delete_torrent(torrent_id)
+
+    def resolve_link(self, link: str) -> Optional[Dict]:
+        """Resolve a link to a download URL"""
+        return self.service.resolve_link(link)

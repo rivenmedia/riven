@@ -37,7 +37,10 @@ def setup_logger(level):
         "PROGRAM": (36, "cc6600", "🤖"),
         "DATABASE": (37, "d834eb", "🛢️"),
         "DEBRID": (38, "cc3333", "🔗"),
-        "SYMLINKER": (39, "F9E79F", "🔗"),
+        "FILESYSTEM": (39, "F9E79F", "🔗"),
+        "VFS": (49, "9B59B6", "🧲"),
+        "FUSE": (50, "999999", "⚙️"),
+
         "SCRAPER": (40, "3D5A80", "👻"),
         "COMPLETED": (41, "FFFFFF", "🟢"),
         "CACHE": (42, "527826", "📜"),

@@ -8,6 +8,10 @@ LABEL name="Riven" \
 # Install system dependencies
 RUN apk --update add --no-cache curl bash shadow gcc python3-dev musl-dev linux-headers patchelf clang ccache && \
     rm -rf /var/cache/apk/*
+# Ensure FUSE allows allow_other (uncomment or add user_allow_other)
+RUN (sed -i 's/^#\s*user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true) \
+    && (grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo 'user_allow_other' >> /etc/fuse.conf)
+
 RUN pip install --upgrade pip && pip install poetry==1.8.3
 
 ENV POETRY_NO_INTERACTION=1 \
@@ -34,7 +38,7 @@ ENV TERM=xterm-256color
 COPY pyproject.toml poetry.lock* /riven/
 
 # Install Python dependencies
-RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR 
+RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 
 # Copy src code and other necessary files
 COPY src/ /riven/src

@@ -50,6 +50,7 @@ class DebridFile(BaseModel):
     file_id: Optional[int] = Field(default=None)
     filename: Optional[str] = Field(default=None)
     filesize: Optional[int] = Field(default=None)
+    download_url: Optional[str] = Field(default=None)
 
     @classmethod
     def create(
@@ -89,7 +90,8 @@ class DebridFile(BaseModel):
         return {
             "filename": self.filename,
             "filesize": self.filesize,
-            "file_id": self.file_id
+            "file_id": self.file_id,
+            "download_url": self.download_url
         }
 
 
@@ -136,6 +138,7 @@ class TorrentInfo(BaseModel):
     completed_at: Optional[datetime] = None
     alternative_filename: Optional[str] = None
     files: Dict[int, Dict[str, Union[int, str]]] = Field(default_factory=dict)  # Real-Debrid only
+    links: List[str] = Field(default_factory=list)  # Real-Debrid download links
 
     @property
     def size_mb(self) -> float:
