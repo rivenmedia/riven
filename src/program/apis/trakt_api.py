@@ -4,14 +4,15 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import List, Optional, Union
 from urllib.parse import urlencode
+
+from loguru import logger
 from requests import RequestException
 
-from program import MediaItem
 from program.media import Episode, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.settings.models import TraktModel
 from program.utils.request import SmartSession
-from loguru import logger
 
 
 class TraktAPIError(Exception):
@@ -222,12 +223,13 @@ class TraktAPI:
 
         data = next((d for d in response.data if d.type == type), None)
         if not data:
-            clause = (
-                lambda x: x.type == type
-                if type
-                else x in ["show", "movie", "season", "episode"]
-            )
-            data = next((d for d in response.data if clause), None)
+            def _match_type(x):
+                return (
+                    x.type == type
+                    if type
+                    else x in ["show", "movie", "season", "episode"]
+                )
+            data = next((d for d in response.data if _match_type), None)
 
         return (
             self.map_item_from_data(getattr(data, data.type), data.type)
@@ -421,9 +423,9 @@ class TraktAPI:
                 and hasattr(ns, "episode")
                 and hasattr(ns.episode, "ids")
                 and hasattr(ns.episode.ids, "imdb")
+                and str(getattr(ns.episode.ids, id_type)) == str(_id)
             ):
-                if str(getattr(ns.episode.ids, id_type)) == str(_id):
-                    return ns.episode.ids.imdb
+                return ns.episode.ids.imdb
         return None
 
     def _get_formatted_date(self, data, item_type: str) -> Optional[datetime]:
@@ -451,7 +453,4 @@ class TraktAPI:
         ):
             return False
 
-        if item.get("country", "") not in ["jp", "kr", "cn", "hk"]:
-            return False
-
-        return True
+        return item.get("country", "") in ["jp", "kr", "cn", "hk"]

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from loguru import logger
 
@@ -10,10 +10,10 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, CircuitBreakerOpen
+from program.utils import get_version
+from program.utils.request import CircuitBreakerOpen, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
-from program.utils import get_version
 
 
 class TorBoxError(Exception):
@@ -44,7 +44,7 @@ class TorBoxAPI:
             version = "Unknown"
         self.session.headers.update({"User-Agent": f"Riven/{version} TorBox/1.0"})
         if proxy_url:
-            self.session.proxies = {"http": proxy_url, "https": proxy_url}
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 class TorBoxDownloader(DownloaderBase):
     """Main TorBox downloader class implementing DownloaderBase"""
@@ -105,6 +105,11 @@ class TorBoxDownloader(DownloaderBase):
             response = self.api.session.get(
                 f"torrents/checkcached?hash={infohash}&format=object&list_files=true",
             )
+            self._maybe_backoff(response, "api.torbox.app")
+            if not response.ok:
+                logger.debug(f"Failed to check cached status for {infohash}: {self._handle_error(response)}")
+                return None
+                
             if not response.data:
                 logger.debug(f"Torrent {infohash} is not cached")
                 return None
@@ -197,70 +202,74 @@ class TorBoxDownloader(DownloaderBase):
                 "torrents/createtorrent",
                 data={"magnet": magnet.lower()}
             )
+            self._maybe_backoff(response, "api.torbox.app")
+            if not response.ok:
+                raise TorBoxError(self._handle_error(response))
+                
             return str(response.data["torrent_id"]) # must be a string
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for TorBox API, cannot add torrent {infohash}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except TorBoxError:
+            raise  # Re-raise TorBoxError as-is
         except Exception as e:
-            if len(e.args) > 0:
-                if " 503 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
-                    raise TorBoxError("Infringing Torrent or Service Unavailable")
-                elif " 429 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
-                    raise TorBoxError("Rate Limit Exceeded")
-                elif " 404 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
-                    raise TorBoxError("Torrent Not Found or Service Unavailable")
-                elif " 400 " in e.args[0]:
-                    logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
-                    raise TorBoxError("Torrent file is not valid")
-            else:
-                logger.debug(f"Failed to add torrent {infohash}: {e}")
-            
+            logger.error(f"Failed to add torrent {infohash}: {e}")
             raise TorBoxError(f"Failed to add torrent {infohash}: {e}")
 
     def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
         """Get information about a torrent"""
         try:
-            data = self.api.session.get(f"torrents/mylist?id={torrent_id}")
+            response = self.api.session.get(f"torrents/mylist?id={torrent_id}")
+            self._maybe_backoff(response, "api.torbox.app")
+            if not response.ok:
+                raise TorBoxError(self._handle_error(response))
+                
+            data = response.data
             files = {
                 file["id"]: {
                     "path": file["name"], # we're gonna need this to weed out the junk files
                     "filename": file["short_name"],
                     "bytes": file["size"],
                     "selected": True
-                } for file in data.data["files"]
+                } for file in data["files"]
             }
             return TorrentInfo(
-                id=data.data["id"],
-                name=data.data["name"],
-                status=data.data["download_state"],
-                cached=data.data["cached"],
-                infohash=data.data["hash"],
-                bytes=data.data["size"],
-                created_at=data.data["created_at"],
+                id=data["id"],
+                name=data["name"],
+                status=data["download_state"],
+                cached=data["cached"],
+                infohash=data["hash"],
+                bytes=data["size"],
+                created_at=data["created_at"],
                 alternative_filename=None,
-                progress=data.data.get("progress", None),
+                progress=data.get("progress", None),
                 files=files,
             )
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for TorBox API, cannot get torrent info for {torrent_id}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except TorBoxError:
+            raise  # Re-raise TorBoxError as-is
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
-            raise
+            raise TorBoxError(f"Failed to get torrent info for {torrent_id}: {e}")
 
     def delete_torrent(self, torrent_id: str) -> None:
         """Delete a torrent"""
         try:
-            self.api.session.post("torrents/controltorrent", data={
+            response = self.api.session.post("torrents/controltorrent", data={
                 "id": torrent_id,
                 "operation": "delete",
             })
+            self._maybe_backoff(response, "api.torbox.app")
+            if not response.ok:
+                raise TorBoxError(self._handle_error(response))
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for TorBox API, cannot delete torrent {torrent_id}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except TorBoxError:
+            raise  # Re-raise TorBoxError as-is
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
-            raise
+            raise TorBoxError(f"Failed to delete torrent {torrent_id}: {e}")
+

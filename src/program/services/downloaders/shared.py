@@ -5,13 +5,14 @@ from typing import List, Optional, Union
 
 from RTN import ParsedData, parse
 
+from program.media.stream import Stream
 from program.services.downloaders.models import (
     ParsedFileData,
     TorrentContainer,
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.media.stream import Stream
+from program.utils.request import CircuitBreakerOpen, SmartResponse
 
 
 class DownloaderBase(ABC):
@@ -26,7 +27,6 @@ class DownloaderBase(ABC):
         Returns:
             ValidationResult: Contains validation status and any error messages
         """
-        pass
 
     @abstractmethod
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
@@ -40,7 +40,6 @@ class DownloaderBase(ABC):
         Returns:
             Optional[TorrentContainer]: Cached status and available files for the hash, or None if not available
         """
-        pass
 
     @abstractmethod
     def add_torrent(self, infohash: str) -> Union[int, str]:
@@ -56,7 +55,6 @@ class DownloaderBase(ABC):
         Notes:
             The return type changes depending on the downloader
         """
-        pass
 
     @abstractmethod
     def select_files(self, torrent_id: Union[int, str], file_ids: list[int]) -> None:
@@ -67,7 +65,6 @@ class DownloaderBase(ABC):
             torrent_id: ID of the torrent to select files for
             file_ids: IDs of the files to select
         """
-        pass
 
     @abstractmethod
     def get_torrent_info(self, torrent_id: Union[int, str]) -> TorrentInfo:
@@ -80,7 +77,6 @@ class DownloaderBase(ABC):
         Returns:
             TorrentInfo: Current information about the torrent
         """
-        pass
 
     @abstractmethod
     def delete_torrent(self, torrent_id: Union[int, str]) -> None:
@@ -90,7 +86,44 @@ class DownloaderBase(ABC):
         Args:
             torrent_id: ID of the torrent to delete
         """
-        pass
+
+    def _maybe_backoff(self, resp: SmartResponse, domain: str) -> None:
+        """
+        Promote 429/5xx responses to a service-level backoff signal.
+
+        Args:
+            resp: The SmartResponse to check
+            domain: The domain name for the circuit breaker (e.g., "api.real-debrid.com")
+        """
+        code = resp.status_code
+        if code == 429 or (500 <= code < 600):
+            # Name matches the breaker key in SmartSession rate_limits/breakers
+            raise CircuitBreakerOpen(domain)
+
+    def _handle_error(self, response: SmartResponse) -> str:
+        """
+        Map HTTP status codes to normalized error messages for logs/exceptions.
+
+        Args:
+            response: The SmartResponse to extract error information from
+
+        Returns:
+            str: Normalized error message
+        """
+        code = response.status_code
+        if code == 451:
+            return "[451] Infringing Torrent"
+        if code == 503:
+            return "[503] Service Unavailable"
+        if code == 429:
+            return "[429] Rate Limit Exceeded"
+        if code == 404:
+            return "[404] Torrent Not Found or Service Unavailable"
+        if code == 400:
+            return "[400] Torrent file is not valid"
+        if code == 502:
+            return "[502] Bad Gateway"
+        return response.reason or f"HTTP {code}"
 
 
 def parse_filename(filename: str) -> ParsedFileData:

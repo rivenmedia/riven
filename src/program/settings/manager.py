@@ -32,6 +32,8 @@ class SettingsManager:
         self.observers.append(observer)
 
     def notify_observers(self):
+        if self.observers:
+            logger.debug(f"Settings manager notifying {len(self.observers)} observers")
         for observer in self.observers:
             observer()
 
@@ -65,8 +67,10 @@ class SettingsManager:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
-                    if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
-                        settings_dict = self.check_environment(settings_dict, "RIVEN")
+            
+            # favor environment variables over settings file
+            settings_dict = self.check_environment(settings_dict, "RIVEN")
+            
             self.settings = AppModel.model_validate(settings_dict)
             self.save()
         except ValidationError as e:

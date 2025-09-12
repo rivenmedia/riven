@@ -4,8 +4,9 @@ Test script to verify duplicate handling works correctly.
 This script tests the new duplicate handling functionality.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from sqlalchemy.exc import IntegrityError
 
 from program.db.db_functions import item_exists_by_any_id
@@ -23,7 +24,7 @@ class TestDuplicateHandling:
 
     def test_item_exists_by_id_existent(self):
         """Test item_exists_by_id with existing item."""
-        with patch('program.db.db_functions._maybe_session') as mock_maybe_session:
+        with patch("program.db.db_functions._maybe_session") as mock_maybe_session:
             mock_session_instance = MagicMock()
             mock_session_instance.execute.return_value.scalar_one.return_value = 1
             mock_maybe_session.return_value.__enter__.return_value = (mock_session_instance, False)
@@ -39,7 +40,7 @@ class TestDuplicateHandling:
 
     def test_get_item_by_external_id_existent(self):
         """Test get_item_by_external_id with existing external ID."""
-        with patch('program.db.db_functions._maybe_session') as mock_maybe_session:
+        with patch("program.db.db_functions._maybe_session") as mock_maybe_session:
             mock_session_instance = MagicMock()
             mock_session_instance.execute.return_value.scalar_one.return_value = 1
             mock_maybe_session.return_value.__enter__.return_value = (mock_session_instance, False)
@@ -106,7 +107,7 @@ class TestDuplicateHandling:
         assert "duplicate key value violates unique constraint" in error_message
         
         # Test the specific error from the original issue
-        original_error = "(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint \"MediaItem_pkey\"\nDETAIL:  Key (id)=(tvdb_show_76894) already exists."
+        original_error = '(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "MediaItem_pkey"\nDETAIL:  Key (id)=(tvdb_show_76894) already exists.'
         assert "duplicate key value violates unique constraint" in original_error
 
     def test_media_item_id_generation_edge_cases(self):

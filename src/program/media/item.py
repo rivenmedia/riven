@@ -1,11 +1,11 @@
 """MediaItem class"""
-from PTT import parse_title
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Self
 
 import sqlalchemy
 from loguru import logger
+from PTT import parse_title
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
@@ -14,7 +14,7 @@ from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
 
-from ..db.db_functions import set_stream_blacklisted, clear_streams
+from ..db.stream_operations import clear_streams, set_stream_blacklisted
 from .stream import Stream
 
 
@@ -149,9 +149,8 @@ class MediaItem(db.Model):
             if item.get("seasons") or hasattr(item, "seasons"):
                 if tvdb_id := item.get("tvdb_id"):
                     return f"tvdb_show_{tvdb_id}"
-            else:
-                if tmdb_id := item.get("tmdb_id"):
-                    return f"tmdb_movie_{tmdb_id}"
+            elif tmdb_id := item.get("tmdb_id"):
+                return f"tmdb_movie_{tmdb_id}"
 
         return None
 
@@ -205,9 +204,7 @@ class MediaItem(db.Model):
     @property
     def is_released(self) -> bool:
         """Check if an item has been released."""
-        if self.aired_at and self.aired_at <= datetime.now():
-            return True
-        return False
+        return bool(self.aired_at and self.aired_at <= datetime.now())
 
     @property
     def state(self) -> States:
@@ -254,7 +251,7 @@ class MediaItem(db.Model):
             try:
                 session.refresh(self, attribute_names=["blacklisted_streams"])
                 return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
-            except:
+            except Exception:
                 ...
         return False
 
@@ -361,7 +358,7 @@ class MediaItem(db.Model):
             yield attr
 
     def __eq__(self, other):
-        if type(other) == type(self):
+        if isinstance(other, type(self)):
             return self.id == other.id
         return False
 
@@ -575,31 +572,43 @@ class Show(MediaItem):
                 return i
         return None
 
+    def _check_uniform_state(self, state: States) -> bool:
+        """Check if all seasons have the same state."""
+        return all(season.state == state for season in self.seasons)
+    
+    def _check_any_state(self, states: list[States]) -> bool:
+        """Check if any season has one of the given states."""
+        return any(season.state in states for season in self.seasons)
+
     def _determine_state(self):
-        if all(season.state == States.Paused for season in self.seasons):
+        # Check for uniform states first
+        if self._check_uniform_state(States.Paused):
             return States.Paused
-        if all(season.state == States.Failed for season in self.seasons):
+        if self._check_uniform_state(States.Failed):
             return States.Failed
-        if all(season.state == States.Completed for season in self.seasons):
+        if self._check_uniform_state(States.Completed):
             return States.Completed
-        if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
+        
+        # Check for ongoing states
+        if self._check_any_state([States.Ongoing, States.Unreleased]):
             return States.Ongoing
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
+        
+        # Check for partially completed
+        if self._check_any_state([States.Completed, States.PartiallyCompleted]):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
+        
+        # Check other states in priority order
+        if self._check_any_state([States.Symlinked]):
             return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
+        if self._check_any_state([States.Downloaded]):
             return States.Downloaded
         if self.is_scraped():
             return States.Scraped
-        if any(season.state == States.Indexed for season in self.seasons):
+        if self._check_any_state([States.Indexed]):
             return States.Indexed
         if all(not season.is_released for season in self.seasons):
             return States.Unreleased
-        if any(season.state == States.Requested for season in self.seasons):
+        if self._check_any_state([States.Requested]):
             return States.Requested
         return States.Unknown
 
@@ -719,34 +728,54 @@ class Season(MediaItem):
         if self.parent and isinstance(self.parent, Show):
             self.is_anime = self.parent.is_anime
 
+    def _check_all_episodes_state(self, state: States) -> bool:
+        """Check if all episodes have the same state."""
+        return all(episode.state == state for episode in self.episodes)
+    
+    def _check_any_episode_state(self, state: States) -> bool:
+        """Check if any episode has the given state."""
+        return any(episode.state == state for episode in self.episodes)
+    
+    def _has_mixed_release_states(self) -> bool:
+        """Check if episodes have mixed unreleased/released states."""
+        has_unreleased = self._check_any_episode_state(States.Unreleased)
+        has_released = any(episode.state != States.Unreleased for episode in self.episodes)
+        return has_unreleased and has_released
+
     def _determine_state(self):
-        if len(self.episodes) > 0:
-            if all(episode.state == States.Paused for episode in self.episodes):
-                return States.Paused
-            if all(episode.state == States.Failed for episode in self.episodes):
-                return States.Failed
-            if all(episode.state == States.Completed for episode in self.episodes):
-                return States.Completed
-            if any(episode.state == States.Unreleased for episode in self.episodes):
-                if any(episode.state != States.Unreleased for episode in self.episodes):
-                    return States.Ongoing
-            if any(episode.state == States.Completed for episode in self.episodes):
-                return States.PartiallyCompleted
-            if any(episode.state == States.Symlinked for episode in self.episodes):
-                return States.Symlinked
-            if any(episode.file and episode.folder for episode in self.episodes):
-                return States.Downloaded
-            if self.is_scraped():
-                return States.Scraped
-            if any(episode.state == States.Indexed for episode in self.episodes):
-                return States.Indexed
-            if any(episode.state == States.Unreleased for episode in self.episodes):
-                return States.Unreleased
-            if any(episode.state == States.Requested for episode in self.episodes):
-                return States.Requested
-            return States.Unknown
-        else:
+        if len(self.episodes) == 0:
             return States.Unreleased
+        
+        # Check for uniform states first
+        if self._check_all_episodes_state(States.Paused):
+            return States.Paused
+        if self._check_all_episodes_state(States.Failed):
+            return States.Failed
+        if self._check_all_episodes_state(States.Completed):
+            return States.Completed
+        
+        # Check for mixed release states (ongoing)
+        if self._has_mixed_release_states():
+            return States.Ongoing
+        
+        # Check for partially completed
+        if self._check_any_episode_state(States.Completed):
+            return States.PartiallyCompleted
+        
+        # Check other states in priority order
+        if self._check_any_episode_state(States.Symlinked):
+            return States.Symlinked
+        if any(episode.file and episode.folder for episode in self.episodes):
+            return States.Downloaded
+        if self.is_scraped():
+            return States.Scraped
+        if self._check_any_episode_state(States.Indexed):
+            return States.Indexed
+        if self._check_any_episode_state(States.Unreleased):
+            return States.Unreleased
+        if self._check_any_episode_state(States.Requested):
+            return States.Requested
+        return States.Unknown
 
     @property
     def is_released(self) -> bool:

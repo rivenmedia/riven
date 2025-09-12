@@ -1,4 +1,23 @@
 services:
+    # LavinMQ - Message broker for Dramatiq queue system
+    lavinmq:
+        image: cloudamqp/lavinmq:latest
+        container_name: riven-lavinmq
+        restart: unless-stopped
+        ports:
+            - "5672:5672"   # AMQP port (for Dramatiq)
+            - "15672:15672" # Management UI port (http://localhost:15672)
+        environment:
+            - TZ=Etc/UTC
+        volumes:
+            - ./lavinmq-data:/var/lib/lavinmq
+        healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "ping"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+
+    # Riven Frontend - Web UI
     riven-frontend:
         image: spoked/riven-frontend:latest
         container_name: riven-frontend
@@ -9,11 +28,12 @@ services:
         ports:
             - 3000:3000
         volumes:
-            - ./config:/riven/config # You need to mount a config directory here (different from riven)
+            - ./config:/riven/config
         depends_on:
             riven:
                 condition: service_started
 
+    # Riven Backend - Main application
     riven:
         image: spoked/riven:latest
         container_name: riven
@@ -21,12 +41,20 @@ services:
         ports:
             - "8080:8080"
         tty: true
+        stdin_open: true  # Enable interactive mode for better log handling
         environment:
             - PUID=1000
             - PGID=1000
             - TZ=America/New_York
             - RIVEN_FORCE_ENV=true
             - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
+            - RIVEN_LAVINMQ_URL=amqp://guest:guest@riven-lavinmq:5672/
+            # Dramatiq worker configuration (optional - defaults to 2 processes, 4 threads each)
+            - WORKER_PROCESSES=2
+            - WORKER_THREADS=4
+            # Force colored output in Docker
+            - FORCE_COLOR=1
+            - TERM=xterm-256color
         healthcheck:
             test: curl -s http://localhost:8080 >/dev/null || exit 1
             interval: 30s
@@ -38,7 +66,16 @@ services:
         depends_on:
             riven_postgres:
                 condition: service_healthy
+            lavinmq:
+                condition: service_healthy
+        # Improved logging configuration
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
 
+    # PostgreSQL Database
     riven_postgres:
         image: postgres:17-alpine
         container_name: riven-db

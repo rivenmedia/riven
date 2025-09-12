@@ -14,7 +14,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartResponse, SmartSession, CircuitBreakerOpen
+from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -241,7 +241,7 @@ class RealDebridDownloader(DownloaderBase):
         """
         magnet = f"magnet:?xt=urn:btih:{infohash}"
         resp: SmartResponse = self.api.session.post("torrents/addMagnet", data={"magnet": magnet.lower()})
-        self._maybe_backoff(resp)
+        self._maybe_backoff(resp, "api.real-debrid.com")
         if not resp.ok:
             raise RealDebridError(self._handle_error(resp))
 
@@ -272,7 +272,7 @@ class RealDebridDownloader(DownloaderBase):
             return None
 
         resp: SmartResponse = self.api.session.get(f"torrents/info/{torrent_id}")
-        self._maybe_backoff(resp)
+        self._maybe_backoff(resp, "api.real-debrid.com")
         if not resp.ok:
             logger.debug(f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}")
             return None
@@ -318,34 +318,7 @@ class RealDebridDownloader(DownloaderBase):
             RealDebridError: If the API returns a failing status.
         """
         resp: SmartResponse = self.api.session.delete(f"torrents/delete/{torrent_id}")
-        self._maybe_backoff(resp)
+        self._maybe_backoff(resp, "api.real-debrid.com")
         if not resp.ok:
             raise RealDebridError(self._handle_error(resp))
 
-    def _maybe_backoff(self, resp: SmartResponse) -> None:
-        """
-        Promote Real-Debrid 429/5xx responses to a service-level backoff signal.
-        """
-        code = resp.status_code
-        if code == 429 or (500 <= code < 600):
-            # Name matches the breaker key in SmartSession rate_limits/breakers
-            raise CircuitBreakerOpen("api.real-debrid.com")
-
-    def _handle_error(self, response: SmartResponse) -> str:
-        """
-        Map HTTP status codes to normalized error messages for logs/exceptions.
-        """
-        code = response.status_code
-        if code == 451:
-            return "[451] Infringing Torrent"
-        if code == 503:
-            return "[503] Service Unavailable"
-        if code == 429:
-            return "[429] Rate Limit Exceeded"
-        if code == 404:
-            return "[404] Torrent Not Found or Service Unavailable"
-        if code == 400:
-            return "[400] Torrent file is not valid"
-        if code == 502:
-            return "[502] Bad Gateway"
-        return response.reason or f"HTTP {code}"

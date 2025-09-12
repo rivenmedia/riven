@@ -1,5 +1,6 @@
 """Logging utils"""
 
+import logging
 import os
 import sys
 from datetime import datetime
@@ -14,10 +15,26 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from program.settings.manager import settings_manager
 from program.utils import data_dir_path
 
-LOG_ENABLED: bool = settings_manager.settings.log
+
+class InterceptHandler(logging.Handler):
+    """Redirect stdlib logging records to Loguru."""
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except Exception:
+            level = record.levelno
+
+        # Find the original caller depth so Loguru shows correct source
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back  # type: ignore[assignment]
+            depth += 1
+
+        # Bind stdlib logger name for downstream filtering
+        logger.bind(logger_name=record.name).opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
 
 def setup_logger(level):
     """Setup the logger"""
@@ -35,7 +52,6 @@ def setup_logger(level):
     # Define log levels and their default settings
     log_levels = {
         "PROGRAM": (36, "cc6600", "🤖"),
-        "DATABASE": (37, "d834eb", "🛢️"),
         "DEBRID": (38, "cc3333", "🔗"),
         "SYMLINKER": (39, "F9E79F", "🔗"),
         "SCRAPER": (40, "3D5A80", "👻"),
@@ -83,7 +99,7 @@ def setup_logger(level):
 
     logger.configure(handlers=[
         {
-            "sink": sys.stderr,
+            "sink": sys.stdout,
             "level": level.upper() or "INFO",
             "format": log_format,
             "backtrace": False,
@@ -111,7 +127,7 @@ def log_cleaner():
         log_files = sorted(logs_dir_path.glob("riven-*.log"), key=lambda x: x.stat().st_mtime)
         for log_file in log_files[:-1]:
             # remove files older than 8 hours
-            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 8:
+            if (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600 > 24:
                 log_file.unlink()
                 cleaned = True
         if cleaned:
@@ -119,7 +135,7 @@ def log_cleaner():
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
 
-def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
+def create_progress_bar(_total_items: int) -> tuple[Progress, Console]:
     console = Console()
     progress = Progress(
         SpinnerColumn(),
@@ -136,5 +152,3 @@ def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
 
 
 console = Console()
-log_level = "TRACE" if settings_manager.settings.debug else "INFO"
-setup_logger(log_level)

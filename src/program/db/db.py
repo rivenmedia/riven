@@ -49,10 +49,10 @@ def vacuum_and_analyze_index_maintenance() -> None:
     # PROM: Use the raw connection to execute VACUUM outside a transaction
     try:
         with db.engine.connect() as connection:
-            connection = connection.execution_options(isolation_level="AUTOCOMMIT")
-            connection.execute(text("VACUUM;"))
-            connection.execute(text("ANALYZE;"))
-        logger.log("DATABASE","VACUUM and ANALYZE completed successfully.")
+            autocommit_conn = connection.execution_options(isolation_level="AUTOCOMMIT")
+            autocommit_conn.execute(text("VACUUM;"))
+            autocommit_conn.execute(text("ANALYZE;"))
+        logger.info("VACUUM and ANALYZE completed successfully.")
     except Exception as e:
         logger.error(f"Error during VACUUM and ANALYZE: {e}")
 

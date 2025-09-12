@@ -12,7 +12,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, CircuitBreakerOpen
+from program.utils.request import CircuitBreakerOpen, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -42,7 +42,7 @@ class AllDebridAPI:
             "Authorization": f"Bearer {api_key}"
         })
         if proxy_url:
-            self.session.proxies = {"http": proxy_url, "https": proxy_url}
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class AllDebridDownloader(DownloaderBase):
@@ -121,16 +121,16 @@ class AllDebridDownloader(DownloaderBase):
                 def process_entry(entry):
                     if isinstance(entry, dict):
                         # file entries
-                        if 'n' in entry and 's' in entry and 'l' in entry:
+                        if "n" in entry and "s" in entry and "l" in entry:
                             if debrid_file := DebridFile.create(
-                                filename=entry['n'],
-                                filesize_bytes=entry['s'],
+                                filename=entry["n"],
+                                filesize_bytes=entry["s"],
                                 filetype=item_type
                             ):
                                 processed_files.append(debrid_file)
                         # directory entries
-                        elif 'e' in entry:
-                            for sub_entry in entry['e']:
+                        elif "e" in entry:
+                            for sub_entry in entry["e"]:
                                 process_entry(sub_entry)
 
                 for file_entry in files:
@@ -163,6 +163,10 @@ class AllDebridDownloader(DownloaderBase):
                 "magnet/upload",
                 params={"magnets[]": infohash}
             )
+            self._maybe_backoff(response, "api.alldebrid.com")
+            if not response.ok:
+                raise AllDebridError(self._handle_error(response))
+                
             magnet_info = response.data.get("magnets", [])[0]
             torrent_id = magnet_info.get("id")
 
@@ -174,9 +178,11 @@ class AllDebridDownloader(DownloaderBase):
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot add torrent {infohash}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except AllDebridError:
+            raise  # Re-raise AllDebridError as-is
         except Exception as e:
             logger.error(f"Failed to add torrent {infohash}: {e}")
-            raise
+            raise AllDebridError(f"Failed to add torrent {infohash}: {e}")
 
     def select_files(self, torrent_id: str, _: List[str] = None) -> None:
         """
@@ -201,6 +207,10 @@ class AllDebridDownloader(DownloaderBase):
 
         try:
             response = self.api.session.get("magnet/status", params={"id": torrent_id})
+            self._maybe_backoff(response, "api.alldebrid.com")
+            if not response.ok:
+                raise AllDebridError(self._handle_error(response))
+                
             info = response.data.get("magnets", {})
             if "filename" not in info:
                 raise AllDebridError("Invalid torrent info response")
@@ -215,9 +225,11 @@ class AllDebridDownloader(DownloaderBase):
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot get torrent info for {torrent_id}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except AllDebridError:
+            raise  # Re-raise AllDebridError as-is
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
-            raise
+            raise AllDebridError(f"Failed to get torrent info for {torrent_id}: {e}")
 
     def delete_torrent(self, torrent_id: str):
         """
@@ -225,13 +237,18 @@ class AllDebridDownloader(DownloaderBase):
         Required by DownloaderBase
         """
         try:
-            self.api.session.get("magnet/delete", params={"id": torrent_id})
+            response = self.api.session.get("magnet/delete", params={"id": torrent_id})
+            self._maybe_backoff(response, "api.alldebrid.com")
+            if not response.ok:
+                raise AllDebridError(self._handle_error(response))
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot delete torrent {torrent_id}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except AllDebridError:
+            raise  # Re-raise AllDebridError as-is
         except Exception as e:
             logger.error(f"Failed to delete torrent {torrent_id}: {e}")
-            raise
+            raise AllDebridError(f"Failed to delete torrent {torrent_id}: {e}")
 
     def get_files_and_links(self, torrent_id: str) -> List[DebridFile]:
         """
@@ -242,12 +259,18 @@ class AllDebridDownloader(DownloaderBase):
                 "magnet/files",
                 params={"id[]": torrent_id}
             )
+            self._maybe_backoff(response, "api.alldebrid.com")
+            if not response.ok:
+                raise AllDebridError(self._handle_error(response))
+                
             magnet_info = next((info for info in response.data.get("magnets") if info["id"] == torrent_id), {})
             return magnet_info.get("files", {})
 
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN for AllDebrid API, cannot get files for {torrent_id}: {e}")
             raise  # Re-raise to be handled by the calling service
+        except AllDebridError:
+            raise  # Re-raise AllDebridError as-is
         except Exception as e:
             logger.error(f"Failed to get files for {torrent_id}: {e}")
-            raise
+            raise AllDebridError(f"Failed to get files for {torrent_id}: {e}")

@@ -1,8 +1,10 @@
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, List, Any
 import asyncio
-import json
 from datetime import datetime
+from typing import Any, Dict, List
+
+from fastapi import WebSocket, WebSocketDisconnect
+from loguru import logger
+
 
 class ConnectionManager:
     def __init__(self):
@@ -55,7 +57,7 @@ class ConnectionManager:
         try:
             self.message_queues[topic].put_nowait(formatted_message)
         except asyncio.QueueFull:
-            print(f"Message queue full for topic {topic}")
+            logger.warning(f"Message queue full for topic {topic}")
 
     async def _broadcast_messages(self, topic: str):
         """Background task to broadcast messages for a specific topic"""
@@ -72,7 +74,7 @@ class ConnectionManager:
                             except WebSocketDisconnect:
                                 dead_connections.append(connection)
                             except Exception as e:
-                                print(f"Error sending message: {e}")
+                                logger.error(f"Error sending message: {e}")
                                 dead_connections.append(connection)
                         
                         # Clean up dead connections
@@ -82,7 +84,7 @@ class ConnectionManager:
             # Handle task cancellation
             pass
         except Exception as e:
-            print(f"Broadcast task error for topic {topic}: {e}")
+            logger.error(f"Broadcast task error for topic {topic}: {e}")
 
 # Create a global instance
 manager = ConnectionManager()

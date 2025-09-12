@@ -105,10 +105,12 @@ class Symlinker:
             yield (item, next_attempt)
 
         try:
+            any_symlinked = False
             for _item in items:
                 symlinked = False
                 if self._symlink(_item):
                     symlinked = True
+                    any_symlinked = True
                 if symlinked:
                     logger.log("SYMLINKER", f"Symlinks created for {_item.log_string}")
                 if not symlinked:
@@ -118,7 +120,12 @@ class Symlinker:
         except Exception as e:
             logger.error(f"Exception thrown when creating symlink for {item.log_string}: {e}")
 
-        yield item
+        # Only yield the item (success) if at least one symlink was created.
+        # Otherwise signal failure by yielding None so the queue marks the job unsuccessful.
+        if any_symlinked:
+            yield item
+        else:
+            yield None
 
     def _calculate_next_attempt(self, item: Union[Movie, Show, Season, Episode]) -> datetime:
         base_delay = timedelta(seconds=4)

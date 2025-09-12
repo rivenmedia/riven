@@ -6,9 +6,9 @@ from typing import Generator, Optional
 from kink import di
 from loguru import logger
 
+from program.apis.tmdb_api import TMDBApi
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
-from program.apis.tmdb_api import TMDBApi
 
 
 class TMDBIndexer(BaseIndexer):
@@ -61,13 +61,17 @@ class TMDBIndexer(BaseIndexer):
             # Lookup via IMDB ID
             elif imdb_id:
                 results = self.api.get_from_external_id("imdb_id", imdb_id)
-                if (results and results.data) and not getattr(results.data, "movie_results", []):
+                results_data = results.data if results and results.data else None
+                
+                if results_data and not getattr(results_data, "movie_results", []):
                     logger.debug(f"IMDB ID {imdb_id} is not a movie, skipping")
                     return None
 
-                movie_results = results.data.movie_results
+                movie_results = results_data.movie_results
                 if movie_results:
                     tmdb_id = str(movie_results[0].id)
+                    
+                    # Get movie details
                     result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
                     movie_details = result.data if result and result.data else None
 

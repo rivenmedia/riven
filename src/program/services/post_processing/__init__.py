@@ -1,9 +1,10 @@
+import time
 from datetime import datetime
 
 from loguru import logger
 
 from program.db.db import db
-from program.db.db_functions import clear_streams
+from program.db.stream_operations import clear_streams
 from program.media.item import MediaItem
 from program.media.state import States
 from program.services.post_processing.subliminal import Subliminal
@@ -22,6 +23,12 @@ class PostProcessing:
         self.initialized = True
 
     def run(self, item: MediaItem):
+        if not any(service.service for service in self.services.values()):
+            # Check if no post processing service is available (worker sanity check)
+            logger.error(f"No post processing service is available. Cannot process {item.log_string} ({item.id})")
+            while not any(service.service for service in self.services.values()):
+                time.sleep(1)
+                yield item
         if Subliminal.should_submit(item):
             self.services[Subliminal].run(item)
         if item.last_state == States.Completed:

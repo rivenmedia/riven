@@ -5,9 +5,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import (
-    _get_stremio_identifier,
-)
+from program.services.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
 from program.utils.request import SmartSession, get_hostname_from_url
@@ -33,7 +31,7 @@ class Mediafusion:
             rate_limits = {}
         
         self.session = SmartSession(
-            base_url=self.settings.url.rstrip('/'),
+            base_url=self.settings.url.rstrip("/"),
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3

@@ -1,26 +1,27 @@
-import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
-from PTT import parse_title
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from loguru import logger
+from PTT import parse_title
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
-from sqlalchemy import select
 
 from program.db import db_functions
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
-from program.services.indexers import IndexerService
+from program.services.downloaders.models import (
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
+from program.services.indexers import CompositeIndexer
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
-from program.types import Event
-from program.services.downloaders.models import TorrentContainer, TorrentInfo, DebridFile
 
 
 class Stream(BaseModel):
@@ -206,7 +207,7 @@ def scrape_item(
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
     if services := request.app.program.services:
-        indexer = services[IndexerService]
+        indexer = services[CompositeIndexer]
         scraper = services[Scraping]
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
@@ -214,7 +215,7 @@ def scrape_item(
     log_string = None
     item = None
 
-    with db.Session() as db_session:
+    with db.Session():
         if item_id:
             item = db_functions.get_item_by_id(item_id)
         elif tmdb_id and media_type == "movie":
@@ -267,7 +268,7 @@ async def start_manual_session(
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
     if services := request.app.program.services:
-        indexer = services[IndexerService]
+        indexer = services[CompositeIndexer]
         downloader = services[Downloader]
     else:
         raise HTTPException(status_code=412, detail="Required services not initialized")
@@ -343,7 +344,7 @@ def manual_select_files(request: Request, session_id: str, files: Container) -> 
         download_type = "cached"
 
     try:
-        downloader.select_files(session.torrent_id, [int(file_id) for file_id in files.root.keys()])
+        downloader.select_files(session.torrent_id, [int(file_id) for file_id in files.root])
         session.selected_files = files.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -389,7 +390,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                 item_data["requested_by"] = "riven"
                 item_data["requested_at"] = datetime.now()
                 prepared_item = MediaItem(item_data)
-                item = next(IndexerService().run(prepared_item), None)
+                item = next(CompositeIndexer().run(prepared_item), None)
                 if item:
                     db_session.merge(item)
                     db_session.commit()
@@ -401,7 +402,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         item_ids_to_submit = set()
 
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
-            request.app.program.em.cancel_job(item.id)
+            request.app.program.qm.cancel_job(item.id)
             item.reset()
             item.file = data.filename
             item.folder = data.filename
@@ -444,7 +445,9 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         db_session.commit()
 
     for item_id in item_ids_to_submit:
-        request.app.program.em.add_event(Event("ManualAPI", item_id))
+        item = db_functions.get_item_by_id(item_id)
+        if item:
+            request.app.program.qm.submit_item(item, "Manual")
 
     return {"message": f"Updated given data to {log_string}"}
 
@@ -483,7 +486,7 @@ class ParseTorrentTitleResponse(BaseModel):
     data: list[dict[str, Any]]
 
 @router.post("/parse", summary="Parse an array of torrent titles", operation_id="parse_torrent_titles")
-async def parse_torrent_titles(request: Request, titles: list[str]) -> ParseTorrentTitleResponse:
+async def parse_torrent_titles(_request: Request, titles: list[str]) -> ParseTorrentTitleResponse:
     parsed_titles = []
     if titles:
         for title in titles:

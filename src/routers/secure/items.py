@@ -1,27 +1,29 @@
 import asyncio
-from datetime import datetime
 import os
+from datetime import datetime
 from typing import List, Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from RTN import parse_media_file
 from loguru import logger
 from pydantic import BaseModel
+from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db, get_db
+
+# Module-level dependency to avoid B008 linting errors
+_db_dependency = Depends(get_db)
+from program.db.stream_operations import clear_streams
 from program.media.item import MediaItem
 from program.media.state import States
-from program.services.indexers import CompositeIndexer
 from program.services.content import Overseerr
-
-from program.symlink import Symlinker
-from program.types import Event
+from program.services.indexers import CompositeIndexer
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
+from program.symlink import Symlinker
 
 from ..models.shared import MessageResponse
 
@@ -107,7 +109,7 @@ async def get_items(
                 if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
                     filter_states.append(state_enum)
                     break
-        if 'All' not in states:
+        if "All" not in states:
             if len(filter_states) == len(states):
                 query = query.where(MediaItem.last_state.in_(filter_states))
             else:
@@ -120,11 +122,11 @@ async def get_items(
     if type:
         if "," in type:
             types = type.split(",")
-            for type in types:
-                if type not in ["movie", "show", "season", "episode", "anime"]:
+            for item_type in types:
+                if item_type not in ["movie", "show", "season", "episode", "anime"]:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode', 'anime']",
+                        detail=f"Invalid type: {item_type}. Valid types are: ['movie', 'show', 'season', 'episode', 'anime']",
                     )
         else:
             types = [type]
@@ -134,7 +136,7 @@ async def get_items(
                 or_(
                     and_(
                         MediaItem.type.in_(["movie", "show"]),
-                        MediaItem.is_anime == True,
+                        MediaItem.is_anime,
                     ),
                     MediaItem.type.in_(types),
                 )
@@ -212,7 +214,7 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
     added_count = 0
     items = []
 
-    with db.Session() as session:
+    with db.Session():
         for id in all_tmdb_ids:
             if media_type == "movie" and not db_functions.item_exists_by_any_id(tmdb_id=id):
                 item = MediaItem({"tmdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
@@ -231,7 +233,7 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
 
         if items:
             for item in items:
-                request.app.program.em.add_item(item)
+                request.app.program.qm.submit_item(item, "Manual")
                 added_count += 1
 
     return {"message": f"Added {added_count} item(s) to the queue", "tmdb_ids": all_tmdb_ids, "tvdb_ids": all_tvdb_ids}
@@ -285,7 +287,7 @@ async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"
     description="Fetch media items by IMDb IDs",
     operation_id="get_items_by_imdb_ids",
 )
-async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
+async def get_items_by_imdb_ids(_request: Request, imdb_ids: str) -> list[dict]:
     ids = imdb_ids.split(",")
     with db.Session() as session:
         items = []
@@ -316,10 +318,10 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
     try:
         for media_item in db_functions.get_items_by_ids(ids):
             try:
-                request.app.program.em.cancel_job(media_item.id)
+                request.app.program.qm.cancel_job(media_item.id)
                 active_hash = media_item.active_stream.get("infohash", None)
                 active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
-                db_functions.clear_streams(media_item)
+                clear_streams(media_item)
                 db_functions.reset_media_item(media_item)
                 if active_stream:
                     # lets blacklist the active stream so it doesnt get used again
@@ -359,7 +361,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
                     item.scraped_times = 1
                     session.merge(item)
                     session.commit()
-                request.app.program.em.add_event(Event("RetryItem", id))
+                request.app.program.qm.submit_item(item, "RetryItem")
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
@@ -373,11 +375,9 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     operation_id="retry_library_items",
 )
 async def retry_library_items(request: Request) -> RetryResponse:
-    with db.Session() as session:
-        item_ids = db_functions.retry_library(session)
-        for item_id in item_ids:
-            request.app.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
-    return {"message": f"Retried {len(item_ids)} items", "ids": item_ids}
+    """Retry items that failed to download"""
+    request.app.program._retry_library()
+    return {"message": "Retry library process completed"}
 
 
 class UpdateOngoingResponse(BaseModel):
@@ -392,17 +392,9 @@ class UpdateOngoingResponse(BaseModel):
     operation_id="update_ongoing_items",
 )
 async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
-    with db.Session() as session:
-        updated_items = db_functions.update_ongoing(session)
-        for item_id, previous_state, new_state in updated_items:
-            request.app.program.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-    return {
-        "message": f"Updated {len(updated_items)} items",
-        "updated_items": [
-            {"item_id": item_id, "previous_state": previous_state, "new_state": new_state}
-            for item_id, previous_state, new_state in updated_items
-        ]
-    }
+    """Update state for ongoing and unreleased items"""
+    request.app.program._update_ongoing()
+    return {"message": "Update ongoing process completed"}
 
 class RepairSymlinksResponse(BaseModel):
     message: str
@@ -413,7 +405,7 @@ class RepairSymlinksResponse(BaseModel):
     description="Repair broken symlinks in the library. Optionally, provide a directory path to only scan that directory.",
     operation_id="repair_symlinks",
 )
-async def repair_symlinks(request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
+async def repair_symlinks(_request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
     library_path = settings_manager.settings.symlink.library_path
     rclone_path = settings_manager.settings.symlink.rclone_path
 
@@ -433,6 +425,27 @@ class RemoveResponse(BaseModel):
     message: str
     ids: list[str]
 
+
+def _cancel_jobs_for_items(items: List[MediaItem], queue_manager) -> None:
+    """Cancel active jobs for items."""
+    for item in items:
+        logger.debug(f"Canceling jobs for {item.id}")
+        queue_manager.cancel_job(item.id)
+
+def _cleanup_item_external_resources(item: MediaItem, symlinker, overseerr) -> None:
+    """Clean up symlinks and Overseerr requests for an item."""
+    if symlinker:
+        try:
+            symlinker.delete_item_symlinks_by_id(item.id)
+        except Exception as e:
+            logger.warning(f"Failed to remove symlinks for {item.id}: {e}")
+
+    if item.overseerr_id and overseerr:
+        try:
+            overseerr.delete_request(item.overseerr_id)
+            logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete Overseerr request {item.overseerr_id} for {item.id}: {e}")
 
 @router.delete(
     "/remove",
@@ -470,9 +483,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         )
 
     # Cancel active jobs first (your EventManager cancels children too)
-    for item in items:
-        logger.debug(f"Canceling jobs for {item.id}")
-        request.app.program.em.cancel_job(item.id)
+    _cancel_jobs_for_items(items, request.app.program.qm)
 
     # Give the scheduler a tick to process cancellations (non-blocking)
     await asyncio.sleep(0.2)
@@ -482,18 +493,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
 
     for item in items:
-        if symlinker:
-            try:
-                symlinker.delete_item_symlinks_by_id(item.id)
-            except Exception as e:
-                logger.warning(f"Failed to remove symlinks for {item.id}: {e}")
-
-        if item.overseerr_id and overseerr:
-            try:
-                overseerr.delete_request(item.overseerr_id)
-                logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id} for {item.id}: {e}")
+        _cleanup_item_external_resources(item, symlinker, overseerr)
 
     # Single responsibility: remove root MediaItem(s); cascades handle the rest
     for item in items:
@@ -509,7 +509,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
 @router.get(
     "/{item_id}/streams"
 )
-async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
+async def get_item_streams(_: Request, item_id: str, db: Session = _db_dependency):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -531,7 +531,7 @@ async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_d
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist"
 )
-async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
+async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = _db_dependency):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -554,7 +554,7 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
 @router.post(
     "/{item_id}/streams/{stream_id}/unblacklist"
 )
-async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
+async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = _db_dependency):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -581,7 +581,7 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
     description="Reset all streams for a media item",
     operation_id="reset_item_streams",
 )
-async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
+async def reset_item_streams(_: Request, item_id: str, db: Session = _db_dependency):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -594,7 +594,7 @@ async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    db_functions.clear_streams(item)
+    clear_streams(item)
 
     return {
         "message": f"Successfully reset streams for item {item_id}",
@@ -621,15 +621,14 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
                     all_ids = [item_id] + related_ids
 
                     for id in all_ids:
-                        request.app.program.em.cancel_job(id)
-                        request.app.program.em.remove_id_from_queues(id)
+                        request.app.program.qm.cancel_job(id)
 
                     if media_item.last_state not in [States.Paused, States.Failed, States.Completed]:
                         media_item.store_state(States.Paused)
                         session.merge(media_item)
                         session.commit()
 
-                    logger.info(f"Successfully paused items.")
+                    logger.info("Successfully paused items.")
                 except Exception as e:
                     logger.error(f"Failed to pause {media_item.log_string}: {str(e)}")
                     continue
@@ -655,7 +654,7 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
                         media_item.store_state(States.Requested)
                         session.merge(media_item)
                         session.commit()
-                        request.app.program.em.add_event(Event("RetryItem", media_item.id))
+                        request.app.program.qm.submit_item(media_item, "RetryItem")
                         logger.info(f"Successfully unpaused {media_item.log_string}")
                     else:
                         logger.debug(f"Skipping unpause for {media_item.log_string} - not in paused state")
@@ -665,7 +664,7 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"message": f"Successfully unpaused items.", "ids": ids}
+    return {"message": "Successfully unpaused items.", "ids": ids}
 
 class ReindexResponse(BaseModel):
     message: str
@@ -702,7 +701,7 @@ async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id:
                 session.commit()
             
             logger.info(f"Successfully reindexed {item.log_string}")
-            request.app.program.em.add_event(Event("RetryItem", item.id))
+            request.app.program.qm.submit_item(item, "RetryItem")
             return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
         else:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
@@ -721,7 +720,7 @@ class FfprobeResponse(BaseModel):
     description="Parse a media file",
     operation_id="ffprobe_media_files",
 )
-async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
+async def ffprobe_symlinks(_request: Request, id: str) -> FfprobeResponse:
     """Parse all symlinks from item. Requires ffmpeg to be installed."""
     item: MediaItem = db_functions.get_item_by_id(id)
     if not item:
