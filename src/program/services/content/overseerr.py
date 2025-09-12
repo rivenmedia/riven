@@ -6,9 +6,9 @@ from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from program.apis.overseerr_api import OverseerrAPI
+from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.db.db_functions import item_exists_by_any_id
 
 
 class Overseerr:

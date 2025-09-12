@@ -8,15 +8,15 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.services.downloaders.models import (
     DebridFile,
-    InvalidDebridFileException,
     DownloadedTorrent,
+    InvalidDebridFileException,
     NoMatchingFilesException,
     NotCachedException,
     ParsedFileData,
     TorrentContainer,
     TorrentInfo,
 )
-from program.services.downloaders.shared import parse_filename, _sort_streams_by_quality
+from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
 from .alldebrid import AllDebridDownloader
@@ -90,7 +90,7 @@ class Downloader:
                         raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
                 except Exception as e:
                     logger.debug(f"Stream {stream.infohash} failed: {e}")
-                    if 'download_result' in locals() and download_result.id:
+                    if "download_result" in locals() and download_result.id:
                         try:
                             self.service.delete_torrent(download_result.id)
                             logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
@@ -185,10 +185,10 @@ class Downloader:
                 if not file_data.episodes:
                     logger.debug(f"Skipping '{file.filename}' as it has no episodes")
                     continue
-                elif 0 in file_data.episodes and len(file_data.episodes) == 1:
+                if 0 in file_data.episodes and len(file_data.episodes) == 1:
                     logger.debug(f"Skipping '{file.filename}' as it has an episode number of 0")
                     continue
-                elif file_data.season == 0:
+                if file_data.season == 0:
                     logger.debug(f"Skipping '{file.filename}' as it has a season number of 0")
                     continue
             if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap):

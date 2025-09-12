@@ -118,13 +118,13 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
             item = item_class({
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tmdb_id": tmdb_id.group().replace('tmdb-', '') if tmdb_id else None,
+                "tmdb_id": tmdb_id.group().replace("tmdb-", "") if tmdb_id else None,
             })
         else:
             item = item_class({
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+                "tvdb_id": tvdb_id.group().replace("tvdb-", "") if tvdb_id else None,
             })
 
 
@@ -172,7 +172,7 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
             {
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+                "tvdb_id": tvdb_id.group().replace("tvdb-", "") if tvdb_id else None,
             }
         )
         if is_anime:
@@ -356,7 +356,10 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
 
 def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"]:
     """Get an item by its filepath."""
-    from program.db.db_functions import get_item_by_imdb_and_episode, get_item_by_symlink_path
+    from program.db.db_functions import (
+        get_item_by_imdb_and_episode,
+        get_item_by_symlink_path,
+    )
 
     tvdb_id_match = tvdbid_pattern.search(filepath)
     tmdb_id_match = tmdbid_pattern.search(filepath)

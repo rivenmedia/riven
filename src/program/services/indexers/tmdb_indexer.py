@@ -6,9 +6,9 @@ from typing import Generator, Optional
 from kink import di
 from loguru import logger
 
+from program.apis.tmdb_api import TMDBApi
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
-from program.apis.tmdb_api import TMDBApi
 
 
 class TMDBIndexer(BaseIndexer):

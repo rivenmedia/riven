@@ -1,8 +1,8 @@
 """Shared functions for scrapers."""
 import hashlib
-from bencodepy import decode, encode
-from typing import Dict, Optional, Set, Type
+from typing import Dict, Set
 
+from bencodepy import decode, encode
 from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
 
@@ -11,7 +11,6 @@ from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
 from program.utils.request import SmartSession
-
 
 scraping_settings = settings_manager.settings.scraping
 ranking_settings = settings_manager.settings.ranking
@@ -70,7 +69,7 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     continue
 
             if item.type == "season":
-                if torrent.data.seasons and not item.number in torrent.data.seasons:
+                if torrent.data.seasons and item.number not in torrent.data.seasons:
                     if scraping_settings.parse_debug:
                         logger.debug(f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}")
                     continue
@@ -169,7 +168,7 @@ def _get_item_country(item: MediaItem) -> str:
     else:
         country = item.country.upper()
 
-    # need to normalize 
+    # need to normalize
     if country == "USA":
         country = "US"
     elif country == "GB":
@@ -198,6 +197,6 @@ def _get_infohash_from_torrent_url(url: str) -> str:
         r.raise_for_status()
         torrent_data = r.content
         torrent_dict = decode(torrent_data)
-        info = torrent_dict[b'info']
+        info = torrent_dict[b"info"]
         infohash = hashlib.sha1(encode(info)).hexdigest()
     return infohash

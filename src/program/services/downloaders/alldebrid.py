@@ -12,7 +12,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, CircuitBreakerOpen
+from program.utils.request import CircuitBreakerOpen, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -121,16 +121,16 @@ class AllDebridDownloader(DownloaderBase):
                 def process_entry(entry):
                     if isinstance(entry, dict):
                         # file entries
-                        if 'n' in entry and 's' in entry and 'l' in entry:
+                        if "n" in entry and "s" in entry and "l" in entry:
                             if debrid_file := DebridFile.create(
-                                filename=entry['n'],
-                                filesize_bytes=entry['s'],
+                                filename=entry["n"],
+                                filesize_bytes=entry["s"],
                                 filetype=item_type
                             ):
                                 processed_files.append(debrid_file)
                         # directory entries
-                        elif 'e' in entry:
-                            for sub_entry in entry['e']:
+                        elif "e" in entry:
+                            for sub_entry in entry["e"]:
                                 process_entry(sub_entry)
 
                 for file_entry in files:

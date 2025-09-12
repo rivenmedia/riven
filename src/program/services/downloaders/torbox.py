@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from loguru import logger
 
@@ -10,10 +10,10 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, CircuitBreakerOpen
+from program.utils import get_version
+from program.utils.request import CircuitBreakerOpen, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
-from program.utils import get_version
 
 
 class TorBoxError(Exception):
@@ -206,13 +206,13 @@ class TorBoxDownloader(DownloaderBase):
                 if " 503 " in e.args[0]:
                     logger.debug(f"Failed to add torrent {infohash}: [503] Infringing Torrent or Service Unavailable")
                     raise TorBoxError("Infringing Torrent or Service Unavailable")
-                elif " 429 " in e.args[0]:
+                if " 429 " in e.args[0]:
                     logger.debug(f"Failed to add torrent {infohash}: [429] Rate Limit Exceeded")
                     raise TorBoxError("Rate Limit Exceeded")
-                elif " 404 " in e.args[0]:
+                if " 404 " in e.args[0]:
                     logger.debug(f"Failed to add torrent {infohash}: [404] Torrent Not Found or Service Unavailable")
                     raise TorBoxError("Torrent Not Found or Service Unavailable")
-                elif " 400 " in e.args[0]:
+                if " 400 " in e.args[0]:
                     logger.debug(f"Failed to add torrent {infohash}: [400] Torrent file is not valid. Magnet: {magnet}")
                     raise TorBoxError("Torrent file is not valid")
             else:

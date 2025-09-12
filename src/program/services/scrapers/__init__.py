@@ -1,13 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, Generator, List
 
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.media.stream import Stream
 from program.media.state import States
+from program.media.stream import Stream
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
@@ -36,7 +36,7 @@ class Scraping:
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
             Zilean: Zilean(),
-            # Rarbg: Rarbg()
+            Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,
@@ -69,21 +69,29 @@ class Scraping:
             ]
 
             if new_streams:
+                # Ensure streams don't carry stale backrefs to detached parents
+                for s in new_streams:
+                    try:
+                        if hasattr(s, "parents") and isinstance(s.parents, list):
+                            s.parents.clear()
+                        if hasattr(s, "blacklisted_parents") and isinstance(s.blacklisted_parents, list):
+                            s.blacklisted_parents.clear()
+                    except Exception:
+                        pass
                 item.streams.extend(new_streams)
                 item.failed_attempts = 0  # Reset failed attempts on success
                 logger.log("SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}")
             else:
                 logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-                item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
+                item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
                 if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
                     item.store_state(States.Failed)
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
+                elif self.max_failed_attempts > 0:
+                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
                 else:
-                    if self.max_failed_attempts > 0:
-                        logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
-                    else:
-                        logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
+                    logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
@@ -139,7 +147,7 @@ class Scraping:
             return False
         if item.active_stream:
             logger.debug(f"Cannot scrape {item.log_string}: Item was already downloaded by another session")
-            return False    
+            return False
         if not cls.should_submit(item):
             return False
         return True

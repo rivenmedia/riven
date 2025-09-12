@@ -3,13 +3,13 @@
 from datetime import datetime
 from typing import Generator, List, Optional
 
+import regex
 from kink import di
 from loguru import logger
-import regex
 
-from program.media.item import MediaItem, Show, Season, Episode
-from program.services.indexers.base import BaseIndexer
 from program.apis.tvdb_api import TVDBApi
+from program.media.item import Episode, MediaItem, Season, Show
+from program.services.indexers.base import BaseIndexer
 
 
 class TVDBIndexer(BaseIndexer):
@@ -89,7 +89,7 @@ class TVDBIndexer(BaseIndexer):
         """Map TVDB show data to our Show object."""
         try:
             if not imdb_id:
-                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == 'IMDB'), None)
+                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == "IMDB"), None)
 
             aired_at = None
             if first_aired := show_data.firstAired:
@@ -109,11 +109,11 @@ class TVDBIndexer(BaseIndexer):
 
             else:
                 aliases = {}
-            slug = (show_data.slug or '').replace('-', ' ').title()
-            aliases.setdefault('eng', []).append(slug.title())
+            slug = (show_data.slug or "").replace("-", " ").title()
+            aliases.setdefault("eng", []).append(slug.title())
 
             title = show_data.name
-            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != 'eng':
+            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != "eng":
                 if (translation := self.api.get_translation(show_data.id, "eng")):
                     if translation and hasattr(translation, "data") and translation.data.name:
                         title = translation.data.name
@@ -126,16 +126,17 @@ class TVDBIndexer(BaseIndexer):
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             genres_lower = [
-                (g.name or '').lower() for g in (show_data.genres or []) if hasattr(g, 'name')
+                (g.name or "").lower() for g in (show_data.genres or []) if hasattr(g, "name")
             ]
-            is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.originalLanguage != 'eng')
+            is_anime = ("anime" in genres_lower) or ("animation" in genres_lower and show_data.originalLanguage != "eng")
 
             # last minute title cleanup to remove '(year)' and '(country code)'
-            title = regex.sub(r'\s*\(.*\)\s*$', '', title)
+            title = regex.sub(r"\s*\(.*\)\s*$", "", title)
+            release_data = self.api.get_series_release_data(show_data) or {}
 
             show_item = {
                 "title": title,
-                "year": int(show_data.firstAired.split('-')[0]) if show_data.firstAired else None,
+                "year": int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None,
                 "tvdb_id": str(show_data.id),
                 "tmdb_id": None,
                 "imdb_id": imdb_id,
@@ -149,6 +150,7 @@ class TVDBIndexer(BaseIndexer):
                 "language": show_data.originalLanguage,
                 "is_anime": is_anime,
                 "aliases": aliases,
+                "release_data": release_data,
             }
 
             return Show(show_item)
@@ -161,7 +163,7 @@ class TVDBIndexer(BaseIndexer):
         """Add seasons and episodes to the given show using TVDB API."""
         try:
             seasons = show_details.seasons
-            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == 'official']
+            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == "official"]
             for season_data in filtered_seasons:
                 if (extended_data := self.api.get_season(season_data.id).data):
                     if (season_item := self._create_season_from_data(extended_data, show)):
@@ -193,7 +195,7 @@ class TVDBIndexer(BaseIndexer):
                 pass
 
             year = None
-            if hasattr(season_data, 'year') and season_data.year:
+            if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
 
             season_item = {
@@ -229,7 +231,7 @@ class TVDBIndexer(BaseIndexer):
                     pass
 
             year = None
-            if hasattr(episode_data, 'year') and episode_data.year:
+            if hasattr(episode_data, "year") and episode_data.year:
                 year = int(episode_data.year)
 
             episode_item = {

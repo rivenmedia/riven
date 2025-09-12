@@ -2,16 +2,18 @@
 import re
 from datetime import datetime
 from types import SimpleNamespace
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 from urllib.parse import urlencode
+
+from loguru import logger
 from requests import RequestException
 
-from program import MediaItem
-from program.media import Episode, Movie, Season, Show
 from program.settings.manager import settings_manager
 from program.settings.models import TraktModel
 from program.utils.request import SmartSession
-from loguru import logger
+
+if TYPE_CHECKING:
+    from program.media.item import Episode, MediaItem, Movie, Season, Show
 
 
 class TraktAPIError(Exception):
@@ -203,7 +205,7 @@ class TraktAPI:
 
     def create_item_from_imdb_id(
         self, imdb_id: str, type: str = None
-    ) -> Optional[MediaItem]:
+    ) -> Optional["MediaItem"]:
         """Wrapper for trakt.tv API search method."""
         url = f"{self.BASE_URL}/search/imdb/{imdb_id}?extended=full"
         if type:
@@ -283,7 +285,7 @@ class TraktAPI:
 
     def map_item_from_data(
         self, data, item_type: str, show_genres: List[str] = None
-    ) -> Optional[MediaItem]:
+    ) -> Optional["MediaItem"]:
         """Map trakt.tv API data to MediaItemContainer."""
         if item_type not in ["movie", "show", "season", "episode"]:
             logger.debug(

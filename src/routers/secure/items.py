@@ -1,13 +1,13 @@
 import asyncio
-from datetime import datetime
 import os
+from datetime import datetime
 from typing import List, Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from RTN import parse_media_file
 from loguru import logger
 from pydantic import BaseModel
+from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -15,13 +15,12 @@ from program.db import db_functions
 from program.db.db import db, get_db
 from program.media.item import MediaItem
 from program.media.state import States
-from program.services.indexers import CompositeIndexer
 from program.services.content import Overseerr
-
-from program.symlink import Symlinker
-from program.types import Event
+from program.services.indexers import CompositeIndexer
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
+from program.symlink import Symlinker
+from program.types import Event
 
 from ..models.shared import MessageResponse
 
@@ -107,7 +106,7 @@ async def get_items(
                 if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
                     filter_states.append(state_enum)
                     break
-        if 'All' not in states:
+        if "All" not in states:
             if len(filter_states) == len(states):
                 query = query.where(MediaItem.last_state.in_(filter_states))
             else:
@@ -404,6 +403,28 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
         ]
     }
 
+
+class UpdateNewReleasesResponse(BaseModel):
+    message: str
+    updated_items: list[dict]
+
+@router.post(
+    "/update_new_releases",
+    summary="Update New Releases",
+    description="Update state for new releases",
+    operation_id="update_new_releases_items",
+)
+async def update_new_releases_items(request: Request, update_type: Literal["series", "seasons", "episodes"] = "episodes", hours: Optional[int] = 24) -> UpdateNewReleasesResponse:
+    with db.Session() as session:
+        updated_items = db_functions.update_new_releases(session, update_type=update_type, hours=hours)
+        for item_id in updated_items:
+            request.app.program.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
+        if updated_items:
+            logger.log("API", f"Successfully updated {len(updated_items)} items")
+        else:
+            logger.log("API", "No items required state updates")
+    return {"message": f"Updated {len(updated_items)} items", "updated_items": updated_items}
+
 class RepairSymlinksResponse(BaseModel):
     message: str
 
@@ -629,7 +650,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
                         session.merge(media_item)
                         session.commit()
 
-                    logger.info(f"Successfully paused items.")
+                    logger.info("Successfully paused items.")
                 except Exception as e:
                     logger.error(f"Failed to pause {media_item.log_string}: {str(e)}")
                     continue
@@ -665,7 +686,7 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"message": f"Successfully unpaused items.", "ids": ids}
+    return {"message": "Successfully unpaused items.", "ids": ids}
 
 class ReindexResponse(BaseModel):
     message: str
@@ -676,12 +697,18 @@ class ReindexResponse(BaseModel):
     description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
     operation_id="composite_reindexer"
 )
-async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
+async def reindex_item(request: Request, item_id: Optional[str] = None, tvdb_id: Optional[str] = None, tmdb_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
     if item_id:
         item: MediaItem = db_functions.get_item_by_id(item_id)
+    elif tvdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(tvdb_id=tvdb_id)
+    elif tmdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(tmdb_id=tmdb_id)
     elif imdb_id:
         item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
+    if any([item_id, tvdb_id, tmdb_id, imdb_id]):
+        item: MediaItem = db_functions.get_item_by_any_external_id(tvdb_id=tvdb_id, tmdb_id=tmdb_id, imdb_id=imdb_id)
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
 

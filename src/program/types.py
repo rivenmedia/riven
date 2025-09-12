@@ -11,11 +11,10 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import (
-    RealDebridDownloader,
     AllDebridDownloader,
+    RealDebridDownloader,
     TorBoxDownloader,
 )
-
 from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
     Comet,

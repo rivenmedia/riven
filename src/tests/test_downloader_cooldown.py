@@ -1,10 +1,11 @@
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
+import pytest
+
+from program.media.item import Movie
 from program.services.downloaders import Downloader
 from program.utils.request import CircuitBreakerOpen
-from program.media.item import Movie
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ def test_successful_download_clears_cooldown(downloader, mock_item):
     downloader.service.delete_torrent.return_value = None
     
     # Mock the update_item_attributes to return True (successful)
-    with patch.object(downloader, 'update_item_attributes', return_value=True):
+    with patch.object(downloader, "update_item_attributes", return_value=True):
         result = list(downloader.run(mock_item))
     
     # Should clear cooldown
@@ -135,7 +136,7 @@ def test_cooldown_expires_naturally(downloader, mock_item):
     downloader.service.delete_torrent.return_value = None
     
     # Mock the update_item_attributes to return True (successful)
-    with patch.object(downloader, 'update_item_attributes', return_value=True):
+    with patch.object(downloader, "update_item_attributes", return_value=True):
         result = list(downloader.run(mock_item))
     
     # Should process normally (not reschedule)

@@ -1,21 +1,21 @@
 """MediaItem class"""
-from PTT import parse_title
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Self
 
 import sqlalchemy
 from loguru import logger
-from sqlalchemy import Index
-from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+from PTT import parse_title
+from sqlalchemy import Index, exists, select
+from sqlalchemy.orm import Mapped, aliased, mapped_column, object_session, relationship
 
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
 
-from ..db.db_functions import set_stream_blacklisted, clear_streams
-from .stream import Stream
+from ..db.db_functions import clear_streams, set_stream_blacklisted
+from .stream import Stream, StreamBlacklistRelation, StreamRelation
 
 
 class MediaItem(db.Model):
@@ -63,7 +63,6 @@ class MediaItem(db.Model):
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
         "polymorphic_on":"type",
-        "with_polymorphic":"*",
     }
 
     __table_args__ = (
@@ -149,9 +148,8 @@ class MediaItem(db.Model):
             if item.get("seasons") or hasattr(item, "seasons"):
                 if tvdb_id := item.get("tvdb_id"):
                     return f"tvdb_show_{tvdb_id}"
-            else:
-                if tmdb_id := item.get("tmdb_id"):
-                    return f"tmdb_movie_{tmdb_id}"
+            elif tmdb_id := item.get("tmdb_id"):
+                return f"tmdb_movie_{tmdb_id}"
 
         return None
 
@@ -168,7 +166,9 @@ class MediaItem(db.Model):
         """Check if a stream is blacklisted for this item."""
         session = object_session(self)
         if session:
-            session.refresh(self, attribute_names=["blacklisted_streams"])
+            # Avoid triggering autoflush while refreshing relationships
+            with session.no_autoflush:
+                session.refresh(self, attribute_names=["blacklisted_streams"])
         return stream in self.blacklisted_streams
 
     def blacklist_active_stream(self) -> bool:
@@ -248,15 +248,25 @@ class MediaItem(db.Model):
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self) -> bool:
-        """Check if the item has been scraped."""
-        session = object_session(self)
-        if session and session.is_active:
-            try:
-                session.refresh(self, attribute_names=["blacklisted_streams"])
-                return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
-            except:
-                ...
-        return False
+        """Check if the item has at least one non-blacklisted stream using a targeted EXISTS query."""
+        s = object_session(self)
+        if not s:
+            return False
+        try:
+            q = select(
+                exists().where(
+                    StreamRelation.parent_id == self.id,
+                ).where(
+                    ~exists().where(
+                        StreamBlacklistRelation.media_item_id == self.id,
+                    ).where(
+                        StreamBlacklistRelation.stream_id == StreamRelation.child_id
+                    )
+                )
+            )
+            return bool(s.execute(q).scalar())
+        except Exception:
+            return False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert item to dictionary (API response)"""
@@ -313,7 +323,7 @@ class MediaItem(db.Model):
 
         return data
 
-    def to_extended_dict(self, abbreviated_children=False, with_streams=True) -> dict[str, Any]:
+    def to_extended_dict(self, abbreviated_children=False, with_streams=False) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
         match self:
@@ -484,39 +494,72 @@ class MediaItem(db.Model):
         return self.parent.collection if self.parent else self.id
 
     def is_parent_blocked(self) -> bool:
-        """
-        Check if any parent is paused.
-
-        A paused item blocks all processing of itself and its children,
-        typically set by user action from the frontend.
-        """
+        """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
         if self.last_state == States.Paused:
             return True
-            
-        session = object_session(self)
-        if session and hasattr(self, "parent"):
-            session.refresh(self, ["parent"])
-            if self.parent:
-                return self.parent.is_parent_blocked()
-        return False
+        s = object_session(self)
+        if not s:
+            return False
+        try:
+            if self.type == "episode":
+                from program.media.item import Season, Show
+
+                # Use explicit aliases to avoid auto-alias SAWarnings (overlapping tables via base)
+                season_a = aliased(Season, flat=True)
+                show_a = aliased(Show, flat=True)
+                season_paused = s.execute(
+                    select(season_a.last_state).where(season_a.id == self.parent_id)
+                ).scalar_one_or_none()
+                if season_paused == States.Paused:
+                    return True
+                show_paused = s.execute(
+                    select(show_a.last_state)
+                    .join(season_a, season_a.parent_id == show_a.id)
+                    .where(season_a.id == self.parent_id)
+                ).scalar_one_or_none()
+                return show_paused == States.Paused
+            if self.type == "season":
+                from program.media.item import Show
+                show_paused = s.execute(select(Show.last_state).where(Show.id == self.parent_id)).scalar_one_or_none()
+                return show_paused == States.Paused
+            return False
+        except Exception:
+            return False
 
     def get_blocking_parent(self) -> Optional["MediaItem"]:
-        """
-        Get the parent that is paused and blocking this item (if any).
-
-        Returns:
-            MediaItem | None: The parent in a Paused state,
-                            or None if no parent is paused.
-        """
+        """Return the nearest paused ancestor (self, parent season, or parent show), or None."""
         if self.last_state == States.Paused:
             return self
-            
-        session = object_session(self)
-        if session and hasattr(self, "parent"):
-            session.refresh(self, ["parent"])
-            if self.parent:
-                return self.parent.get_blocking_parent()
-        return None
+        s = object_session(self)
+        if not s:
+            return None
+        try:
+            if self.type == "episode":
+                from program.media.item import Season, Show
+                season_a = aliased(Season, flat=True)
+                show_a = aliased(Show, flat=True)
+                season_row = s.execute(
+                    select(season_a.id, season_a.last_state).where(season_a.id == self.parent_id)
+                ).first()
+                if season_row and season_row[1] == States.Paused:
+                    return s.get(Season, season_row[0])
+                show_row = s.execute(
+                    select(show_a.id, show_a.last_state)
+                    .join(season_a, season_a.parent_id == show_a.id)
+                    .where(season_a.id == self.parent_id)
+                ).first()
+                if show_row and show_row[1] == States.Paused:
+                    return s.get(Show, show_row[0])
+                return None
+            if self.type == "season":
+                from program.media.item import Show
+                show_row = s.execute(select(Show.id, Show.last_state).where(Show.id == self.parent_id)).first()
+                if show_row and show_row[1] == States.Paused:
+                    return s.get(Show, show_row[0])
+                return None
+            return None
+        except Exception:
+            return None
 
 
 class Movie(MediaItem):
@@ -525,7 +568,7 @@ class Movie(MediaItem):
     id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     __mapper_args__ = {
         "polymorphic_identity": "movie",
-        "polymorphic_load": "inline",
+        "polymorphic_load": "selectin",
     }
 
     def copy(self, other):
@@ -555,16 +598,18 @@ class Show(MediaItem):
         order_by="Season.number",
         passive_deletes=True, # don't pre-load children on delete
     )
+    release_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
-        "polymorphic_load": "inline",
+        "polymorphic_load": "selectin",
     }
 
     def __init__(self, item):
         self.type = "show"
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
+        self.release_data = item.get("release_data", {})
         self.propagate_attributes_to_childs()
         super().__init__(item)
 
@@ -603,10 +648,10 @@ class Show(MediaItem):
             return States.Requested
         return States.Unknown
 
-    def store_state(self, given_state: States = None) -> None:
+    def store_state(self, given_state: States = None) -> tuple[States, States]:
         for season in self.seasons:
             season.store_state(given_state)
-        super().store_state(given_state)
+        return super().store_state(given_state)
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
@@ -703,13 +748,13 @@ class Season(MediaItem):
     )
     __mapper_args__ = {
         "polymorphic_identity": "season",
-        "polymorphic_load": "inline",
+        "polymorphic_load": "selectin",
     }
 
-    def store_state(self, given_state: States = None) -> None:
+    def store_state(self, given_state: States = None) -> tuple[States, States]:
         for episode in self.episodes:
             episode.store_state(given_state)
-        super().store_state(given_state)
+        return super().store_state(given_state)
 
     def __init__(self, item):
         self.type = "season"
@@ -821,7 +866,7 @@ class Episode(MediaItem):
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",
-        "polymorphic_load": "inline",
+        "polymorphic_load": "selectin",
     }
 
     def __init__(self, item):

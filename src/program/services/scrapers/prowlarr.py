@@ -99,8 +99,8 @@ class Prowlarr:
         return False
 
     def get_indexers(self) -> list[Indexer]:
-        statuses = self.session.get(f"/indexerstatus", timeout=15, headers=self.headers)
-        response = self.session.get(f"/indexer", timeout=15, headers=self.headers)
+        statuses = self.session.get("/indexerstatus", timeout=15, headers=self.headers)
+        response = self.session.get("/indexer", timeout=15, headers=self.headers)
         data = response.data
         statuses = statuses.data
         indexers = []
@@ -109,7 +109,7 @@ class Prowlarr:
             if statuses:
                 status = next((x for x in statuses if x.indexerId == id), None)
                 if status and status.disabledTill > datetime.now().isoformat():
-                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime('%Y-%m-%d %H:%M')
+                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime("%Y-%m-%d %H:%M")
                     logger.debug(f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping")
                     continue
 
@@ -311,7 +311,7 @@ class Prowlarr:
             return {}
 
         start_time = time.time()
-        response = self.session.get(f"/search", params=params, timeout=self.timeout, headers=self.headers)
+        response = self.session.get("/search", params=params, timeout=self.timeout, headers=self.headers)
         if not response.ok:
             message = response.data.message or "Unknown error"
             logger.debug(f"Failed to scrape {indexer.name}: [{response.status_code}] {message}")
@@ -340,7 +340,7 @@ class Prowlarr:
             if not infohash and guid and guid.endswith(".torrent"):
                 try:
                     infohash = _get_infohash_from_torrent_url(url=guid)
-                    if not infohash or not len(infohash) == 40:
+                    if not infohash or len(infohash) != 40:
                         continue
                     infohash = infohash.lower()
                 except Exception:

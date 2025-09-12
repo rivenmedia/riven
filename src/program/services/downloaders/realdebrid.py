@@ -14,7 +14,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.settings.manager import settings_manager
-from program.utils.request import SmartResponse, SmartSession, CircuitBreakerOpen
+from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -132,7 +132,7 @@ class RealDebridDownloader(DownloaderBase):
             torrent_id = self.add_torrent(infohash)
             container, reason = self._process_torrent(torrent_id, infohash, item_type)
             if container is None and reason:
-                logger.warning(f"Availability check failed [{infohash}]: {reason}")
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
             return container
 
         except CircuitBreakerOpen:

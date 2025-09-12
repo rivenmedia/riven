@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, select
 
 from program.apis import TraktAPI
+from program.db import db_functions
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
-from program.db import db_functions
 
 from ..models.shared import MessageResponse
 
@@ -253,7 +253,7 @@ async def upload_logs() -> UploadLogsResponse:
 
         response = requests.post(
             "https://paste.c-net.org/",
-            data=log_contents.encode('utf-8'),
+            data=log_contents.encode("utf-8"),
             headers={"Content-Type": "text/plain"}
         )
 

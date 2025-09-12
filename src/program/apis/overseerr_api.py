@@ -1,11 +1,14 @@
 ﻿"""Overseerr API client"""
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
 
-from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
 
 class OverseerrAPIError(Exception):
     """Base exception for OverseerrAPI related errors"""
@@ -39,15 +42,17 @@ class OverseerrAPI:
             logger.error(f"Overseerr validation failed: {e}")
             return None
 
-    def get_media_requests(self, service_key: str) -> list[MediaItem]:
+    def get_media_requests(self, service_key: str) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
+        from program.media.item import MediaItem
+
         try:
             response = self.session.get(f"api/v1/request?take={10000}&filter=approved&sort=added")
             if not response.ok or not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
                 if not response.ok:
                     logger.error(f"Failed to get response from overseerr: {response.data}")
                 elif not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
-                    logger.debug(f"No user approved requests found from overseerr")
+                    logger.debug("No user approved requests found from overseerr")
                 return []
         except Exception as e:
             logger.error(f"Failed to get response from overseerr: {str(e)}")
@@ -59,7 +64,7 @@ class OverseerrAPI:
             if item.status == 2 and item.media.status == 3
         ]
 
-        media_items = []
+        media_items: list[MediaItem] = []
         for item in pending_items:
             media_type = item.type
             imdb_id = item.media.imdbId
