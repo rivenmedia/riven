@@ -1,5 +1,6 @@
 """Composite indexer that uses TMDB for movies and TVDB for TV shows"""
 
+import time
 from typing import Generator, Union
 
 from kink import di

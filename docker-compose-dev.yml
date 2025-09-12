@@ -1,20 +1,50 @@
 services:
-  riven:
+  lavinmq-dev:
+    image: cloudamqp/lavinmq:latest
+    container_name: lavinmq-dev
+    restart: unless-stopped
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      - LAVINMQ_CONFIG_FILE=/etc/lavinmq/lavinmq.conf
+    volumes:
+      - lavinmq-dev-data:/var/lib/lavinmq
+    healthcheck:
+      test: ["CMD", "lavinmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  riven-dev:
     build:
       context: .
       dockerfile: Dockerfile
-    image: riven:dev
-    container_name: riven
+    image: riven:develop
+    container_name: riven-dev
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8080:8080"
     tty: true
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=UTC
-      - ORIGIN=${RIVEN_ORIGIN:-http://localhost:8080}
-      - RIVEN_FORCE_ENV=true
-      - RIVEN_DATABASE_HOST=sqlite:////riven/data/media.db
+      # Worker configuration for testing
+      - WORKER_PROCESSES=2
+      - WORKER_THREADS=4
+      # Enable colored output
+      - FORCE_COLOR=1
+      - TERM=xterm-256color
+      # Riven specific configuration
+      - RIVEN_LAVINMQ_URL=amqp://guest:guest@lavinmq-dev:5672/
+      #- RIVEN_HARD_RESET=true
     volumes:
       - ./data:/riven/data
       - /mnt:/mnt
+    depends_on:
+      lavinmq-dev:
+        condition: service_healthy
+
+volumes:
+  lavinmq-dev-data:

@@ -2,26 +2,20 @@
 from __future__ import annotations
 
 import os
-import shutil
-import alembic
-
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from loguru import logger
-from threading import Event
-from sqlalchemy import delete, func, insert, inspect, or_, select, text, case
+from sqlalchemy import case, delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session, selectinload
-from typing import TYPE_CHECKING
-
 from sqlalchemy.sql import bindparam
 
-from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
+import alembic
 from program.services.libraries.symlink import fix_broken_symlinks
 from program.settings.manager import settings_manager
-from program.media.state import States
+
 from .db import db
 
 if TYPE_CHECKING:
@@ -251,87 +245,6 @@ def get_item_by_imdb_and_episode(
             _s.expunge(r)
         return rows
 
-def clear_streams(
-    *,
-    media_item_id: str,
-    session: Optional[Session] = None,
-) -> None:
-    """
-    Remove ALL stream relations and blacklists for a media item in one transaction.
-    """
-    with _maybe_session(session) as (_s, _owns):
-        _s.execute(delete(StreamRelation).where(StreamRelation.parent_id == media_item_id))
-        _s.execute(delete(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == media_item_id))
-        _s.commit()
-
-
-def set_stream_blacklisted(
-    item: "MediaItem",
-    stream: Stream,
-    *,
-    blacklisted: bool,
-    session: Optional[Session] = None,
-) -> bool:
-    """
-    Toggle blacklist state for a (item, stream) pair atomically.
-    Returns True if a change was applied.
-    """
-    with _maybe_session(session) as (_s, _owns):
-        m_item = _s.merge(item)
-
-        if blacklisted:
-            # If the stream is currently linked, remove the link and add a blacklist row.
-            linked = _s.query(
-                _s.query(StreamRelation)
-                .filter(
-                    StreamRelation.parent_id == m_item.id,
-                    StreamRelation.child_id == stream.id,
-                )
-                .exists()
-            ).scalar()
-
-            if not linked:
-                return False
-
-            _s.execute(
-                delete(StreamRelation).where(
-                    StreamRelation.parent_id == m_item.id,
-                    StreamRelation.child_id == stream.id,
-                )
-            )
-            _s.execute(
-                insert(StreamBlacklistRelation).values(
-                    media_item_id=m_item.id, stream_id=stream.id
-                )
-            )
-
-        else:
-            # If the stream is blacklisted, remove blacklist and restore link.
-            bl = _s.query(
-                _s.query(StreamBlacklistRelation)
-                .filter(
-                    StreamBlacklistRelation.media_item_id == m_item.id,
-                    StreamBlacklistRelation.stream_id == stream.id,
-                )
-                .exists()
-            ).scalar()
-
-            if not bl:
-                return False
-
-            _s.execute(
-                delete(StreamBlacklistRelation).where(
-                    StreamBlacklistRelation.media_item_id == m_item.id,
-                    StreamBlacklistRelation.stream_id == stream.id,
-                )
-            )
-            _s.execute(
-                insert(StreamRelation).values(parent_id=m_item.id, child_id=stream.id)
-            )
-
-        m_item.store_state()
-        _s.commit()
-        return True
 
 def delete_media_item_by_id(media_item_id: str) -> bool:
     """
@@ -346,7 +259,7 @@ def delete_media_item_by_id(media_item_id: str) -> bool:
     Returns:
       True on success, False on error.
     """
-    from sqlalchemy.exc import IntegrityError
+
     from program.media.item import Episode, MediaItem, Season
 
     if not media_item_id:
@@ -444,18 +357,15 @@ def get_item_ids(session: Session, item_id: str) -> Tuple[str, List[str]]:
     return item_id, related_ids
 
 
-# --------------------------------------------------------------------------- #
-# State-Machine Adjacent Helpers
-# --------------------------------------------------------------------------- #
-
 def retry_library(session: Optional[Session] = None) -> List[str]:
     """
     Return IDs of items that should be retried. Single query, no pre-count.
     """
     from program.media.item import MediaItem
+    from program.media.state import States
 
     with _maybe_session(session) as (s, owns):
-        ids = s.execute(
+        return s.execute(
             select(MediaItem.id)
             .where(
                 MediaItem.last_state.not_in(
@@ -465,7 +375,6 @@ def retry_library(session: Optional[Session] = None) -> List[str]:
             .where(MediaItem.type.in_(["movie", "show"]))
             .order_by(MediaItem.requested_at.desc())
         ).scalars().all()
-        return ids
 
 
 def update_ongoing(session: Optional[Session] = None) -> List[str]:
@@ -474,6 +383,7 @@ def update_ongoing(session: Optional[Session] = None) -> List[str]:
     Calls store_state() per item (state machine), aggregates changed IDs.
     """
     from program.media.item import MediaItem
+    from program.media.state import States
 
     with _maybe_session(session) as (s, owns):
         item_ids = s.execute(
@@ -511,7 +421,8 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
     Create a calendar of all upcoming/ongoing items in the library.
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
-    from program.media.item import MediaItem, Show, Season
+    from program.media.item import MediaItem, Season, Show
+    from program.media.state import States
 
     session = session if session else db.Session()
 
@@ -543,91 +454,6 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
     return calendar
 
 
-def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
-    """
-    Run a worker function `fn` against an existing or soon-to-exist MediaItem.
-    Supports both:
-      - event.item_id path: load + process item, update parent state if needed
-      - event.content_item path: index new item (idempotent via item_exists_by_any_id)
-      - generator path (no event): emit items into the program.em queue
-    """
-    from program.media.item import MediaItem
-
-    if event:
-        with db.Session() as session:
-            if event.item_id:
-                input_item = get_item_by_id(event.item_id, session=session)
-                if input_item:
-                    input_item = session.merge(input_item)
-                    res = next(fn(input_item), None)
-                    if res:
-                        if isinstance(res, tuple):
-                            item, run_at = res
-                            res = (item.id, run_at)
-                        else:
-                            item = res
-                            res = item.id
-
-                        if not isinstance(item, MediaItem):
-                            logger.log(
-                                "PROGRAM",
-                                f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
-                            )
-                            program.em.remove_id_from_queues(input_item.id)
-
-                        if not cancellation_event.is_set():
-                            # Update parent item based on type
-                            if input_item.type == "episode":
-                                input_item.parent.parent.store_state()
-                            elif input_item.type == "season":
-                                input_item.parent.store_state()
-                            else:
-                                input_item.store_state()
-                            session.commit()
-                        return res
-
-            if event.content_item:
-                indexed_item = next(fn(event.content_item), None)
-                if indexed_item is None:
-                    msg = (
-                        event.content_item.log_string
-                        if getattr(event.content_item, "log_string", None) is not None
-                        else event.content_item.imdb_id
-                    )
-                    logger.debug(f"Unable to index {msg}")
-                    return None
-
-                # Idempotent insert: skip if any known ID already exists
-                if item_exists_by_any_id(
-                    indexed_item.id, indexed_item.tvdb_id, indexed_item.tmdb_id, indexed_item.imdb_id, session
-                ):
-                    logger.debug(f"Item with ID {indexed_item.id} already exists, skipping save")
-                    return indexed_item.id
-
-                indexed_item.store_state()
-                session.add(indexed_item)
-                item_id = indexed_item.id
-                if not cancellation_event.is_set():
-                    try:
-                        session.commit()
-                    except IntegrityError as e:
-                        if "duplicate key value violates unique constraint" in str(e):
-                            logger.debug(f"Item with ID {item_id} was added by another process, skipping")
-                            session.rollback()
-                            return item_id
-                        raise
-                return item_id
-    else:
-        # Content services dont pass events
-        for i in fn():
-            if isinstance(i, MediaItem):
-                i = [i]
-            if isinstance(i, list):
-                for item in i:
-                    if isinstance(item, MediaItem):
-                        program.em.add_item(item, service)
-    return None
-
 def _purge_orphan_streams_tx(session: Session) -> int:
     """
     Delete Stream rows that have no parent references in either association table.
@@ -636,6 +462,8 @@ def _purge_orphan_streams_tx(session: Session) -> int:
     Returns:
         int: number of Stream rows deleted.
     """
+    from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
+
     # Streams with zero links in BOTH association tables
     orphan_ids_subq = (
         select(Stream.id)
@@ -658,7 +486,7 @@ def _purge_orphan_streams_tx(session: Session) -> int:
 
 def hard_reset_database() -> None:
     """Resets the database to a fresh state while maintaining migration capability."""
-    logger.log("DATABASE", "Starting Hard Reset of Database")
+    logger.info("Starting Hard Reset of Database")
 
     # Store current alembic version before reset
     current_version = None
@@ -667,16 +495,16 @@ def hard_reset_database() -> None:
             result = connection.execute(text("SELECT version_num FROM alembic_version"))
             current_version = result.scalar()
     except Exception:
-        pass
+        logger.error("Could not retrieve current alembic version - database may not exist yet")
 
     with db.engine.connect() as connection:
         # Ensure we're in AUTOCOMMIT mode for PostgreSQL schema operations
-        connection = connection.execution_options(isolation_level="AUTOCOMMIT")
+        autocommit_conn = connection.execution_options(isolation_level="AUTOCOMMIT")
 
         try:
             # Terminate existing connections for PostgreSQL
             if db.engine.name == "postgresql":
-                connection.execute(
+                autocommit_conn.execute(
                     text(
                         """
                         SELECT pg_terminate_backend(pid)
@@ -688,72 +516,72 @@ def hard_reset_database() -> None:
                 )
 
                 # Drop and recreate schema
-                connection.execute(text("DROP SCHEMA public CASCADE"))
-                connection.execute(text("CREATE SCHEMA public"))
-                connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
-                logger.log("DATABASE", "Schema reset complete")
+                autocommit_conn.execute(text("DROP SCHEMA public CASCADE"))
+                autocommit_conn.execute(text("CREATE SCHEMA public"))
+                autocommit_conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+                logger.info("Schema reset complete")
 
             # For SQLite, drop all tables
             elif db.engine.name == "sqlite":
-                connection.execute(text("PRAGMA foreign_keys = OFF"))
+                autocommit_conn.execute(text("PRAGMA foreign_keys = OFF"))
 
-                tables = connection.execute(
+                tables = autocommit_conn.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table'")
                 ).scalars().all()
 
                 for table in tables:
-                    connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+                    autocommit_conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
-                connection.execute(text("PRAGMA foreign_keys = ON"))
-                logger.log("DATABASE", "All tables dropped")
+                autocommit_conn.execute(text("PRAGMA foreign_keys = ON"))
+                logger.info("All tables dropped")
 
             # Recreate all tables
-            db.Model.metadata.create_all(connection)
-            logger.log("DATABASE", "All tables recreated")
+            db.Model.metadata.create_all(autocommit_conn)
+            logger.info("All tables recreated")
 
             # If we had a previous version, restore it
             if current_version:
-                connection.execute(
+                autocommit_conn.execute(
                     text(
                         "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"
                     )
                 )
-                connection.execute(
+                autocommit_conn.execute(
                     text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
                     {"version": current_version},
                 )
-                logger.log("DATABASE", f"Restored alembic version to: {current_version}")
+                logger.info(f"Restored alembic version to: {current_version}")
             else:
                 # Stamp with head version if no previous version
                 alembic.stamp("head")
-                logger.log("DATABASE", "Database stamped with head revision")
+                logger.info("Database stamped with head revision")
 
         except Exception as e:
             logger.error(f"Error during database reset: {str(e)}")
             raise
 
-    logger.log("DATABASE", "Hard Reset Complete")
+    logger.info("Hard Reset Complete")
 
     # Verify database state
     try:
         with db.engine.connect() as connection:
             inspector = inspect(db.engine)
             all_tables = inspector.get_table_names()
-            logger.log("DATABASE", f"Verified tables: {', '.join(all_tables)}")
+            logger.info(f"Verified tables: {', '.join(all_tables)}")
 
             result = connection.execute(text("SELECT version_num FROM alembic_version"))
             version = result.scalar()
-            logger.log("DATABASE", f"Verified alembic version: {version}")
+            logger.info(f"Verified alembic version: {version}")
 
     except Exception as e:
         logger.error(f"Error verifying database state: {str(e)}")
         raise
 
 
-if os.getenv("HARD_RESET", None) is not None and os.getenv("HARD_RESET", "").lower() in ["true", "1"]:
+if os.getenv("RIVEN_HARD_RESET", None) is not None and os.getenv("RIVEN_HARD_RESET", "").lower() in ["true", "1"]:
     hard_reset_database()
     raise SystemExit(0)
 
-if os.getenv("REPAIR_SYMLINKS", None) is not None and os.getenv("REPAIR_SYMLINKS").lower() in ["true", "1"]:
+if os.getenv("RIVEN_REPAIR_SYMLINKS", None) is not None and os.getenv("RIVEN_REPAIR_SYMLINKS").lower() in ["true", "1"]:
     fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
     raise SystemExit(0)

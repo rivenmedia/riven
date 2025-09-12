@@ -1,6 +1,6 @@
 """Emby Updater module"""
 from types import SimpleNamespace
-from typing import Generator, Optional, Type
+from typing import Generator
 
 from loguru import logger
 

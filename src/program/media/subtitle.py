@@ -26,8 +26,10 @@ class Subtitle(db.Model):
         Index("ix_subtitle_parent_id", "parent_id"),
     )
 
-    def __init__(self, optional={}):
-        for key in optional.keys():
+    def __init__(self, optional=None):
+        if optional is None:
+            optional = {}
+        for key in optional:
             self.language = key
             self.file = optional[key]
 

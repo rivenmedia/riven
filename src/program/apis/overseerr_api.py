@@ -3,7 +3,6 @@
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
@@ -33,8 +32,7 @@ class OverseerrAPI:
     def validate(self):
         """Validate API connection"""
         try:
-            response = self.session.get("api/v1/auth/me", timeout=15)
-            return response
+            return self.session.get("api/v1/auth/me", timeout=15)
         except Exception as e:
             logger.error(f"Overseerr validation failed: {e}")
             return None
@@ -47,7 +45,7 @@ class OverseerrAPI:
                 if not response.ok:
                     logger.error(f"Failed to get response from overseerr: {response.data}")
                 elif not hasattr(response.data, "pageInfo") or getattr(response.data.pageInfo, "results", 0) == 0:
-                    logger.debug(f"No user approved requests found from overseerr")
+                    logger.debug("No user approved requests found from overseerr")
                 return []
         except Exception as e:
             logger.error(f"Failed to get response from overseerr: {str(e)}")
@@ -82,7 +80,6 @@ class OverseerrAPI:
 
     def delete_request(self, mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
-        settings = settings_manager.settings.content.overseerr
         try:
             response = self.session.delete(f"api/v1/request/{mediaId}")
             logger.debug(f"Deleted request {mediaId} from overseerr")

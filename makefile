@@ -37,7 +37,7 @@ start: stop
 
 start-dev: stop-dev
 	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose-dev.yml logs -f
+	@docker compose -f docker-compose-dev.yml logs riven-dev --no-log-prefix -f
 
 stop:
 	@docker compose -f docker-compose.yml down
@@ -116,13 +116,12 @@ update:
 diff:
 	@git diff HEAD~1 HEAD
 
+diff-changes:
+	@git diff --shortstat
+
 # Run the application
 run:
 	@poetry run python src/main.py
-
-# Code quality commands
-format:
-	@poetry run isort src
 
 check:
 	@poetry run pyright

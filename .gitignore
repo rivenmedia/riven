@@ -19,6 +19,9 @@ bin/
 event.json
 *.patch
 config
+.cursor/
+CLAUDE.md
+docs/
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

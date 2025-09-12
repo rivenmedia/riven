@@ -6,9 +6,9 @@ from loguru import logger
 from requests import HTTPError
 
 from program.apis.plex_api import PlexAPI
+from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.db.db_functions import item_exists_by_any_id
 
 
 class PlexWatchlist:

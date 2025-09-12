@@ -1,10 +1,13 @@
 #!/bin/sh
 
+# Unified entrypoint that runs both Riven and workers with consolidated logging
+
 # Default PUID and PGID to 1000 if not set
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
-echo "Starting Container with $PUID:$PGID permissions..."
+echo "🚀 Starting Riven with unified logging..."
+echo "Container permissions: $PUID:$PGID"
 
 if [ "$PUID" = "0" ]; then
     echo "Running as root user"
@@ -72,20 +75,78 @@ export HOME="$USER_HOME"
 # Ensure poetry is in the PATH
 export PATH="$PATH:/app/.venv/bin"
 
-echo "Container Initialization complete."
+echo "✅ Container initialization complete."
 
-echo "Starting Riven (Backend)..."
-if [ "$PUID" = "0" ]; then
-    if [ "${DEBUG}" != "" ]; then  # check if DEBUG is set to a truthy value
-        cd /riven/src && poetry add debugpy && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py
+# Function to run command as appropriate user
+run_as_user() {
+    if [ "$PUID" = "0" ]; then
+        "$@"
     else
-        cd /riven/src && poetry run python3 main.py
+        su -m "$USERNAME" -c "$*"
     fi
-else
-    if [ "${DEBUG}" != "" ]; then  # check if DEBUG is set to a truthy value
-        poetry add debugpy 
-        exec su -m $USERNAME -c "cd /riven/src && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py"
-    else
-        su -m "$USERNAME" -c "cd /riven/src && poetry run python3 main.py"
-    fi
+}
+
+# Function to handle shutdown gracefully
+cleanup() {
+    echo "🛑 Shutting down Riven and workers..."
+    kill $WORKER_PID $MAIN_PID 2>/dev/null
+    wait $WORKER_PID $MAIN_PID 2>/dev/null
+    echo "✅ Shutdown complete"
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGTERM SIGINT
+
+echo "🔧 Starting Dramatiq workers..."
+# Start workers in background with logging prefix
+(
+    while IFS= read -r line; do
+        echo "[WORKER] $line"
+    done < <(run_as_user "/riven/start_workers.sh" 2>&1)
+) &
+WORKER_PID=$!
+
+# Give workers a moment to start
+sleep 2
+
+# Optionally block until workers are ready (consumers attached)
+if [ "${WAIT_FOR_WORKERS:-0}" = "1" ]; then
+  echo "🔎 Waiting for workers to become ready before starting main..."
+  run_as_user "cd /riven/src && poetry run python - <<'PY'
+from program.queue.health import health_checker
+from program.queue.models import QUEUE_NAMES
+import os
+
+queues = list(QUEUE_NAMES.values())
+min_c = int(os.getenv('RIVEN_MIN_CONSUMERS','1'))
+ tout = int(os.getenv('RIVEN_WORKER_READY_TIMEOUT','60'))
+print(f'Waiting for workers: queues={queues}, min_consumers={min_c}, timeout={tout}s')
+ready = health_checker.wait_for_workers_ready(queues, min_consumers=min_c, timeout_seconds=tout)
+print('Workers ready' if ready else 'Workers NOT ready (continuing)')
+PY" 2>&1 | sed 's/^/[READY]/'
 fi
+
+echo "🚀 Starting Riven main application..."
+# Start main application with logging prefix
+(
+    while IFS= read -r line; do
+        echo "[MAIN] $line"
+    done < <(
+        if [ "${DEBUG}" != "" ]; then
+            run_as_user "cd /riven/src && poetry add debugpy && poetry run python3 -m debugpy --listen 0.0.0.0:5678 main.py" 2>&1
+        else
+            run_as_user "cd /riven/src && poetry run python3 main.py" 2>&1
+        fi
+    )
+) &
+MAIN_PID=$!
+
+echo "✅ Both processes started. Waiting for completion..."
+echo "======================================================="
+
+# Wait for either process to exit
+wait $WORKER_PID $MAIN_PID
+
+# If we get here, one process exited, so clean up
+cleanup

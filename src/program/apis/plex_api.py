@@ -1,12 +1,12 @@
 ﻿from typing import Dict, List, Optional, Union
 
+import regex
 from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
-import regex
 
-from program.media import Movie, Episode
+from program.media import Episode, Movie
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 

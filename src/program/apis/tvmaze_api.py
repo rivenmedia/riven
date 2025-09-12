@@ -1,4 +1,3 @@
-import os
 
 from program.settings.models import TraktModel
 from program.utils.request import SmartSession

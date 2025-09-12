@@ -1,9 +1,12 @@
-from fastapi import WebSocket, WebSocketDisconnect, APIRouter
+import json
 import logging
 from datetime import datetime
-from program.managers.websocket_manager import manager
-import json
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
+
+from program.managers.websocket_manager import manager
+
 
 class WebSocketLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):

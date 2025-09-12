@@ -47,5 +47,5 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error(f"Failed to create new item: TMDB ID {req.media.tmdbId}, TVDB ID {req.media.tvdbId}")
         return {"success": False, "message": "Failed to create new item"}
 
-    request.app.program.em.add_item(new_item, service="Overseerr")
+    request.app.program.qm.submit_item(new_item, "Overseerr")
     return {"success": True}

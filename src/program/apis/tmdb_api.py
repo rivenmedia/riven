@@ -2,7 +2,6 @@
 
 from program.utils.request import SmartSession
 
-
 TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"  # noqa: S105
 
 
@@ -71,11 +70,65 @@ class TMDBApi:
     
     def get_from_external_id(self, external_source: str, external_id: str):
         """Get TMDB item from external ID"""
-        return self.session.get(f"find/{external_id}?external_source={external_source}")
+        # Lazy import to avoid circular dependency
+        from program.services.indexers.cache import tmdb_cache
+
+        # Check cache first
+        cache_params = {"external_id": external_id, "external_source": external_source}
+        cached_data = tmdb_cache.get("tmdb", "get_from_external_id", cache_params)
+
+        if cached_data:
+            return type('Response', (), {'data': cached_data, 'ok': True})()
+
+        # Cache miss - make API call
+        response = self.session.get(f"find/{external_id}?external_source={external_source}")
+
+        # Cache the result if successful
+        if response.ok:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            if payload:
+                tmdb_cache.set("tmdb", "get_from_external_id", cache_params, payload, "movie")
+
+        return response
     
     def get_movie_details(self, movie_id: str, params: str = ""):
         """Get movie details"""
-        return self.session.get(f"movie/{movie_id}?{params}")
+        # Lazy import to avoid circular dependency
+        from program.services.indexers.cache import tmdb_cache
+
+        # Check cache first
+        cache_params = {"movie_id": movie_id, "params": params}
+        cached_data = tmdb_cache.get("tmdb", "get_movie_details", cache_params)
+
+        if cached_data:
+            return type('Response', (), {'data': cached_data, 'ok': True})()
+
+        # Cache miss - make API call
+        response = self.session.get(f"movie/{movie_id}?{params}")
+
+        # Cache the result if successful
+        if response.ok:
+            # Extract movie year and status for smarter caching (from parsed SimpleNamespace)
+            movie_year = None
+            movie_status = getattr(response.data, "status", None)
+            if hasattr(response.data, "release_date") and response.data.release_date:
+                try:
+                    movie_year = int(response.data.release_date[:4])
+                except (ValueError, AttributeError):
+                    pass
+
+            # Store raw JSON in cache; converter will restore SimpleNamespace on read
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            if payload:
+                tmdb_cache.set("tmdb", "get_movie_details", cache_params, payload, "movie", movie_year, movie_status)
+
+        return response
     
     def get_tv_details(self, series_id: str, params: str = ""):
         """Get TV series details"""

@@ -2,13 +2,14 @@ from kink import di
 
 from program.settings.manager import settings_manager
 
-from .listrr_api import ListrrAPI, ListrrAPIError
-from .mdblist_api import MdblistAPI, MdblistAPIError
-from .overseerr_api import OverseerrAPI, OverseerrAPIError
-from .plex_api import PlexAPI, PlexAPIError
-from .trakt_api import TraktAPI, TraktAPIError
-from .tmdb_api import TMDBApi, TMDBApiError
-from .tvdb_api import TVDBApi, TVDBApiError
+from .listrr_api import ListrrAPI
+from .mdblist_api import MdblistAPI
+from .overseerr_api import OverseerrAPI
+from .plex_api import PlexAPI
+from .tmdb_api import TMDBApi
+from .trakt_api import TraktAPI
+from .tvdb_api import TVDBApi
+
 
 def bootstrap_apis():
     __setup_plex()

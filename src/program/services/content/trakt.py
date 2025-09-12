@@ -7,9 +7,9 @@ from loguru import logger
 from requests import RequestException
 
 from program.apis.trakt_api import TraktAPI
+from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.db.db_functions import item_exists_by_any_id
 
 
 class TraktContent:
@@ -108,7 +108,6 @@ class TraktContent:
             _ids.extend(self._extract_ids(items))
         return _ids
 
-
     def _get_list(self, list_items: list) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt user list"""
         if not list_items or not any(list_items):
@@ -166,18 +165,18 @@ class TraktContent:
                     tmdb_id = getattr(ids, "tmdb", None)
                     if tmdb_id:
                         _ids.append((tmdb_id, "movie"))
+            # namespace doesnt have type, so we need to infer it from the ids
+            elif hasattr(item, "ids"):
+                ids = getattr(item, "ids", None)
+                if ids:
+                    tvdb_id = getattr(ids, "tvdb", None)
+                    tmdb_id = getattr(ids, "tmdb", None)
+
+                    if tvdb_id and not tmdb_id:
+                        _ids.append((tvdb_id, "show"))
+                    elif tmdb_id and not tvdb_id:
+                        _ids.append((tmdb_id, "movie"))
             else:
-                # namespace doesnt have type, so we need to infer it from the ids
-                if hasattr(item, "ids"):
-                    ids = getattr(item, "ids", None)
-                    if ids:
-                        tvdb_id = getattr(ids, "tvdb", None)
-                        if tvdb_id:
-                            _ids.append((tvdb_id, "show"))
-                        tmdb_id = getattr(ids, "tmdb", None)
-                        if tmdb_id:
-                            _ids.append((tmdb_id, "movie"))
-                else:
-                    logger.error(f"Unknown item type: {item}")
-                    continue
+                logger.error(f"Unknown item type: {item}")
+                continue
         return _ids

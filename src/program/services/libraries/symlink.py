@@ -118,13 +118,13 @@ def process_items(directory: Path, item_class, item_type: str, is_anime: bool = 
             item = item_class({
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tmdb_id": tmdb_id.group().replace('tmdb-', '') if tmdb_id else None,
+                "tmdb_id": tmdb_id.group().replace("tmdb-", "") if tmdb_id else None,
             })
         else:
             item = item_class({
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+                "tvdb_id": tvdb_id.group().replace("tvdb-", "") if tvdb_id else None,
             })
 
 
@@ -172,7 +172,7 @@ def process_shows(directory: Path, item_type: str, is_anime: bool = False) -> Ge
             {
                 "title": title.group(1),
                 "imdb_id": imdb_id.group() if imdb_id else None,
-                "tvdb_id": tvdb_id.group().replace('tvdb-', '') if tvdb_id else None,
+                "tvdb_id": tvdb_id.group().replace("tvdb-", "") if tvdb_id else None,
             }
         )
         if is_anime:
@@ -249,7 +249,7 @@ def find_broken_symlinks(directory: str) -> list[tuple[str, str]]:
                     broken_symlinks.append((full_path, target))
     return broken_symlinks
 
-def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_directory: Optional[str] = None):
+def fix_broken_symlinks(library_path, rclone_path, _max_workers=4, specific_directory: Optional[str] = None):
     """Find and fix all broken symlinks in the library path using files from the rclone path."""
     missing_files = 0
 
@@ -280,13 +280,13 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
                 os.symlink(correct_path, symlink_path)
                 try:
                     for item in items:
-                        item = session.merge(item)
-                        item.file = filename
-                        item.folder = dirname
-                        item.symlinked = True
-                        item.symlink_path = correct_path
-                        item.update_folder = correct_path
-                        item.store_state()
+                        merged_item = session.merge(item)
+                        merged_item.file = filename
+                        merged_item.folder = dirname
+                        merged_item.symlinked = True
+                        merged_item.symlink_path = correct_path
+                        merged_item.update_folder = correct_path
+                        merged_item.store_state()
                         session.merge(item)
                         session.commit()
                         logger.log("FILES", f"Retargeted broken symlink for {item.log_string} with correct path: {correct_path}")
@@ -296,10 +296,10 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
             else:
                 os.remove(symlink_path)
                 for item in items:
-                    item = session.merge(item)
-                    item.reset()
-                    item.store_state()
-                    session.merge(item)
+                    merged_item = session.merge(item)
+                    merged_item.reset()
+                    merged_item.store_state()
+                    session.merge(merged_item)
                     session.commit()
                 missing_files += 1
                 logger.log("FILES", f"Resetting {item.log_string} due to missing file in rclone_path: {filename}")
@@ -356,7 +356,10 @@ def fix_broken_symlinks(library_path, rclone_path, max_workers=4, specific_direc
 
 def get_items_from_filepath(session: Session, filepath: str) -> list["MediaItem"]:
     """Get an item by its filepath."""
-    from program.db.db_functions import get_item_by_imdb_and_episode, get_item_by_symlink_path
+    from program.db.db_functions import (
+        get_item_by_imdb_and_episode,
+        get_item_by_symlink_path,
+    )
 
     tvdb_id_match = tvdbid_pattern.search(filepath)
     tmdb_id_match = tmdbid_pattern.search(filepath)

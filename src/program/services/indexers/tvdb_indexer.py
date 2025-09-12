@@ -1,15 +1,16 @@
 """TVDB indexer module"""
 
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Generator, List, Optional
 
+import regex
 from kink import di
 from loguru import logger
-import regex
 
-from program.media.item import MediaItem, Show, Season, Episode
-from program.services.indexers.base import BaseIndexer
 from program.apis.tvdb_api import TVDBApi
+from program.media.item import Episode, MediaItem, Season, Show
+from program.services.indexers.base import BaseIndexer
 
 
 class TVDBIndexer(BaseIndexer):
@@ -55,26 +56,42 @@ class TVDBIndexer(BaseIndexer):
             # Direct lookup by TVDB ID
             if tvdb_id:
                 show_details = self.api.get_series(tvdb_id)
+                
                 if show_details:
+                    # Extract status for season processing
+                    show_status = getattr(show_details, "status", None)
+                    if hasattr(show_status, "name"):
+                        show_status = show_status.name
+
                     show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
                     if show_item:
-                        self._add_seasons_to_show(show_item, show_details, tvdb_id)
+                        self._add_seasons_to_show(show_item, show_details, tvdb_id, show_status)
                         return show_item
 
             # Lookup via IMDB ID
             elif imdb_id:
                 search_results = self.api.search_by_imdb_id(imdb_id)
-                if search_results and search_results.data:
-                    if hasattr(search_results.data[0], "movie"):
+                search_results_data = search_results.data if search_results and search_results.data else None
+                
+                if search_results_data:
+                    if hasattr(search_results_data[0], "movie"):
                         logger.info(f"IMDB ID {imdb_id} is a movie, not a show, skipping")
                         return None
-                    elif hasattr(search_results.data[0], "series"):
-                        tvdb_id = str(search_results.data[0].series.id)
+                    elif hasattr(search_results_data[0], "series"):
+                        tvdb_id = str(search_results_data[0].series.id)
+
+                        # Get series details
                         show_details = self.api.get_series(tvdb_id)
+
                         if show_details:
+                            # Extract status for season processing
+                            show_status = getattr(show_details, "status", None)
+                            if hasattr(show_status, "name"):
+                                show_status = show_status.name
+
                             show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
                             if show_item:
-                                self._add_seasons_to_show(show_item, show_details, tvdb_id)
+                                self._add_seasons_to_show(show_item, show_details, tvdb_id, show_status)
                                 return show_item
                     else:
                         logger.log("NOT_FOUND", f"IMDB ID {imdb_id} is not a show, skipping")
@@ -89,7 +106,7 @@ class TVDBIndexer(BaseIndexer):
         """Map TVDB show data to our Show object."""
         try:
             if not imdb_id:
-                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == 'IMDB'), None)
+                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == "IMDB"), None)
 
             aired_at = None
             if first_aired := show_data.firstAired:
@@ -106,36 +123,59 @@ class TVDBIndexer(BaseIndexer):
 
             if show_data.aliases:
                 aliases = self.api.get_aliases(show_data)
-
             else:
-                aliases = {}
-            slug = (show_data.slug or '').replace('-', ' ').title()
-            aliases.setdefault('eng', []).append(slug.title())
+                aliases = SimpleNamespace()
+            slug = (show_data.slug or "").replace("-", " ").title()
+
+            # Handle aliases as SimpleNamespace
+            if not hasattr(aliases, "eng"):
+                aliases.eng = []
+            aliases.eng.append(slug.title())
 
             title = show_data.name
-            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != 'eng':
-                if (translation := self.api.get_translation(show_data.id, "eng")):
-                    if translation and hasattr(translation, "data") and translation.data.name:
-                        title = translation.data.name
-                        if hasattr(translation.data, "aliases") and translation.data.aliases:
-                            additional_aliases = translation.data.aliases
-                            aliases["eng"].extend([alias for alias in additional_aliases])
+            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != "eng":
+                translation_result = self.api.get_translation(show_data.id, "eng")
+                translation_data = translation_result.data if translation_result else None
+                
+                if translation_data and hasattr(translation_data, "name") and translation_data.name:
+                    title = translation_data.name
+                    if hasattr(translation_data, "aliases") and translation_data.aliases:
+                        additional_aliases = translation_data.aliases
+                        if hasattr(aliases, "eng") and hasattr(additional_aliases, "eng"):
+                            aliases.eng.extend([alias for alias in additional_aliases.eng])
 
             if aliases:
-                # get rid of duplicate values
-                aliases = {k: list(set(v)) for k, v in aliases.items()}
+                # get rid of duplicate values - convert to dict, dedupe, convert back
+                aliases_dict = {}
+                for attr in dir(aliases):
+                    if not attr.startswith('_') and hasattr(aliases, attr):
+                        value = getattr(aliases, attr)
+                        if isinstance(value, list):
+                            aliases_dict[attr] = list(set(value))
+                aliases = SimpleNamespace(**aliases_dict)
 
-            genres_lower = [
-                (g.name or '').lower() for g in (show_data.genres or []) if hasattr(g, 'name')
-            ]
-            is_anime = ('anime' in genres_lower) or ('animation' in genres_lower and show_data.originalLanguage != 'eng')
+            genres_lower = []
+            for g in (show_data.genres or []):
+                if hasattr(g, "name"):
+                    genre_name = getattr(g, "name", "")
+                    if genre_name:
+                        genre_str = str(genre_name) if not isinstance(genre_name, str) else genre_name
+                        genres_lower.append(genre_str.lower())
+            is_anime = ("anime" in genres_lower) or ("animation" in genres_lower and show_data.originalLanguage != "eng")
 
             # last minute title cleanup to remove '(year)' and '(country code)'
-            title = regex.sub(r'\s*\(.*\)\s*$', '', title)
+            title = regex.sub(r"\s*\(.*\)\s*$", "", title)
+
+            # Convert aliases SimpleNamespace back to dict for database serialization
+            aliases_dict = {}
+            if aliases:
+                for attr in dir(aliases):
+                    if not attr.startswith('_') and hasattr(aliases, attr):
+                        aliases_dict[attr] = getattr(aliases, attr)
 
             show_item = {
                 "title": title,
-                "year": int(show_data.firstAired.split('-')[0]) if show_data.firstAired else None,
+                "year": int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None,
                 "tvdb_id": str(show_data.id),
                 "tmdb_id": None,
                 "imdb_id": imdb_id,
@@ -148,7 +188,7 @@ class TVDBIndexer(BaseIndexer):
                 "country": show_data.originalCountry,
                 "language": show_data.originalLanguage,
                 "is_anime": is_anime,
-                "aliases": aliases,
+                "aliases": aliases_dict,
             }
 
             return Show(show_item)
@@ -157,13 +197,16 @@ class TVDBIndexer(BaseIndexer):
 
         return None
 
-    def _add_seasons_to_show(self, show: Show, show_details, tvdb_id: str):
+    def _add_seasons_to_show(self, show: Show, show_details, _tvdb_id: str, show_status: Optional[str] = None):
         """Add seasons and episodes to the given show using TVDB API."""
         try:
             seasons = show_details.seasons
-            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == 'official']
+            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == "official"]
             for season_data in filtered_seasons:
-                if (extended_data := self.api.get_season(season_data.id).data):
+                season_result = self.api.get_season(season_data.id)
+                extended_data = season_result.data if season_result else None
+                
+                if extended_data:
                     if (season_item := self._create_season_from_data(extended_data, show)):
                         if (episodes := extended_data.episodes) and isinstance(episodes, list):
                             for episode in episodes:
@@ -193,7 +236,7 @@ class TVDBIndexer(BaseIndexer):
                 pass
 
             year = None
-            if hasattr(season_data, 'year') and season_data.year:
+            if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
 
             season_item = {
@@ -229,7 +272,7 @@ class TVDBIndexer(BaseIndexer):
                     pass
 
             year = None
-            if hasattr(episode_data, 'year') and episode_data.year:
+            if hasattr(episode_data, "year") and episode_data.year:
                 year = int(episode_data.year)
 
             episode_item = {

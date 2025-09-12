@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -8,15 +9,15 @@ from program.media.state import States
 from program.media.stream import Stream
 from program.services.downloaders.models import (
     DebridFile,
-    InvalidDebridFileException,
     DownloadedTorrent,
+    InvalidDebridFileException,
     NoMatchingFilesException,
     NotCachedException,
     ParsedFileData,
     TorrentContainer,
     TorrentInfo,
 )
-from program.services.downloaders.shared import parse_filename, _sort_streams_by_quality
+from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
 from .alldebrid import AllDebridDownloader
@@ -35,21 +36,17 @@ class Downloader:
         }
         self.service = next((service for service in self.services.values() if service.initialized), None)
         self.initialized = self.validate()
-        # Track circuit breaker retry attempts per item
         self._circuit_breaker_retries = {}
-        # Track service-level cooldown when circuit breaker is open
         self._service_cooldown_until = None
 
     def validate(self):
         if self.service is None:
-            logger.error(
-                "No downloader service is initialized. Please initialize a downloader service."
-            )
+            logger.error("No downloader service is initialized. Please initialize a downloader service.")
             return False
         return True
 
-
     def run(self, item: MediaItem):
+        """Run the downloader service with a given item"""
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if service is in cooldown due to circuit breaker
@@ -57,7 +54,6 @@ class Downloader:
             next_attempt = self._service_cooldown_until
             logger.warning(f"Downloader service in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
             yield (item, next_attempt)
-            return
 
         if item.file or item.active_stream or item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
             logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
@@ -90,7 +86,7 @@ class Downloader:
                         raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
                 except Exception as e:
                     logger.debug(f"Stream {stream.infohash} failed: {e}")
-                    if 'download_result' in locals() and download_result.id:
+                    if "download_result" in locals() and download_result.id:
                         try:
                             self.service.delete_torrent(download_result.id)
                             logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
@@ -185,10 +181,10 @@ class Downloader:
                 if not file_data.episodes:
                     logger.debug(f"Skipping '{file.filename}' as it has no episodes")
                     continue
-                elif 0 in file_data.episodes and len(file_data.episodes) == 1:
+                if 0 in file_data.episodes and len(file_data.episodes) == 1:
                     logger.debug(f"Skipping '{file.filename}' as it has an episode number of 0")
                     continue
-                elif file_data.season == 0:
+                if file_data.season == 0:
                     logger.debug(f"Skipping '{file.filename}' as it has a season number of 0")
                     continue
             if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap):
@@ -255,20 +251,35 @@ class Downloader:
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """Check if the torrent is cached"""
+        if self.service is None:
+            logger.error("No downloader service is available. Cannot check instant availability.")
+            return []
         return self.service.get_instant_availability(infohash, item_type)
 
     def add_torrent(self, infohash: str) -> int:
         """Add a torrent by infohash"""
+        if self.service is None:
+            logger.error("No downloader service is available. Cannot add torrent.")
+            raise RuntimeError("No downloader service is available")
         return self.service.add_torrent(infohash)
 
     def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
         """Get information about a torrent"""
+        if self.service is None:
+            logger.error("No downloader service is available. Cannot get torrent info.")
+            raise RuntimeError("No downloader service is available")
         return self.service.get_torrent_info(torrent_id)
 
     def select_files(self, torrent_id: int, container: list[str]) -> None:
         """Select files from a torrent"""
+        if self.service is None:
+            logger.error("No downloader service is available. Cannot select files.")
+            raise RuntimeError("No downloader service is available")
         self.service.select_files(torrent_id, container)
 
     def delete_torrent(self, torrent_id: int) -> None:
         """Delete a torrent"""
+        if self.service is None:
+            logger.error("No downloader service is available. Cannot delete torrent.")
+            raise RuntimeError("No downloader service is available")
         self.service.delete_torrent(torrent_id)

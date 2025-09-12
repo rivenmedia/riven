@@ -4,9 +4,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import (
-    _get_stremio_identifier,
-)
+from program.services.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
 from program.settings.models import TorrentioConfig
 from program.utils.request import SmartSession
@@ -81,7 +79,7 @@ class Torrentio:
             url += identifier
 
         response = self.session.get(f"{url}.json", timeout=self.timeout, headers=self.headers, proxies=self.proxies)
-        if not response.ok or not hasattr(response.data, 'streams') or not response.data.streams:
+        if not response.ok or not hasattr(response.data, "streams") or not response.data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 

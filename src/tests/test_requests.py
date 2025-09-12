@@ -1,8 +1,8 @@
 ﻿import json
-import pytest
-import requests
 
-from program.utils.request import SmartSession, SmartResponse, TokenBucket, CircuitBreaker
+import pytest
+
+from program.utils.request import CircuitBreaker, SmartResponse, SmartSession
 
 
 class FakeClock:

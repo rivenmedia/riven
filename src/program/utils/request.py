@@ -1,16 +1,16 @@
-import time
 import json
-from loguru import logger
-from types import SimpleNamespace
-from typing import Optional, Dict
+import time
 from collections import deque
+from email.utils import parsedate_to_datetime
+from types import SimpleNamespace
+from typing import Dict, Optional
 from urllib.parse import urlparse
 
 import requests
+from loguru import logger
+from lxml import etree
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from lxml import etree
-from email.utils import parsedate_to_datetime
 
 
 class TokenBucket:
@@ -187,9 +187,7 @@ class SmartResponse(requests.Response):
                 self._cached_data = json.loads(
                     self.content, object_hook=lambda d: SimpleNamespace(**d)
                 )
-            elif "application/xml" in content_type or "text/xml" in content_type:
-                self._cached_data = self._xml_to_simplenamespace(self.content)
-            elif "application/rss+xml" in content_type or "application/atom+xml" in content_type:
+            elif "application/xml" in content_type or "text/xml" in content_type or "application/rss+xml" in content_type or "application/atom+xml" in content_type:
                 self._cached_data = self._xml_to_simplenamespace(self.content)
             else:
                 self._cached_data = {}

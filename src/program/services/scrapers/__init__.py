@@ -1,19 +1,18 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, Generator, List
 
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.media.stream import Stream
 from program.media.state import States
+from program.media.stream import Stream
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
-from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
@@ -75,15 +74,14 @@ class Scraping:
             else:
                 logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-                item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
+                item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
                 if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
                     item.store_state(States.Failed)
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
+                elif self.max_failed_attempts > 0:
+                    logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
                 else:
-                    if self.max_failed_attempts > 0:
-                        logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
-                    else:
-                        logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
+                    logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)

@@ -52,6 +52,10 @@ RUN pip install poetry==1.8.3
 ENV FORCE_COLOR=1
 ENV TERM=xterm-256color
 
+# Dramatiq worker configuration
+ENV WORKER_PROCESSES=2
+ENV WORKER_THREADS=4
+
 # Set working directory
 WORKDIR /riven
 
@@ -63,9 +67,10 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy the rest of the application code
 COPY src/ /riven/src
 COPY pyproject.toml poetry.lock /riven/
-COPY entrypoint.sh /riven/
+COPY entrypoint.sh start_workers.sh /riven/
 
-# Ensure entrypoint script is executable
-RUN chmod +x /riven/entrypoint.sh
+# Ensure entrypoint scripts are executable
+RUN chmod +x /riven/entrypoint.sh /riven/start_workers.sh
 
+# Original entrypoint (default)
 ENTRYPOINT ["/riven/entrypoint.sh"]

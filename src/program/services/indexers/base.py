@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Generator, Optional, Union
+from typing import Generator, Union
 
 from loguru import logger
 
@@ -52,10 +52,10 @@ class BaseIndexer(ABC):
     @abstractmethod
     def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
         """Run the indexer for the given item. Must be implemented by subclasses."""
-        pass
         
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
+        """Check if the item should be submitted to the indexer."""
         if not item.indexed_at or not item.title:
             return True
 

@@ -46,7 +46,7 @@ class Rarbg:
             logger.error("TheRARBG timeout is not set or invalid.")
             return False
         try:
-            url = f"/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
+            url = "/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
             response = self.session.get(url, timeout=10)
             if response.ok:
                 return True
@@ -77,10 +77,10 @@ class Rarbg:
         
         while current_url:
             response = self.session.get(current_url, timeout=self.timeout)
-            if not response.ok or not hasattr(response, 'data'):
+            if not response.ok or not hasattr(response, "data"):
                 break
 
-            if hasattr(response.data, 'results') and response.data.results:
+            if hasattr(response.data, "results") and response.data.results:
                 for result in response.data.results:
                     if not result.h:  # h is the infoHash
                         continue
@@ -93,7 +93,7 @@ class Rarbg:
                 break
 
             current_url = None
-            if hasattr(response.data, 'links') and response.data.links and response.data.links.next:
+            if hasattr(response.data, "links") and response.data.links and response.data.links.next:
                 if (next_url := response.data.links.next):
                     current_url = next_url
                     page += 1

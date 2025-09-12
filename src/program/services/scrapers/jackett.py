@@ -1,19 +1,16 @@
 """ Jackett scraper module """
 
-import queue
-import threading
 from types import SimpleNamespace
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional
 
+import regex
 from loguru import logger
 from pydantic import BaseModel
-import regex
 from requests import ReadTimeout
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession, get_hostname_from_url, TokenBucket, CircuitBreaker
-
+from program.utils.request import SmartSession, get_hostname_from_url
 
 INFOHASH_PATTERN = regex.compile(r"[A-Fa-f0-9]{40}")
 
@@ -104,10 +101,10 @@ class Jackett:
         logger.debug(f"Searching for '{query}' in Jackett")
         response = f"/indexers/test:passed/results?apikey={self.api_key}&Query={query}"
         response = self.session.get(response, timeout=self.settings.timeout)
-        if not response.ok or not hasattr(response, 'data'):
+        if not response.ok or not hasattr(response, "data"):
             return torrents
 
-        if hasattr(response.data, 'Results'):
+        if hasattr(response.data, "Results"):
             for result in response.data.Results:
                 infohash = self._get_infohash_from_result(result)
                 if infohash:
@@ -125,9 +122,7 @@ class Jackett:
             return result.InfoHash.lower()
 
         infohash = None
-        if infohash := INFOHASH_PATTERN.search(result.Guid):
-            infohash = infohash.group().lower()
-        elif infohash := INFOHASH_PATTERN.search(result.Details):
+        if (infohash := INFOHASH_PATTERN.search(result.Guid)) or (infohash := INFOHASH_PATTERN.search(result.Details)):
             infohash = infohash.group().lower()
 
         return infohash

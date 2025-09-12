@@ -7,19 +7,22 @@ import traceback
 
 import uvicorn
 from dotenv import load_dotenv
+
 load_dotenv() # import required here to support SETTINGS_FILENAME
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
-from scalar_fastapi import get_scalar_api_reference
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from loguru import logger  # noqa: E402
+from scalar_fastapi import get_scalar_api_reference  # noqa: E402
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+from starlette.requests import Request  # noqa: E402
+from fastapi.responses import PlainTextResponse  # noqa: E402
 
-from program import Program
-from program.settings.models import get_version
-from program.utils.cli import handle_args
-from routers import app_router
+from program.program import Program  # noqa: E402
+from program.settings.models import get_version  # noqa: E402
+from program.utils.cli import handle_args  # noqa: E402
+from routers import app_router  # noqa: E402
+
 
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -59,6 +62,16 @@ async def scalar_html():
 
 app.program = Program()
 app.add_middleware(LoguruMiddleware)
+
+# Prometheus metrics endpoint (unauthenticated)
+from program.metrics.collector import metrics_registry  # noqa: E402
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> PlainTextResponse:
+    try:
+        return PlainTextResponse(metrics_registry.render(), media_type="text/plain; version=0.0.4")
+    except Exception:
+        return PlainTextResponse("", media_type="text/plain; version=0.0.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -89,7 +102,7 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
-def signal_handler(signum, frame):
+def signal_handler(_signum, _frame):
     logger.log("PROGRAM","Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)

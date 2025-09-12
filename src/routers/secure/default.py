@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, select
 
 from program.apis import TraktAPI
+from program.db import db_functions
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
-from program.db import db_functions
 
 from ..models.shared import MessageResponse
 
@@ -89,7 +89,7 @@ class TraktOAuthInitiateResponse(BaseModel):
 
 
 @router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
-async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
+async def initiate_trakt_oauth(_request: Request) -> TraktOAuthInitiateResponse:
     trakt_api = di[TraktAPI]
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
@@ -98,7 +98,7 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
-async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
+async def trakt_oauth_callback(code: str, _request: Request) -> MessageResponse:
     trakt_api = di[TraktAPI]
     trakt_api_key = settings_manager.settings.content.trakt.api_key
     if trakt_api is None:
@@ -204,7 +204,7 @@ class EventResponse(BaseModel):
 async def get_events(
     request: Request,
 ) -> EventResponse:
-    events = request.app.program.em.get_event_updates()
+    events = request.app.program.qm.get_queue_status()
     return EventResponse(events=events)
 
 class MountResponse(BaseModel):
@@ -253,7 +253,7 @@ async def upload_logs() -> UploadLogsResponse:
 
         response = requests.post(
             "https://paste.c-net.org/",
-            data=log_contents.encode('utf-8'),
+            data=log_contents.encode("utf-8"),
             headers={"Content-Type": "text/plain"}
         )
 

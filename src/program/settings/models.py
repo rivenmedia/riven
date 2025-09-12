@@ -1,7 +1,7 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List
 
 from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
@@ -317,6 +317,7 @@ class PostProcessing(Observable):
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
+    lavinmq_url: str = "amqp://guest:guest@localhost:5672/"
     debug: bool = True
     debug_database: bool = False
     log: bool = True

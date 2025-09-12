@@ -75,10 +75,10 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        connection = connection.execution_options(isolation_level="AUTOCOMMIT")
+        conn_with_options = connection.execution_options(isolation_level="AUTOCOMMIT")
         try:
             context.configure(
-                connection=connection,
+                connection=conn_with_options,
                 target_metadata=target_metadata,
                 compare_type=True,  # Compare column types
                 compare_server_default=True,  # Compare default values
