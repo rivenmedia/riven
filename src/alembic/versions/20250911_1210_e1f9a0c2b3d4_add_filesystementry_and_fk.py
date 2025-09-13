@@ -58,7 +58,17 @@ def upgrade() -> None:
     if "ix_filesystem_entry_created_at" not in filesystem_indexes:
         op.create_index("ix_filesystem_entry_created_at", "FilesystemEntry", ["created_at"], unique=False)
 
-    # 2) Add MediaItem columns (only if they don't exist)
+    # 2) Destructive data migration: purge all MediaItems to reset state FIRST
+    # Note: This will remove all user media items and related subtype rows.
+    # This is intentional per migration plan.
+    # Only execute if tables exist and have data
+    tables_to_clear = ["Subtitle", "StreamRelation", "StreamBlacklistRelation", "Episode", "Season", "Show", "Movie", "MediaItem"]
+    for table in tables_to_clear:
+        if table in existing_tables:
+            op.execute(f'DELETE FROM "{table}";')
+
+    # 3) Add MediaItem columns (only if they don't exist)
+    # Now safe to add NOT NULL columns since we've cleared the data
     mediaitem_columns = [col["name"] for col in inspector.get_columns("MediaItem")]
     
     if "filesystem_entry_id" not in mediaitem_columns:
@@ -70,7 +80,7 @@ def upgrade() -> None:
     if "updated" not in mediaitem_columns:
         op.add_column(
             "MediaItem",
-            sa.Column("updated", sa.Boolean(), nullable=False),
+            sa.Column("updated", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         )
     
     # Create foreign key constraint only if it doesn't exist
@@ -84,15 +94,6 @@ def upgrade() -> None:
             ["id"],
             ondelete=None,
         )
-
-    # 3) Destructive data migration: purge all MediaItems to reset state
-    # Note: This will remove all user media items and related subtype rows.
-    # This is intentional per migration plan.
-    # Only execute if tables exist and have data
-    tables_to_clear = ["Subtitle", "StreamRelation", "StreamBlacklistRelation", "Episode", "Season", "Show", "Movie", "MediaItem"]
-    for table in tables_to_clear:
-        if table in existing_tables:
-            op.execute(f'DELETE FROM "{table}";')
 
     # 4) Drop legacy MediaItem columns no longer used
     # Only drop columns that actually exist

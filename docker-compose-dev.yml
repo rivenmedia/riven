@@ -22,26 +22,4 @@ services:
       - apparmor:unconfined
     volumes:
       - ./riven/data:/riven/data
-      - ./mount:/mount:rshared,z
-    depends_on:
-      riven_postgres:
-        condition: service_healthy
-
-  riven_postgres:
-    image: postgres:17-alpine
-    container_name: postgres
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    environment:
-      PGDATA: /var/lib/postgresql/data/pgdata
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: riven
-    volumes:
-      - ./riven_db:/var/lib/postgresql/data/pgdata
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - /mnt:/mnt:rshared,z
