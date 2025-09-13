@@ -106,16 +106,69 @@ class FilesystemModel(Observable):
     enable_exponential_backoff: bool = Field(default=True, description="Use exponential backoff for retries")
     
     # FUSE Mount Options
-    enable_allow_other: bool = Field(default=True, description="Allow other users to access the mount")
-    enable_auto_unmount: bool = Field(default=True, description="Automatically unmount on process exit")
-    fuse_max_background: int = Field(default=12, ge=1, le=64, description="Maximum background FUSE requests")
-    fuse_congestion_threshold: int = Field(default=10, ge=1, le=32, description="FUSE congestion threshold")
+    enable_allow_other: bool = Field(default=False, description="Allow other users to access the mount")
+    enable_auto_unmount: bool = Field(default=True, description="Automatically unmount on exit")
+    fuse_max_background: int = Field(default=12, ge=1, le=256, description="Maximum FUSE background requests")
+    fuse_congestion_threshold: int = Field(default=10, ge=1, le=128, description="FUSE congestion threshold")
     
     # Buffer Management
     enable_adaptive_buffering: bool = Field(default=False, description="Dynamically adjust buffer size based on bitrate")
-    min_buffer_mb: int = Field(default=1, ge=1, le=64, description="Minimum buffer size in MB for adaptive buffering")
-    max_buffer_mb: int = Field(default=128, ge=4, le=512, description="Maximum buffer size in MB for adaptive buffering")
+    min_buffer_mb: int = Field(default=1, ge=1, le=256, description="Minimum buffer size in MB for adaptive buffering")
+    max_buffer_mb: int = Field(default=128, ge=4, le=2048, description="Maximum buffer size in MB for adaptive buffering")
     buffer_prefetch_factor: float = Field(default=1.5, ge=1.0, le=5.0, description="Prefetch multiplier for sequential reads")
+    
+    # Disk Cache (rclone-inspired)
+    enable_disk_cache: bool = Field(default=False, description="Enable persistent disk cache like rclone --vfs-cache-mode full")
+    disk_cache_path: Path = Field(default=Path(".data/vfs-cache"), description="Disk cache directory path")
+    disk_cache_max_size_gb: int = Field(default=50, ge=1, le=1000, description="Maximum disk cache size in GB")
+    disk_cache_max_age_hours: int = Field(default=24, ge=1, le=168, description="Maximum cache age in hours")
+    disk_cache_cleanup_interval_minutes: int = Field(default=60, ge=5, le=1440, description="Cache cleanup interval in minutes")
+    
+    # Dynamic Chunking (rclone-inspired)
+    enable_dynamic_chunking: bool = Field(default=False, description="Enable dynamic chunk sizing like rclone")
+    min_chunk_size_mb: int = Field(default=1, ge=1, le=64, description="Minimum chunk size in MB")
+    max_chunk_size_mb: int = Field(default=256, ge=64, le=2048, description="Maximum chunk size in MB (like --vfs-read-chunk-size-limit)")
+    chunk_size_multiplier: float = Field(default=2.0, ge=1.0, le=10.0, description="Chunk size growth multiplier")
+    
+    # Fast Fingerprinting (rclone-inspired)
+    enable_fast_fingerprint: bool = Field(default=False, description="Enable fast file fingerprinting like rclone --vfs-fast-fingerprint")
+    fingerprint_cache_seconds: int = Field(default=300, ge=30, le=3600, description="File fingerprint cache duration")
+    
+    # Advanced Prefetching
+    enable_predictive_prefetch: bool = Field(default=False, description="Enable predictive prefetching based on access patterns")
+    prefetch_window_seconds: int = Field(default=300, ge=60, le=3600, description="Prefetch window for sequential access")
+    access_pattern_learning: bool = Field(default=False, description="Learn and adapt to access patterns")
+    
+    # Cache Polling (rclone-inspired)
+    cache_poll_interval_seconds: int = Field(default=15, ge=5, le=300, description="Cache refresh interval like rclone --poll-interval")
+    enable_background_cache_refresh: bool = Field(default=False, description="Refresh cache in background")
+    
+    # Extreme Performance Optimizations
+    enable_zero_copy_io: bool = Field(default=False, description="Enable zero-copy I/O operations for maximum throughput")
+    enable_memory_mapped_cache: bool = Field(default=False, description="Use memory-mapped files for cache (faster than disk I/O)")
+    tcp_no_delay: bool = Field(default=True, description="Disable Nagle's algorithm for lower latency")
+    tcp_keep_alive: bool = Field(default=True, description="Enable TCP keep-alive for persistent connections")
+    socket_buffer_size_kb: int = Field(default=1024, ge=64, le=8192, description="TCP socket buffer size in KB")
+    
+    # Aggressive Caching
+    enable_aggressive_readahead: bool = Field(default=False, description="Extremely aggressive readahead beyond normal prefetching")
+    aggressive_readahead_mb: int = Field(default=1024, ge=256, le=4096, description="Aggressive readahead buffer size in MB")
+    enable_speculative_prefetch: bool = Field(default=False, description="Speculatively prefetch likely-to-be-accessed data")
+    
+    # Low-Level Optimizations
+    enable_io_uring: bool = Field(default=False, description="Use io_uring for async I/O (Linux only, experimental)")
+    enable_direct_io: bool = Field(default=False, description="Bypass OS page cache for direct I/O")
+    thread_pool_size: int = Field(default=16, ge=4, le=64, description="Thread pool size for parallel operations")
+    
+    # Network Optimizations
+    enable_tcp_fast_open: bool = Field(default=False, description="Enable TCP Fast Open for reduced latency")
+    enable_http3_quic: bool = Field(default=False, description="Enable HTTP/3 over QUIC (experimental)")
+    connection_reuse_timeout_seconds: int = Field(default=300, ge=60, le=3600, description="How long to keep connections alive")
+    
+    # Memory Optimizations
+    enable_huge_pages: bool = Field(default=False, description="Use huge pages for better memory performance")
+    memory_pool_size_mb: int = Field(default=512, ge=128, le=2048, description="Pre-allocated memory pool size")
+    enable_buffer_recycling: bool = Field(default=True, description="Recycle buffers to reduce GC pressure")
     
     # Connection Pool Settings
     max_connections_per_host: int = Field(default=10, ge=1, le=50, description="Maximum HTTP connections per host")

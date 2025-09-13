@@ -24,24 +24,80 @@ services:
         privileged: true  # Required for FUSE mounting
         cap_add:
             - SYS_ADMIN  # Required for FUSE operations
+            - IPC_LOCK   # Required for huge pages
+            - SYS_NICE   # Required for thread priority
         devices:
             - /dev/fuse:/dev/fuse  # FUSE device access
         security_opt:
             - apparmor:unconfined  # Allow FUSE operations
+        sysctls:
+            - net.core.rmem_max=134217728     # 128MB receive buffer
+            - net.core.wmem_max=134217728     # 128MB send buffer
+            - net.ipv4.tcp_rmem=4096 87380 134217728
+            - net.ipv4.tcp_wmem=4096 65536 134217728
+            - net.core.netdev_max_backlog=5000
+            - net.ipv4.tcp_congestion_control=bbr
+            - vm.nr_hugepages=1024            # Allocate huge pages
         environment:
             - PUID=1000
             - PGID=1000
             - TZ=America/New_York
             - RIVEN_FORCE_ENV=true
             - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
-            # VFS Performance Settings for 4K HDR/DV
-            - RIVEN_FILESYSTEM_READAHEAD_BUFFER_MB=32
-            - RIVEN_FILESYSTEM_HTTP_TIMEOUT_SECONDS=120
-            - RIVEN_FILESYSTEM_HTTP_LOW_SPEED_LIMIT_KBPS=1024
+            # EXTREME VFS Performance - Beyond rclone capabilities
+            - RIVEN_FILESYSTEM_READAHEAD_BUFFER_MB=512
+            - RIVEN_FILESYSTEM_HTTP_TIMEOUT_SECONDS=300
+            - RIVEN_FILESYSTEM_HTTP_LOW_SPEED_LIMIT_KBPS=8192
+            - RIVEN_FILESYSTEM_HTTP_LOW_SPEED_TIME_SECONDS=30
             - RIVEN_FILESYSTEM_ENABLE_REQUEST_SERIALIZATION=false
-            - RIVEN_FILESYSTEM_MAX_CONCURRENT_REQUESTS_PER_FILE=3
-            - RIVEN_FILESYSTEM_FUSE_MAX_BACKGROUND=32
-            - RIVEN_FILESYSTEM_MAX_CONNECTIONS_PER_HOST=20
+            - RIVEN_FILESYSTEM_MAX_CONCURRENT_REQUESTS_PER_FILE=16
+            - RIVEN_FILESYSTEM_FUSE_MAX_BACKGROUND=256
+            - RIVEN_FILESYSTEM_FUSE_CONGESTION_THRESHOLD=128
+            - RIVEN_FILESYSTEM_MAX_CONNECTIONS_PER_HOST=100
+            - RIVEN_FILESYSTEM_ENABLE_ADAPTIVE_BUFFERING=true
+            - RIVEN_FILESYSTEM_MIN_BUFFER_MB=256
+            - RIVEN_FILESYSTEM_MAX_BUFFER_MB=2048
+            - RIVEN_FILESYSTEM_BUFFER_PREFETCH_FACTOR=5.0
+            - RIVEN_FILESYSTEM_HTTP_MAX_RETRIES=10
+            - RIVEN_FILESYSTEM_RETRY_DELAY_SECONDS=0.1
+            - RIVEN_FILESYSTEM_ENABLE_HTTP2=true
+            - RIVEN_FILESYSTEM_URL_CACHE_TTL_MINUTES=120
+            # Disk Cache (rclone --vfs-cache-mode full equivalent)
+            - RIVEN_FILESYSTEM_ENABLE_DISK_CACHE=true
+            - RIVEN_FILESYSTEM_DISK_CACHE_MAX_SIZE_GB=180
+            - RIVEN_FILESYSTEM_DISK_CACHE_MAX_AGE_HOURS=24
+            # Dynamic Chunking (rclone --vfs-read-chunk-size-limit 2G equivalent)
+            - RIVEN_FILESYSTEM_ENABLE_DYNAMIC_CHUNKING=true
+            - RIVEN_FILESYSTEM_MAX_CHUNK_SIZE_MB=2048
+            - RIVEN_FILESYSTEM_CHUNK_SIZE_MULTIPLIER=2.0
+            # Fast Fingerprinting (rclone --vfs-fast-fingerprint equivalent)
+            - RIVEN_FILESYSTEM_ENABLE_FAST_FINGERPRINT=true
+            - RIVEN_FILESYSTEM_FINGERPRINT_CACHE_SECONDS=300
+            # Cache Polling (rclone --poll-interval 5s equivalent)
+            - RIVEN_FILESYSTEM_CACHE_POLL_INTERVAL_SECONDS=5
+            - RIVEN_FILESYSTEM_ENABLE_BACKGROUND_CACHE_REFRESH=true
+            # Predictive Prefetching (beyond rclone capabilities)
+            - RIVEN_FILESYSTEM_ENABLE_PREDICTIVE_PREFETCH=true
+            - RIVEN_FILESYSTEM_PREFETCH_WINDOW_SECONDS=300
+            # EXTREME Performance Optimizations
+            - RIVEN_FILESYSTEM_ENABLE_ZERO_COPY_IO=true
+            - RIVEN_FILESYSTEM_ENABLE_MEMORY_MAPPED_CACHE=true
+            - RIVEN_FILESYSTEM_TCP_NO_DELAY=true
+            - RIVEN_FILESYSTEM_TCP_KEEP_ALIVE=true
+            - RIVEN_FILESYSTEM_SOCKET_BUFFER_SIZE_KB=4096
+            - RIVEN_FILESYSTEM_ENABLE_AGGRESSIVE_READAHEAD=true
+            - RIVEN_FILESYSTEM_AGGRESSIVE_READAHEAD_MB=1024
+            - RIVEN_FILESYSTEM_ENABLE_SPECULATIVE_PREFETCH=true
+            # Large File Optimizations
+            - RIVEN_FILESYSTEM_ENABLE_SEEK_OPTIMIZATION=true
+            - RIVEN_FILESYSTEM_SEEK_BUFFER_MB=256
+            - RIVEN_FILESYSTEM_ENABLE_RANGE_COALESCING=true
+            - RIVEN_FILESYSTEM_THREAD_POOL_SIZE=32
+            - RIVEN_FILESYSTEM_ENABLE_TCP_FAST_OPEN=true
+            - RIVEN_FILESYSTEM_CONNECTION_REUSE_TIMEOUT_SECONDS=600
+            - RIVEN_FILESYSTEM_ENABLE_HUGE_PAGES=true
+            - RIVEN_FILESYSTEM_MEMORY_POOL_SIZE_MB=1024
+            - RIVEN_FILESYSTEM_ENABLE_BUFFER_RECYCLING=true
         healthcheck:
             test: curl -s http://localhost:8080 >/dev/null || exit 1
             interval: 30s
