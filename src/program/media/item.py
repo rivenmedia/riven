@@ -488,10 +488,6 @@ class MediaItem(db.Model):
                 return f"IMDB ID {self.imdb_id}"
         return self.title or self.id
 
-    @property
-    def collection(self):
-        return self.parent.collection if self.parent else self.id
-
     def is_parent_blocked(self) -> bool:
         """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
         if self.last_state == States.Paused:
@@ -503,18 +499,6 @@ class MediaItem(db.Model):
             if self.parent:
                 return self.parent.is_parent_blocked()
         return False
-
-    def get_blocking_parent(self) -> Optional["MediaItem"]:
-        """Return the nearest paused ancestor (self, parent season, or parent show), or None."""
-        if self.last_state == States.Paused:
-            return self
-
-        session = object_session(self)
-        if session and hasattr(self, "parent"):
-            session.refresh(self, ["parent"])
-            if self.parent:
-                return self.parent.get_blocking_parent()
-        return None
 
 
 class Movie(MediaItem):

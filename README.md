@@ -41,16 +41,14 @@ We are constantly adding features and improvements as we go along and squashing 
 ## Table of Contents
 
 - [Table of Contents](#table-of-contents)
-- [ElfHosted](#elfhosted)
 - [Self Hosted](#self-hosted)
   - [Installation](#installation)
-  - [Plex](#plex)
+- [Plex](#plex)
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Initial Setup](#initial-setup)
   - [Using `make` for Development](#using-make-for-development)
   - [Development without `make`](#development-without-make)
-  - [Additional Tips](#additional-tips)
 - [Contributing](#contributing)
   - [Submitting Changes](#submitting-changes)
   - [Code Formatting](#code-formatting)
@@ -60,24 +58,6 @@ We are constantly adding features and improvements as we go along and squashing 
 - [License](#license)
 
 ---
-
-## ElfHosted
-
-[ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (_hosting, security, updates, etc_) for your self-hosted apps.
-
-> [!IMPORTANT]
-> **ElfHosted ❤️ Riven 100%**
-> [Riven](https://elfhosted.com/app/riven/) is an "Elf-icial" app in the [ElfHosted app catalogue](https://elfhosted.com/apps/) - A whopping :heart_eyes_cat::heart_eyes_cat: 100% :heart_eyes_cat::heart_eyes_cat: of your subscription goes directly to Riven developers, who can usually be found in the [#elf-riven](https://discord.com/channels/396055506072109067/1253110932062601276) channel in the [ElfHosted Discord Server](https://discord.elfhosted.com).
-
-Curious how it works? Here's an [explainer video](https://www.youtube.com/watch?v=ZHZAEhLuJqk)!
-
-> [!TIP]
-> **ElfHosted "Infinite Streaming" bundles**
-> Riven is pre-packaged with Plex, Zurg, and symlinks, and ready-to-go, in these convenient bundles:
->
-> -   [Starter Kit](https://store.elfhosted.com/product/plex-riven-infinite-streaming-starter-kit) (_quick and easy setup_)
-> -   [Hobbit Bundle](https://store.elfhosted.com/product/hobbit-riven-real-debrid-infinite-streaming-bundle) (_12.5% dedicated node, with extras_)
-> -   [Ranger Bundle](https://store.elfhosted.com/product/plex-riven-infinite-streaming-plus-bundle) (_25% dedicated node, with extras_)
 
 ## Self Hosted
 
@@ -145,6 +125,7 @@ findmnt -T /path/to/riven/mount -o TARGET,PROPAGATION  # expect: shared or rshar
 >Notes:
 >- Keep your FUSE mount configured with allow_other (Dockerfile sets user_allow_other in /etc/fuse.conf so you dont have to).
 >- On SELinux systems, add :z to the bind mount if needed.
+>- `mount_path` in settings refers to the local (Riven) mount vfs, `library_path` (remote media server, i.e. Plex) refers to the path that the remote server sees.
 
 
 ---
@@ -169,7 +150,7 @@ Welcome to the development section! Here, you'll find all the necessary steps to
 
 Ensure you have the following installed on your system:
 
--   **Python** (3.10+)
+-   **Python** (3.11+)
 
 ### Initial Setup
 
@@ -198,30 +179,12 @@ Ensure you have the following installed on your system:
 
 ### Using `make` for Development
 
-We provide a `Makefile` to simplify common development tasks. Here are some useful commands:
+We provide a `Makefile` to simplify common development tasks. View the `make help` to see a list of helpful commands.
 
--   **Initialize the Project:**
-
-    ```sh
-    make
-    ```
-
--   **Start the Development Environment:**
-    This command stops any previous containers, removes old images, and rebuilds the image using cached layers. Any changes in the code will trigger a rebuild.
+1. **Start Riven:**
 
     ```sh
-    make start
-    ```
-
--   **Restart the Container:**
-
-    ```sh
-    make restart
-    ```
-
--   **View Logs:**
-    ```sh
-    make logs
+    make run
     ```
 
 ### Development without `make`
@@ -232,15 +195,6 @@ If you prefer not to use `make` and Docker, you can manually set up the developm
 
     ```sh
     poetry run python src/main.py
-    ```
-
-### Additional Tips
-
--   **Environment Variables:**
-    Ensure you set the `ORIGIN` environment variable to the URL where the frontend will be accessible. For example:
-
-    ```sh
-    export ORIGIN=http://localhost:3000
     ```
 
 By following these guidelines, you'll be able to set up your development environment smoothly and start contributing to the project. Happy coding!
