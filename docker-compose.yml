@@ -21,12 +21,27 @@ services:
         ports:
             - "8080:8080"
         tty: true
+        privileged: true  # Required for FUSE mounting
+        cap_add:
+            - SYS_ADMIN  # Required for FUSE operations
+        devices:
+            - /dev/fuse:/dev/fuse  # FUSE device access
+        security_opt:
+            - apparmor:unconfined  # Allow FUSE operations
         environment:
             - PUID=1000
             - PGID=1000
             - TZ=America/New_York
             - RIVEN_FORCE_ENV=true
             - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
+            # VFS Performance Settings for 4K HDR/DV
+            - RIVEN_FILESYSTEM_READAHEAD_BUFFER_MB=32
+            - RIVEN_FILESYSTEM_HTTP_TIMEOUT_SECONDS=120
+            - RIVEN_FILESYSTEM_HTTP_LOW_SPEED_LIMIT_KBPS=1024
+            - RIVEN_FILESYSTEM_ENABLE_REQUEST_SERIALIZATION=false
+            - RIVEN_FILESYSTEM_MAX_CONCURRENT_REQUESTS_PER_FILE=3
+            - RIVEN_FILESYSTEM_FUSE_MAX_BACKGROUND=32
+            - RIVEN_FILESYSTEM_MAX_CONNECTIONS_PER_HOST=20
         healthcheck:
             test: curl -s http://localhost:8080 >/dev/null || exit 1
             interval: 30s

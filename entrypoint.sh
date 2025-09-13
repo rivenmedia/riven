@@ -68,6 +68,12 @@ else
     if [ -d "/mount" ]; then
         chown "$PUID:$PGID" /mount 2>/dev/null || true
     fi
+    
+    # Check for FUSE availability
+    if [ ! -c "/dev/fuse" ]; then
+        echo "WARNING: /dev/fuse not available. VFS mounting may fail."
+        echo "Ensure container has --device /dev/fuse:/dev/fuse and --cap-add SYS_ADMIN"
+    fi
 fi
 
 umask 002
