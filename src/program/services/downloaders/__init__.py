@@ -10,15 +10,15 @@ from program.media.stream import Stream
 from program.media.filesystem_entry import FilesystemEntry
 from program.services.downloaders.models import (
     DebridFile,
-    InvalidDebridFileException,
     DownloadedTorrent,
+    InvalidDebridFileException,
     NoMatchingFilesException,
     NotCachedException,
     ParsedFileData,
     TorrentContainer,
     TorrentInfo,
 )
-from program.services.downloaders.shared import parse_filename, _sort_streams_by_quality
+from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
 from .alldebrid import AllDebridDownloader
@@ -93,7 +93,7 @@ class Downloader:
                         raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
                 except Exception as e:
                     logger.debug(f"Stream {stream.infohash} failed: {e}")
-                    if 'download_result' in locals() and download_result.id:
+                    if "download_result" in locals() and download_result.id:
                         try:
                             self.service.delete_torrent(download_result.id)
                             logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")

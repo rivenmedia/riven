@@ -1,5 +1,6 @@
 # tests/test_db_functions.py
 from __future__ import annotations
+
 import os
 
 import pytest
@@ -18,7 +19,6 @@ from program.db.db_functions import (
 )
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
-
 
 
 @pytest.fixture(scope="session")
@@ -133,7 +133,7 @@ def test_clear_streams_when_none_exist(test_scoped_db_session):
 
 
 def test_add_multiple_streams_then_clear_streams(test_scoped_db_session):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     
     m = _movie("10002", "tt10002")
     s1 = Stream(_torrent("Example.Movie.2020.1080p", "997592a005d9c162391803c615975676738d6a11", "Example Movie"))
@@ -156,7 +156,7 @@ def test_add_multiple_streams_then_clear_streams(test_scoped_db_session):
 
 
 def test_blacklist_and_unblacklist_stream(test_scoped_db_session):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     
     m = _movie("10003", "tt10003")
     s = Stream(_torrent("Example.Movie.2021.1080p", "997592a005d9c162391803c615975676738d6a12", "Example Movie"))
@@ -178,7 +178,7 @@ def test_blacklist_and_unblacklist_stream(test_scoped_db_session):
 
 
 def test_delete_movie_cascades_and_deletes_orphan_streams(test_scoped_db_session):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     
     m = _movie("10004", "tt10004")
     s = Stream(_torrent("Movie", "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "Movie"))
@@ -200,7 +200,7 @@ def test_delete_movie_cascades_and_deletes_orphan_streams(test_scoped_db_session
 
 
 def test_delete_show_cascades_and_deletes_orphan_streams(test_scoped_db_session):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     
     show, seasons, eps = _show_tree("20001", [1], 2)
     s = Stream(_torrent("Show.S01E01", "abcd1234abcd1234abcd1234abcd1234abcd1234", "Show"))
@@ -220,7 +220,7 @@ def test_delete_show_cascades_and_deletes_orphan_streams(test_scoped_db_session)
 
 
 def test_delete_one_of_two_items_sharing_stream_does_not_delete_stream(test_scoped_db_session):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     
     m1 = _movie("30010", "tt30010")
     m2 = _movie("30011", "tt30011")

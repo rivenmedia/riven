@@ -1,7 +1,7 @@
-import regex
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Union
 
+import regex
 from pydantic import BaseModel, Field
 
 from program.settings.manager import settings_manager

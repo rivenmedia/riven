@@ -12,7 +12,6 @@ from rich.live import Live
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
 from program.services.content import (
     Listrr,
     Mdblist,
@@ -199,7 +198,7 @@ class Program(threading.Thread):
             if item_ids:
                 logger.log("PROGRAM", f"Successfully retried {len(item_ids)} incomplete items")
             else:
-                logger.log("PROGRAM", "No items required retrying")
+                logger.log("NOT_FOUND", "No items required retrying")
 
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
@@ -211,13 +210,26 @@ class Program(threading.Thread):
             if updated_items:
                 logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
             else:
-                logger.log("PROGRAM", "No items required state updates")
+                logger.log("NOT_FOUND", "No ongoing items required state updates")
+
+    def _update_new_releases(self) -> None:
+        """Update state for new releases."""
+        with db.Session() as session:
+            changed_items = db_functions.update_new_releases(session, update_type="episodes", hours=24)
+            for item_id in changed_items:
+                self.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
+            
+            if changed_items:
+                logger.log("PROGRAM", f"Successfully fetched {len(changed_items)} new releases")
+            else:
+                logger.log("NOT_FOUND", "No new releases found")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._update_ongoing: {"interval": 60 * 60 * 4},
             self._retry_library: {"interval": 60 * 60 * 24},
+            self._update_new_releases: {"interval": 60 * 60},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
@@ -242,6 +254,22 @@ class Program(threading.Thread):
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 continue
+
+            # If the service supports webhooks and webhook mode is enabled, run it once now and do not schedule periodically
+            use_webhook = getattr(getattr(service_instance, "settings", object()), "use_webhook", False)
+            if use_webhook:
+                self.scheduler.add_job(
+                    self.em.submit_job,
+                    "date",
+                    run_date=datetime.now(),
+                    args=[service_cls, self],
+                    id=f"{service_cls.__name__}_update_once",
+                    replace_existing=True,
+                    misfire_grace_time=30,
+                )
+                logger.debug(f"Scheduled {service_cls.__name__} to run once (webhook mode enabled).")
+                continue
+
             if not (update_interval := getattr(service_instance.settings, "update_interval", False)):
                 continue
 

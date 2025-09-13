@@ -1,26 +1,29 @@
-import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
-from PTT import parse_title
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from loguru import logger
+from PTT import parse_title
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
-from sqlalchemy import select
+from sqlalchemy.orm import object_session
 
 from program.db import db_functions
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
+from program.services.downloaders.models import (
+    DebridFile,
+    TorrentContainer,
+    TorrentInfo,
+)
 from program.services.indexers import IndexerService
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
-from program.services.downloaders.models import TorrentContainer, TorrentInfo, DebridFile
 
 
 class Stream(BaseModel):
@@ -370,9 +373,9 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
     with db.Session() as db_session:
         item = None
         if session.media_type == "tv" and session.tvdb_id:
-            item = db_functions.get_item_by_external_id(tvdb_id=session.tvdb_id)
+            item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
         elif session.media_type == "movie" and session.tmdb_id:
-            item = db_functions.get_item_by_external_id(tmdb_id=session.tmdb_id)
+            item = db_functions.get_item_by_external_id(tmdb_id=str(session.tmdb_id))
         elif session.imdb_id:
             item = db_functions.get_item_by_external_id(imdb_id=session.imdb_id)
 
@@ -449,6 +452,12 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
 
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
             torrent = rtn.rank(session.torrent_info.name, session.magnet)
+            
+            # Ensure the item is properly attached to the session before adding streams
+            # This prevents SQLAlchemy warnings about detached objects
+            if object_session(item) is not db_session:
+                item = db_session.merge(item)
+            
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.add(item.id)
 

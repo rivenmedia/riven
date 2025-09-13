@@ -6,9 +6,10 @@ from .listrr_api import ListrrAPI, ListrrAPIError
 from .mdblist_api import MdblistAPI, MdblistAPIError
 from .overseerr_api import OverseerrAPI, OverseerrAPIError
 from .plex_api import PlexAPI, PlexAPIError
-from .trakt_api import TraktAPI, TraktAPIError
 from .tmdb_api import TMDBApi, TMDBApiError
+from .trakt_api import TraktAPI, TraktAPIError
 from .tvdb_api import TVDBApi, TVDBApiError
+
 
 def bootstrap_apis():
     __setup_plex()

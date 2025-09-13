@@ -1,21 +1,20 @@
-import os
 import threading
 import traceback
-import sqlalchemy.orm
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
 from typing import Dict, List, Optional
 
+import sqlalchemy.orm
 from loguru import logger
 from pydantic import BaseModel
 
 from program.db import db_functions
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
-from program.types import Event
 from program.media.item import MediaItem
+from program.types import Event
 
 
 class EventUpdate(BaseModel):

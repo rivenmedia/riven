@@ -1,7 +1,7 @@
 import json
 import uuid
-from typing import Literal
 from datetime import datetime
+from typing import Literal
 
 from loguru import logger
 from RTN.models import BaseRankingModel, BestRanking, DefaultRanking, SettingsModel
@@ -43,7 +43,7 @@ class VersionHandler:
     def load_profile(self, profile_name: str):
         """Load a ranking profile from a JSON file."""
         try:
-            with open(f"{self.config_directory}/{profile_name}.json", 'r') as file:
+            with open(f"{self.config_directory}/{profile_name}.json", "r") as file:
                 profile_data = json.load(file)
                 self.apply_profile(profile_data)
                 self.current_profile = profile_name
@@ -57,7 +57,7 @@ class VersionHandler:
         """Apply the profile settings to the ranking model."""
         # Assuming profile_data contains settings that can be directly applied to the ranking model
         # You might need to adjust this based on the actual structure of your profile data
-        ranking_settings = models.get(profile_data.get('ranking_model', 'default'))
+        ranking_settings = models.get(profile_data.get("ranking_model", "default"))
         # Update the ranking settings with the profile data
         # This is a placeholder; adjust based on your actual settings structure
         for key, value in profile_data.items():

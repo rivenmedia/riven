@@ -2,25 +2,24 @@
 from __future__ import annotations
 
 import os
-import shutil
-import alembic
-
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
-
-from loguru import logger
 from threading import Event
-from sqlalchemy import delete, func, insert, inspect, or_, select, text, case
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
+
+from kink import di, inject
+from loguru import logger
+from sqlalchemy import case, delete, func, insert, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session, selectinload
-from typing import TYPE_CHECKING
-
 from sqlalchemy.sql import bindparam
 
+import alembic
+from program.apis.tvdb_api import TVDBApi
+from program.media.state import States
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 from program.settings.manager import settings_manager
-from program.media.state import States
+
 from .db import db
 
 if TYPE_CHECKING:
@@ -48,10 +47,12 @@ def get_item_by_id(
     item_id: str,
     item_types: Optional[List[str]] = None,
     session: Optional[Session] = None,
+    *,
+    load_tree: bool = False,
 ) -> "MediaItem" | None:
     """
     Get a MediaItem by its ID, optionally constraining by type.
-    Loads seasons/episodes for shows via selectinload.
+    Optionally load seasons/episodes for shows via selectinload if load_tree=True.
     Returns a detached instance safe for use outside the session.
     """
     if not item_id:
@@ -60,11 +61,9 @@ def get_item_by_id(
     from program.media.item import MediaItem, Season, Show
 
     with _maybe_session(session) as (_s, _owns):
-        query = (
-            select(MediaItem)
-            .where(MediaItem.id == item_id)
-            .options(selectinload(Show.seasons).selectinload(Season.episodes))
-        )
+        query = select(MediaItem).where(MediaItem.id == item_id)
+        if load_tree:
+            query = query.options(selectinload(Show.seasons).selectinload(Season.episodes))
         if item_types:
             query = query.where(MediaItem.type.in_(item_types))
 
@@ -77,12 +76,14 @@ def get_items_by_ids(
     ids: Sequence[str],
     item_types: Optional[List[str]] = None,
     session: Optional[Session] = None,
+    *,
+    load_tree: bool = False,
 ) -> List["MediaItem"]:
     """
     Fetch a list of MediaItems by their IDs using one round trip.
 
     - Preserves the input order at the SQL layer via CASE(..) ORDER BY.
-    - Eager-loads Show -> seasons -> episodes using select-in.
+    - Optionally eager-load Show -> seasons -> episodes using select-in if load_tree=True.
     - Calls .unique() to collapse duplicates that arise from joined eager loads.
     - Returns detached instances (expunged) to avoid lazy-loads on closed sessions.
     """
@@ -95,12 +96,9 @@ def get_items_by_ids(
     order_clause = case(pos, value=MediaItem.id, else_=len(ids))
     id_param = bindparam("item_ids", expanding=True)
 
-    stmt = (
-        select(MediaItem)
-        .where(MediaItem.id.in_(id_param))
-        .options(selectinload(Show.seasons).selectinload(Season.episodes))
-        .order_by(order_clause)
-    )
+    stmt = select(MediaItem).where(MediaItem.id.in_(id_param)).order_by(order_clause)
+    if load_tree:
+        stmt = stmt.options(selectinload(Show.seasons).selectinload(Season.episodes))
     if item_types:
         stmt = stmt.where(MediaItem.type.in_(item_types))
 
@@ -113,11 +111,14 @@ def get_items_by_ids(
         _s = session
 
     try:
-        rows = _s.execute(stmt, {"item_ids": list(ids)}).unique().scalars().all()
+        result = _s.execute(
+            stmt.execution_options(stream_results=True),
+            {"item_ids": list(ids)},
+        ).unique()
+        rows: List["MediaItem"] = [obj for obj in result.scalars().yield_per(500)]
         for obj in rows:
             if object_session(obj) is _s:
                 _s.expunge(obj)
-
         by_id: Dict[str, "MediaItem"] = {m.id: m for m in rows}
         return [by_id[i] for i in ids if i in by_id]
     finally:
@@ -126,8 +127,8 @@ def get_items_by_ids(
 
 def get_item_by_external_id(
     imdb_id: Optional[str] = None,
-    tvdb_id: Optional[int] = None,
-    tmdb_id: Optional[int] = None,
+    tvdb_id: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> "MediaItem" | None:
     """
@@ -138,11 +139,11 @@ def get_item_by_external_id(
 
     conditions: List[Any] = []
     if imdb_id:
-        conditions.append(MediaItem.imdb_id == str(imdb_id))
+        conditions.append(MediaItem.imdb_id == imdb_id)
     if tvdb_id:
-        conditions.append(MediaItem.tvdb_id == str(tvdb_id))
+        conditions.append(MediaItem.tvdb_id == tvdb_id)
     if tmdb_id:
-        conditions.append(MediaItem.tmdb_id == str(tmdb_id))
+        conditions.append(MediaItem.tmdb_id == tmdb_id)
 
     if not conditions:
         raise ValueError("At least one external ID must be provided")
@@ -203,12 +204,10 @@ def get_item_by_symlink_path(
     from program.media.item import MediaItem
 
     with _maybe_session(session) as (_s, _owns):
-        items = (
-            _s.execute(select(MediaItem).where(MediaItem.symlink_path == filepath))
-            .unique()
-            .scalars()
-            .all()
-        )
+        result = _s.execute(
+            select(MediaItem).where(MediaItem.symlink_path == filepath).execution_options(stream_results=True)
+        ).unique()
+        items: List["MediaItem"] = [obj for obj in result.scalars().yield_per(500)]
         for itm in items:
             _s.expunge(itm)
         return items
@@ -232,20 +231,22 @@ def get_item_by_imdb_and_episode(
 
     with _maybe_session(session) as (_s, _owns):
         if season_number is not None and episode_number is not None:
-            rows = _s.execute(
+            result = _s.execute(
                 select(Episode)
                 .options(selectinload(Episode.parent).selectinload(Season.parent))
                 .where(
                     Episode.parent.has(Season.parent.has(Show.tvdb_id == tvdb_id)),
                     Episode.parent.has(Season.number == season_number),
                     Episode.number == episode_number,
-                )
-            ).scalars().all()
+                ).execution_options(stream_results=True)
+            )
+            rows = [r for r in result.scalars().yield_per(200)]
             for r in rows:
                 _s.expunge(r)
             return rows
 
-        rows = _s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id)).scalars().all()
+        result = _s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id).execution_options(stream_results=True))
+        rows = [r for r in result.scalars().yield_per(200)]
         for r in rows:
             _s.expunge(r)
         return rows
@@ -346,6 +347,7 @@ def delete_media_item_by_id(media_item_id: str) -> bool:
       True on success, False on error.
     """
     from sqlalchemy.exc import IntegrityError
+
     from program.media.item import Episode, MediaItem, Season
 
     if not media_item_id:
@@ -505,26 +507,112 @@ def update_ongoing(session: Optional[Session] = None) -> List[str]:
         return changed
 
 
+@inject
+def update_new_releases(session: Optional[Session] = None, update_type: str = "episodes", hours: int = 24) -> List[str]:
+    """
+    Get new releases for a given type and since timestamp.
+
+    Args:
+        session: Optional database session
+        update_type: Type of updates to get (episodes, series, etc.)
+        hours: Number of hours to look back for updates
+        
+    Returns:
+        List of show TVDB IDs that have new episodes
+    """
+    from program.media.item import Episode, MediaItem, Season, Show
+
+    tvdb_api = di[TVDBApi]
+    ids_to_update = []
+    series_episodes: List[Tuple[str, str]] = tvdb_api.get_new_releases(update_type, hours)
+    series_ids = [str(series_id) for series_id, _ in series_episodes]
+
+    with _maybe_session(session) as (s, owns):
+        # Get only the series IDs that have new releases and exist in our database
+        existing_series_ids = s.execute(
+            select(MediaItem.tvdb_id)
+            .where(MediaItem.type == "show")
+            .where(MediaItem.tvdb_id.is_not(None))
+            .where(MediaItem.tvdb_id.in_(series_ids))
+        ).scalars().all()
+        
+        # Filter series_episodes to only include series we have in our database
+        relevant_series_episodes = [
+            (series_id, episode_id) for series_id, episode_id in series_episodes
+            if series_id in existing_series_ids
+        ]
+
+        if not relevant_series_episodes:
+            return ids_to_update
+
+        # Get all existing episodes for the relevant series in one query
+        from sqlalchemy.orm import aliased, selectinload
+        season_alias = aliased(Season, flat=True)
+        episode_alias = aliased(Episode, flat=True)
+        
+        existing_episodes_query = s.execute(
+            select(Show.tvdb_id, episode_alias.number)
+            .join(season_alias, Show.id == season_alias.parent_id)
+            .join(episode_alias, season_alias.id == episode_alias.parent_id)
+            .where(Show.tvdb_id.in_(series_ids))
+        ).all()
+        
+        # Create a set of existing (series_id, episode_number) pairs for fast lookup
+        existing_episodes = {(row[0], str(row[1])) for row in existing_episodes_query}
+        
+        # Check which episodes are missing and collect unique series IDs
+        missing_series_ids = set()
+        for series_id, episode_id in relevant_series_episodes:
+            if (series_id, episode_id) not in existing_episodes:
+                missing_series_ids.add(series_id)
+        
+        ids_to_update = list(missing_series_ids)
+
+        ids_updated = []
+        for id in ids_to_update:
+            # Load item directly from session with relationships to avoid detached object issues
+            item = s.execute(
+                select(MediaItem)
+                .options(selectinload(Show.seasons).selectinload(Season.episodes))
+                .where(MediaItem.tvdb_id == id)
+                .where(MediaItem.type == "show")
+            ).unique().scalar_one_or_none()
+
+            if item:
+                try:
+                    previous_state, new_state = item.store_state(States.Requested)
+                    if previous_state != new_state:
+                        ids_updated.append(item.id)
+                except Exception as e:
+                    logger.error(f"Failed to update state for item with ID {item.id}: {e}")
+
+        if ids_updated:
+            s.commit()
+
+        return ids_updated
+
+
 def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, Any]]:
     """
     Create a calendar of all upcoming/ongoing items in the library.
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
-    from program.media.item import MediaItem, Show, Season
+    from program.media.item import MediaItem, Season, Show
 
     session = session if session else db.Session()
 
-    results = session.execute(
+    result = session.execute(
         select(MediaItem)
         .options(selectinload(Show.seasons).selectinload(Season.episodes))
         .where(MediaItem.type.in_(["movie", "episode"]))
         .where(MediaItem.last_state != States.Completed)
         .where(MediaItem.aired_at.is_not(None))
         .where(MediaItem.aired_at >= datetime.now() - timedelta(days=1))
-    ).unique().scalars().all()
+        .execution_options(stream_results=True)
+    ).unique()
 
     calendar: Dict[str, Dict[str, Any]] = {}
-    for item in results:
+    for item in result.scalars().yield_per(500):
         calendar[item.id] = {
             "trakt_id": item.trakt_id,
             "imdb_id": item.imdb_id,
@@ -653,7 +741,6 @@ def _purge_orphan_streams_tx(session: Session) -> int:
     )
     # SQLAlchemy 2.0 returns rowcount in result.rowcount (may be -1 depending on DB)
     return int(result.rowcount or 0)
-
 
 def hard_reset_database() -> None:
     """Resets the database to a fresh state while maintaining migration capability."""

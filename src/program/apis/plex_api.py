@@ -1,13 +1,16 @@
-﻿from typing import Dict, List, Optional
+﻿from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
+import regex
 from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
-import regex
 
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
+
+if TYPE_CHECKING:
+    from program.media.item import Episode, Movie
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
 TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")

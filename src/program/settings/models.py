@@ -1,7 +1,7 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List
 
 from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
