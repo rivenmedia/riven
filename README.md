@@ -43,7 +43,6 @@ We are constantly adding features and improvements as we go along and squashing 
 - [Table of Contents](#table-of-contents)
 - [Self Hosted](#self-hosted)
   - [Installation](#installation)
-- [Plex](#plex)
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Initial Setup](#initial-setup)
@@ -126,20 +125,6 @@ findmnt -T /path/to/riven/mount -o TARGET,PROPAGATION  # expect: shared or rshar
 >- Keep your FUSE mount configured with allow_other (Dockerfile sets user_allow_other in /etc/fuse.conf so you dont have to).
 >- On SELinux systems, add :z to the bind mount if needed.
 >- `mount_path` in settings refers to the local (Riven) mount vfs, `library_path` (remote media server, i.e. Plex) refers to the path that the remote server sees.
-
-
----
-## Plex
-
-Plex libraries that are currently required to have sections:
-
-| Type   | Categories               |
-| ------ | ------------------------ |
-| Movies | `movies`, `anime_movies` |
-| Shows  | `shows`, `anime_shows`   |
-
-> [!NOTE]
-> Currently, these Plex library requirements are mandatory. However, we plan to make them customizable in the future to support additional libraries as per user preferences.
 
 ---
 ## Development
