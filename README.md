@@ -148,11 +148,12 @@ Ensure you have the following installed on your system:
 2. **Install Dependencies:**
 
     ```sh
-    apk add --no-cache \
-    openssl-dev \
-    fuse3-dev \
-    pkgconf \
-    fuse3
+    sudo apt-get update
+    sudo apt-get install -y \
+        libssl-dev \
+        libfuse3-dev \
+        pkg-config \
+        fuse3
     ```
 
 3. **Install Python Dependencies:**
