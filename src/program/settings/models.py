@@ -80,6 +80,72 @@ class FilesystemModel(Observable):
     library_path: Path = Path("/mount")
     debug_fuse: bool = False
     separate_anime_dirs: bool = False
+    
+    # VFS Performance Settings
+    readahead_buffer_mb: int = Field(default=4, ge=1, le=512, description="Readahead buffer size in MB for streaming optimization")
+    url_cache_ttl_minutes: int = Field(default=15, ge=1, le=120, description="URL cache TTL in minutes")
+    
+    # HTTP Request Settings
+    http_timeout_seconds: int = Field(default=30, ge=10, le=300, description="HTTP request timeout in seconds")
+    http_connect_timeout_seconds: int = Field(default=5, ge=1, le=30, description="HTTP connection timeout in seconds")
+    http_low_speed_limit_kbps: int = Field(default=10, ge=1, le=10240, description="Minimum transfer speed in KB/s before timeout")
+    http_low_speed_time_seconds: int = Field(default=15, ge=5, le=120, description="Time in seconds to maintain minimum speed")
+    
+    # FUSE Cache Settings
+    fuse_entry_timeout_seconds: int = Field(default=300, ge=1, le=3600, description="FUSE entry cache timeout in seconds")
+    fuse_attr_timeout_seconds: int = Field(default=300, ge=1, le=3600, description="FUSE attribute cache timeout in seconds")
+    
+    # Advanced Settings
+    enable_request_serialization: bool = Field(default=True, description="Serialize HTTP requests per file path")
+    enable_http_keepalive: bool = Field(default=True, description="Enable HTTP keep-alive connections")
+    max_concurrent_requests_per_file: int = Field(default=1, ge=1, le=10, description="Maximum concurrent HTTP requests per file")
+    
+    # Retry and Error Handling
+    http_max_retries: int = Field(default=2, ge=1, le=10, description="Maximum HTTP request retry attempts")
+    retry_delay_seconds: float = Field(default=1.0, ge=0.1, le=30.0, description="Delay between retry attempts in seconds")
+    enable_exponential_backoff: bool = Field(default=True, description="Use exponential backoff for retries")
+    
+    # FUSE Mount Options
+    enable_allow_other: bool = Field(default=True, description="Allow other users to access the mount")
+    enable_auto_unmount: bool = Field(default=True, description="Automatically unmount on process exit")
+    fuse_max_background: int = Field(default=12, ge=1, le=64, description="Maximum background FUSE requests")
+    fuse_congestion_threshold: int = Field(default=10, ge=1, le=32, description="FUSE congestion threshold")
+    
+    # Buffer Management
+    enable_adaptive_buffering: bool = Field(default=False, description="Dynamically adjust buffer size based on bitrate")
+    min_buffer_mb: int = Field(default=1, ge=1, le=64, description="Minimum buffer size in MB for adaptive buffering")
+    max_buffer_mb: int = Field(default=128, ge=4, le=512, description="Maximum buffer size in MB for adaptive buffering")
+    buffer_prefetch_factor: float = Field(default=1.5, ge=1.0, le=5.0, description="Prefetch multiplier for sequential reads")
+    
+    # Connection Pool Settings
+    max_connections_per_host: int = Field(default=10, ge=1, le=50, description="Maximum HTTP connections per host")
+    connection_pool_timeout_seconds: int = Field(default=60, ge=10, le=300, description="Connection pool timeout in seconds")
+    enable_http2: bool = Field(default=False, description="Enable HTTP/2 support (experimental)")
+    
+    # Monitoring and Logging
+    enable_performance_metrics: bool = Field(default=False, description="Enable VFS performance metrics collection")
+    log_slow_requests_threshold_seconds: float = Field(default=5.0, ge=0.5, le=60.0, description="Log requests slower than this threshold")
+    enable_bandwidth_monitoring: bool = Field(default=False, description="Monitor and log bandwidth usage")
+    
+    # File Handle Management
+    max_open_files: int = Field(default=1000, ge=100, le=10000, description="Maximum number of open file handles")
+    file_handle_timeout_seconds: int = Field(default=300, ge=60, le=3600, description="Timeout for idle file handles")
+    enable_file_handle_pooling: bool = Field(default=True, description="Reuse file handles when possible")
+    
+    @field_validator("readahead_buffer_mb")
+    def validate_readahead_buffer(cls, v):
+        if v < 1:
+            raise ValueError("readahead_buffer_mb must be at least 1 MB")
+        if v > 512:
+            raise ValueError("readahead_buffer_mb cannot exceed 512 MB")
+        return v
+    
+    @field_validator("max_buffer_mb")
+    def validate_max_buffer(cls, v, info):
+        min_buffer = info.data.get('min_buffer_mb', 1)
+        if v < min_buffer:
+            raise ValueError(f"max_buffer_mb ({v}) must be >= min_buffer_mb ({min_buffer})")
+        return v
 
 # Content Services
 

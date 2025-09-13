@@ -55,6 +55,7 @@ class FilesystemService:
                 mountpoint=str(self.settings.mount_path),
                 providers=providers,
                 debug_fuse=self.settings.debug_fuse,
+                filesystem_settings=self.settings,
             )
 
         except ImportError as e:

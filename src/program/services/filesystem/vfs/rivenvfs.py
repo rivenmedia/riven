@@ -91,7 +91,8 @@ class RivenVFS(pyfuse3.Operations):
     enable_writeback_cache = True
 
     def __init__(self, mountpoint: str, db_path: str = None,
-                 providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
+                 providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False,
+                 filesystem_settings=None) -> None:
         """
         Initialize the Riven Virtual File System.
 
@@ -113,15 +114,34 @@ class RivenVFS(pyfuse3.Operations):
         self._inode_to_path: Dict[int, str] = {pyfuse3.ROOT_INODE: "/"}
         self._next_inode = pyfuse3.ROOT_INODE + 1
 
+        # Load filesystem settings or use defaults
+        self.fs_settings = filesystem_settings
+        
         # URL cache for provider links with automatic expiration
         self._url_cache: Dict[str, Dict[str, object]] = {}
-        self.url_cache_ttl = 15 * 60  # 15 minutes
+        self.url_cache_ttl = (self.fs_settings.url_cache_ttl_minutes if self.fs_settings else 15) * 60
 
         # Per-path locks to serialize HTTP requests
         self._request_locks: Dict[str, trio.Lock] = {}
+        self.enable_request_serialization = self.fs_settings.enable_request_serialization if self.fs_settings else True
+        self.max_concurrent_requests_per_file = self.fs_settings.max_concurrent_requests_per_file if self.fs_settings else 1
 
         # Readahead buffer size for streaming optimization
-        self.readahead_size = 4 * 1024 * 1024  # 4 MiB
+        readahead_mb = self.fs_settings.readahead_buffer_mb if self.fs_settings else 4
+        self.readahead_size = readahead_mb * 1024 * 1024
+        
+        # HTTP timeout settings
+        self.http_timeout = self.fs_settings.http_timeout_seconds if self.fs_settings else 30
+        self.http_connect_timeout = self.fs_settings.http_connect_timeout_seconds if self.fs_settings else 5
+        self.http_low_speed_limit = (self.fs_settings.http_low_speed_limit_kbps if self.fs_settings else 10) * 1024
+        self.http_low_speed_time = self.fs_settings.http_low_speed_time_seconds if self.fs_settings else 15
+        
+        # FUSE cache settings
+        self.fuse_entry_timeout = self.fs_settings.fuse_entry_timeout_seconds if self.fs_settings else 300
+        self.fuse_attr_timeout = self.fs_settings.fuse_attr_timeout_seconds if self.fs_settings else 300
+        
+        # HTTP connection settings
+        self.enable_http_keepalive = self.fs_settings.enable_http_keepalive if self.fs_settings else True
 
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
@@ -587,8 +607,8 @@ class RivenVFS(pyfuse3.Operations):
             attrs = pyfuse3.EntryAttributes()
             attrs.st_ino = inode
             attrs.generation = 0
-            attrs.entry_timeout = 300
-            attrs.attr_timeout = 300
+            attrs.entry_timeout = self.fuse_entry_timeout
+            attrs.attr_timeout = self.fuse_attr_timeout
             attrs.st_uid = os.getuid() if hasattr(os, 'getuid') else 0
             attrs.st_gid = os.getgid() if hasattr(os, 'getgid') else 0
             attrs.st_blksize = 512
@@ -781,12 +801,12 @@ class RivenVFS(pyfuse3.Operations):
                     curl_handle.setopt(pycurl.NOSIGNAL, 1)
                     curl_handle.setopt(pycurl.FOLLOWLOCATION, 1)
                     curl_handle.setopt(pycurl.MAXREDIRS, 5)
-                    curl_handle.setopt(pycurl.CONNECTTIMEOUT, 5)
-                    curl_handle.setopt(pycurl.TIMEOUT, 30)
+                    curl_handle.setopt(pycurl.CONNECTTIMEOUT, self.http_connect_timeout)
+                    curl_handle.setopt(pycurl.TIMEOUT, self.http_timeout)
                     curl_handle.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
                     # Performance optimizations
-                    curl_handle.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
-                    curl_handle.setopt(pycurl.LOW_SPEED_TIME, 15)
+                    curl_handle.setopt(pycurl.LOW_SPEED_LIMIT, self.http_low_speed_limit)
+                    curl_handle.setopt(pycurl.LOW_SPEED_TIME, self.http_low_speed_time)
                     # Use HTTP/1.1 for better compatibility
                     curl_handle.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_1)
                     curl_handle.setopt(pycurl.HTTP09_ALLOWED, 1)
@@ -796,10 +816,11 @@ class RivenVFS(pyfuse3.Operations):
                 header_buffer = io.BytesIO()
 
                 curl_handle.setopt(pycurl.URL, target_url)
+                connection_header = 'Connection: keep-alive' if self.enable_http_keepalive else 'Connection: close'
                 curl_handle.setopt(pycurl.HTTPHEADER, [
                     f'Range: bytes={start}-{end}',
                     'Accept-Encoding: identity',
-                    'Connection: keep-alive',
+                    connection_header,
                 ])
                 curl_handle.setopt(pycurl.WRITEDATA, response_buffer)
                 curl_handle.setopt(pycurl.WRITEHEADER, header_buffer)
@@ -822,8 +843,8 @@ class RivenVFS(pyfuse3.Operations):
                         curl_handle.setopt(pycurl.NOSIGNAL, 1)
                         curl_handle.setopt(pycurl.FOLLOWLOCATION, 1)
                         curl_handle.setopt(pycurl.MAXREDIRS, 5)
-                        curl_handle.setopt(pycurl.CONNECTTIMEOUT, 5)
-                        curl_handle.setopt(pycurl.TIMEOUT, 30)
+                        curl_handle.setopt(pycurl.CONNECTTIMEOUT, self.http_connect_timeout)
+                        curl_handle.setopt(pycurl.TIMEOUT, self.http_timeout)
                         curl_handle.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
                         curl_handle.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0)
                         curl_handle.setopt(pycurl.IGNORE_CONTENT_LENGTH, 1)
@@ -893,8 +914,22 @@ class RivenVFS(pyfuse3.Operations):
 
                 raise pyfuse3.FUSEError(errno.EIO)
 
-            # Readahead buffer logic with request serialization
-            async with request_lock:
+            # Readahead buffer logic with optional request serialization
+            if self.enable_request_serialization:
+                async with request_lock:
+                    return await self._fetch_and_buffer_data(handle_info, fh, off, size, file_size, url, fetch_data_block)
+            else:
+                return await self._fetch_and_buffer_data(handle_info, fh, off, size, file_size, url, fetch_data_block)
+
+        except pyfuse3.FUSEError:
+            raise
+        except Exception as ex:
+            log.exception("read error fh=%s: %s", fh, ex)
+            raise pyfuse3.FUSEError(errno.EIO)
+
+    async def _fetch_and_buffer_data(self, handle_info, fh, off, size, file_size, url, fetch_data_block):
+        """Helper method to fetch and buffer data with configurable concurrency."""
+        try:
                 # Get current buffer state
                 buffer_data: bytes = handle_info.get("buffer_data", b"")
                 buffer_start: int = int(handle_info.get("buffer_start", 0))
@@ -935,13 +970,13 @@ class RivenVFS(pyfuse3.Operations):
                 data_length = request_end - request_start + 1
                 result = fetched_data[buffer_offset:buffer_offset + data_length]
 
-                log.debug(f"Read {len(result)} bytes from {path} at offset {off}")
+                log.debug(f"Read {len(result)} bytes from handle {fh} at offset {off}")
                 return result
 
         except pyfuse3.FUSEError:
             raise
         except Exception as ex:
-            log.exception("read error fh=%s: %s", fh, ex)
+            log.exception("_fetch_and_buffer_data error fh=%s: %s", fh, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def release(self, fh: int):
