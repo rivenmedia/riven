@@ -248,25 +248,15 @@ class MediaItem(db.Model):
         self.overseerr_id = getattr(other, "overseerr_id", None)
 
     def is_scraped(self) -> bool:
-        """Check if the item has at least one non-blacklisted stream using a targeted EXISTS query."""
-        s = object_session(self)
-        if not s:
-            return False
-        try:
-            q = select(
-                exists().where(
-                    StreamRelation.parent_id == self.id,
-                ).where(
-                    ~exists().where(
-                        StreamBlacklistRelation.media_item_id == self.id,
-                    ).where(
-                        StreamBlacklistRelation.stream_id == StreamRelation.child_id
-                    )
-                )
-            )
-            return bool(s.execute(q).scalar())
-        except Exception:
-            return False
+        """Check if the item has been scraped."""
+        session = object_session(self)
+        if session and session.is_active:
+            try:
+                session.refresh(self, attribute_names=["blacklisted_streams"])
+                return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
+            except:
+                ...
+        return False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert item to dictionary (API response)"""
