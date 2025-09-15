@@ -47,7 +47,7 @@ plexapi = {git = "https://github.com/simonc56/python-plexapi.git", rev = "bef199
 pyright = "^1.1.352"
 pyperf = "^2.2.0"
 pytest = "^8.3.2"
-pytest-mock = "^3.14.0"
+pytest-mock = "^3.15.0"
 responses = "0.25.3"
 pyfakefs = "^5.4.1"
 ruff = "^0.7.2"
