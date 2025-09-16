@@ -90,8 +90,7 @@ class RivenVFS(pyfuse3.Operations):
 
     enable_writeback_cache = True
 
-    def __init__(self, mountpoint: str, db_path: str = None,
-                 providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
+    def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
         """
         Initialize the Riven Virtual File System.
 
@@ -121,8 +120,10 @@ class RivenVFS(pyfuse3.Operations):
         self._request_locks: Dict[str, trio.Lock] = {}
         # Per-path network semaphore to allow limited parallel fetches
         self._request_semaphores: Dict[str, trio.Semaphore] = {}
-        self.max_concurrent_fetches = 3
-
+        # Concurrent fetch limit per file path - increased from 3 to 12 for better streaming performance
+        # Higher values allow more simultaneous range requests per file when multiple clients
+        # are reading the same file or when aggressive buffering/seeking occurs
+        self.max_concurrent_fetches = 12
 
         # Readahead buffer size for streaming optimization (fixed chunk)
         self.readahead_size = 32 * 1024 * 1024  # 32 MiB
