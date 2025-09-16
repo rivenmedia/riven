@@ -1,18 +1,18 @@
 services:
-    riven-frontend:
-        image: spoked/riven-frontend:latest
-        container_name: riven-frontend
-        restart: unless-stopped
-        tty: true
-        environment:
-            - TZ=Etc/UTC
-        ports:
-            - 3000:3000
-        volumes:
-            - /path/to/riven/frontend:/riven/config # You need to mount a config directory here (different from riven)
-        depends_on:
-            riven:
-                condition: service_started
+    # riven-frontend:
+    #     image: spoked/riven-frontend:latest
+    #     container_name: riven-frontend
+    #     restart: unless-stopped
+    #     tty: true
+    #     environment:
+    #         - TZ=Etc/UTC
+    #     ports:
+    #         - 3000:3000
+    #     volumes:
+    #         - /path/to/riven/frontend:/riven/config # You need to mount a config directory here (different from riven)
+    #     depends_on:
+    #         riven:
+    #             condition: service_started
 
     riven:
         image: spoked/riven:latest
@@ -21,6 +21,10 @@ services:
         ports:
             - "8080:8080"
         tty: true
+        cap_add:
+            - SYS_ADMIN
+        security_opt:
+            - apparmor:unconfined
         environment:
             - PUID=1000
             - PGID=1000
