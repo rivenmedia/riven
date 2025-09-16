@@ -693,17 +693,16 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
 
                 indexed_item.store_state()
                 session.add(indexed_item)
-                item_id = indexed_item.id
                 if not cancellation_event.is_set():
                     try:
                         session.commit()
                     except IntegrityError as e:
                         if "duplicate key value violates unique constraint" in str(e):
-                            logger.debug(f"Item with ID {item_id} was added by another process, skipping")
+                            logger.debug(f"Item with ID {event.item_id} was added by another process, skipping")
                             session.rollback()
-                            return item_id
+                            return None
                         raise
-                return item_id
+                return indexed_item.id
     else:
         # Content services dont pass events
         for i in fn():

@@ -5,8 +5,8 @@ from typing import Any, List, Optional, Self, TYPE_CHECKING
 import sqlalchemy
 from loguru import logger
 from PTT import parse_title
-from sqlalchemy import Index, exists, select
-from sqlalchemy.orm import Mapped, aliased, mapped_column, object_session, relationship
+from sqlalchemy import Index
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
@@ -14,7 +14,7 @@ from program.media.state import States
 from program.media.subtitle import Subtitle
 
 from ..db.db_functions import clear_streams, set_stream_blacklisted
-from .stream import Stream, StreamBlacklistRelation, StreamRelation
+from .stream import Stream
 
 if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
-    id: Mapped[str] = mapped_column(sqlalchemy.String, primary_key=True)
+    id: Mapped[str] = mapped_column(sqlalchemy.Integer, primary_key=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -82,8 +82,6 @@ class MediaItem(db.Model):
     def __init__(self, item: dict | None) -> None:
         if item is None:
             return
-        self.id = self.__generate_composite_key(item)
-
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
         self.requested_id = item.get("requested_id")
@@ -119,29 +117,6 @@ class MediaItem(db.Model):
 
         # Post-processing
         self.subtitles = item.get("subtitles", [])
-
-    @staticmethod
-    def __generate_composite_key(item: dict) -> str | None:
-        """Generate a composite key for the item."""
-        item_type = item.get("type", "unknown")
-
-        if item_type == "movie":
-            if tmdb_id := item.get("tmdb_id"):
-                return f"tmdb_movie_{tmdb_id}"
-
-        elif item_type in ["show", "season", "episode"]:
-            if tvdb_id := item.get("tvdb_id"):
-                return f"tvdb_{item_type}_{tvdb_id}"
-
-        # For generic media items, try to determine type
-        elif item_type == "mediaitem":
-            if item.get("seasons") or hasattr(item, "seasons"):
-                if tvdb_id := item.get("tvdb_id"):
-                    return f"tvdb_show_{tvdb_id}"
-            elif tmdb_id := item.get("tmdb_id"):
-                return f"tmdb_movie_{tmdb_id}"
-
-        return None
 
     def store_state(self, given_state=None) -> tuple[States, States]:
         """Store the state of the item."""

@@ -17,7 +17,8 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem import FilesystemService
-from program.types import Event
+from program.services.scrapers import Scraping
+from program.services.downloaders import Downloader
 from program.types import Event
 
 from ..models.shared import MessageResponse
@@ -187,12 +188,13 @@ async def get_items(
 @router.post(
     "/add",
     summary="Add Media Items",
-    description="Add media items with bases on TMDB ID or TVDB ID",
+    description="""Add media items with bases on TMDB ID or TVDB ID,
+                   you can add multiple IDs by comma separating them.""",
     operation_id="add_items",
 )
 async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: Optional[str] = None, media_type: Optional[Literal["movie", "tv"]] = None) -> MessageResponse:
-    if (not tmdb_ids and not tvdb_ids) or not media_type:
-        raise HTTPException(status_code=400, detail="No ID(s) or media type provided")
+    if not tmdb_ids and not tvdb_ids:
+        raise HTTPException(status_code=400, detail="No ID(s) provided")
 
     if tmdb_ids:
         all_tmdb_ids = [id.strip() for id in tmdb_ids.split(",")] if "," in tmdb_ids else [tmdb_ids.strip()]
@@ -209,9 +211,9 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
     added_count = 0
     items = []
 
-    with db.Session() as session:
+    with db.Session():
         for id in all_tmdb_ids:
-            if media_type == "movie" and not db_functions.item_exists_by_any_id(tmdb_id=id):
+            if not db_functions.item_exists_by_any_id(tmdb_id=id):
                 item = MediaItem({"tmdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
                 if item:
                     items.append(item)
@@ -219,7 +221,7 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
                 logger.debug(f"Item with TMDB ID {id} already exists")
 
         for id in all_tvdb_ids:
-            if media_type == "tv" and not db_functions.item_exists_by_any_id(tvdb_id=id):
+            if db_functions.item_exists_by_any_id(tvdb_id=id):
                 item = MediaItem({"tvdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
                 if item:
                     items.append(item)
@@ -240,22 +242,13 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
     operation_id="get_item",
 )
 async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"] = None, with_streams: Optional[bool] = False) -> dict:
-    if not id or not media_type:
+    if not id:
         raise HTTPException(status_code=400, detail="No ID or media type provided")
 
     with db.Session() as session:
-        if media_type == "movie":
-            query = select(MediaItem).where(
-                MediaItem.tmdb_id == id,
-                MediaItem.type.in_(["movie"])
-            )
-        elif media_type == "tv":
-            query = select(MediaItem).where(
-                MediaItem.tvdb_id == id,
-                MediaItem.type.in_(["show"])
-            )
-        else:
-            raise HTTPException(status_code=400, detail="Invalid media type")
+        query = select(MediaItem).where(
+            MediaItem.tmdb_id == id,
+        )
 
         try:
             item = session.execute(query).unique().scalar_one_or_none()
