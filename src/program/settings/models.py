@@ -76,8 +76,7 @@ class DownloadersModel(Observable):
 
 
 class FilesystemModel(Observable):
-    mount_path: Path = Path(".data/mount")
-    library_path: Path = Path("/mount")
+    mount_path: Path = Path("/path/to/riven/mount")
     debug_fuse: bool = False
     separate_anime_dirs: bool = False
 
@@ -117,6 +116,7 @@ class EmbyLibraryModel(Observable):
 
 class UpdatersModel(Observable):
     updater_interval: int = 120
+    library_path: Path = Path("/path/to/library/mount")
     plex: PlexLibraryModel = PlexLibraryModel()
     jellyfin: JellyfinLibraryModel = JellyfinLibraryModel()
     emby: EmbyLibraryModel = EmbyLibraryModel()

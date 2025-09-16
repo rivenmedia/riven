@@ -358,15 +358,6 @@ class MediaItem(db.Model):
         """Whether this item is available in the mounted VFS (safe, handles None)."""
         return self.filesystem_entry and self.filesystem_entry.available_in_vfs
 
-    @property
-    def mounted_vfs_path(self) -> Optional[str]:
-        """Absolute path in the mounted VFS if available, else None"""
-        if self.available_in_vfs:
-            from program.settings.manager import settings_manager as _sm
-            mount = _sm.settings.filesystem.library_path
-            return str(mount / self.filesystem_entry.path.lstrip('/'))
-        return None
-
     def get_top_imdb_id(self) -> str:
         """Get the imdb_id of the item at the top of the hierarchy."""
         if self.type == "season":

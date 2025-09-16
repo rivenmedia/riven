@@ -18,7 +18,7 @@ class EmbyUpdater:
         self.session = SmartSession(retries=3, backoff_factor=0.3)
         # Use same library path logic as PlexUpdater
         self.library_path = os.path.abspath(
-            os.path.dirname(settings_manager.settings.filesystem.library_path)
+            os.path.dirname(settings_manager.settings.updaters.library_path)
         )
         self.initialized = self.validate()
         if not self.initialized:

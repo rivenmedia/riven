@@ -18,7 +18,7 @@ class PlexUpdater:
     def __init__(self):
         self.key = "plexupdater"
         self.initialized = False
-        self.library_path = settings_manager.settings.filesystem.library_path
+        self.library_path = settings_manager.settings.updaters.library_path
         self.settings = settings_manager.settings.updaters.plex
         self.api = None
         self.sections: Dict[LibrarySection, List[str]] = {}
