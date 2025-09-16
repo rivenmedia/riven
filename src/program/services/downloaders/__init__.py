@@ -55,24 +55,12 @@ class Downloader:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if service is in cooldown due to circuit breaker
+        # TODO: This should most likely be in state transition.
         if self._service_cooldown_until and datetime.now() < self._service_cooldown_until:
             next_attempt = self._service_cooldown_until
             logger.warning(f"Downloader service in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
             yield (item, next_attempt)
             return
-
-        # Skip only based on item state; presence of a staging entry or active_stream alone should not skip
-        if item.last_state in [States.Completed, States.Symlinked, States.Downloaded]:
-            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has already been downloaded by another download session")
-            yield item
-
-        if item.is_parent_blocked():
-            logger.debug(f"Skipping {item.log_string} ({item.id}) as it has a blocked parent, or is a blocked item")
-            yield item
-
-        if not item.streams:
-            logger.debug(f"No streams available for {item.log_string} ({item.id})")
-            yield item
 
         try:
             download_success = False
