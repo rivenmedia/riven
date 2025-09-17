@@ -212,6 +212,61 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
 - When Riven stops, the FUSE mount unmounts and `/mount` may briefly appear empty inside the container; it will become FUSE again when Riven remounts. With proper propagation (host rshared + container rslave/rshared) and startup order, Plex should see the content return automatically without a restart. Enabling Plex’s “Automatically scan my library” can also help it pick up changes.
 
 ---
+---
+## RivenVFS and Caching
+
+### How the on‑disk cache is organized
+- Each cached block is identified by a key derived from the VFS path and the block start offset: `sha1("{path}|{start}")`.
+- To avoid too many files in one directory, the cache uses a two‑level fan‑out:
+  - The first two hex characters of the SHA‑1 become a subdirectory (e.g., `00/`, `0a/`, `0b/`).
+  - The file itself is named by the full SHA‑1 key.
+- Because the VFS path is baked into the key, blocks from different files never collide even if they share the same offsets.
+
+Example (pseudo):
+- Path: `/mount/movies/Inception (2010)/video.mkv`, start: `67108864`
+- Key: `sha1("/mount/movies/Inception (2010)/video.mkv|67108864") -> 0a9f...`
+- File stored at: `<cache_dir>/0a/0a9f...`
+
+### Storage modes
+- `memory`: Stores blocks only in process memory (fastest; nothing on disk).
+- `disk`: Stores blocks only on disk (persists across restarts).
+- `hybrid`: Reads/writes both; subsequent reads typically hit memory first, with disk as a warm backing store across restarts.
+
+If the configured disk cache dir isn’t writable, Riven falls back to `$XDG_CACHE_HOME/riven` or `~/.cache/riven`. If that also fails, it runs memory‑only and logs a warning.
+
+### What the settings do (MB units)
+- `vfs_cache_storage`: `"memory" | "disk" | "hybrid"`
+- `vfs_cache_disk_dir`: Directory to store on‑disk cache files (use a user‑writable path).
+- `vfs_cache_max_memory_mb`: Max memory cache size (MB). Hybrid/memory modes use this for in‑process LRU.
+- `vfs_cache_max_disk_mb`: Max disk cache size (MB). Disk/hybrid use this for on‑disk LRU.
+- `vfs_readahead_mb`: Size of sequential prefetch/readahead per stream (MB).
+- `ttl_seconds`: Optional expiry horizon when using `eviction = "TTL"` (default eviction is `LRU`).
+- Metrics are logged periodically (hits, misses, bytes, evictions) to help tune behavior.
+
+Notes:
+- Internally, fixed probing/contiguity heuristics are used; they are not user‑configurable to keep the UI simple.
+- The cache supports subrange hits: if your read starts inside a cached block, the cache can return a slice without refetching.
+
+### Clearing or inspecting the cache
+- Memory cache: cleared on process restart.
+- Disk cache: remove the directory configured by `vfs_cache_disk_dir` (safe to delete while Riven is stopped).
+
+### Will memory be freed on shutdown?
+Yes. The memory cache lives entirely in the Riven process; when the process exits, the OS frees that memory. In `hybrid`, the in‑memory tier is also cleared on exit. The disk tier persists until evicted by LRU/TTL or manually deleted.
+
+### Scaling profiles (auto | personal | server)
+- `vfs_scaling_profile`: Controls how RivenVFS tunes concurrency and buffering.
+  - `auto` (default): Detects effective concurrency and adjusts dynamically. With 1–2 streams, behaves like personal (large readahead, permissive concurrency). As streams grow, caps readahead and emphasizes fairness.
+  - `personal`: Aggressive single‑user settings. Larger per‑stream readahead (e.g., 64 MiB), higher per‑file concurrency, minimal batching.
+  - `server`: Multi‑user settings. Caps per‑stream readahead (e.g., 32 MiB), enforces global and per‑file concurrency limits for fairness.
+- Global & per‑file concurrency: RivenVFS limits total concurrent HTTP range requests (global) and per‑file parallelism. In `auto`, these remain permissive for personal use and tighten as active streams increase.
+- Prefetch: In `auto/server`, prefetching remains enabled but the readahead size is capped under higher concurrency to keep memory stable.
+
+Notes:
+- These profiles are designed to avoid hurting single‑user performance. In `auto`, the micro‑batch window is effectively zero for one stream, so reads are immediate.
+- If you run Riven as a personal setup, you can explicitly set `personal` for maximum aggressiveness, though `auto` already behaves similarly at low concurrency.
+
+
 ## Development
 
 Welcome to the development section! Here, you'll find all the necessary steps to set up your development environment and start contributing to the project.

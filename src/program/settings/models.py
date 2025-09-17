@@ -80,6 +80,20 @@ class FilesystemModel(Observable):
     debug_fuse: bool = False
     separate_anime_dirs: bool = False
 
+    # RivenVFS cache, buffering, and scaling settings
+    vfs_cache_storage: str = "memory"  # memory|disk|hybrid
+    vfs_cache_memory_dir: Path = Path("/dev/shm/riven-cache")
+    vfs_cache_disk_dir: Path = Path("/var/cache/riven")
+    # Sizes now configured in megabytes for clarity
+    vfs_cache_max_memory_mb: int = 2048  # 2 GiB
+    vfs_cache_max_disk_mb: int = 10240   # 10 GiB
+    vfs_cache_ttl_seconds: int = 2 * 60 * 60
+    vfs_cache_eviction: str = "LRU"  # LRU|TTL
+    vfs_cache_metrics: bool = True
+    vfs_readahead_mb: int = 64
+    # Scaling profile: auto (default) | personal | server
+    vfs_scaling_profile: str = "auto"
+
 # Content Services
 
 

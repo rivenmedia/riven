@@ -39,6 +39,90 @@ import logging
 import subprocess
 import io
 from typing import Dict, Optional
+from pathlib import Path
+
+
+import urllib.parse
+import threading
+
+class ProviderHTTP:
+    """
+    Shared pycurl-based HTTP client with connection reuse via CurlShare and a simple
+    per-host easy-handle pool. No rate limiting/token buckets here; focus is on
+    reusing TCP/TLS sessions across requests to reduce handshake latency.
+    """
+    def __init__(self) -> None:
+        self._share = pycurl.CurlShare()
+        try:
+            # Share connection cache, DNS, and SSL sessions across easy handles
+            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_CONNECT)
+            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_DNS)
+            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_SSL_SESSION)
+        except Exception:
+            # Older libcurl may not support all; continue with best effort
+            pass
+        self._pool: dict[str, list[pycurl.Curl]] = {}
+        self._lock = threading.Lock()
+
+    def _configure_common(self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False) -> None:
+        c.setopt(pycurl.NOSIGNAL, 1)
+        c.setopt(pycurl.FOLLOWLOCATION, 1)
+        c.setopt(pycurl.MAXREDIRS, 5)
+        c.setopt(pycurl.CONNECTTIMEOUT, 5)
+        c.setopt(pycurl.TIMEOUT, 30)
+        c.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
+        c.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
+        c.setopt(pycurl.LOW_SPEED_TIME, 15)
+        c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0 if http10 else pycurl.CURL_HTTP_VERSION_1_1)
+        c.setopt(pycurl.HTTP09_ALLOWED, 1)
+        try:
+            c.setshare(self._share)
+        except Exception:
+            pass
+        if ignore_content_length:
+            try:
+                c.setopt(pycurl.IGNORE_CONTENT_LENGTH, 1)
+            except Exception:
+                pass
+
+    def _acquire(self, host: str) -> pycurl.Curl:
+        with self._lock:
+            lst = self._pool.get(host)
+            if lst:
+                return lst.pop()
+        return pycurl.Curl()
+
+    def _release(self, host: str, c: pycurl.Curl) -> None:
+        with self._lock:
+            self._pool.setdefault(host, []).append(c)
+
+    def perform_range(self, target_url: str, start: int, end: int, http10: bool = False, ignore_content_length: bool = False) -> tuple[int, bytes, str]:
+        parsed = urllib.parse.urlparse(target_url)
+        host = parsed.netloc or ""
+        c = self._acquire(host)
+        response_buffer = io.BytesIO()
+        header_buffer = io.BytesIO()
+        try:
+            self._configure_common(c, http10=http10, ignore_content_length=ignore_content_length)
+            c.setopt(pycurl.URL, target_url)
+            c.setopt(pycurl.HTTPHEADER, [
+                f'Range: bytes={start}-{end}',
+                'Accept-Encoding: identity',
+                'Connection: keep-alive',
+            ])
+            c.setopt(pycurl.WRITEDATA, response_buffer)
+            c.setopt(pycurl.WRITEHEADER, header_buffer)
+            c.perform()
+            status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
+            return status_code, response_buffer.getvalue(), header_buffer.getvalue().decode('utf-8', errors='replace')
+        finally:
+            # Avoid keeping large buffers referenced
+            try:
+                c.setopt(pycurl.WRITEDATA, None)
+                c.setopt(pycurl.WRITEHEADER, None)
+            except Exception:
+                pass
+            self._release(host, c)
 
 import pyfuse3
 import trio
@@ -47,6 +131,9 @@ import io
 
 from .db import VFSDatabase
 from .providers import ProviderManager
+
+from program.settings.manager import settings_manager
+from .cache import CacheManager, CacheConfig
 
 log = logger
 
@@ -104,6 +191,33 @@ class RivenVFS(pyfuse3.Operations):
         """
         super().__init__()
         self.providers: Dict[str, object] = providers or {}
+        # Initialize VFS cache from settings
+        try:
+            fs = settings_manager.settings.filesystem
+        except Exception:
+            fs = None
+        # Backward-compat: accept legacy *_bytes fields by converting to MB
+        mem_mb = getattr(fs, "vfs_cache_max_memory_mb", None)
+        if mem_mb is None:
+            mem_bytes = int(getattr(fs, "vfs_cache_max_memory_bytes", 2 * 1024 * 1024 * 1024))
+            mem_mb = max(1, mem_bytes // (1024 * 1024))
+        disk_mb = getattr(fs, "vfs_cache_max_disk_mb", None)
+        if disk_mb is None:
+            disk_bytes = int(getattr(fs, "vfs_cache_max_disk_bytes", 10 * 1024 * 1024 * 1024))
+            disk_mb = max(1, disk_bytes // (1024 * 1024))
+
+        cfg = CacheConfig(
+            storage=(getattr(fs, "vfs_cache_storage", "memory") or "memory"),
+            memory_dir=Path(getattr(fs, "vfs_cache_memory_dir", "/dev/shm/riven-cache")),
+            disk_dir=Path(getattr(fs, "vfs_cache_disk_dir", "/var/cache/riven")),
+            max_memory_bytes=int(mem_mb) * 1024 * 1024,
+            max_disk_bytes=int(disk_mb) * 1024 * 1024,
+            ttl_seconds=int(getattr(fs, "vfs_cache_ttl_seconds", 2 * 60 * 60)),
+            eviction=(getattr(fs, "vfs_cache_eviction", "LRU") or "LRU"),
+            metrics_enabled=bool(getattr(fs, "vfs_cache_metrics", True)),
+        )
+        self.cache = CacheManager(cfg)
+
         self.provider_manager = ProviderManager(self.providers)
         self.db = VFSDatabase(provider_manager=self.provider_manager)
 
@@ -120,9 +234,9 @@ class RivenVFS(pyfuse3.Operations):
         self._request_locks: Dict[str, trio.Lock] = {}
         # Per-path network semaphore to allow limited parallel fetches
         self._request_semaphores: Dict[str, trio.Semaphore] = {}
-        # Concurrent fetch limit per file path - increased from 3 to 12 for better streaming performance
-        # Higher values allow more simultaneous range requests per file when multiple clients
-        # are reading the same file or when aggressive buffering/seeking occurs
+        # Global network semaphore to cap total concurrent range requests
+        self._global_network_sem: trio.Semaphore | None = None
+        # Concurrent fetch limit per file path (tuned by scaling profile)
         self.max_concurrent_fetches = 12
 
         # Network/read heuristics
@@ -133,8 +247,30 @@ class RivenVFS(pyfuse3.Operations):
         self._shared_buffers: Dict[str, Dict] = {}
 
 
+        # Shared HTTP client (pycurl + CurlShare) for connection reuse
+        self.http = ProviderHTTP()
+
+        # Per-path micro-batching/coalescing state
+        self._coalesce: Dict[str, Dict] = {}
+
         # Readahead buffer size for streaming optimization (fixed chunk)
         self.readahead_size = 64 * 1024 * 1024  # 64 MiB (raised for high-bitrate)
+
+        # Scaling profile: auto | personal | server
+        self.scaling_profile = str(getattr(fs, "vfs_scaling_profile", "auto") or "auto").lower()
+
+        # Override readahead from settings (in MB); probe and contiguous thresholds stay fixed
+        try:
+            ra_mb = getattr(fs, "vfs_readahead_mb", None)
+            if ra_mb is None:
+                ra_bytes_legacy = int(getattr(fs, "vfs_readahead_bytes", 64 * 1024 * 1024))
+                ra_mb = max(1, ra_bytes_legacy // (1024 * 1024))
+            self.readahead_size = int(ra_mb) * 1024 * 1024
+        except Exception:
+            pass
+
+        # Apply profile defaults and initialize global semaphore
+        self._apply_profile_defaults()
 
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
@@ -180,7 +316,7 @@ class RivenVFS(pyfuse3.Operations):
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
         self._thread.start()
-        log.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
+        log.log("VFS", f"RivenVFS mounted at {self._mountpoint} (scaling_profile={self.scaling_profile})")
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
@@ -764,54 +900,138 @@ class RivenVFS(pyfuse3.Operations):
             c.setopt(pycurl.IGNORE_CONTENT_LENGTH, 1)
 
     def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
-        response_buffer = io.BytesIO()
-        header_buffer = io.BytesIO()
-        curl_handle = pycurl.Curl()
         try:
-            self._configure_curl(curl_handle, http10=False, ignore_content_length=False)
-            curl_handle.setopt(pycurl.URL, target_url)
-            curl_handle.setopt(pycurl.HTTPHEADER, [
-                f'Range: bytes={start}-{end}',
-                'Accept-Encoding: identity',
-                'Connection: keep-alive',
-            ])
-            curl_handle.setopt(pycurl.WRITEDATA, response_buffer)
-            curl_handle.setopt(pycurl.WRITEHEADER, header_buffer)
-            curl_handle.perform()
-            status_code = int(curl_handle.getinfo(pycurl.RESPONSE_CODE))
-            return status_code, response_buffer.getvalue()
+            status_code, body, _ = self.http.perform_range(target_url, start, end, http10=False, ignore_content_length=False)
+            return status_code, body
         except pycurl.error as e:
-            headers = header_buffer.getvalue().decode('utf-8', errors='replace')
             log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
-            log.debug(f"Response headers: {headers}")
-            # Content-Length workaround
+            # Content-Length workaround (HTTP/1.0 + ignore length)
             if e.args and e.args[0] == 8:
-                response_buffer2 = io.BytesIO()
-                header_buffer2 = io.BytesIO()
-                curl_handle2 = pycurl.Curl()
+                status_code, body, _ = self.http.perform_range(target_url, start, end, http10=True, ignore_content_length=True)
+                log.info(f"Content-Length workaround successful for {target_url}")
+                return status_code, body
+            raise
+        except Exception:
+            raise
+
+    def _micro_batch_window_ms(self) -> int:
+        try:
+            if self.scaling_profile == "personal":
+                return 0
+            if self.scaling_profile == "server":
+                return 8
+            # auto
+            return 5 if self._estimate_active_streams() > 1 else 0
+        except Exception:
+            return 0
+
+    async def _coalesce_enqueue(self, path: str, url: str, req_start: int, req_end: int, file_size: Optional[int]) -> None:
+        state = self._coalesce.get(path)
+        if state is None:
+            state = {"pending": [], "lock": trio.Lock(), "running": False}
+            self._coalesce[path] = state
+        pending = state["pending"]
+        lock: trio.Lock = state["lock"]
+        evt = trio.Event()
+        item = {"start": int(req_start), "end": int(req_end), "evt": evt}
+        async with lock:
+            pending.append(item)
+            if not state.get("running"):
+                state["running"] = True
+                trio.lowlevel.spawn_system_task(self._coalesce_worker, path, url, file_size)
+        await evt.wait()
+
+    async def _coalesce_worker(self, path: str, url: str, file_size: Optional[int]) -> None:
+        try:
+            window = max(0, int(self._micro_batch_window_ms()))
+            if window > 0:
+                await trio.sleep(window / 1000.0)
+            state = self._coalesce.get(path)
+            if not state:
+                return
+            lock: trio.Lock = state["lock"]
+            async with lock:
+                items = list(state["pending"])
+                state["pending"] = []
+                state["running"] = False
+            if not items:
+                return
+            # Group by proximity and span cap
+            items.sort(key=lambda x: x["start"])
+            groups: list[list[dict]] = []
+            cur: list[dict] = []
+            cur_min = None
+            cur_max = None
+            for it in items:
+                s = int(it["start"]) ; e = int(it["end"])
+                if cur and cur_max is not None:
+                    near = (s - cur_max) <= self.near_contiguous_threshold
+                    proposed_min = cur_min if cur_min is not None else s
+                    proposed_max = max(cur_max, e)
+                    span = proposed_max - proposed_min + 1
+                    if near and span <= self.readahead_size:
+                        cur.append(it)
+                        cur_max = proposed_max
+                        cur_min = proposed_min
+                    else:
+                        groups.append(cur)
+                        cur = [it]
+                        cur_min = s
+                        cur_max = e
+                else:
+                    cur = [it]
+                    cur_min = s
+                    cur_max = e
+            if cur:
+                groups.append(cur)
+
+            # Fetch each group and satisfy waiters
+            network_sem = self._request_semaphores.get(path)
+            if network_sem is None:
+                network_sem = self._request_semaphores[path] = trio.Semaphore(self.max_concurrent_fetches)
+            for grp in groups:
+                gmin = min(int(x["start"]) for x in grp)
+                gmax = max(int(x["end"]) for x in grp)
+                fetch_start = gmin
+                fetch_end = gmin + min(self.readahead_size, (gmax - gmin + 1)) - 1
+                if file_size is not None:
+                    fetch_end = min(fetch_end, int(file_size) - 1)
+                # Fetch under semaphores
+                sems = []
+                if self._global_network_sem is not None:
+                    sems.append(self._global_network_sem)
+                sems.append(network_sem)
                 try:
-                    self._configure_curl(curl_handle2, http10=True, ignore_content_length=True)
-                    curl_handle2.setopt(pycurl.URL, target_url)
-                    curl_handle2.setopt(pycurl.HTTPHEADER, [
-                        f'Range: bytes={start}-{end}',
-                        'Accept-Encoding: identity',
-                        'Connection: close',
-                    ])
-                    curl_handle2.setopt(pycurl.WRITEDATA, response_buffer2)
-                    curl_handle2.setopt(pycurl.WRITEHEADER, header_buffer2)
-                    curl_handle2.perform()
-                    status_code = int(curl_handle2.getinfo(pycurl.RESPONSE_CODE))
-                    log.info(f"Content-Length workaround successful for {target_url}")
-                    return status_code, response_buffer2.getvalue()
-                finally:
+                    if len(sems) == 2:
+                        async with sems[0]:
+                            async with sems[1]:
+                                data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
+                    else:
+                        async with network_sem:
+                            data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
+                except Exception:
+                    data = b""
+                if data:
+                    # Populate cache for subrange reads
+                    self.cache.put(path, fetch_start, data)
+                # Signal all waiters (slice if possible so followers can short-circuit)
+                for it in grp:
                     try:
-                        curl_handle2.close()
+                        it["evt"].set()
                     except Exception:
                         pass
-            raise
-        finally:
+        except Exception:
+            # Best-effort coalescer; errors must not break readers
             try:
-                curl_handle.close()
+                state = self._coalesce.get(path)
+                if state:
+                    for it in state.get("pending", []):
+                        try:
+                            it["evt"].set()
+                        except Exception:
+                            pass
+                    state["pending"] = []
+                    state["running"] = False
             except Exception:
                 pass
 
@@ -843,7 +1063,6 @@ class RivenVFS(pyfuse3.Operations):
                             # small backoff before retry
                             if attempt < len(backoffs):
                                 await trio.sleep(backoffs[attempt])
-                            continue
                 # Unexpected status
                 raise pyfuse3.FUSEError(errno.EIO)
             except pycurl.error as e:
@@ -862,6 +1081,47 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.EIO)
         raise pyfuse3.FUSEError(errno.EIO)
 
+    def _estimate_active_streams(self) -> int:
+        try:
+            # Count distinct paths among open handles
+            paths = {h.get("path") for h in self._file_handles.values() if h.get("path")}
+            return len(paths)
+        except Exception:
+            return max(1, len(self._file_handles))
+
+    def _apply_profile_defaults(self) -> None:
+        # Set per-path and global concurrency, and cap readahead based on profile
+        prof = self.scaling_profile
+        if prof not in ("auto", "personal", "server"):
+            prof = "auto"
+            self.scaling_profile = prof
+        if prof == "personal":
+            self.max_concurrent_fetches = 12
+            self._global_network_sem = trio.Semaphore(256)
+            # Keep configured readahead
+        elif prof == "server":
+            self.max_concurrent_fetches = 6
+            self._global_network_sem = trio.Semaphore(256)
+            # Cap readahead to control memory per stream
+            self.readahead_size = min(self.readahead_size, 32 * 1024 * 1024)
+        else:  # auto
+            # Start permissive; we may adjust readahead dynamically in read()
+            self.max_concurrent_fetches = 10
+            self._global_network_sem = trio.Semaphore(256)
+
+    def _maybe_adjust_dynamic_scaling(self) -> None:
+        if self.scaling_profile != "auto":
+            return
+        active = self._estimate_active_streams()
+        # Tune readahead based on active streams (simple heuristic)
+        if active <= 2:
+            target = max(self.readahead_size, 64 * 1024 * 1024)
+        elif active <= 10:
+            target = min(max(32 * 1024 * 1024, self.readahead_size), 64 * 1024 * 1024)
+        else:
+            target = min(self.readahead_size, 32 * 1024 * 1024)
+        self.readahead_size = target
+
     async def _prefetch_task(self, path: str, url: str, fh: int, start: int, end: int) -> None:
         try:
             data: bytes = await self._fetch_data_block(path, url, start, end)
@@ -869,6 +1129,9 @@ class RivenVFS(pyfuse3.Operations):
             if not handle_info:
                 return
             buffer_lock: trio.Lock = handle_info.get("buffer_lock") or trio.Lock()
+            # Populate global cache with the shared-prefetched block
+            self.cache.put(path, start, data)
+
             async with buffer_lock:
                 # If current buffer already advanced past this range, drop it
                 if int(handle_info.get("buffer_end", 0)) > start:
@@ -891,6 +1154,9 @@ class RivenVFS(pyfuse3.Operations):
         try:
             data: bytes = await self._fetch_data_block(path, url, start, end)
             shared = self._shared_buffers.get(path)
+            # Populate global cache with the shared-prefetched block
+            self.cache.put(path, start, data)
+
             if not shared:
                 return
             buffer_lock: trio.Lock = shared.get("buffer_lock") or trio.Lock()
@@ -917,6 +1183,12 @@ class RivenVFS(pyfuse3.Operations):
     async def read(self, fh: int, off: int, size: int) -> bytes:
         """Read data from a file using HTTP range requests."""
         try:
+            # Periodically log cache stats
+            try:
+                self.cache.maybe_log_stats()
+            except Exception:
+                pass
+
             # Get file handle info
             handle_info = self._file_handles.get(fh) or {}
             if not handle_info:
@@ -957,6 +1229,17 @@ class RivenVFS(pyfuse3.Operations):
             # Concurrency controls: per-path network semaphore and per-handle buffer lock
             network_sem = self._request_semaphores.setdefault(path, trio.Semaphore(self.max_concurrent_fetches))
             buffer_lock = handle_info.setdefault("buffer_lock", trio.Lock())
+            # Compute request range for this read
+            request_start_sc = off
+            request_end_sc = off + size - 1 if size > 0 else off
+            if file_size is not None:
+                request_end_sc = min(request_end_sc, file_size - 1)
+
+            # Global cache check before touching shared/per-handle buffers
+            cached_bytes = self.cache.get(path, request_start_sc, request_end_sc)
+            if cached_bytes is not None:
+                return cached_bytes
+
 
             # Per-path shared buffer (shared across multiple file handles)
             shared = self._shared_buffers.setdefault(path, {
@@ -1068,6 +1351,31 @@ class RivenVFS(pyfuse3.Operations):
                 if file_size is not None:
                     fetch_end = min(fetch_end, file_size - 1)
 
+                # Micro-batching / coalescing (only when not contiguous)
+                try:
+                    enable_coalesce = (self.scaling_profile == "server") or (
+                        self.scaling_profile == "auto" and self._estimate_active_streams() > 1
+                    )
+                except Exception:
+                    enable_coalesce = False
+                if enable_coalesce and not contiguous:
+                    try:
+                        await self._coalesce_enqueue(path, url, request_start, request_end, file_size)
+                        # After coalesced fetch, attempt to serve from buffer or cache
+                        async with buffer_lock:
+                            buffer_data_post: bytes = handle_info.get("buffer_data", b"")
+                            buffer_start_post: int = int(handle_info.get("buffer_start", 0))
+                            buffer_end_post: int = int(handle_info.get("buffer_end", 0))
+                            if (buffer_data_post and request_start >= buffer_start_post and (request_end + 1) <= buffer_end_post):
+                                off = request_start - buffer_start_post
+                                ln = request_end - request_start + 1
+                                return buffer_data_post[off:off + ln]
+                        cache_hit = self.cache.get(path, request_start, size)
+                        if cache_hit is not None:
+                            return cache_hit
+                    except Exception:
+                        pass
+
                 # In-flight de-duplication per fetch_start
                 inflight = handle_info.setdefault("inflight", {})
                 wait_event = inflight.get(fetch_start)
@@ -1096,9 +1404,23 @@ class RivenVFS(pyfuse3.Operations):
                         fallback_fetch_end = min(fallback_fetch_end, file_size - 1)
                 # Fallback fetch (acts independently of inflight to recover)
                 fb_fetch_started = time.monotonic()
-                async with network_sem:
-                    fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
+                # Apply dynamic scaling (auto profile)
+                self._maybe_adjust_dynamic_scaling()
+                sems = []
+                if self._global_network_sem is not None:
+                    sems.append(self._global_network_sem)
+                sems.append(network_sem)
+                if len(sems) == 2:
+                    async with sems[0]:
+                        async with sems[1]:
+                            fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
+                else:
+                    async with network_sem:
+                        fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
                 fb_elapsed = max(time.monotonic() - fb_fetch_started, 1e-6)
+                # Populate cache with fallback-fetched block
+                self.cache.put(path, fallback_fetch_start, fb_data)
+
                 # Update buffer and return
                 async with buffer_lock:
                     handle_info["buffer_start"] = fallback_fetch_start
@@ -1113,9 +1435,23 @@ class RivenVFS(pyfuse3.Operations):
             evt_signaled = False
             try:
                 fetch_started = time.monotonic()
-                async with network_sem:
-                    fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
+                # Apply dynamic scaling (auto profile)
+                self._maybe_adjust_dynamic_scaling()
+                sems = []
+                if self._global_network_sem is not None:
+                    sems.append(self._global_network_sem)
+                sems.append(network_sem)
+                if len(sems) == 2:
+                    async with sems[0]:
+                        async with sems[1]:
+                            fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
+                else:
+                    async with network_sem:
+                        fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
                 fetch_elapsed = max(time.monotonic() - fetch_started, 1e-6)
+                # Populate cache with leader-fetched block
+                self.cache.put(path, fetch_start, fetched_data)
+
                 bytes_fetched = len(fetched_data)
 
                 # Update per-handle throughput metrics and log
