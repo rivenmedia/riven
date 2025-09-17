@@ -810,6 +810,7 @@ def hard_reset_database() -> None:
                 logger.log("DATABASE", f"Restored alembic version to: {current_version}")
             else:
                 # Stamp with head version if no previous version
+                from program.utils import root_dir
                 alembic_cfg = alembic.config.Config(root_dir / "src" / "alembic.ini")
                 alembic.command.stamp(alembic_cfg, "head")
                 logger.log("DATABASE", "Database stamped with head revision")

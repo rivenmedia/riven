@@ -704,6 +704,7 @@ async def reindex_item(request: Request, item_id: Optional[str] = None, tvdb_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
 
     try:
+        from program.services.indexers.composite import CompositeIndexer
         c_indexer = request.app.program.all_services[CompositeIndexer]
         item.indexed_at = None
         reindexed_item = next(c_indexer.run(item, log_msg=True))
