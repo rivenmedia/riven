@@ -262,13 +262,6 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             pass
 
-        # Remove empty mountpoint directory
-        try:
-            if os.path.exists(mountpoint) and not os.listdir(mountpoint):
-                os.rmdir(mountpoint)
-        except Exception:
-            pass
-
     async def _terminate_async(self) -> None:
         """Async helper to call pyfuse3.terminate() within the Trio loop."""
         try:

@@ -476,7 +476,7 @@ class MediaItem(db.Model):
 class Movie(MediaItem):
     """Movie class"""
     __tablename__ = "Movie"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     __mapper_args__ = {
         "polymorphic_identity": "movie",
         "polymorphic_load": "selectin",
@@ -499,7 +499,7 @@ class Movie(MediaItem):
 class Show(MediaItem):
     """Show class"""
     __tablename__ = "Show"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(
         back_populates="parent",
         foreign_keys="Season.parent_id",
@@ -640,8 +640,8 @@ class Show(MediaItem):
 class Season(MediaItem):
     """Season class"""
     __tablename__ = "Season"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
-    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True)
     parent: Mapped["Show"] = relationship(
         lazy=False,
         back_populates="seasons",
@@ -764,8 +764,8 @@ class Season(MediaItem):
 class Episode(MediaItem):
     """Episode class"""
     __tablename__ = "Episode"
-    id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
-    parent_id: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True)
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
         foreign_keys="Episode.parent_id",
