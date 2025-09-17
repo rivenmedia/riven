@@ -43,12 +43,8 @@ We are constantly adding features and improvements as we go along and squashing 
 - [Table of Contents](#table-of-contents)
 - [ElfHosted](#elfhosted)
 - [Self Hosted](#self-hosted)
-  - [Docker Compose](#docker-compose)
-    - [What is ORIGIN ?](#what-is-origin-)
-  - [Running outside of Docker](#running-outside-of-docker)
-    - [First terminal:](#first-terminal)
-    - [Second terminal:](#second-terminal)
-  - [Symlinking settings](#symlinking-settings)
+  - [Installation](#installation)
+  - [Plex](#plex)
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Initial Setup](#initial-setup)
@@ -59,7 +55,6 @@ We are constantly adding features and improvements as we go along and squashing 
   - [Submitting Changes](#submitting-changes)
   - [Code Formatting](#code-formatting)
   - [Dependency Management](#dependency-management)
-    - [Setting Up Your Environment](#setting-up-your-environment)
     - [Adding or Updating Dependencies](#adding-or-updating-dependencies)
   - [Running Tests and Linters](#running-tests-and-linters)
 - [License](#license)
@@ -86,65 +81,74 @@ Curious how it works? Here's an [explainer video](https://www.youtube.com/watch?
 
 ## Self Hosted
 
-### Docker Compose
+### Installation
 
-Copy over the contents of [docker-compose.yml](docker-compose.yml) to your `docker-compose.yml` file.
+1) Find a good place on your hard drive we can call mount from now on. For the sake of things I will call it /path/to/riven/mount.
 
-> [!NOTE]
-> You can check out the [docker-compose-full.yml](docker-compose-full.yml) file to get an idea of how things tie together.
+2) Copy over the contents of [docker-compose.yml](docker-compose.yml) to your `docker-compose.yml` file.
 
-Then run `docker compose up -d` to start the container in the background. You can then access the web interface at `http://localhost:3000` or whatever port and origin you set in the `docker-compose.yml` file.
+- Modify the PATHS in the `docker-compose.yml` file volumes to match your environment. When adding /mount to any container, make sure to add `:rshared,z` to the end of the volume mount. Like this:
+
+```yaml
+volumes:
+  - /path/to/riven/data:/riven/data
+  - /path/to/riven/mount:/mount:rshared,z
+```
+
+3) Make your mount directory a bind mount and mark it shared (run once per boot):
+
+```bash
+sudo mkdir -p /path/to/riven/mount
+sudo mount --bind /path/to/riven/mount /path/to/riven/mount
+sudo mount --make-rshared /path/to/riven/mount
+```
+
+- Verify propagation:
+
+```bash
+findmnt -T /path/to/riven/mount -o TARGET,PROPAGATION  # expect: shared or rshared
+```
 
 > [!TIP]
-> On first run, Riven creates a `settings.json` file in the `data` directory. You can edit the settings from frontend, or manually edit the file and restart the container or use `.env` or docker-compose environment variables to set the settings (see `.env.example` for reference).
+> **Make it automatic on boot**
+>
+>- Option A – systemd one-shot unit:
+>
+>```ini
+>[Unit]
+>Description=Make Riven data bind mount shared
+>After=local-fs.target
+>Before=docker.service
+>
+>[Service]
+>Type=oneshot
+>ExecStart=/usr/bin/mount --bind /path/to/riven/mount /path/to/riven/mount
+>ExecStart=/usr/bin/mount --make-rshared /path/to/riven/mount
+>RemainAfterExit=yes
+>
+>[Install]
+>WantedBy=multi-user.target
+>```
+>
+>Enable it:
+>
+>```bash
+>sudo systemctl enable --now riven-bind-shared.service
+>```
+>
+>- Option B – fstab entry:
+>
+>```fstab
+>/path/to/riven/mount  /path/to/riven/mount  none  bind,rshared  0  0
+>```
+>
+>Notes:
+>- Keep your FUSE mount configured with allow_other (Dockerfile sets user_allow_other in /etc/fuse.conf so you dont have to).
+>- On SELinux systems, add :z to the bind mount if needed.
 
-#### What is ORIGIN ?
-
-`ORIGIN` is the URL of the frontend on which you will access it from anywhere. If you are hosting Riven on a vps with IP address `123.45.67.890` then you will need to set the `ORIGIN` to `http://123.45.67.890:3000` (no trailing slash). Similarly, if using a domain name, you will need to set the `ORIGIN` to `http://riven.example.com:3000` (no trailing slash). If you change the port in the `docker-compose.yml` file, you will need to change it in the `ORIGIN` as well.
-
-### Running outside of Docker
-
-To run outside of docker you will need to have node (v18.13+) and python (3.10+) installed. Then clone the repository
-
-```sh
-git clone https://github.com/rivenmedia/riven.git && cd riven
-```
-
-and open two terminals in the root of the project and run the following commands in each.
-
-#### First terminal:
-
-```sh
-cd frontend
-npm install
-npm run build
-ORIGIN=http://localhost:3000 BACKEND_URL=http://127.0.0.1 node build
-```
-
-Read above for more info on `ORIGIN`.
-
-#### Second terminal:
-
-```sh
-pip install poetry
-poetry install --without dev
-poetry run python backend/main.py
-```
 
 ---
-
-### Symlinking settings
-
-`rclone_path` should point to your rclone mount that has your torrents on your host.
-
-`library_path` should point to the location of the mount in plex container
-
-```json
-    "symlink": {
-        "rclone_path": "/mnt/zurg",
-        "library_path": "/mnt/library"
-    }
-```
+## Plex
 
 Plex libraries that are currently required to have sections:
 
@@ -157,7 +161,6 @@ Plex libraries that are currently required to have sections:
 > Currently, these Plex library requirements are mandatory. However, we plan to make them customizable in the future to support additional libraries as per user preferences.
 
 ---
-
 ## Development
 
 Welcome to the development section! Here, you'll find all the necessary steps to set up your development environment and start contributing to the project.
@@ -166,10 +169,7 @@ Welcome to the development section! Here, you'll find all the necessary steps to
 
 Ensure you have the following installed on your system:
 
--   **Node.js** (v18.13+)
 -   **Python** (3.10+)
--   **Poetry** (for Python dependency management)
--   **Docker** (optional, for containerized development)
 
 ### Initial Setup
 
@@ -178,19 +178,22 @@ Ensure you have the following installed on your system:
     ```sh
     git clone https://github.com/rivenmedia/riven.git && cd riven
     ```
+  
+2. **Install Dependencies:**
 
-2. **Install Backend Dependencies:**
+    ```sh
+    apk add --no-cache \
+    openssl-dev \
+    fuse3-dev \
+    pkgconf \
+    fuse3
+    ```
+
+3. **Install Python Dependencies:**
 
     ```sh
     pip install poetry
     poetry install
-    ```
-
-3. **Install Frontend Dependencies:**
-    ```sh
-    cd frontend
-    npm install
-    cd ..
     ```
 
 ### Using `make` for Development
@@ -225,16 +228,10 @@ We provide a `Makefile` to simplify common development tasks. Here are some usef
 
 If you prefer not to use `make` and Docker, you can manually set up the development environment with the following steps:
 
-1. **Start the Backend:**
+1. **Start Riven:**
 
     ```sh
-    poetry run python backend/main.py
-    ```
-
-2. **Start the Frontend:**
-    ```sh
-    cd frontend
-    npm run dev
+    poetry run python src/main.py
     ```
 
 ### Additional Tips
@@ -244,14 +241,6 @@ If you prefer not to use `make` and Docker, you can manually set up the developm
 
     ```sh
     export ORIGIN=http://localhost:3000
-    ```
-
--   **Code Formatting:**
-    We use `Black` for Python and `Prettier` for JavaScript. Make sure to format your code before submitting any changes.
-
--   **Running Tests:**
-    ```sh
-    poetry run pytest
     ```
 
 By following these guidelines, you'll be able to set up your development environment smoothly and start contributing to the project. Happy coding!
@@ -269,19 +258,12 @@ We welcome contributions from the community! To ensure a smooth collaboration, p
 
 ### Code Formatting
 
--   **Backend**: We use [Black](https://black.readthedocs.io/en/stable/) for code formatting. Run `black` on your code before submitting.
--   **Frontend**: We use [Prettier](https://prettier.io/) for code formatting. Run `prettier` on your code before submitting.
--   **Line Endings**: Use CRLF line endings unless the file is a shell script or another format that requires LF line endings.
+-   We use [Black](https://black.readthedocs.io/en/stable/) for code formatting. Run `black` on your code before submitting.
+-   Use CRLF line endings unless the file is a shell script or another format that requires LF line endings.
 
 ### Dependency Management
 
 We use [Poetry](https://python-poetry.org/) for managing dependencies. Poetry simplifies dependency management by automatically handling package versions and resolving conflicts, ensuring consistency across all environments.
-
-#### Setting Up Your Environment
-
-1. **Install Poetry**: If you haven't already, install Poetry using `pip install poetry`.
-2. **Install Dependencies**: After cloning the repository, navigate to the project's root directory and run `poetry install`. This command installs all necessary dependencies as defined in the `pyproject.toml` file and creates an isolated virtual environment.
-3. **Activate Virtual Environment**: You can activate the virtual environment using `poetry shell` or run commands directly using `poetry run <command>`.
 
 #### Adding or Updating Dependencies
 

@@ -72,16 +72,13 @@ class DownloadersModel(Observable):
     torbox: TorBoxModel = TorBoxModel()
 
 
-# Symlink Service
+# Filesystem Service
 
 
-class SymlinkModel(Observable):
-    rclone_path: Path = Path()
-    library_path: Path = Path()
+class FilesystemModel(Observable):
+    mount_path: Path = Path("/path/to/riven/mount")
+    debug_fuse: bool = False
     separate_anime_dirs: bool = False
-    repair_symlinks: bool = False
-    repair_interval: float = 6  # hours
-
 
 # Content Services
 
@@ -119,6 +116,7 @@ class EmbyLibraryModel(Observable):
 
 class UpdatersModel(Observable):
     updater_interval: int = 120
+    library_path: Path = Path("/path/to/library/mount")
     plex: PlexLibraryModel = PlexLibraryModel()
     jellyfin: JellyfinLibraryModel = JellyfinLibraryModel()
     emby: EmbyLibraryModel = EmbyLibraryModel()
@@ -320,10 +318,8 @@ class AppModel(Observable):
     debug: bool = True
     debug_database: bool = False
     log: bool = True
-    force_refresh: bool = False
-    map_metadata: bool = True
     tracemalloc: bool = False
-    symlink: SymlinkModel = SymlinkModel()
+    filesystem: FilesystemModel = FilesystemModel()
     updaters: UpdatersModel = UpdatersModel()
     downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()

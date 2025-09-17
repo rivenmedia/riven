@@ -15,7 +15,6 @@ from program.services.downloaders import (
     RealDebridDownloader,
     TorBoxDownloader,
 )
-from program.services.libraries import SymlinkLibrary
 from program.services.scrapers import (
     Comet,
     Jackett,
@@ -26,7 +25,7 @@ from program.services.scrapers import (
     Zilean,
 )
 from program.services.updaters import Updater
-from program.symlink import Symlinker
+from program.services.filesystem import FilesystemService
 
 # Typehint classes
 Scraper = Union[Scraping, Torrentio, Mediafusion, Orionoid, Jackett, Zilean, Comet]
@@ -37,7 +36,7 @@ Downloader = Union[
     TorBoxDownloader,
 ]
 
-Service = Union[Content, SymlinkLibrary, Scraper, Downloader, Symlinker, Updater]
+Service = Union[Content, Scraper, Downloader, FilesystemService, Updater]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
 class ProcessedEvent:

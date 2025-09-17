@@ -8,7 +8,7 @@ from program.services.post_processing.subliminal import Subliminal
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.settings.manager import settings_manager
-from program.symlink import Symlinker
+from program.services.filesystem import FilesystemService
 from program.types import ProcessedEvent, Service
 
 
@@ -58,7 +58,7 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         items_to_submit = [existing_item]
 
     elif existing_item is not None and existing_item.last_state == States.Downloaded:
-        next_service = Symlinker
+        next_service = FilesystemService
         items_to_submit = [existing_item]
 
     elif existing_item is not None and existing_item.last_state == States.Symlinked:
@@ -70,7 +70,8 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         if emitted_by not in ["RetryItem", PostProcessing]:
             notify(existing_item)
         # Avoid multiple post-processing runs
-        if emitted_by != PostProcessing:
+        # if emitted_by != PostProcessing:
+        if True == False:
             if settings_manager.settings.post_processing.subliminal.enabled:
                 next_service = PostProcessing
                 if existing_item.type in ["movie", "episode"] and Subliminal.should_submit(existing_item):

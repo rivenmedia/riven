@@ -18,9 +18,7 @@ class PlexUpdater:
     def __init__(self):
         self.key = "plexupdater"
         self.initialized = False
-        self.library_path = os.path.abspath(
-            os.path.dirname(settings_manager.settings.symlink.library_path)
-        )
+        self.library_path = settings_manager.settings.updaters.library_path
         self.settings = settings_manager.settings.updaters.plex
         self.api = None
         self.sections: Dict[LibrarySection, List[str]] = {}
@@ -39,8 +37,8 @@ class PlexUpdater:
         if not self.settings.url:
             logger.error("Plex URL is not set!")
             return False
-        if not self.library_path or not os.path.exists(self.library_path):
-            logger.error("Library path is not set or does not exist!")
+        if not self.library_path:
+            logger.error("Library path is not set!")
             return False
 
         try:
@@ -79,9 +77,15 @@ class PlexUpdater:
             items_to_update = [item]
         elif isinstance(item, Show):
             for season in item.seasons:
-                items_to_update += [e for e in season.episodes if e.symlinked and e.get("update_folder") != "updated" ]
+                items_to_update += [
+                    e for e in season.episodes
+                    if e.available_in_vfs
+                ]
         elif isinstance(item, Season):
-            items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
+            items_to_update = [
+                e for e in item.episodes
+                if e.available_in_vfs
+            ]
 
         if not items_to_update:
             logger.debug(f"No items to update for {item.log_string}")
@@ -94,14 +98,22 @@ class PlexUpdater:
                 for path in paths:
                     if isinstance(item, (Show, Season)):
                         for episode in items_to_update:
-                            if episode.update_folder and str(path) in str(episode.update_folder):
-                                if self.api.update_section(section, episode):
+                            fe_path = episode.filesystem_entry.path if episode.filesystem_entry else None
+                            if not fe_path:
+                                continue
+                            abs_dir = os.path.dirname(os.path.join(self.library_path, fe_path.lstrip("/")))
+                            if abs_dir.startswith(path):
+                                if self.api.update_section(section, abs_dir):
                                     updated_episodes.append(episode)
                                     section_name = section.title
                                     updated = True
                     elif isinstance(item, (Movie, Episode)):
-                        if item.update_folder and str(path) in str(item.update_folder):
-                            if self.api.update_section(section, item):
+                        fe_path = item.filesystem_entry.path if item.filesystem_entry else None
+                        if not fe_path:
+                            continue
+                        abs_dir = os.path.dirname(os.path.join(self.library_path, fe_path.lstrip("/")))
+                        if abs_dir.startswith(path):
+                            if self.api.update_section(section, abs_dir):
                                 section_name = section.title
                                 updated = True
 

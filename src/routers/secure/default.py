@@ -132,8 +132,8 @@ async def get_stats(_: Request) -> StatsResponse:
     with db.Session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
-            movies_symlinks = conn.execute(select(func.count(Movie.id)).where(Movie.symlinked == True)).scalar_one()
-            episodes_symlinks = conn.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one()
+            movies_symlinks = conn.execute(select(func.count(Movie.id)).where(Movie.filesystem_entry_id.isnot(None))).scalar_one()
+            episodes_symlinks = conn.execute(select(func.count(Episode.id)).where(Episode.filesystem_entry_id.isnot(None))).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
 
             total_movies = conn.execute(select(func.count(Movie.id))).scalar_one()
@@ -211,11 +211,11 @@ class MountResponse(BaseModel):
     files: dict[str, str]
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files() -> MountResponse:
-    """Get all files in the rclone mount."""
+async def get_mount_files() -> MountResponse:
+    """Get all files in the Riven VFS mount."""
     import os
 
-    rclone_dir = settings_manager.settings.symlink.rclone_path
+    mount_dir = str(settings_manager.settings.filesystem.mount_path)
     file_map = {}
 
     def scan_dir(path):
@@ -226,7 +226,7 @@ async def get_rclone_files() -> MountResponse:
                 elif entry.is_dir():
                     scan_dir(entry.path)
 
-    scan_dir(rclone_dir)  # dict of `filename: filepath``
+    scan_dir(mount_dir)  # dict of `filename: filepath``
     return MountResponse(files=file_map)
 
 

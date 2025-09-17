@@ -1,4 +1,4 @@
-﻿from typing import TYPE_CHECKING, Dict, List, Optional, Union
+﻿from typing import Dict, List, Optional
 
 import regex
 from loguru import logger
@@ -8,9 +8,6 @@ from plexapi.server import PlexServer
 
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
-
-if TYPE_CHECKING:
-    from program.media.item import Episode, Movie
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
 TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")
@@ -132,13 +129,14 @@ class PlexAPI:
 
         return watchlist_items
 
-    def update_section(self, section, item: Union["Movie", "Episode"]) -> bool:
-        """Update the Plex section for the given item"""
-        if item.update_folder and item.update_folder != "updated":
-            update_folder = item.update_folder
-            section.update(str(update_folder))
+    def update_section(self, section, path: str) -> bool:
+        """Update the Plex section for the given path"""
+        try:
+            section.update(str(path))
             return True
-        return False
+        except Exception as e:
+            logger.error(f"Failed to update Plex section for path {path}: {e}")
+            return False
 
     def map_sections_with_paths(self) -> Dict[LibrarySection, List[str]]:
         """Map Plex sections with their paths"""
