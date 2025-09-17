@@ -44,7 +44,7 @@ def _maybe_session(session: Optional[Session]) -> Iterator[Tuple[Session, bool]]
         _s.close()
 
 def get_item_by_id(
-    item_id: str,
+    item_id: int,
     item_types: Optional[List[str]] = None,
     session: Optional[Session] = None,
     *,
@@ -73,7 +73,7 @@ def get_item_by_id(
         return item
 
 def get_items_by_ids(
-    ids: Sequence[str],
+    ids: Sequence[int],
     item_types: Optional[List[str]] = None,
     session: Optional[Session] = None,
     *,
@@ -119,7 +119,7 @@ def get_items_by_ids(
         for obj in rows:
             if object_session(obj) is _s:
                 _s.expunge(obj)
-        by_id: Dict[str, "MediaItem"] = {m.id: m for m in rows}
+        by_id: Dict[int, "MediaItem"] = {m.id: m for m in rows}
         return [by_id[i] for i in ids if i in by_id]
     finally:
         if close_me:
@@ -161,7 +161,7 @@ def get_item_by_external_id(
         return item
 
 def item_exists_by_any_id(
-    item_id: Optional[str] = None,
+    item_id: Optional[int] = None,
     tvdb_id: Optional[str] = None,
     tmdb_id: Optional[str] = None,
     imdb_id: Optional[str] = None,
@@ -180,7 +180,7 @@ def item_exists_by_any_id(
 
     clauses: List[Any] = []
     if item_id is not None:
-        clauses.append(MediaItem.id == str(item_id))
+        clauses.append(MediaItem.id == item_id)
     if tvdb_id is not None:
         clauses.append(MediaItem.tvdb_id == str(tvdb_id))
     if tmdb_id is not None:
@@ -253,7 +253,7 @@ def get_item_by_imdb_and_episode(
 
 def clear_streams(
     *,
-    media_item_id: str,
+    media_item_id: int,
     session: Optional[Session] = None,
 ) -> None:
     """
@@ -333,7 +333,7 @@ def set_stream_blacklisted(
         _s.commit()
         return True
 
-def delete_media_item_by_id(media_item_id: str) -> bool:
+def delete_media_item_by_id(media_item_id: int) -> bool:
     """
     Delete any MediaItem (movie/show/season/episode) and all dependents.
 
@@ -413,7 +413,7 @@ def delete_media_item(item: "MediaItem") -> None:
     delete_media_item_by_id(item.id)
 
 
-def get_item_ids(session: Session, item_id: str) -> Tuple[str, List[str]]:
+def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
     """
     Return (root_id, related_ids) where related_ids are all children under the root,
     depending on the root type. Uses set-based selects.
@@ -424,7 +424,7 @@ def get_item_ids(session: Session, item_id: str) -> Tuple[str, List[str]]:
         select(MediaItem.type).where(MediaItem.id == item_id)
     ).scalar_one_or_none()
 
-    related_ids: List[str] = []
+    related_ids: List[int] = []
     if item_type == "show":
         season_ids = session.execute(
             select(Season.id).where(Season.parent_id == item_id)
@@ -449,7 +449,7 @@ def get_item_ids(session: Session, item_id: str) -> Tuple[str, List[str]]:
 # State-Machine Adjacent Helpers
 # --------------------------------------------------------------------------- #
 
-def retry_library(session: Optional[Session] = None) -> List[str]:
+def retry_library(session: Optional[Session] = None) -> List[int]:
     """
     Return IDs of items that should be retried. Single query, no pre-count.
     """
@@ -469,7 +469,7 @@ def retry_library(session: Optional[Session] = None) -> List[str]:
         return ids
 
 
-def update_ongoing(session: Optional[Session] = None) -> List[str]:
+def update_ongoing(session: Optional[Session] = None) -> List[int]:
     """
     Update state for ongoing/unreleased items with one commit.
     Calls store_state() per item (state machine), aggregates changed IDs.
@@ -489,7 +489,7 @@ def update_ongoing(session: Optional[Session] = None) -> List[str]:
 
         logger.debug(f"Updating state for {len(item_ids)} ongoing and unreleased items.")
 
-        changed: List[str] = []
+        changed: List[int] = []
         items = s.execute(select(MediaItem).where(MediaItem.id.in_(item_ids))).unique().scalars().all()
         for item in items:
             try:
@@ -508,7 +508,7 @@ def update_ongoing(session: Optional[Session] = None) -> List[str]:
 
 
 @inject
-def update_new_releases(session: Optional[Session] = None, update_type: str = "episodes", hours: int = 24) -> List[str]:
+def update_new_releases(session: Optional[Session] = None, update_type: str = "episodes", hours: int = 24) -> List[int]:
     """
     Get new releases for a given type and since timestamp.
 

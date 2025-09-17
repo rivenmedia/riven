@@ -95,7 +95,7 @@ def upgrade() -> None:
     )
     op.create_table("StreamBlacklistRelation",
     sa.Column("id", sa.Integer(), nullable=False),
-    sa.Column("media_item_id", sa.String(), nullable=False),
+    sa.Column("media_item_id", sa.Integer(), nullable=False),
     sa.Column("stream_id", sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(["media_item_id"], ["MediaItem.id"], ondelete="CASCADE"),
     sa.ForeignKeyConstraint(["stream_id"], ["Stream.id"], ondelete="CASCADE"),
@@ -105,7 +105,7 @@ def upgrade() -> None:
     op.create_index("ix_streamblacklistrelation_stream_id", "StreamBlacklistRelation", ["stream_id"], unique=False)
     op.create_table("StreamRelation",
     sa.Column("id", sa.Integer(), nullable=False),
-    sa.Column("parent_id", sa.String(), nullable=False),
+    sa.Column("parent_id", sa.Integer(), nullable=False),
     sa.Column("child_id", sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(["child_id"], ["Stream.id"], ondelete="CASCADE"),
     sa.ForeignKeyConstraint(["parent_id"], ["MediaItem.id"], ondelete="CASCADE"),
@@ -117,7 +117,7 @@ def upgrade() -> None:
     sa.Column("id", sa.Integer(), nullable=False),
     sa.Column("language", sa.String(), nullable=False),
     sa.Column("file", sa.String(), nullable=True),
-    sa.Column("parent_id", sa.String(), nullable=False),
+    sa.Column("parent_id", sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(["parent_id"], ["MediaItem.id"], ondelete="CASCADE"),
     sa.PrimaryKeyConstraint("id")
     )
@@ -126,14 +126,14 @@ def upgrade() -> None:
     op.create_index("ix_subtitle_parent_id", "Subtitle", ["parent_id"], unique=False)
     op.create_table("Season",
     sa.Column("id", sa.Integer(), nullable=False),
-    sa.Column("parent_id", sa.String(), nullable=False),
+    sa.Column("parent_id", sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(["id"], ["MediaItem.id"], ),
     sa.ForeignKeyConstraint(["parent_id"], ["Show.id"], ),
     sa.PrimaryKeyConstraint("id")
     )
     op.create_table("Episode",
     sa.Column("id", sa.Integer(), nullable=False),
-    sa.Column("parent_id", sa.String(), nullable=False),
+    sa.Column("parent_id", sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(["id"], ["MediaItem.id"], ),
     sa.ForeignKeyConstraint(["parent_id"], ["Season.id"], ),
     sa.PrimaryKeyConstraint("id")

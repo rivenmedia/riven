@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class MediaItem(db.Model):
     """MediaItem class"""
     __tablename__ = "MediaItem"
-    id: Mapped[str] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
