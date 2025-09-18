@@ -198,13 +198,7 @@ class RivenVFS(pyfuse3.Operations):
             fs = None
         # Backward-compat: accept legacy *_bytes fields by converting to MB
         mem_mb = getattr(fs, "vfs_cache_max_memory_mb", None)
-        if mem_mb is None:
-            mem_bytes = int(getattr(fs, "vfs_cache_max_memory_bytes", 2 * 1024 * 1024 * 1024))
-            mem_mb = max(1, mem_bytes // (1024 * 1024))
         disk_mb = getattr(fs, "vfs_cache_max_disk_mb", None)
-        if disk_mb is None:
-            disk_bytes = int(getattr(fs, "vfs_cache_max_disk_bytes", 10 * 1024 * 1024 * 1024))
-            disk_mb = max(1, disk_bytes // (1024 * 1024))
 
         cfg = CacheConfig(
             storage=(getattr(fs, "vfs_cache_storage", "memory") or "memory"),
@@ -240,8 +234,10 @@ class RivenVFS(pyfuse3.Operations):
         self.max_concurrent_fetches = 12
 
         # Network/read heuristics
-        self.probe_chunk = 16 * 1024 * 1024  # 16 MiB probe for tiny reads
+        self.probe_chunk = 4 * 1024 * 1024  # default; profile may override (2–4 MiB)
         self.near_contiguous_threshold = 512 * 1024  # 512 KiB treated as near-contiguous
+        # Sequential streaming detection (per-path promotion to full readahead)
+        self._promotion_threshold = 2  # events required before promoting
 
         # Shared per-path buffers (so multiple opens share the same cache)
         self._shared_buffers: Dict[str, Dict] = {}
@@ -956,12 +952,15 @@ class RivenVFS(pyfuse3.Operations):
                 state["running"] = False
             if not items:
                 return
-            # Group by proximity and span cap
+            # Group by proximity and span cap (use probe cap until promoted)
             items.sort(key=lambda x: x["start"])
             groups: list[list[dict]] = []
             cur: list[dict] = []
             cur_min = None
             cur_max = None
+            # Effective cap per path: small until promoted
+            sh = self._shared_buffers.get(path) or {}
+            eff_cap = self.readahead_size if bool(sh.get("promoted", False)) else self.probe_chunk
             for it in items:
                 s = int(it["start"]) ; e = int(it["end"])
                 if cur and cur_max is not None:
@@ -969,7 +968,7 @@ class RivenVFS(pyfuse3.Operations):
                     proposed_min = cur_min if cur_min is not None else s
                     proposed_max = max(cur_max, e)
                     span = proposed_max - proposed_min + 1
-                    if near and span <= self.readahead_size:
+                    if near and span <= eff_cap:
                         cur.append(it)
                         cur_max = proposed_max
                         cur_min = proposed_min
@@ -993,7 +992,10 @@ class RivenVFS(pyfuse3.Operations):
                 gmin = min(int(x["start"]) for x in grp)
                 gmax = max(int(x["end"]) for x in grp)
                 fetch_start = gmin
-                fetch_end = gmin + min(self.readahead_size, (gmax - gmin + 1)) - 1
+                # Re-evaluate cap with latest state
+                sh2 = self._shared_buffers.get(path) or {}
+                eff_cap2 = self.readahead_size if bool(sh2.get("promoted", False)) else self.probe_chunk
+                fetch_end = gmin + min(eff_cap2, (gmax - gmin + 1)) - 1
                 if file_size is not None:
                     fetch_end = min(fetch_end, int(file_size) - 1)
                 # Fetch under semaphores
@@ -1012,8 +1014,10 @@ class RivenVFS(pyfuse3.Operations):
                 except Exception:
                     data = b""
                 if data:
-                    # Populate cache for subrange reads
-                    self.cache.put(path, fetch_start, data)
+                    # Populate cache for subrange reads only after streaming promotion
+                    shp = self._shared_buffers.get(path) or {}
+                    if bool(shp.get("promoted", False)):
+                        self.cache.put(path, fetch_start, data)
                 # Signal all waiters (slice if possible so followers can short-circuit)
                 for it in grp:
                     try:
@@ -1098,16 +1102,23 @@ class RivenVFS(pyfuse3.Operations):
         if prof == "personal":
             self.max_concurrent_fetches = 12
             self._global_network_sem = trio.Semaphore(256)
+            # Aggressive single-user behavior
+            self.probe_chunk = 4 * 1024 * 1024
+            self._promotion_threshold = 1
             # Keep configured readahead
         elif prof == "server":
             self.max_concurrent_fetches = 6
             self._global_network_sem = trio.Semaphore(256)
             # Cap readahead to control memory per stream
             self.readahead_size = min(self.readahead_size, 32 * 1024 * 1024)
+            self.probe_chunk = 2 * 1024 * 1024
+            self._promotion_threshold = 3
         else:  # auto
             # Start permissive; we may adjust readahead dynamically in read()
             self.max_concurrent_fetches = 10
             self._global_network_sem = trio.Semaphore(256)
+            self.probe_chunk = 2 * 1024 * 1024
+            self._promotion_threshold = 2
 
     def _maybe_adjust_dynamic_scaling(self) -> None:
         if self.scaling_profile != "auto":
@@ -1129,8 +1140,10 @@ class RivenVFS(pyfuse3.Operations):
             if not handle_info:
                 return
             buffer_lock: trio.Lock = handle_info.get("buffer_lock") or trio.Lock()
-            # Populate global cache with the shared-prefetched block
-            self.cache.put(path, start, data)
+            # Populate cache only when path is in streaming (promoted) state
+            sh = self._shared_buffers.get(path) or {}
+            if bool(sh.get("promoted", False)):
+                self.cache.put(path, start, data)
 
             async with buffer_lock:
                 # If current buffer already advanced past this range, drop it
@@ -1154,8 +1167,10 @@ class RivenVFS(pyfuse3.Operations):
         try:
             data: bytes = await self._fetch_data_block(path, url, start, end)
             shared = self._shared_buffers.get(path)
-            # Populate global cache with the shared-prefetched block
-            self.cache.put(path, start, data)
+            # Populate cache only when path is in streaming (promoted) state
+            sh = self._shared_buffers.get(path) or {}
+            if bool(sh.get("promoted", False)):
+                self.cache.put(path, start, data)
 
             if not shared:
                 return
@@ -1251,6 +1266,8 @@ class RivenVFS(pyfuse3.Operations):
                 "next_buffer_end": 0,
                 "prefetching": False,
                 "buffer_lock": trio.Lock(),
+                "seq_count": 0,
+                "promoted": False,
                 "metrics": {}
             })
             shared_lock: trio.Lock = shared.setdefault("buffer_lock", trio.Lock())
@@ -1333,19 +1350,28 @@ class RivenVFS(pyfuse3.Operations):
                 is_small_probe = (size <= 256 * 1024)
                 is_empty_buffer = (buffer_end == 0) and (not buffer_data)
 
+                is_promoted = bool(shared.get("promoted", False))
                 if contiguous:
-                    # Continue from buffer_end to avoid gaps; small first-read stays tiny
+                    # Continue from buffer_end to avoid gaps
                     fetch_start = buffer_end
-                    desired_len = probe_chunk if (is_empty_buffer and is_small_probe) else chunk
+                    if not is_promoted:
+                        desired_len = probe_chunk
+                    else:
+                        desired_len = probe_chunk if (is_empty_buffer and is_small_probe) else chunk
                 else:
-                    if is_small_probe:
-                        # For random tiny probes, fetch starting exactly at the requested offset
+                    if not is_promoted:
+                        # For non-promoted random/tiny probes, fetch minimally at requested offset
                         fetch_start = request_start
                         desired_len = max(probe_chunk, size)
                     else:
-                        # Aligned full-chunk fetch for general random access
-                        fetch_start = (request_start // chunk) * chunk
-                        desired_len = chunk
+                        if is_small_probe:
+                            # For random tiny probes, fetch starting exactly at the requested offset
+                            fetch_start = request_start
+                            desired_len = max(probe_chunk, size)
+                        else:
+                            # Aligned full-chunk fetch for general random access
+                            fetch_start = (request_start // chunk) * chunk
+                            desired_len = chunk
 
                 fetch_end = fetch_start + desired_len - 1
                 if file_size is not None:
@@ -1418,8 +1444,10 @@ class RivenVFS(pyfuse3.Operations):
                     async with network_sem:
                         fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
                 fb_elapsed = max(time.monotonic() - fb_fetch_started, 1e-6)
-                # Populate cache with fallback-fetched block
-                self.cache.put(path, fallback_fetch_start, fb_data)
+                # Populate cache with fallback-fetched block only when promoted
+                sh = self._shared_buffers.get(path) or {}
+                if bool(sh.get("promoted", False)):
+                    self.cache.put(path, fallback_fetch_start, fb_data)
 
                 # Update buffer and return
                 async with buffer_lock:
@@ -1449,8 +1477,10 @@ class RivenVFS(pyfuse3.Operations):
                     async with network_sem:
                         fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
                 fetch_elapsed = max(time.monotonic() - fetch_started, 1e-6)
-                # Populate cache with leader-fetched block
-                self.cache.put(path, fetch_start, fetched_data)
+                # Populate cache with leader-fetched block only when promoted
+                sh = self._shared_buffers.get(path) or {}
+                if bool(sh.get("promoted", False)):
+                    self.cache.put(path, fetch_start, fetched_data)
 
                 bytes_fetched = len(fetched_data)
 
@@ -1489,6 +1519,16 @@ class RivenVFS(pyfuse3.Operations):
                     shared["buffer_start"] = fetch_start
                     shared["buffer_data"] = fetched_data
                     shared["buffer_end"] = fetch_start + len(fetched_data)
+                    # Update sequential detector and promotion
+                    try:
+                        if contiguous:
+                            shared["seq_count"] = int(shared.get("seq_count", 0)) + 1
+                        else:
+                            shared["seq_count"] = 0
+                        if (not bool(shared.get("promoted", False))) and int(shared.get("seq_count", 0)) >= int(self._promotion_threshold):
+                            shared["promoted"] = True
+                    except Exception:
+                        pass
                     self._shared_buffers[path] = shared
 
                 # Consider background prefetch (shared, fire-and-forget)
@@ -1496,7 +1536,7 @@ class RivenVFS(pyfuse3.Operations):
                     async with shared_lock:
                         s_prefetch_start = int(shared.get("buffer_end", 0))
                         s_nb_have = int(shared.get("next_buffer_end", 0)) > int(shared.get("next_buffer_start", 0))
-                        can_prefetch = ((file_size is None) or (s_prefetch_start < file_size)) and not shared.get("prefetching", False) and not s_nb_have
+                        can_prefetch = ((file_size is None) or (s_prefetch_start < file_size)) and not shared.get("prefetching", False) and not s_nb_have and bool(shared.get("promoted", False))
                         if can_prefetch:
                             s_prefetch_end = s_prefetch_start + self.readahead_size - 1
                             if file_size is not None:

@@ -45,6 +45,7 @@ We are constantly adding features and improvements as we go along and squashing 
 - [Self Hosted](#self-hosted)
   - [Installation](#installation)
   - [Plex](#plex)
+- [RivenVFS and Caching](#rivenvfs-and-caching)
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Initial Setup](#initial-setup)
@@ -147,7 +148,6 @@ findmnt -T /path/to/riven/mount -o TARGET,PROPAGATION  # expect: shared or rshar
 >- On SELinux systems, add :z to the bind mount if needed.
 
 
----
 ## Plex
 
 Plex libraries that are currently required to have sections:
@@ -211,21 +211,7 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
 
 - When Riven stops, the FUSE mount unmounts and `/mount` may briefly appear empty inside the container; it will become FUSE again when Riven remounts. With proper propagation (host rshared + container rslave/rshared) and startup order, Plex should see the content return automatically without a restart. Enabling Plex’s “Automatically scan my library” can also help it pick up changes.
 
----
----
 ## RivenVFS and Caching
-
-### How the on‑disk cache is organized
-- Each cached block is identified by a key derived from the VFS path and the block start offset: `sha1("{path}|{start}")`.
-- To avoid too many files in one directory, the cache uses a two‑level fan‑out:
-  - The first two hex characters of the SHA‑1 become a subdirectory (e.g., `00/`, `0a/`, `0b/`).
-  - The file itself is named by the full SHA‑1 key.
-- Because the VFS path is baked into the key, blocks from different files never collide even if they share the same offsets.
-
-Example (pseudo):
-- Path: `/mount/movies/Inception (2010)/video.mkv`, start: `67108864`
-- Key: `sha1("/mount/movies/Inception (2010)/video.mkv|67108864") -> 0a9f...`
-- File stored at: `<cache_dir>/0a/0a9f...`
 
 ### Storage modes
 - `memory`: Stores blocks only in process memory (fastest; nothing on disk).
@@ -241,18 +227,14 @@ If the configured disk cache dir isn’t writable, Riven falls back to `$XDG_CAC
 - `vfs_cache_max_disk_mb`: Max disk cache size (MB). Disk/hybrid use this for on‑disk LRU.
 - `vfs_readahead_mb`: Size of sequential prefetch/readahead per stream (MB).
 - `ttl_seconds`: Optional expiry horizon when using `eviction = "TTL"` (default eviction is `LRU`).
-- Metrics are logged periodically (hits, misses, bytes, evictions) to help tune behavior.
 
-Notes:
-- Internally, fixed probing/contiguity heuristics are used; they are not user‑configurable to keep the UI simple.
-- The cache supports subrange hits: if your read starts inside a cached block, the cache can return a slice without refetching.
+- Eviction behavior:
+  - LRU (default): Strictly enforces the configured size caps by evicting least‑recently‑used blocks when space is needed.
+  - TTL: First removes entries that have been idle longer than `ttl_seconds` (sliding expiration). If the cache still exceeds the configured size cap after TTL pruning, it additionally trims oldest entries (LRU) until usage is within the limit.
 
 ### Clearing or inspecting the cache
 - Memory cache: cleared on process restart.
 - Disk cache: remove the directory configured by `vfs_cache_disk_dir` (safe to delete while Riven is stopped).
-
-### Will memory be freed on shutdown?
-Yes. The memory cache lives entirely in the Riven process; when the process exits, the OS frees that memory. In `hybrid`, the in‑memory tier is also cleared on exit. The disk tier persists until evicted by LRU/TTL or manually deleted.
 
 ### Scaling profiles (auto | personal | server)
 - `vfs_scaling_profile`: Controls how RivenVFS tunes concurrency and buffering.

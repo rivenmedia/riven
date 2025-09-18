@@ -172,7 +172,9 @@ class MemoryBackend(CacheBackend):
         key = (path, start)
         need = len(data)
         if self.cfg.eviction == "TTL":
+            # First remove expired entries, then enforce size cap using LRU
             self._evict_ttl()
+            self._evict_lru(need)
         else:
             self._evict_lru(need)
         with self._lock:
@@ -194,7 +196,9 @@ class MemoryBackend(CacheBackend):
 
     def trim(self) -> None:
         if self.cfg.eviction == "TTL":
+            # Remove expired entries and still enforce size cap
             self._evict_ttl()
+            self._evict_lru(0)
         else:
             self._evict_lru(0)
 
@@ -221,6 +225,59 @@ class DiskBackend(CacheBackend):
         except Exception as e:
             # Do not raise here; CacheManager will have attempted to validate and fall back.
             logger.warning(f"Disk cache directory init warning for {self.cfg.disk_dir}: {e}")
+
+        # Lazy-rebuild index for any pre-existing files so size limits apply after restart
+        try:
+            if (self.cfg.eviction or "LRU").upper() == "LRU":
+                self._initial_scan()
+        except Exception as e:
+            logger.debug(f"Disk cache initial scan skipped: {e}")
+
+    def _initial_scan(self) -> None:
+        total = 0
+        count = 0
+        try:
+            for sub in self.cfg.disk_dir.iterdir():
+                try:
+                    # Two-level fanout: subdirs contain files; ignore unexpected entries
+                    if sub.is_dir():
+                        for fp in sub.iterdir():
+                            try:
+                                if not fp.is_file():
+                                    continue
+                                key = fp.name
+                                st = fp.stat()
+                                sz = int(st.st_size)
+                                ts = float(st.st_mtime)
+                                # We don't know original path/start; placeholders are fine for eviction accounting
+                                with self._lock:
+                                    if key not in self._index:
+                                        self._index[key] = (sz, ts, "", 0)
+                                        self._total_bytes += sz
+                                        count += 1
+                                        total += sz
+                            except Exception:
+                                continue
+                    elif sub.is_file():
+                        # Handle legacy flat layout
+                        key = sub.name
+                        st = sub.stat()
+                        sz = int(st.st_size)
+                        ts = float(st.st_mtime)
+                        with self._lock:
+                            if key not in self._index:
+                                self._index[key] = (sz, ts, "", 0)
+                                self._total_bytes += sz
+                                count += 1
+                                total += sz
+                except Exception:
+                    continue
+        finally:
+            # If we are over budget, evict oldest until within max_disk_bytes
+            try:
+                self._evict_lru(0)
+            except Exception:
+                pass
 
     def _key(self, path: str, start: int) -> str:
         h = hashlib.sha1(f"{path}|{start}".encode()).hexdigest()
@@ -320,11 +377,16 @@ class DiskBackend(CacheBackend):
                                 except FileNotFoundError:
                                     pass
                                 else:
-                                    if ent2 is None:
-                                        self._index[cand_key] = (len(c_data), time.time(), path, c_start)
-                                    else:
-                                        self._index.move_to_end(cand_key, last=True)
-                                        self._index[cand_key] = (len(c_data), time.time(), path, c_start)
+                                    sz = len(c_data)
+                                    with self._lock:
+                                        if ent2 is None:
+                                            self._index[cand_key] = (sz, time.time(), path, c_start)
+                                            self._total_bytes += sz
+                                        else:
+                                            self._index.move_to_end(cand_key, last=True)
+                                            prev_sz = ent2[0]
+                                            self._index[cand_key] = (sz, time.time(), path, c_start)
+                                            self._total_bytes += max(0, sz - prev_sz)
                                     self._metrics.hits += 1
                                     self._metrics.bytes_from_cache += needed_len
                                     return c_data[offset:offset + needed_len]
@@ -345,9 +407,11 @@ class DiskBackend(CacheBackend):
         # If we got here but entry was missing in index, rebuild it
         with self._lock:
             if k not in self._index:
-                self._index[k] = (len(data), time.time(), path, start)
+                sz = len(data)
+                self._index[k] = (sz, time.time(), path, start)
                 lst = self._by_path.setdefault(path, [])
                 insort(lst, start)
+                self._total_bytes += sz
         if end < start:
             return b""
         length = end - start + 1
@@ -364,7 +428,9 @@ class DiskBackend(CacheBackend):
         k = self._key(path, start)
         need = len(data)
         if self.cfg.eviction == "TTL":
+            # TTL pruning plus size enforcement
             self._evict_ttl()
+            self._evict_lru(need)
         else:
             self._evict_lru(need)
         fp = self._file_for(k)
@@ -393,7 +459,9 @@ class DiskBackend(CacheBackend):
 
     def trim(self) -> None:
         if self.cfg.eviction == "TTL":
+            # TTL pruning plus size enforcement
             self._evict_ttl()
+            self._evict_lru(0)
         else:
             self._evict_lru(0)
 
