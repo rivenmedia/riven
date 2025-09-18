@@ -203,7 +203,11 @@ class MemoryBackend(CacheBackend):
             self._evict_lru(0)
 
     def stats(self) -> Dict[str, int]:
-        return self._metrics.snapshot()
+        s = self._metrics.snapshot()
+        with self._lock:
+            s["total_bytes"] = self._total_bytes
+            s["blocks"] = len(self._blocks)
+        return s
 
 
 class DiskBackend(CacheBackend):
@@ -234,12 +238,11 @@ class DiskBackend(CacheBackend):
             logger.debug(f"Disk cache initial scan skipped: {e}")
 
     def _initial_scan(self) -> None:
-        total = 0
-        count = 0
+        # Build index from on-disk files, ordered by mtime ascending for LRU correctness
+        entries: list[tuple[str, int, float]] = []  # (key, size, mtime)
         try:
             for sub in self.cfg.disk_dir.iterdir():
                 try:
-                    # Two-level fanout: subdirs contain files; ignore unexpected entries
                     if sub.is_dir():
                         for fp in sub.iterdir():
                             try:
@@ -247,32 +250,23 @@ class DiskBackend(CacheBackend):
                                     continue
                                 key = fp.name
                                 st = fp.stat()
-                                sz = int(st.st_size)
-                                ts = float(st.st_mtime)
-                                # We don't know original path/start; placeholders are fine for eviction accounting
-                                with self._lock:
-                                    if key not in self._index:
-                                        self._index[key] = (sz, ts, "", 0)
-                                        self._total_bytes += sz
-                                        count += 1
-                                        total += sz
+                                entries.append((key, int(st.st_size), float(st.st_mtime)))
                             except Exception:
                                 continue
                     elif sub.is_file():
-                        # Handle legacy flat layout
-                        key = sub.name
                         st = sub.stat()
-                        sz = int(st.st_size)
-                        ts = float(st.st_mtime)
-                        with self._lock:
-                            if key not in self._index:
-                                self._index[key] = (sz, ts, "", 0)
-                                self._total_bytes += sz
-                                count += 1
-                                total += sz
+                        entries.append((sub.name, int(st.st_size), float(st.st_mtime)))
                 except Exception:
                     continue
         finally:
+            entries.sort(key=lambda t: t[2])  # by mtime asc
+            with self._lock:
+                self._index.clear()
+                self._by_path.clear()
+                self._total_bytes = 0
+                for key, sz, ts in entries:
+                    self._index[key] = (sz, ts, "", 0)
+                    self._total_bytes += sz
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
                 self._evict_lru(0)
@@ -458,15 +452,27 @@ class DiskBackend(CacheBackend):
             self._metrics.bytes_written += need
 
     def trim(self) -> None:
+        # Primary policy-based trimming
         if self.cfg.eviction == "TTL":
-            # TTL pruning plus size enforcement
             self._evict_ttl()
             self._evict_lru(0)
         else:
             self._evict_lru(0)
+        # Hard safety net: if our accounting drifted (e.g., external files), rebuild and prune
+        try:
+            with self._lock:
+                over = self._total_bytes > self.cfg.max_disk_bytes
+            if over:
+                self._initial_scan()
+        except Exception:
+            pass
 
     def stats(self) -> Dict[str, int]:
-        return self._metrics.snapshot()
+        s = self._metrics.snapshot()
+        with self._lock:
+            s["total_bytes"] = self._total_bytes
+            s["entries"] = len(self._index)
+        return s
 
 
 class HybridBackend(CacheBackend):
@@ -544,6 +550,11 @@ class CacheManager:
             return
         if now - self._last_log < 30:  # log at most every 30s
             return
+        # Proactive safe trim before logging to keep within caps
+        try:
+            self.backend.trim()
+        except Exception:
+            pass
         self._last_log = now
         stats = self.backend.stats()
         logger.bind(component="RivenVFS").debug(f"Cache stats: {stats}")

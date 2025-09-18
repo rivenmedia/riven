@@ -211,6 +211,11 @@ class RivenVFS(pyfuse3.Operations):
             metrics_enabled=bool(getattr(fs, "vfs_cache_metrics", True)),
         )
         self.cache = CacheManager(cfg)
+        # Budget to limit in-process prefetch buffers (approx 50% of cache memory cap)
+        try:
+            self._buffer_budget_bytes = max(64 * 1024 * 1024, int(self.cache.cfg.max_memory_bytes * 0.5))
+        except Exception:
+            self._buffer_budget_bytes = 128 * 1024 * 1024
 
         self.provider_manager = ProviderManager(self.providers)
         self.db = VFSDatabase(provider_manager=self.provider_manager)
@@ -1133,6 +1138,38 @@ class RivenVFS(pyfuse3.Operations):
             target = min(self.readahead_size, 32 * 1024 * 1024)
         self.readahead_size = target
 
+    def _trim_buffers_if_needed(self) -> None:
+        """Drop speculative next buffers if shared buffers exceed budget.
+        This protects RSS from unbounded growth not covered by cache eviction.
+        """
+        try:
+            total = 0
+            # Only count shared per-path buffers; per-handle duplicates are typically small and short-lived
+            for sh in self._shared_buffers.values():
+                bd = sh.get("buffer_data", b"")
+                nbd = sh.get("next_buffer_data", b"")
+                total += (len(bd) + len(nbd))
+            if total <= int(self._buffer_budget_bytes):
+                return
+            # Over budget: first clear all next buffers; keep current buffers to avoid playback stalls
+            for path, sh in list(self._shared_buffers.items()):
+                if sh.get("next_buffer_data"):
+                    sh["next_buffer_data"] = b""
+                    sh["next_buffer_start"] = 0
+                    sh["next_buffer_end"] = 0
+                    sh["prefetching"] = False
+                    self._shared_buffers[path] = sh
+            # Also clear per-handle speculative next buffers
+            for fh, hi in list(self._file_handles.items()):
+                if hi.get("next_buffer_data"):
+                    hi["next_buffer_data"] = b""
+                    hi["next_buffer_start"] = 0
+                    hi["next_buffer_end"] = 0
+                    hi["prefetching"] = False
+                    self._file_handles[fh] = hi
+        except Exception:
+            pass
+
     async def _prefetch_task(self, path: str, url: str, fh: int, start: int, end: int) -> None:
         try:
             data: bytes = await self._fetch_data_block(path, url, start, end)
@@ -1198,9 +1235,13 @@ class RivenVFS(pyfuse3.Operations):
     async def read(self, fh: int, off: int, size: int) -> bytes:
         """Read data from a file using HTTP range requests."""
         try:
-            # Periodically log cache stats
+            # Periodically log cache stats and trim memory/disk cache and local buffers
             try:
                 self.cache.maybe_log_stats()
+            except Exception:
+                pass
+            try:
+                self._trim_buffers_if_needed()
             except Exception:
                 pass
 
