@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import shutil
 import errno
 from loguru import logger
 import logging
@@ -197,25 +198,32 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             fs = None
         # Backward-compat: accept legacy *_bytes fields by converting to MB
-        mem_mb = getattr(fs, "vfs_cache_max_memory_mb", None)
-        disk_mb = getattr(fs, "vfs_cache_max_disk_mb", None)
-
+        cache_dir = Path(getattr(fs, "vfs_cache_dir", "/var/cache/riven"))
+        size_mb = getattr(fs, "vfs_cache_max_size_mb", 10240)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        try:
+            usage = shutil.disk_usage(str(cache_dir if cache_dir.exists() else cache_dir.parent))
+            free_bytes = int(usage.free)
+        except Exception:
+            free_bytes = 0
+        configured_bytes = int(size_mb) * 1024 * 1024
+        effective_max_bytes = configured_bytes
+        if free_bytes > 0 and configured_bytes > int(free_bytes * 0.9):
+            effective_max_bytes = int(free_bytes * 0.9)
+            logger.bind(component="RivenVFS").warning(
+                f"vfs_cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
+            )
         cfg = CacheConfig(
-            storage=(getattr(fs, "vfs_cache_storage", "memory") or "memory"),
-            memory_dir=Path(getattr(fs, "vfs_cache_memory_dir", "/dev/shm/riven-cache")),
-            disk_dir=Path(getattr(fs, "vfs_cache_disk_dir", "/var/cache/riven")),
-            max_memory_bytes=int(mem_mb) * 1024 * 1024,
-            max_disk_bytes=int(disk_mb) * 1024 * 1024,
+            cache_dir=cache_dir,
+            max_size_bytes=effective_max_bytes,
             ttl_seconds=int(getattr(fs, "vfs_cache_ttl_seconds", 2 * 60 * 60)),
             eviction=(getattr(fs, "vfs_cache_eviction", "LRU") or "LRU"),
             metrics_enabled=bool(getattr(fs, "vfs_cache_metrics", True)),
         )
         self.cache = CacheManager(cfg)
-        # Budget to limit in-process prefetch buffers (approx 50% of cache memory cap)
-        try:
-            self._buffer_budget_bytes = max(64 * 1024 * 1024, int(self.cache.cfg.max_memory_bytes * 0.5))
-        except Exception:
-            self._buffer_budget_bytes = 128 * 1024 * 1024
 
         self.provider_manager = ProviderManager(self.providers)
         self.db = VFSDatabase(provider_manager=self.provider_manager)
@@ -229,8 +237,6 @@ class RivenVFS(pyfuse3.Operations):
         self._url_cache: Dict[str, Dict[str, object]] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
 
-        # Per-path locks to serialize HTTP requests
-        self._request_locks: Dict[str, trio.Lock] = {}
         # Per-path network semaphore to allow limited parallel fetches
         self._request_semaphores: Dict[str, trio.Semaphore] = {}
         # Global network semaphore to cap total concurrent range requests
@@ -239,7 +245,6 @@ class RivenVFS(pyfuse3.Operations):
         self.max_concurrent_fetches = 12
 
         # Network/read heuristics
-        self.probe_chunk = 4 * 1024 * 1024  # default; profile may override (2–4 MiB)
         self.near_contiguous_threshold = 512 * 1024  # 512 KiB treated as near-contiguous
         # Sequential streaming detection (per-path promotion to full readahead)
         self._promotion_threshold = 2  # events required before promoting
@@ -251,27 +256,27 @@ class RivenVFS(pyfuse3.Operations):
         # Shared HTTP client (pycurl + CurlShare) for connection reuse
         self.http = ProviderHTTP()
 
-        # Per-path micro-batching/coalescing state
-        self._coalesce: Dict[str, Dict] = {}
 
-        # Readahead buffer size for streaming optimization (fixed chunk)
-        self.readahead_size = 64 * 1024 * 1024  # 64 MiB (raised for high-bitrate)
-
-        # Scaling profile: auto | personal | server
-        self.scaling_profile = str(getattr(fs, "vfs_scaling_profile", "auto") or "auto").lower()
-
-        # Override readahead from settings (in MB); probe and contiguous thresholds stay fixed
+        # Chunking and readahead window
+        self.chunk_size = 64 * 1024 * 1024  # default 64 MiB
+        self.readahead_chunks = 1
         try:
-            ra_mb = getattr(fs, "vfs_readahead_mb", None)
-            if ra_mb is None:
-                ra_bytes_legacy = int(getattr(fs, "vfs_readahead_bytes", 64 * 1024 * 1024))
-                ra_mb = max(1, ra_bytes_legacy // (1024 * 1024))
-            self.readahead_size = int(ra_mb) * 1024 * 1024
+            ch_mb = getattr(fs, "vfs_chunk_mb", None)
+            if ch_mb is not None:
+                self.chunk_size = max(1, int(ch_mb)) * 1024 * 1024
         except Exception:
             pass
+        try:
+            self.readahead_chunks = max(1, int(getattr(fs, "vfs_readahead_chunks", 1)))
+        except Exception:
+            self.readahead_chunks = 1
+        self.readahead_size = self.chunk_size * self.readahead_chunks
 
-        # Apply profile defaults and initialize global semaphore
-        self._apply_profile_defaults()
+        # Initialize global network semaphore with a fixed default
+        try:
+            self._global_network_sem = trio.Semaphore(256)
+        except Exception:
+            self._global_network_sem = None
 
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
@@ -317,7 +322,7 @@ class RivenVFS(pyfuse3.Operations):
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
         self._thread.start()
-        log.log("VFS", f"RivenVFS mounted at {self._mountpoint} (scaling_profile={self.scaling_profile})")
+        log.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
@@ -880,6 +885,21 @@ class RivenVFS(pyfuse3.Operations):
                 },
             }
 
+            # Reset per-path state to avoid stale prefetch windows from prior sessions
+            self._shared_buffers[path] = {
+                "prefetching": False,
+                "buffer_lock": trio.Lock(),
+                "seq_count": 0,
+                "promoted": False,
+                "metrics": {},
+                "reserved_next_start": 0,
+                "reserved_next_end": 0,
+                "last_prefetch_end": -1,
+                "prefetch_evt": None,
+
+                "read_high_water": -1,
+            }
+
             log.debug(f"Opened file {path} with handle {fh}")
             return pyfuse3.FileInfo(fh=fh)
         except pyfuse3.FUSEError:
@@ -915,134 +935,9 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             raise
 
-    def _micro_batch_window_ms(self) -> int:
-        try:
-            if self.scaling_profile == "personal":
-                return 0
-            if self.scaling_profile == "server":
-                return 8
-            # auto
-            return 5 if self._estimate_active_streams() > 1 else 0
-        except Exception:
-            return 0
 
-    async def _coalesce_enqueue(self, path: str, url: str, req_start: int, req_end: int, file_size: Optional[int]) -> None:
-        state = self._coalesce.get(path)
-        if state is None:
-            state = {"pending": [], "lock": trio.Lock(), "running": False}
-            self._coalesce[path] = state
-        pending = state["pending"]
-        lock: trio.Lock = state["lock"]
-        evt = trio.Event()
-        item = {"start": int(req_start), "end": int(req_end), "evt": evt}
-        async with lock:
-            pending.append(item)
-            if not state.get("running"):
-                state["running"] = True
-                trio.lowlevel.spawn_system_task(self._coalesce_worker, path, url, file_size)
-        await evt.wait()
 
-    async def _coalesce_worker(self, path: str, url: str, file_size: Optional[int]) -> None:
-        try:
-            window = max(0, int(self._micro_batch_window_ms()))
-            if window > 0:
-                await trio.sleep(window / 1000.0)
-            state = self._coalesce.get(path)
-            if not state:
-                return
-            lock: trio.Lock = state["lock"]
-            async with lock:
-                items = list(state["pending"])
-                state["pending"] = []
-                state["running"] = False
-            if not items:
-                return
-            # Group by proximity and span cap (use probe cap until promoted)
-            items.sort(key=lambda x: x["start"])
-            groups: list[list[dict]] = []
-            cur: list[dict] = []
-            cur_min = None
-            cur_max = None
-            # Effective cap per path: small until promoted
-            sh = self._shared_buffers.get(path) or {}
-            eff_cap = self.readahead_size if bool(sh.get("promoted", False)) else self.probe_chunk
-            for it in items:
-                s = int(it["start"]) ; e = int(it["end"])
-                if cur and cur_max is not None:
-                    near = (s - cur_max) <= self.near_contiguous_threshold
-                    proposed_min = cur_min if cur_min is not None else s
-                    proposed_max = max(cur_max, e)
-                    span = proposed_max - proposed_min + 1
-                    if near and span <= eff_cap:
-                        cur.append(it)
-                        cur_max = proposed_max
-                        cur_min = proposed_min
-                    else:
-                        groups.append(cur)
-                        cur = [it]
-                        cur_min = s
-                        cur_max = e
-                else:
-                    cur = [it]
-                    cur_min = s
-                    cur_max = e
-            if cur:
-                groups.append(cur)
 
-            # Fetch each group and satisfy waiters
-            network_sem = self._request_semaphores.get(path)
-            if network_sem is None:
-                network_sem = self._request_semaphores[path] = trio.Semaphore(self.max_concurrent_fetches)
-            for grp in groups:
-                gmin = min(int(x["start"]) for x in grp)
-                gmax = max(int(x["end"]) for x in grp)
-                fetch_start = gmin
-                # Re-evaluate cap with latest state
-                sh2 = self._shared_buffers.get(path) or {}
-                eff_cap2 = self.readahead_size if bool(sh2.get("promoted", False)) else self.probe_chunk
-                fetch_end = gmin + min(eff_cap2, (gmax - gmin + 1)) - 1
-                if file_size is not None:
-                    fetch_end = min(fetch_end, int(file_size) - 1)
-                # Fetch under semaphores
-                sems = []
-                if self._global_network_sem is not None:
-                    sems.append(self._global_network_sem)
-                sems.append(network_sem)
-                try:
-                    if len(sems) == 2:
-                        async with sems[0]:
-                            async with sems[1]:
-                                data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
-                    else:
-                        async with network_sem:
-                            data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
-                except Exception:
-                    data = b""
-                if data:
-                    # Populate cache for subrange reads only after streaming promotion
-                    shp = self._shared_buffers.get(path) or {}
-                    if bool(shp.get("promoted", False)):
-                        self.cache.put(path, fetch_start, data)
-                # Signal all waiters (slice if possible so followers can short-circuit)
-                for it in grp:
-                    try:
-                        it["evt"].set()
-                    except Exception:
-                        pass
-        except Exception:
-            # Best-effort coalescer; errors must not break readers
-            try:
-                state = self._coalesce.get(path)
-                if state:
-                    for it in state.get("pending", []):
-                        try:
-                            it["evt"].set()
-                        except Exception:
-                            pass
-                    state["pending"] = []
-                    state["running"] = False
-            except Exception:
-                pass
 
     async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
         max_attempts = 4
@@ -1098,77 +993,13 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             return max(1, len(self._file_handles))
 
-    def _apply_profile_defaults(self) -> None:
-        # Set per-path and global concurrency, and cap readahead based on profile
-        prof = self.scaling_profile
-        if prof not in ("auto", "personal", "server"):
-            prof = "auto"
-            self.scaling_profile = prof
-        if prof == "personal":
-            self.max_concurrent_fetches = 12
-            self._global_network_sem = trio.Semaphore(256)
-            # Aggressive single-user behavior
-            self.probe_chunk = 4 * 1024 * 1024
-            self._promotion_threshold = 1
-            # Keep configured readahead
-        elif prof == "server":
-            self.max_concurrent_fetches = 6
-            self._global_network_sem = trio.Semaphore(256)
-            # Cap readahead to control memory per stream
-            self.readahead_size = min(self.readahead_size, 32 * 1024 * 1024)
-            self.probe_chunk = 2 * 1024 * 1024
-            self._promotion_threshold = 3
-        else:  # auto
-            # Start permissive; we may adjust readahead dynamically in read()
-            self.max_concurrent_fetches = 10
-            self._global_network_sem = trio.Semaphore(256)
-            self.probe_chunk = 2 * 1024 * 1024
-            self._promotion_threshold = 2
-
-    def _maybe_adjust_dynamic_scaling(self) -> None:
-        if self.scaling_profile != "auto":
-            return
-        active = self._estimate_active_streams()
-        # Tune readahead based on active streams (simple heuristic)
-        if active <= 2:
-            target = max(self.readahead_size, 64 * 1024 * 1024)
-        elif active <= 10:
-            target = min(max(32 * 1024 * 1024, self.readahead_size), 64 * 1024 * 1024)
-        else:
-            target = min(self.readahead_size, 32 * 1024 * 1024)
-        self.readahead_size = target
 
     def _trim_buffers_if_needed(self) -> None:
-        """Drop speculative next buffers if shared buffers exceed budget.
-        This protects RSS from unbounded growth not covered by cache eviction.
-        """
+        """No-op: shared byte buffers removed; cache handles memory pressure."""
         try:
-            total = 0
-            # Only count shared per-path buffers; per-handle duplicates are typically small and short-lived
-            for sh in self._shared_buffers.values():
-                bd = sh.get("buffer_data", b"")
-                nbd = sh.get("next_buffer_data", b"")
-                total += (len(bd) + len(nbd))
-            if total <= int(self._buffer_budget_bytes):
-                return
-            # Over budget: first clear all next buffers; keep current buffers to avoid playback stalls
-            for path, sh in list(self._shared_buffers.items()):
-                if sh.get("next_buffer_data"):
-                    sh["next_buffer_data"] = b""
-                    sh["next_buffer_start"] = 0
-                    sh["next_buffer_end"] = 0
-                    sh["prefetching"] = False
-                    self._shared_buffers[path] = sh
-            # Also clear per-handle speculative next buffers
-            for fh, hi in list(self._file_handles.items()):
-                if hi.get("next_buffer_data"):
-                    hi["next_buffer_data"] = b""
-                    hi["next_buffer_start"] = 0
-                    hi["next_buffer_end"] = 0
-                    hi["prefetching"] = False
-                    self._file_handles[fh] = hi
+            return
         except Exception:
-            pass
+            return
 
     async def _prefetch_task(self, path: str, url: str, fh: int, start: int, end: int) -> None:
         try:
@@ -1188,9 +1019,7 @@ class RivenVFS(pyfuse3.Operations):
                     handle_info["prefetching"] = False
                     self._file_handles[fh] = handle_info
                     return
-                handle_info["next_buffer_start"] = start
-                handle_info["next_buffer_data"] = data
-                handle_info["next_buffer_end"] = start + len(data)
+                # Prefetch-to-cache model: do not set per-handle next_buffer; cache is already populated
                 handle_info["prefetching"] = False
 
         except Exception as e:
@@ -1202,7 +1031,13 @@ class RivenVFS(pyfuse3.Operations):
 
     async def _prefetch_task_shared(self, path: str, url: str, start: int, end: int) -> None:
         try:
+            import time
+            pf_started = time.monotonic()
             data: bytes = await self._fetch_data_block(path, url, start, end)
+            pf_elapsed = max(time.monotonic() - pf_started, 1e-6)
+            bytes_fetched = len(data)
+            inst_mbps = (bytes_fetched * 8.0) / (pf_elapsed * 1_000_000.0)
+            log.debug(f"THR-PF path={path} fetched={bytes_fetched/1048576.0:.2f} MiB in {pf_elapsed:.2f}s => {inst_mbps:.1f} Mbps off={start}-{end}")
             shared = self._shared_buffers.get(path)
             # Populate cache only when path is in streaming (promoted) state
             sh = self._shared_buffers.get(path) or {}
@@ -1213,21 +1048,58 @@ class RivenVFS(pyfuse3.Operations):
                 return
             buffer_lock: trio.Lock = shared.get("buffer_lock") or trio.Lock()
             async with buffer_lock:
-                # If current buffer already advanced past this range, drop it
-                if int(shared.get("buffer_end", 0)) > start:
-                    shared["prefetching"] = False
-                    self._shared_buffers[path] = shared
-                    return
-                shared["next_buffer_start"] = start
-                shared["next_buffer_data"] = data
-                shared["next_buffer_end"] = start + len(data)
+                # Record progress and clear reservation (prefetch-to-cache model)
+                prev_end = int(shared.get("last_prefetch_end", -1))
+                pf_end_effective = (start + bytes_fetched - 1) if bytes_fetched > 0 else prev_end
+                if bytes_fetched > 0:
+                    shared["last_prefetch_end"] = max(prev_end, pf_end_effective)
                 shared["prefetching"] = False
-                self._shared_buffers[path] = shared
+                try:
+                    evt = shared.get("prefetch_evt")
+                    if evt:
+                        evt.set()
+                except Exception:
+                    pass
+                shared["reserved_next_start"] = 0
+                shared["reserved_next_end"] = 0
+
+                # Chain next prefetch conservatively: stay within allowed lookahead from current read_high_water
+                try:
+                    rhw = int(shared.get("read_high_water", -1))
+                except Exception:
+                    rhw = -1
+                allowed_end = rhw + max(0, int(self.readahead_size) - 1)
+                next_start = pf_end_effective + 1
+                if (bytes_fetched > 0
+                    and bool(shared.get("promoted", False))
+                    and (not shared.get("prefetching", False))
+                    and (next_start <= allowed_end)):
+                    next_end = next_start + self.readahead_size - 1
+                    shared["prefetching"] = True
+                    shared["reserved_next_start"] = next_start
+                    shared["reserved_next_end"] = next_end
+                    try:
+                        shared["prefetch_evt"] = trio.Event()
+                    except Exception:
+                        shared["prefetch_evt"] = None
+                    self._shared_buffers[path] = shared
+                    trio.lowlevel.spawn_system_task(self._prefetch_task_shared, path, url, next_start, next_end)
+                else:
+                    self._shared_buffers[path] = shared
         except Exception as e:
             log.debug(f"Prefetch(shared) failed for {path} @ {start}-{end}: {e}")
             shared = self._shared_buffers.get(path)
             if shared is not None:
                 shared["prefetching"] = False
+                # Clear reservation and signal any waiters on failure
+                try:
+                    evt = shared.get("prefetch_evt")
+                    if evt:
+                        evt.set()
+                except Exception:
+                    pass
+                shared["reserved_next_start"] = 0
+                shared["reserved_next_end"] = 0
                 self._shared_buffers[path] = shared
 
 
@@ -1294,55 +1166,54 @@ class RivenVFS(pyfuse3.Operations):
             # Global cache check before touching shared/per-handle buffers
             cached_bytes = self.cache.get(path, request_start_sc, request_end_sc)
             if cached_bytes is not None:
+                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start_sc}-{request_end_sc} bytes={len(cached_bytes)}")
+                try:
+                    sh = self._shared_buffers.get(path)
+                    if sh is not None:
+                        prev = int(sh.get("read_high_water", -1))
+                        endv = request_end_sc
+                        if endv > prev:
+                            sh["read_high_water"] = endv
+                            self._shared_buffers[path] = sh
+                except Exception:
+                    pass
                 return cached_bytes
 
 
-            # Per-path shared buffer (shared across multiple file handles)
+            # Per-path path-state (no shared bytes; only coordination and promotion)
             shared = self._shared_buffers.setdefault(path, {
-                "buffer_data": b"",
-                "buffer_start": 0,
-                "buffer_end": 0,
-                "next_buffer_data": b"",
-                "next_buffer_start": 0,
-                "next_buffer_end": 0,
                 "prefetching": False,
-                "buffer_lock": trio.Lock(),
+                "buffer_lock": trio.Lock(),  # state lock
                 "seq_count": 0,
                 "promoted": False,
-                "metrics": {}
+                "metrics": {},
+                "reserved_next_start": 0,
+                "reserved_next_end": 0,
+                "last_prefetch_end": -1,
+                "prefetch_evt": None,
+
+                "read_high_water": -1,
             })
             shared_lock: trio.Lock = shared.setdefault("buffer_lock", trio.Lock())
 
-            # Try serving from shared buffer first (no per-handle lock contention)
-            # Compute request range early for shared-check
-            request_start_sc = off
-            request_end_sc = off + size - 1 if size > 0 else off
-            if file_size is not None:
-                request_end_sc = min(request_end_sc, file_size - 1)
-            async with shared_lock:
-                s_data: bytes = shared.get("buffer_data", b"")
-                s_start: int = int(shared.get("buffer_start", 0))
-                s_end: int = int(shared.get("buffer_end", 0))
-                if s_data and request_start_sc >= s_start and (request_end_sc + 1) <= s_end:
-                    soff = request_start_sc - s_start
-                    dlen = request_end_sc - request_start_sc + 1
-                    return s_data[soff:soff + dlen]
-                snb_start: int = int(shared.get("next_buffer_start", 0))
-                snb_end: int = int(shared.get("next_buffer_end", 0))
-                if snb_end > snb_start and request_start_sc >= snb_start and (request_end_sc + 1) <= snb_end:
-                    snb_data: bytes = shared.get("next_buffer_data", b"")
-                    shared["buffer_start"] = snb_start
-                    shared["buffer_data"] = snb_data
-                    shared["buffer_end"] = snb_end
-                    shared["next_buffer_data"] = b""
-                    shared["next_buffer_start"] = 0
-                    shared["next_buffer_end"] = 0
+            # Reset stale path-state if last prefetch is far ahead of current request
+            try:
+                last_end_chk = int(shared.get("last_prefetch_end", -1))
+                if last_end_chk >= 0 and (last_end_chk - off) > int(self.readahead_size):
+                    shared.update({
+                        "prefetching": False,
+                        "reserved_next_start": 0,
+                        "reserved_next_end": 0,
+                        "last_prefetch_end": -1,
+                        "seq_count": 0,
+                        "promoted": False,
+                        "prefetch_evt": None,
+
+                        "read_high_water": -1,
+                    })
                     self._shared_buffers[path] = shared
-                    soff = request_start_sc - snb_start
-                    dlen = request_end_sc - request_start_sc + 1
-                    return snb_data[soff:soff + dlen]
-
-
+            except Exception:
+                pass
 
             # Readahead buffer logic with limited parallel fetch
             # First, try serving from buffer under buffer_lock
@@ -1363,85 +1234,38 @@ class RivenVFS(pyfuse3.Operations):
                     # Serve from buffer
                     buffer_offset = request_start - buffer_start
                     data_length = request_end - request_start + 1
+                    log.debug(f"rivenvfs.read - BUF-HIT-FH path={path} off={request_start}-{request_end} bytes={data_length} span={buffer_start}-{buffer_end}")
+                    try:
+                        sh = self._shared_buffers.get(path)
+                        if sh is not None:
+                            prev = int(sh.get("read_high_water", -1))
+                            endv = request_end
+                            if endv > prev:
+                                sh["read_high_water"] = endv
+                                self._shared_buffers[path] = sh
+                    except Exception:
+                        pass
                     return buffer_data[buffer_offset:buffer_offset + data_length]
                 # If request fits entirely in prefetched next buffer, swap and serve
-                nb_start: int = int(handle_info.get("next_buffer_start", 0))
-                nb_end: int = int(handle_info.get("next_buffer_end", 0))
-                if nb_end > nb_start and request_start >= nb_start and (request_end + 1) <= nb_end:
-                    nb_data: bytes = handle_info.get("next_buffer_data", b"")
-                    handle_info["buffer_start"] = nb_start
-                    handle_info["buffer_data"] = nb_data
-                    handle_info["buffer_end"] = nb_end
-                    handle_info["next_buffer_data"] = b""
-                    handle_info["next_buffer_start"] = 0
-                    handle_info["next_buffer_end"] = 0
-                    self._file_handles[fh] = handle_info
-                    buffer_offset = request_start - nb_start
-                    data_length = request_end - request_start + 1
-                    return nb_data[buffer_offset:buffer_offset + data_length]
-
-
-
                 # Need to fetch new data
-                chunk = self.readahead_size
-                probe_chunk = self.probe_chunk
+                chunk = self.chunk_size
                 delta = request_start - buffer_end
                 near_contiguous = (delta >= 0) and (delta <= self.near_contiguous_threshold)
                 contiguous = (request_start == buffer_end) or near_contiguous
-                is_small_probe = (size <= 256 * 1024)
-                is_empty_buffer = (buffer_end == 0) and (not buffer_data)
-
                 is_promoted = bool(shared.get("promoted", False))
                 if contiguous:
                     # Continue from buffer_end to avoid gaps
                     fetch_start = buffer_end
-                    if not is_promoted:
-                        desired_len = probe_chunk
-                    else:
-                        desired_len = probe_chunk if (is_empty_buffer and is_small_probe) else chunk
+                    desired_len = chunk if is_promoted else size
                 else:
-                    if not is_promoted:
-                        # For non-promoted random/tiny probes, fetch minimally at requested offset
-                        fetch_start = request_start
-                        desired_len = max(probe_chunk, size)
-                    else:
-                        if is_small_probe:
-                            # For random tiny probes, fetch starting exactly at the requested offset
-                            fetch_start = request_start
-                            desired_len = max(probe_chunk, size)
-                        else:
-                            # Aligned full-chunk fetch for general random access
-                            fetch_start = (request_start // chunk) * chunk
-                            desired_len = chunk
+                    # For random/non-contiguous access, fetch exactly what was requested
+                    fetch_start = request_start
+                    desired_len = size
 
                 fetch_end = fetch_start + desired_len - 1
                 if file_size is not None:
                     fetch_end = min(fetch_end, file_size - 1)
 
-                # Micro-batching / coalescing (only when not contiguous)
-                try:
-                    enable_coalesce = (self.scaling_profile == "server") or (
-                        self.scaling_profile == "auto" and self._estimate_active_streams() > 1
-                    )
-                except Exception:
-                    enable_coalesce = False
-                if enable_coalesce and not contiguous:
-                    try:
-                        await self._coalesce_enqueue(path, url, request_start, request_end, file_size)
-                        # After coalesced fetch, attempt to serve from buffer or cache
-                        async with buffer_lock:
-                            buffer_data_post: bytes = handle_info.get("buffer_data", b"")
-                            buffer_start_post: int = int(handle_info.get("buffer_start", 0))
-                            buffer_end_post: int = int(handle_info.get("buffer_end", 0))
-                            if (buffer_data_post and request_start >= buffer_start_post and (request_end + 1) <= buffer_end_post):
-                                off = request_start - buffer_start_post
-                                ln = request_end - request_start + 1
-                                return buffer_data_post[off:off + ln]
-                        cache_hit = self.cache.get(path, request_start, size)
-                        if cache_hit is not None:
-                            return cache_hit
-                    except Exception:
-                        pass
 
                 # In-flight de-duplication per fetch_start
                 inflight = handle_info.setdefault("inflight", {})
@@ -1463,16 +1287,54 @@ class RivenVFS(pyfuse3.Operations):
                     if (buffer_data and request_start >= buffer_start and (request_end + 1) <= buffer_end_local):
                         buffer_offset = request_start - buffer_start
                         data_length = request_end - request_start + 1
+                        # Threshold prefetch trigger while serving from per-handle buffer
+                        try:
+                            buf_len_h = buffer_end_local - buffer_start
+                            if buf_len_h > 0:
+                                thresh_h = buffer_start + int(min(self.chunk_size, buf_len_h) * 0.8)
+                                if request_end >= thresh_h:
+                                    try:
+                                        # Only prefetch if we have at least one full chunk in the current FH buffer
+                                        if (not shared.get("prefetching", False)
+                                            and bool(shared.get("promoted", False))
+                                            and buf_len_h >= self.chunk_size):
+                                            last_end2 = int(shared.get("last_prefetch_end", -1))
+                                            # Start prefetch immediately after current buffer end, and beyond prior prefetch end
+                                            s_prefetch_start2 = max(buffer_end_local, last_end2 + 1)
+                                            if (file_size is None) or (s_prefetch_start2 < file_size):
+                                                s_prefetch_end2 = s_prefetch_start2 + self.readahead_size - 1
+                                                if file_size is not None:
+                                                    s_prefetch_end2 = min(s_prefetch_end2, file_size - 1)
+                                                shared["prefetching"] = True
+                                                shared["reserved_next_start"] = s_prefetch_start2
+                                                shared["reserved_next_end"] = s_prefetch_end2
+                                                try:
+                                                    shared["prefetch_evt"] = trio.Event()
+                                                except Exception:
+                                                    shared["prefetch_evt"] = None
+                                                self._shared_buffers[path] = shared
+                                                trio.lowlevel.spawn_system_task(self._prefetch_task_shared, path, url, s_prefetch_start2, s_prefetch_end2)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        try:
+                            sh = self._shared_buffers.get(path)
+                            if sh is not None:
+                                prev = int(sh.get("read_high_water", -1))
+                                endv = request_end
+                                if endv > prev:
+                                    sh["read_high_water"] = endv
+                                    self._shared_buffers[path] = sh
+                        except Exception:
+                            pass
                         return buffer_data[buffer_offset:buffer_offset + data_length]
                     # Not covered (leader failed or short-read far from our range); compute fallback fetch
-                    fallback_fetch_start = buffer_end_local if request_start == buffer_end_local else ((request_start // chunk) * chunk)
-                    fallback_fetch_end = fallback_fetch_start + chunk - 1
-                    if file_size is not None:
-                        fallback_fetch_end = min(fallback_fetch_end, file_size - 1)
+                    fallback_fetch_start = request_start
+                    fallback_fetch_end = request_end
                 # Fallback fetch (acts independently of inflight to recover)
-                fb_fetch_started = time.monotonic()
-                # Apply dynamic scaling (auto profile)
-                self._maybe_adjust_dynamic_scaling()
+
+                # Scaling profile removed: no dynamic scaling
                 sems = []
                 if self._global_network_sem is not None:
                     sems.append(self._global_network_sem)
@@ -1484,7 +1346,7 @@ class RivenVFS(pyfuse3.Operations):
                 else:
                     async with network_sem:
                         fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
-                fb_elapsed = max(time.monotonic() - fb_fetch_started, 1e-6)
+
                 # Populate cache with fallback-fetched block only when promoted
                 sh = self._shared_buffers.get(path) or {}
                 if bool(sh.get("promoted", False)):
@@ -1498,14 +1360,56 @@ class RivenVFS(pyfuse3.Operations):
                     self._file_handles[fh] = handle_info
                     buffer_offset = request_start - fallback_fetch_start
                     data_length = request_end - request_start + 1
+                    try:
+                        sh = self._shared_buffers.get(path)
+                        if sh is not None:
+                            prev = int(sh.get("read_high_water", -1))
+                            endv = request_end
+                            if endv > prev:
+                                sh["read_high_water"] = endv
+                                self._shared_buffers[path] = sh
+                    except Exception:
+                        pass
                     return fb_data[buffer_offset:buffer_offset + data_length]
 
             # Leader path: perform network fetch outside buffer lock, with cleanup on error
             evt_signaled = False
             try:
                 fetch_started = time.monotonic()
-                # Apply dynamic scaling (auto profile)
-                self._maybe_adjust_dynamic_scaling()
+
+                # If the request range is fully within a reserved next prefetch window, wait briefly
+                try:
+                    rns = int(shared.get("reserved_next_start", 0))
+                    rne = int(shared.get("reserved_next_end", 0))
+                except Exception:
+                    rns = 0 ; rne = 0
+                if rne > rns and request_start >= rns and (request_end + 1) <= rne:
+                    try:
+                        evt = shared.get("prefetch_evt")
+                        if evt is not None:
+                            log.debug(f"rivenvfs.read - WAIT-PF path={path} request={request_start}-{request_end} reserved={rns}-{rne}")
+                            with trio.move_on_after(0.4):
+                                await evt.wait()
+                            # Re-check cache first after wait
+                            cached_after_wait = self.cache.get(path, request_start, request_end)
+                            if cached_after_wait is not None:
+                                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start}-{request_end} bytes={len(cached_after_wait)} (post-wait)")
+                                try:
+                                    sh = self._shared_buffers.get(path)
+                                    if sh is not None:
+                                        prev = int(sh.get("read_high_water", -1))
+                                        endv = request_end
+                                        if endv > prev:
+                                            sh["read_high_water"] = endv
+                                            self._shared_buffers[path] = sh
+                                except Exception:
+                                    pass
+                                return cached_after_wait
+
+                    except Exception:
+                        pass
+
+                # Scaling profile removed: no dynamic scaling
                 sems = []
                 if self._global_network_sem is not None:
                     sems.append(self._global_network_sem)
@@ -1557,10 +1461,7 @@ class RivenVFS(pyfuse3.Operations):
                     result = fetched_data[buffer_offset:buffer_offset + data_length]
                 # Mirror into shared per-path buffer so other FDs can reuse
                 async with shared_lock:
-                    shared["buffer_start"] = fetch_start
-                    shared["buffer_data"] = fetched_data
-                    shared["buffer_end"] = fetch_start + len(fetched_data)
-                    # Update sequential detector and promotion
+                    # Update sequential detector and promotion (no shared bytes)
                     try:
                         if contiguous:
                             shared["seq_count"] = int(shared.get("seq_count", 0)) + 1
@@ -1575,20 +1476,39 @@ class RivenVFS(pyfuse3.Operations):
                 # Consider background prefetch (shared, fire-and-forget)
                 try:
                     async with shared_lock:
-                        s_prefetch_start = int(shared.get("buffer_end", 0))
-                        s_nb_have = int(shared.get("next_buffer_end", 0)) > int(shared.get("next_buffer_start", 0))
-                        can_prefetch = ((file_size is None) or (s_prefetch_start < file_size)) and not shared.get("prefetching", False) and not s_nb_have and bool(shared.get("promoted", False))
-                        if can_prefetch:
-                            s_prefetch_end = s_prefetch_start + self.readahead_size - 1
-                            if file_size is not None:
-                                s_prefetch_end = min(s_prefetch_end, file_size - 1)
-                            shared["prefetching"] = True
-                            self._shared_buffers[path] = shared
-                            trio.lowlevel.spawn_system_task(self._prefetch_task_shared, path, url, s_prefetch_start, s_prefetch_end)
+                        # Compute next prefetch start immediately after current fetched range (no shared bytes)
+                        last_end = int(shared.get("last_prefetch_end", -1))
+                        # Only schedule prefetch if we fetched at least one full chunk (clear sequential signal)
+                        if len(fetched_data) >= self.chunk_size and bool(shared.get("promoted", False)) and not shared.get("prefetching", False):
+                            # Start immediately after current fetched range; avoid overlap with any prior prefetch
+                            s_prefetch_start = max(fetch_start + len(fetched_data), last_end + 1)
+                            if (file_size is None) or (s_prefetch_start < file_size):
+                                s_prefetch_end = s_prefetch_start + self.readahead_size - 1
+                                if file_size is not None:
+                                    s_prefetch_end = min(s_prefetch_end, file_size - 1)
+                                shared["prefetching"] = True
+                                shared["reserved_next_start"] = s_prefetch_start
+                                shared["reserved_next_end"] = s_prefetch_end
+                                try:
+                                    shared["prefetch_evt"] = trio.Event()
+                                except Exception:
+                                    shared["prefetch_evt"] = None
+                                self._shared_buffers[path] = shared
+                                trio.lowlevel.spawn_system_task(self._prefetch_task_shared, path, url, s_prefetch_start, s_prefetch_end)
                 except Exception:
                     pass
 
                 log.debug(f"Read {len(result)} bytes from {path} at offset {off}")
+                try:
+                    sh = self._shared_buffers.get(path)
+                    if sh is not None:
+                        prev = int(sh.get("read_high_water", -1))
+                        endv = off + len(result) - 1
+                        if endv > prev:
+                            sh["read_high_water"] = endv
+                            self._shared_buffers[path] = sh
+                except Exception:
+                    pass
                 return result
             finally:
                 if not evt_signaled:

@@ -213,41 +213,16 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
 
 ## RivenVFS and Caching
 
-### Storage modes
-- `memory`: Stores blocks only in process memory (fastest; nothing on disk).
-- `disk`: Stores blocks only on disk (persists across restarts).
-- `hybrid`: Reads/writes both; subsequent reads typically hit memory first, with disk as a warm backing store across restarts.
-
-If the configured disk cache dir isn’t writable, Riven falls back to `$XDG_CACHE_HOME/riven` or `~/.cache/riven`. If that also fails, it runs memory‑only and logs a warning.
-
 ### What the settings do (MB units)
-- `vfs_cache_storage`: `"memory" | "disk" | "hybrid"`
-- `vfs_cache_disk_dir`: Directory to store on‑disk cache files (use a user‑writable path).
-- `vfs_cache_max_memory_mb`: Max memory cache size (MB). Hybrid/memory modes use this for in‑process LRU.
-- `vfs_cache_max_disk_mb`: Max disk cache size (MB). Disk/hybrid use this for on‑disk LRU.
-- `vfs_readahead_mb`: Size of sequential prefetch/readahead per stream (MB).
+- `vfs_cache_dir`: Directory to store on‑disk cache files (use a user‑writable path).
+- `vfs_cache_max_size_mb`: Max cache size (MB) for the VFS cache directory.
+- `vfs_chunk_mb`: Size of a single fetch chunk (MB). This is the unit used for aligned HTTP range requests.
+- `vfs_readahead_chunks`: How many chunks to prefetch ahead for the buffer.
 - `ttl_seconds`: Optional expiry horizon when using `eviction = "TTL"` (default eviction is `LRU`).
 
 - Eviction behavior:
   - LRU (default): Strictly enforces the configured size caps by evicting least‑recently‑used blocks when space is needed.
   - TTL: First removes entries that have been idle longer than `ttl_seconds` (sliding expiration). If the cache still exceeds the configured size cap after TTL pruning, it additionally trims oldest entries (LRU) until usage is within the limit.
-
-### Clearing or inspecting the cache
-- Memory cache: cleared on process restart.
-- Disk cache: remove the directory configured by `vfs_cache_disk_dir` (safe to delete while Riven is stopped).
-
-### Scaling profiles (auto | personal | server)
-- `vfs_scaling_profile`: Controls how RivenVFS tunes concurrency and buffering.
-  - `auto` (default): Detects effective concurrency and adjusts dynamically. With 1–2 streams, behaves like personal (large readahead, permissive concurrency). As streams grow, caps readahead and emphasizes fairness.
-  - `personal`: Aggressive single‑user settings. Larger per‑stream readahead (e.g., 64 MiB), higher per‑file concurrency, minimal batching.
-  - `server`: Multi‑user settings. Caps per‑stream readahead (e.g., 32 MiB), enforces global and per‑file concurrency limits for fairness.
-- Global & per‑file concurrency: RivenVFS limits total concurrent HTTP range requests (global) and per‑file parallelism. In `auto`, these remain permissive for personal use and tighten as active streams increase.
-- Prefetch: In `auto/server`, prefetching remains enabled but the readahead size is capped under higher concurrency to keep memory stable.
-
-Notes:
-- These profiles are designed to avoid hurting single‑user performance. In `auto`, the micro‑batch window is effectively zero for one stream, so reads are immediate.
-- If you run Riven as a personal setup, you can explicitly set `personal` for maximum aggressiveness, though `auto` already behaves similarly at low concurrency.
-
 
 ## Development
 
