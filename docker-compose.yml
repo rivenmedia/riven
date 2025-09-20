@@ -74,7 +74,7 @@ services:
     #         - VERSION=docker
     #     volumes:
     #         - /path/to/riven/plex:/config
-    #         - /path/to/riven/mount:/mount:rshared,z
+    #         - /path/to/riven/mount:/mount:rslave,z
     #     devices:
     #         - "/dev/dri:/dev/dri"
     #     depends_on:

@@ -188,10 +188,7 @@ docker exec -it plex sh -c 'findmnt -T /mount -o TARGET,PROPAGATION,OPTIONS,FSTY
 - In docker-compose for Plex, ensure the bind includes mount propagation (and SELinux label if needed):
 
 ```yaml
-a: &riven_mount
   - /path/to/riven/mount:/mount:rslave,z
-# or
-  - /path/to/riven/mount:/mount:rshared,z
 ```
 
 3) Ensure the path Riven mounts to is the container path
