@@ -14,16 +14,17 @@ class LoguruHandler(logging.Handler):
     def emit(self, record):
         logger.opt(depth=1, exception=record.exc_info).log("DATABASE", record.getMessage())
 
-if settings_manager.settings.debug_database:
-    # Configure only alembic and SQLAlchemy loggers
-    logging.getLogger("alembic").handlers = [LoguruHandler()]
-    logging.getLogger("alembic").propagate = False
-    logging.getLogger("sqlalchemy").handlers = [LoguruHandler()]
-    logging.getLogger("sqlalchemy").propagate = False
+# TODO: Will come back to this later...
+# if settings_manager.settings.debug_database:
+#     # Configure only alembic and SQLAlchemy loggers
+#     logging.getLogger("alembic").handlers = [LoguruHandler()]
+#     logging.getLogger("alembic").propagate = False
+#     logging.getLogger("sqlalchemy").handlers = [LoguruHandler()]
+#     logging.getLogger("sqlalchemy").propagate = False
 
-    # Set log levels
-    logging.getLogger("alembic").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
-    logging.getLogger("sqlalchemy").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
+#     # Set log levels
+#     logging.getLogger("alembic").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
+#     logging.getLogger("sqlalchemy").setLevel(logging.DEBUG if settings_manager.settings.debug else logging.FATAL)
 
 # Alembic configuration
 config = context.config

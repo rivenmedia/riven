@@ -17,7 +17,6 @@ from rich.progress import (
 from program.settings.manager import settings_manager
 from program.utils import data_dir_path
 
-LOG_ENABLED: bool = settings_manager.settings.log
 
 def setup_logger(level):
     """Setup the logger"""
@@ -32,29 +31,35 @@ def setup_logger(level):
         icon = os.getenv(f"RIVEN_LOGGER_{name}_ICON", default_icon)
         return f"<fg #{color}>", icon
 
-    # Define log levels and their default settings
-    log_levels = {
-        "PROGRAM": (36, "cc6600", "🤖"),
-        "DATABASE": (37, "d834eb", "🛢️"),
-        "DEBRID": (38, "cc3333", "🔗"),
-        "FILESYSTEM": (39, "F9E79F", "🔗"),
-        "VFS": (49, "9B59B6", "🧲"),
-        "FUSE": (50, "999999", "⚙️"),
+    # TRACE: 5
+    # DEBUG: 10
+    # INFO: 20
+    # SUCCESS: 25
+    # WARNING: 30
+    # ERROR: 40
+    # CRITICAL: 50
 
-        "SCRAPER": (40, "3D5A80", "👻"),
-        "COMPLETED": (41, "FFFFFF", "🟢"),
-        "CACHE": (42, "527826", "📜"),
-        "NOT_FOUND": (43, "818589", "🤷‍"),
-        "NEW": (44, "e63946", "✨"),
-        "FILES": (45, "FFFFE0", "🗃️ "),
-        "ITEM": (46, "92a1cf", "🗃️ "),
-        "DISCOVERY": (47, "e56c49", "🔍"),
-        "API": (10, "006989", "👾"),
-        "PLEX": (47, "DAD3BE", "📽️ "),
-        "LOCAL": (48, "DAD3BE", "📽️ "),
-        "JELLYFIN": (48, "DAD3BE", "📽️ "),
-        "EMBY": (48, "DAD3BE", "📽️ "),
-        "TRAKT": (48, "1DB954", "🎵"),
+    log_levels = {
+        "PROGRAM": (20, "cc6600", "🤖"),
+        "DATABASE": (5, "d834eb", "🛢️"), # trace
+        "DEBRID": (20, "cc3333", "🔗"),
+        "FILESYSTEM": (5, "F9E79F", "🔗"), # trace
+        "VFS": (5, "9B59B6", "🧲"), # trace
+        "FUSE": (5, "999999", "⚙️"), # trace
+
+        "SCRAPER": (20, "3D5A80", "👻"),
+        "COMPLETED": (20, "FFFFFF", "🟢"),
+        "CACHE": (5, "527826", "📜"), # trace
+        "NOT_FOUND": (20, "818589", "🤷‍"),
+        "NEW": (20, "e63946", "✨"),
+        "FILES": (20, "FFFFE0", "🗃️ "),
+        "ITEM": (20, "92a1cf", "🗃️ "),
+        "DISCOVERY": (20, "e56c49", "🔍"),
+        "API": (10, "006989", "👾"), # debug
+        "PLEX": (20, "DAD3BE", "📽️ "),
+        "LOCAL": (20, "DAD3BE", "📽️ "),
+        "JELLYFIN": (20, "DAD3BE", "📽️ "),
+        "EMBY": (20, "DAD3BE", "📽️ "),
     }
 
     # Set log levels
@@ -139,5 +144,4 @@ def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
 
 
 console = Console()
-log_level = "TRACE" if settings_manager.settings.debug else "INFO"
-setup_logger(log_level)
+setup_logger(settings_manager.settings.debug)

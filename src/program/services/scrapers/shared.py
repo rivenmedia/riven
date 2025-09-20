@@ -46,49 +46,41 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
             if item.type == "movie":
                 # If movie item, disregard torrents with seasons and episodes
                 if torrent.data.episodes or torrent.data.seasons:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping show torrent for movie {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping show torrent for movie {item.log_string}: {raw_title}")
                     continue
 
             if item.type == "show":
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
                 if torrent.data.episodes and len(torrent.data.episodes) <= 2:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
                     continue
 
                 # make sure all of the item seasons are present in the torrent
                 if not all(season.number in torrent.data.seasons for season in item.seasons):
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with incorrect number of seasons for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent with incorrect number of seasons for {item.log_string}: {raw_title}")
                     continue
 
                 if torrent.data.episodes and not torrent.data.seasons and len(item.seasons) == 1 and not all(episode.number in torrent.data.episodes for episode in item.seasons[0].episodes):
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with incorrect number of episodes for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent with incorrect number of episodes for {item.log_string}: {raw_title}")
                     continue
 
             if item.type == "season":
                 if torrent.data.seasons and item.number not in torrent.data.seasons:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}")
                     continue
                 
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
                 if torrent.data.episodes and len(torrent.data.episodes) <= 2:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
                     continue
 
                 # disregard torrents with incorrect season number
                 if item.number not in torrent.data.seasons:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping incorrect season torrent for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping incorrect season torrent for {item.log_string}: {raw_title}")
                     continue
 
                 if torrent.data.episodes and not all(episode.number in torrent.data.episodes for episode in item.episodes):
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}")
                     continue
 
             if item.type == "episode":
@@ -107,35 +99,31 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                     skip = True
 
                 if skip:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}")
                     continue
 
             if torrent.data.country and not item.is_anime:
                 # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
                 if torrent.data.country and torrent.data.country not in _get_item_country(item):
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
                     continue
 
             if torrent.data.year and not _check_item_year(item, torrent.data):
                 # If year is present, then check to make sure it's correct
-                if scraping_settings.parse_debug:
-                    logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
+                logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
                 continue
 
             if item.is_anime and scraping_settings.dubbed_anime_only:
                 # If anime and user wants dubbed only, then check to make sure it's dubbed
                 if not torrent.data.dubbed:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
                     continue
 
             torrents.add(torrent)
             processed_infohashes.add(infohash)
         except Exception as e:
-            if scraping_settings.parse_debug and log_msg:
-                logger.debug(f"GarbageTorrent: {e}")
+            if log_msg:
+                logger.trace(f"GarbageTorrent: {e}")
             processed_infohashes.add(infohash)
             continue
 

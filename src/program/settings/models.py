@@ -1,7 +1,7 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
@@ -268,7 +268,6 @@ class ScraperModel(Observable):
     after_2: float = 2
     after_5: float = 6
     after_10: float = 24
-    parse_debug: bool = False
     enable_aliases: bool = True
     bucket_limit: int = Field(default=5, ge=0, le=20)
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
@@ -322,9 +321,7 @@ class PostProcessing(Observable):
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
-    debug: bool = True
-    debug_database: bool = False
-    log: bool = True
+    debug: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     tracemalloc: bool = False
     filesystem: FilesystemModel = FilesystemModel()
     updaters: UpdatersModel = UpdatersModel()
@@ -336,6 +333,14 @@ class AppModel(Observable):
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
+
+    @field_validator("debug", mode="before")
+    def check_debug(cls, v):
+        if v == True:
+            return "DEBUG"
+        elif v == False:
+            return "INFO"
+        return v
 
     def __init__(self, **data: Any):
         current_version = get_version()
