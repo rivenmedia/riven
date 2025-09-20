@@ -198,7 +198,7 @@ async def get_logs() -> LogsResponse:
 
 
 class EventResponse(BaseModel):
-    events: dict[str, list[str]]
+    events: dict[str, list[int]]
 
 @router.get("/events", operation_id="events")
 async def get_events(
