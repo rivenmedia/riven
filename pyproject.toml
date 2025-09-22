@@ -14,7 +14,7 @@ requests = { extras = ["socks"], version = "^2.31.0" }
 xmltodict = "^0.13.0"
 lxml = "^5.1.0"
 pydantic = "^2.6.3"
-fastapi = "^0.110.0"
+fastapi = "^0.117.1"
 uvicorn = { extras = ["standard"], version = "^0.30.6" }
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
