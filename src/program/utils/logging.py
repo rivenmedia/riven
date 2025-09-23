@@ -60,6 +60,7 @@ def setup_logger(level):
         "LOCAL": (20, "DAD3BE", "📽️ "),
         "JELLYFIN": (20, "DAD3BE", "📽️ "),
         "EMBY": (20, "DAD3BE", "📽️ "),
+        "TRAKT": (20, "006989", "🍿"),
     }
 
     # Set log levels

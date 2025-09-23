@@ -1,84 +1,54 @@
-# Builder Image for Python Dependencies
+# -----------------
+# Builder Stage
+# -----------------
 FROM python:3.11-alpine AS builder
 
-# Install necessary build dependencies
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    libffi-dev \
-    python3-dev \
-    build-base \
-    curl \
-    curl-dev \
-    openssl-dev \
-    fuse3-dev \
-    pkgconf \
-    fuse3
+# Install only the necessary build dependencies
+RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-dev openssl-dev fuse3-dev pkgconf fuse3
 
-# Upgrade pip and install poetry
-ENV PYCURL_SSL_LIBRARY=openssl
+# Install and configure poetry
 RUN pip install --upgrade pip && pip install poetry==1.8.3
-
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
     POETRY_CACHE_DIR=/tmp/poetry_cache
 
 WORKDIR /app
 
+# Install dependencies
 COPY pyproject.toml poetry.lock ./
-RUN touch README.md
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 
-# Final Image
+# -----------------
+# Final Stage
+# -----------------
 FROM python:3.11-alpine
 LABEL name="Riven" \
       description="Riven Media Server" \
       url="https://github.com/rivenmedia/riven"
 
-# Install system dependencies and Node.js
-ENV PYTHONUNBUFFERED=1
-RUN apk add --no-cache \
-    curl \
-    libcurl \
-    openssl \
-    shadow \
-    rclone \
-    unzip \
-    gcc \
-    ffmpeg \
-    musl-dev \
-    libffi-dev \
-    python3-dev \
-    libpq-dev \
-    fuse3
+# Install only runtime dependencies
+RUN apk add --no-cache curl libcurl shadow rclone unzip ffmpeg libpq fuse3 libcap libcap-utils
 
-# Ensure FUSE allows allow_other (uncomment or add user_allow_other)
-RUN (sed -i 's/^#\s*user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true) \
-    && (grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo 'user_allow_other' >> /etc/fuse.conf)
+# Configure FUSE
+RUN sed -i 's/^#\s*user_allow_other/user_allow_other/' /etc/fuse.conf || \
+    echo 'user_allow_other' >> /etc/fuse.conf
 
-
-# Install Poetry
-RUN pip install poetry==1.8.3
-
-# Set environment variable to force color output
-ENV FORCE_COLOR=1
-ENV TERM=xterm-256color
-
-# Set working directory
 WORKDIR /riven
 
-# Copy the virtual environment from the builder stage
-COPY --from=builder /app/.venv /app/.venv
-ENV VIRTUAL_ENV=/app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
+# Copy the virtual environment from the builder
+COPY --from=builder /app/.venv /riven/.venv
 
-# Copy the rest of the application code
-COPY src/ /riven/src
-COPY pyproject.toml poetry.lock /riven/
-COPY entrypoint.sh /riven/
+# Grant the necessary capabilities to the Python binary
+RUN setcap cap_sys_admin+ep /usr/local/bin/python3.11
 
-# Ensure entrypoint script is executable
-RUN chmod +x /riven/entrypoint.sh
+# Activate the virtual environment by adding it to the PATH
+ENV PATH="/riven/.venv/bin:$PATH"
 
-ENTRYPOINT ["/riven/entrypoint.sh"]
+# Copy application code and entrypoint
+COPY src/ ./src
+COPY pyproject.toml poetry.lock ./
+COPY entrypoint.sh ./
+
+RUN chmod +x ./entrypoint.sh
+
+ENTRYPOINT ["./entrypoint.sh"]

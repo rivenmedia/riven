@@ -36,11 +36,9 @@ import os
 import shutil
 import errno
 from loguru import logger
-import logging
 import subprocess
 import io
-from typing import Dict, Optional
-from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 
 import urllib.parse
@@ -129,6 +127,7 @@ import pyfuse3
 import trio
 import pycurl
 import io
+import os
 
 from .db import VFSDatabase
 from .providers import ProviderManager
@@ -137,27 +136,6 @@ from program.settings.manager import settings_manager
 from .cache import CacheManager, CacheConfig
 
 log = logger
-
-
-class _Pyfuse3InterceptHandler(logging.Handler):
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            message = record.getMessage()
-        except Exception:
-            message = str(record)
-        # Route all pyfuse3 logs to our dedicated FUSE level
-        logger.opt(depth=6, exception=record.exc_info).log("FUSE", message)
-
-
-def _setup_pyfuse3_logging(debug: bool) -> None:
-    """Bridge standard logging from pyfuse3 to loguru at our FUSE level."""
-    py_logger = logging.getLogger("pyfuse3")
-    py_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    py_logger.propagate = False
-    # Replace existing handlers to avoid duplicate outputs
-    py_logger.handlers = [h for h in py_logger.handlers if False]
-    py_logger.addHandler(_Pyfuse3InterceptHandler())
-
 
 class RivenVFS(pyfuse3.Operations):
     """
@@ -176,8 +154,6 @@ class RivenVFS(pyfuse3.Operations):
     removing, and managing virtual files and directories.
     """
 
-    enable_writeback_cache = True
-
     def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
         """
         Initialize the Riven Virtual File System.
@@ -191,15 +167,15 @@ class RivenVFS(pyfuse3.Operations):
             OSError: If mountpoint cannot be prepared or FUSE initialization fails
         """
         super().__init__()
+        self.debug_fuse = bool(debug_fuse)
         self.providers: Dict[str, object] = providers or {}
         # Initialize VFS cache from settings
         try:
             fs = settings_manager.settings.filesystem
         except Exception:
             fs = None
-        # Backward-compat: accept legacy *_bytes fields by converting to MB
-        cache_dir = Path(getattr(fs, "vfs_cache_dir", "/var/cache/riven"))
-        size_mb = getattr(fs, "vfs_cache_max_size_mb", 10240)
+        cache_dir = fs.vfs_cache_dir
+        size_mb = fs.vfs_cache_max_size_mb
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -236,51 +212,23 @@ class RivenVFS(pyfuse3.Operations):
         # URL cache for provider links with automatic expiration
         self._url_cache: Dict[str, Dict[str, object]] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
-
-        # Per-path network semaphore to allow limited parallel fetches
-        self._request_semaphores: Dict[str, trio.Semaphore] = {}
-        # Global network semaphore to cap total concurrent range requests
-        self._global_network_sem: trio.Semaphore | None = None
-        # Concurrent fetch limit per file path (tuned by scaling profile)
-        self.max_concurrent_fetches = 12
-
-        # Network/read heuristics
-        self.near_contiguous_threshold = 512 * 1024  # 512 KiB treated as near-contiguous
-        # Sequential streaming detection (per-path promotion to full readahead)
-        self._promotion_threshold = 2  # events required before promoting
-
-        # Shared per-path buffers (so multiple opens share the same cache)
-        self._shared_buffers: Dict[str, Dict] = {}
-
+        # Entry info cache to reduce redundant DB lookups in FUSE ops
+        self._entry_cache: Dict[str, tuple[Optional[Dict], float]] = {}
+        self._entry_cache_ttl = 30.0  # seconds
 
         # Shared HTTP client (pycurl + CurlShare) for connection reuse
         self.http = ProviderHTTP()
 
-
-        # Chunking and readahead window
-        self.chunk_size = 64 * 1024 * 1024  # default 64 MiB
-        self.readahead_chunks = 1
-        try:
-            ch_mb = getattr(fs, "vfs_chunk_mb", None)
-            if ch_mb is not None:
-                self.chunk_size = max(1, int(ch_mb)) * 1024 * 1024
-        except Exception:
-            pass
-        try:
-            self.readahead_chunks = max(1, int(getattr(fs, "vfs_readahead_chunks", 1)))
-        except Exception:
-            self.readahead_chunks = 1
-        self.readahead_size = self.chunk_size * self.readahead_chunks
-
-        # Initialize global network semaphore with a fixed default
-        try:
-            self._global_network_sem = trio.Semaphore(256)
-        except Exception:
-            self._global_network_sem = None
+        # Chunking
+        self.chunk_size = fs.vfs_chunk_mb * 1024 * 1024
 
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
         self._next_fh = 1
+
+        # Readahead settings
+        self.readahead_chunks = 1
+        self._buffers: Dict[str, List[int]] = {}
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
@@ -291,15 +239,12 @@ class RivenVFS(pyfuse3.Operations):
         # Prepare mountpoint (unmount, create directory)
         self._prepare_mountpoint(self._mountpoint)
 
-
         # Initialize pyfuse3 and start main loop in background thread
         fuse_options = set(pyfuse3.default_options)
-        fuse_options.add('fsname=rivenvfs')
-        fuse_options.add('allow_other')
-        if debug_fuse:
-            fuse_options.add('debug')
-        # Bridge pyfuse3's Python logger to Riven logger
-        _setup_pyfuse3_logging(debug_fuse)
+        fuse_options |= {
+            'fsname=rivenvfs',
+            'allow_other',
+        }
 
         pyfuse3.init(self, self._mountpoint, fuse_options)
         self._mounted = True
@@ -322,6 +267,7 @@ class RivenVFS(pyfuse3.Operations):
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
         self._thread.start()
+
         log.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
 
     def close(self) -> None:
@@ -443,6 +389,9 @@ class RivenVFS(pyfuse3.Operations):
         # Add file to database (creates parent directories automatically)
         self.db.add_file(path, url, int(size or 0), provider=provider,
                          provider_download_id=provider_download_id)
+        # Invalidate entry cache for this path and its parent
+        self._entry_cache_invalidate_path(path)
+
 
         # Assign inode for the new file
         self._assign_inode(path)
@@ -459,7 +408,7 @@ class RivenVFS(pyfuse3.Operations):
         # This is crucial for media players that cache directory structure
         self._invalidate_directory_cache(path, parent_inodes_to_invalidate)
 
-        log.info(f"Added virtual file: {path}")
+        log.debug(f"Added virtual file: {path}")
         return True
 
     def register_existing_file(self, path: str) -> bool:
@@ -496,7 +445,7 @@ class RivenVFS(pyfuse3.Operations):
         # Invalidate FUSE cache to ensure directory listings are updated
         self._invalidate_directory_cache(path, parent_inodes_to_invalidate)
 
-        log.info(f"Registered existing file with FUSE: {path}")
+        log.debug(f"Registered existing file with FUSE: {path}")
         return True
 
     def rename_file(self, old_path: str, new_path: str) -> bool:
@@ -519,6 +468,10 @@ class RivenVFS(pyfuse3.Operations):
         if not self.db.rename(old_path, new_path):
             log.warning(f"Failed to rename file in database: {old_path} -> {new_path}")
             return False
+
+        # Invalidate entry cache for old and new paths
+        self._entry_cache_invalidate_path(old_path)
+        self._entry_cache_invalidate_path(new_path)
 
         # Update FUSE layer
         # Remove old inode mapping if it exists
@@ -568,6 +521,9 @@ class RivenVFS(pyfuse3.Operations):
 
         # Invalidate FUSE cache for the removed entry
         if result:
+            # Invalidate entry cache for removed path
+            self._entry_cache_invalidate_path(path)
+
             self._invalidate_removed_entry_cache(path, ino)
             # Also attempt to invalidate parent directories that may have been pruned
             self._invalidate_potentially_removed_dirs(path)
@@ -612,6 +568,40 @@ class RivenVFS(pyfuse3.Operations):
             p = p / part
         return self._normalize_path(str(p))
 
+    def _get_entry_cached(self, path: str) -> Optional[Dict]:
+        """Cached wrapper around self.db.get_entry to reduce repeated queries."""
+        import time
+        path = self._normalize_path(path)
+        ent_ts = self._entry_cache.get(path)
+        now = time.time()
+        if ent_ts is not None:
+            ent, ts = ent_ts
+            try:
+                if now - float(ts) < float(self._entry_cache_ttl):
+                    return ent
+            except Exception:
+                pass
+        ent = self.db.get_entry(path)
+        self._entry_cache[path] = (ent, now)
+        return ent
+
+    def _exists_cached(self, path: str) -> bool:
+        return self._get_entry_cached(path) is not None
+
+    def _list_directory_cached(self, path: str) -> list[Dict]:
+        # Keep listing uncached for simplicity and freshness; can be cached if needed later
+        return self.db.list_directory(self._normalize_path(path))
+
+    def _entry_cache_invalidate_path(self, path: str) -> None:
+        """Invalidate cached entry info for a path and its parent directory."""
+        try:
+            path = self._normalize_path(path)
+            self._entry_cache.pop(path, None)
+            parent = self._normalize_path(self._get_parent_path(path))
+            self._entry_cache.pop(parent, None)
+        except Exception:
+            pass
+
     def _assign_inode(self, path: str) -> int:
         """Assign an inode number to a path."""
         if path in self._path_to_inode:
@@ -644,23 +634,23 @@ class RivenVFS(pyfuse3.Operations):
                 parent_ino = self._path_to_inode[immediate_parent]
                 pyfuse3.invalidate_entry_async(parent_ino, os.path.basename(file_path).encode('utf-8'),
                                                ignore_enoent=True)
-                log.debug(f"Invalidated directory entry for {file_path} in parent {immediate_parent}")
+                log.trace(f"Invalidated directory entry for {file_path} in parent {immediate_parent}")
 
             # Also invalidate any newly created parent directories
             for ino in parent_inodes:
                 try:
                     pyfuse3.invalidate_inode(ino, attr_only=True)
-                    log.debug(f"Invalidated inode {ino} for newly created parent directory")
+                    log.trace(f"Invalidated inode {ino} for newly created parent directory")
                 except OSError as e:
                     # Benign if kernel has not cached the inode yet
                     if getattr(e, 'errno', None) == errno.ENOENT:
-                        log.debug(f"Skip invalidating uncached inode {ino} after adding {file_path}: {e}")
+                        log.trace(f"Skip invalidating uncached inode {ino} after adding {file_path}: {e}")
                     else:
                         raise
         except OSError as e:
             # Downgrade ENOENT during add: often means kernel never cached the parent dir yet
             if getattr(e, 'errno', None) == errno.ENOENT:
-                log.debug(f"Benign ENOENT while invalidating after adding {file_path}: {e}")
+                log.trace(f"Benign ENOENT while invalidating after adding {file_path}: {e}")
             else:
                 log.warning(f"Failed to invalidate FUSE cache when adding {file_path}: {e}")
 
@@ -672,10 +662,10 @@ class RivenVFS(pyfuse3.Operations):
                 parent_ino = self._path_to_inode[parent_path]
                 pyfuse3.invalidate_entry_async(parent_ino, os.path.basename(file_path).encode('utf-8'),
                                                deleted=inode or 0, ignore_enoent=True)
-                log.debug(f"Invalidated directory entry for removed {file_path}")
+                log.trace(f"Invalidated directory entry for removed {file_path}")
         except OSError as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
-                log.debug(f"Benign ENOENT while invalidating after removing {file_path}: {e}")
+                log.trace(f"Benign ENOENT while invalidating after removing {file_path}: {e}")
             else:
                 log.warning(f"Failed to invalidate FUSE cache when removing {file_path}: {e}")
 
@@ -690,17 +680,17 @@ class RivenVFS(pyfuse3.Operations):
                 name = os.path.basename(parent.rstrip('/'))
                 if name:
                     pyfuse3.invalidate_entry_async(self._path_to_inode[grandparent], name.encode('utf-8'), ignore_enoent=True)
-                    log.debug(f"Invalidated potential removed dir entry '{name}' under {grandparent}")
+                    log.trace(f"Invalidated potential removed dir entry '{name}' under {grandparent}")
 
             # One more level up (e.g., title dir)
             ggparent = self._normalize_path(self._get_parent_path(grandparent))
             gname = os.path.basename(grandparent.rstrip('/'))
             if ggparent in self._path_to_inode and gname:
                 pyfuse3.invalidate_entry_async(self._path_to_inode[ggparent], gname.encode('utf-8'), ignore_enoent=True)
-                log.debug(f"Invalidated potential removed dir entry '{gname}' under {ggparent}")
+                log.trace(f"Invalidated potential removed dir entry '{gname}' under {ggparent}")
         except Exception as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
-                log.debug(f"Benign ENOENT while invalidating parent dirs for {file_path}: {e}")
+                log.trace(f"Benign ENOENT while invalidating parent dirs for {file_path}: {e}")
             else:
                 log.warning(f"Failed to invalidate parent dir entries for {file_path}: {e}")
         except OSError as e:
@@ -715,7 +705,7 @@ class RivenVFS(pyfuse3.Operations):
                 old_parent_ino = self._path_to_inode[old_parent]
                 pyfuse3.invalidate_entry_async(old_parent_ino, os.path.basename(old_path).encode('utf-8'),
                                                deleted=inode or 0, ignore_enoent=True)
-                log.debug(f"Invalidated old directory entry for renamed {old_path}")
+                log.trace(f"Invalidated old directory entry for renamed {old_path}")
 
             # Invalidate new parent directory
             new_parent = self._normalize_path(self._get_parent_path(new_path))
@@ -757,7 +747,7 @@ class RivenVFS(pyfuse3.Operations):
                 return attrs
 
             # For other paths, check database
-            entry_info = self.db.get_entry(path)
+            entry_info = self._get_entry_cached(path)
             if entry_info is None:
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
@@ -793,7 +783,7 @@ class RivenVFS(pyfuse3.Operations):
                 return await self.getattr(parent_inode)
 
             child_path = self._join_paths(parent_path, name_str)
-            if not self.db.exists(child_path):
+            if not self._exists_cached(child_path):
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
             child_inode = self._assign_inode(child_path)
@@ -813,7 +803,7 @@ class RivenVFS(pyfuse3.Operations):
             if path == "/":
                 return inode  # Return the inode as file handle
 
-            entry_info = self.db.get_entry(path)
+            entry_info = self._get_entry_cached(path)
             if entry_info is None or not entry_info["is_directory"]:
                 raise pyfuse3.FUSEError(errno.ENOTDIR)
             return inode  # Return the inode as file handle for directories
@@ -827,7 +817,7 @@ class RivenVFS(pyfuse3.Operations):
         """Read directory entries."""
         try:
             path = self._get_path_from_inode(inode)
-            entries = self.list_directory(path)
+            entries = self._list_directory_cached(path)
 
             # Build directory listing
             items = [
@@ -856,7 +846,7 @@ class RivenVFS(pyfuse3.Operations):
         """Open a file for reading."""
         try:
             path = self._get_path_from_inode(inode)
-            file_info = self.db.get_entry(path)
+            file_info = self._get_entry_cached(path)
             if file_info is None or file_info["is_directory"]:
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
@@ -867,595 +857,134 @@ class RivenVFS(pyfuse3.Operations):
             # Create file handle with readahead buffer
             fh = self._next_fh
             self._next_fh += 1
+            # Minimal handle info
             self._file_handles[fh] = {
                 "path": path,
-                "buffer_data": b"",
-                "buffer_start": 0,
-                "buffer_end": 0,
-                "next_buffer_data": b"",
-                "next_buffer_start": 0,
-                "next_buffer_end": 0,
-                "prefetching": False,
-                "buffer_lock": trio.Lock(),
-                "metrics": {
-                    "start_time": None,
-                    "total_net_bytes": 0,
-                    "total_fetch_time": 0.0,
-                    "fetch_count": 0,
-                },
+                "file_info": file_info,
             }
 
-            # Reset per-path state to avoid stale prefetch windows from prior sessions
-            self._shared_buffers[path] = {
-                "prefetching": False,
-                "buffer_lock": trio.Lock(),
-                "seq_count": 0,
-                "promoted": False,
-                "metrics": {},
-                "reserved_next_start": 0,
-                "reserved_next_end": 0,
-                "last_prefetch_end": -1,
-                "prefetch_evt": None,
-
-                "read_high_water": -1,
-            }
-
-            log.debug(f"Opened file {path} with handle {fh}")
+            log.trace(f"Opened file {path} with handle {fh}")
             return pyfuse3.FileInfo(fh=fh)
         except pyfuse3.FUSEError:
             raise
 
-    # ----- HTTP helpers (refactored out of read) -----
-    def _configure_curl(self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False) -> None:
-        c.setopt(pycurl.NOSIGNAL, 1)
-        c.setopt(pycurl.FOLLOWLOCATION, 1)
-        c.setopt(pycurl.MAXREDIRS, 5)
-        c.setopt(pycurl.CONNECTTIMEOUT, 5)
-        c.setopt(pycurl.TIMEOUT, 30)
-        c.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
-        c.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
-        c.setopt(pycurl.LOW_SPEED_TIME, 15)
-        c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0 if http10 else pycurl.CURL_HTTP_VERSION_1_1)
-        c.setopt(pycurl.HTTP09_ALLOWED, 1)
-        if ignore_content_length:
-            c.setopt(pycurl.IGNORE_CONTENT_LENGTH, 1)
-
-    def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
-        try:
-            status_code, body, _ = self.http.perform_range(target_url, start, end, http10=False, ignore_content_length=False)
-            return status_code, body
-        except pycurl.error as e:
-            log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
-            # Content-Length workaround (HTTP/1.0 + ignore length)
-            if e.args and e.args[0] == 8:
-                status_code, body, _ = self.http.perform_range(target_url, start, end, http10=True, ignore_content_length=True)
-                log.info(f"Content-Length workaround successful for {target_url}")
-                return status_code, body
-            raise
-        except Exception:
-            raise
-
-    async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
-        max_attempts = 4
-        import time
-        backoffs = [0.2, 0.5, 1.0]
-        for attempt in range(max_attempts):
-            try:
-                status, content = await trio.to_thread.run_sync(
-                    self._http_range_request, target_url, start, end
-                )
-                if status == 206:
-                    return content
-                elif status == 200 and start == 0:
-                    # Full body returned; slice to requested range length
-                    return content[:(end - start + 1)]
-                elif status == 416:
-                    # Requested range not satisfiable; treat as EOF
-                    return b''
-                elif status in (403, 404, 410) or (status == 200 and start > 0):
-                    # Likely URL expired or server quirk; refresh and retry once
-                    if attempt < max_attempts - 1:
-                        self._url_cache.pop(path, None)
-                        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
-                        if fresh_url:
-                            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
-                            target_url = fresh_url
-                            # small backoff before retry
-                            if attempt < len(backoffs):
-                                await trio.sleep(backoffs[attempt])
-                # Unexpected status
-                raise pyfuse3.FUSEError(errno.EIO)
-            except pycurl.error as e:
-                log.warning(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
-                # Try refresh URL and backoff before next attempt
-                if attempt < max_attempts - 1:
-                    self._url_cache.pop(path, None)
-                    fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
-                    if fresh_url and fresh_url != target_url:
-                        self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
-                        target_url = fresh_url
-                        log.info(f"Retrying with fresh URL for {path}")
-                    if attempt < len(backoffs):
-                        await trio.sleep(backoffs[attempt])
-                    continue
-                raise pyfuse3.FUSEError(errno.EIO)
-        raise pyfuse3.FUSEError(errno.EIO)
-
-    async def _prefetch_task(self, path: str, url: str, start: int, end: int) -> None:
-        try:
-            import time
-            pf_started = time.monotonic()
-            data: bytes = await self._fetch_data_block(path, url, start, end)
-            pf_elapsed = max(time.monotonic() - pf_started, 1e-6)
-            bytes_fetched = len(data)
-            inst_mbps = (bytes_fetched * 8.0) / (pf_elapsed * 1_000_000.0)
-            log.debug(f"THR-PF path={path} fetched={bytes_fetched/1048576.0:.2f} MiB in {pf_elapsed:.2f}s => {inst_mbps:.1f} Mbps off={start}-{end}")
-            shared = self._shared_buffers.get(path)
-            # Populate cache only when path is in streaming (promoted) state
-            sh = self._shared_buffers.get(path) or {}
-            if bool(sh.get("promoted", False)):
-                self.cache.put(path, start, data)
-
-            if not shared:
-                return
-            buffer_lock: trio.Lock = shared.get("buffer_lock") or trio.Lock()
-            async with buffer_lock:
-                # Record progress and clear reservation (prefetch-to-cache model)
-                prev_end = int(shared.get("last_prefetch_end", -1))
-                pf_end_effective = (start + bytes_fetched - 1) if bytes_fetched > 0 else prev_end
-                if bytes_fetched > 0:
-                    shared["last_prefetch_end"] = max(prev_end, pf_end_effective)
-                shared["prefetching"] = False
-                try:
-                    evt = shared.get("prefetch_evt")
-                    if evt:
-                        evt.set()
-                except Exception:
-                    pass
-                shared["reserved_next_start"] = 0
-                shared["reserved_next_end"] = 0
-
-                # Chain next prefetch conservatively: stay within allowed lookahead from current read_high_water
-                try:
-                    rhw = int(shared.get("read_high_water", -1))
-                except Exception:
-                    rhw = -1
-                allowed_end = rhw + max(0, int(self.readahead_size) - 1)
-                next_start = pf_end_effective + 1
-                if (bytes_fetched > 0
-                    and bool(shared.get("promoted", False))
-                    and (not shared.get("prefetching", False))
-                    and (next_start <= allowed_end)):
-                    next_end = next_start + self.readahead_size - 1
-                    shared["prefetching"] = True
-                    shared["reserved_next_start"] = next_start
-                    shared["reserved_next_end"] = next_end
-                    try:
-                        shared["prefetch_evt"] = trio.Event()
-                    except Exception:
-                        shared["prefetch_evt"] = None
-                    self._shared_buffers[path] = shared
-                    trio.lowlevel.spawn_system_task(self._prefetch_task, path, url, next_start, next_end)
-                else:
-                    self._shared_buffers[path] = shared
-        except Exception as e:
-            log.debug(f"Prefetch(shared) failed for {path} @ {start}-{end}: {e}")
-            shared = self._shared_buffers.get(path)
-            if shared is not None:
-                shared["prefetching"] = False
-                # Clear reservation and signal any waiters on failure
-                try:
-                    evt = shared.get("prefetch_evt")
-                    if evt:
-                        evt.set()
-                except Exception:
-                    pass
-                shared["reserved_next_start"] = 0
-                shared["reserved_next_end"] = 0
-                self._shared_buffers[path] = shared
-
-
-
     async def read(self, fh: int, off: int, size: int) -> bytes:
-        """Read data from a file using HTTP range requests."""
+        """Simplified read path: fixed-size chunking and straightforward sequential prefetch."""
         try:
-            # Periodically log cache stats and trim memory/disk cache and local buffers
             try:
                 self.cache.maybe_log_stats()
             except Exception:
                 pass
 
-            # Get file handle info
             handle_info = self._file_handles.get(fh) or {}
             if not handle_info:
                 raise pyfuse3.FUSEError(errno.EBADF)
-
             path = handle_info.get("path") or ""
             if not path:
                 raise pyfuse3.FUSEError(errno.EBADF)
 
-            file_info = self.db.get_entry(path)
+            file_info = handle_info.get("file_info") or self._get_entry_cached(path)
             if file_info is None or file_info.get("is_directory"):
                 raise pyfuse3.FUSEError(errno.ENOENT)
+            size_raw = file_info.get("size")
+            file_size = int(size_raw) if size_raw is not None else None
 
-            file_size_raw = file_info.get('size')
-            file_size = int(file_size_raw) if file_size_raw is not None else None
-
-            # Guard: pyfuse3 may call read with size=0
             if size == 0:
                 return b""
-
 
             # Resolve URL with caching
             import time
             now = time.time()
             cached_url_info = self._url_cache.get(path)
-            url = None
-
-            if not cached_url_info or (now - float(cached_url_info.get('timestamp', 0))) > self.url_cache_ttl:
-                # Get fresh unrestricted URL for HTTP requests
+            if not cached_url_info or (now - float(cached_url_info.get("timestamp", 0))) > self.url_cache_ttl:
                 url = self.db.get_download_url(path, for_http=True, force_resolve=False)
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
-                self._url_cache[path] = {'url': url, 'timestamp': now}
-                log.debug(f"Refreshed URL cache for {path}")
+                self._url_cache[path] = {"url": url, "timestamp": now}
             else:
-                url = str(cached_url_info.get('url'))
+                url = str(cached_url_info.get("url"))
 
-            # Concurrency controls: per-path network semaphore and per-handle buffer lock
-            network_sem = self._request_semaphores.setdefault(path, trio.Semaphore(self.max_concurrent_fetches))
-            buffer_lock = handle_info.setdefault("buffer_lock", trio.Lock())
-            # Compute request range for this read
-            # Compute request range for this read (once)
+            # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
-            request_end = off + size - 1 if size > 0 else off
+            request_end = off + size - 1
             if file_size is not None:
+                # Clamp to last byte index
                 request_end = min(request_end, file_size - 1)
+            if request_end < request_start:
+                return b""
 
-            # Global cache check before touching shared/per-handle buffers
+            # Align fetch to chunk boundaries
+            aligned_chunk_start = (request_start // self.chunk_size) * self.chunk_size
+            aligned_chunk_end = aligned_chunk_start + self.chunk_size - 1
+            if file_size is not None:
+                aligned_chunk_end = min(aligned_chunk_end, file_size - 1)
+            next_aligned_start = aligned_chunk_start + self.chunk_size
+            next_aligned_end = next_aligned_start + self.chunk_size - 1
+
+            # Try cache first for exactly what kernel asked
             cached_bytes = self.cache.get(path, request_start, request_end)
             if cached_bytes is not None:
-                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start}-{request_end} bytes={len(cached_bytes)}")
-                try:
-                    sh = self._shared_buffers.get(path)
-                    if sh is not None:
-                        prev = int(sh.get("read_high_water", -1))
-                        endv = request_end
-                        if endv > prev:
-                            sh["read_high_water"] = endv
-                            self._shared_buffers[path] = sh
-                except Exception:
-                    pass
+                # Fire-and-forget prefetch of next aligned chunk if within file bounds
+                if file_size is None or next_aligned_start < file_size:
+                    pf_end = next_aligned_end if file_size is None else min(next_aligned_end, file_size - 1)
+                    trio.lowlevel.spawn_system_task(self._prefetch_next_chunk, path, url, next_aligned_start, pf_end)
+                log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
                 return cached_bytes
 
+            # Fetch exactly one aligned chunk and cache it
+            data = await self._fetch_data_block(path, url, aligned_chunk_start, aligned_chunk_end)
 
-            # Per-path path-state (no shared bytes; only coordination and promotion)
-            shared = self._shared_buffers.setdefault(path, {
-                "prefetching": False,
-                "buffer_lock": trio.Lock(),  # state lock
-                "seq_count": 0,
-                "promoted": False,
-                "metrics": {},
-                "reserved_next_start": 0,
-                "reserved_next_end": 0,
-                "last_prefetch_end": -1,
-                "prefetch_evt": None,
-
-                "read_high_water": -1,
-            })
-            shared_lock: trio.Lock = shared.setdefault("buffer_lock", trio.Lock())
-
-            # Reset stale path-state if last prefetch is far ahead of current request
-            try:
-                last_end_chk = int(shared.get("last_prefetch_end", -1))
-                if last_end_chk >= 0 and (last_end_chk - off) > int(self.readahead_size):
-                    shared.update({
-                        "prefetching": False,
-                        "reserved_next_start": 0,
-                        "reserved_next_end": 0,
-                        "last_prefetch_end": -1,
-                        "seq_count": 0,
-                        "promoted": False,
-                        "prefetch_evt": None,
-
-                        "read_high_water": -1,
-                    })
-                    self._shared_buffers[path] = shared
-            except Exception:
-                pass
-
-            # Readahead buffer logic with limited parallel fetch
-            # First, try serving from buffer under buffer_lock
-            async with buffer_lock:
-                buffer_data: bytes = handle_info.get("buffer_data", b"")
-                buffer_start: int = int(handle_info.get("buffer_start", 0))
-                buffer_end: int = int(handle_info.get("buffer_end", 0))
+            if data:
+                self.cache.put(path, aligned_chunk_start, data)
+                log.trace(f"fh={fh} path={path} off={request_start} size={request_end} bytes={request_end - request_start} source=fetch")
 
 
-                # Check if request is fully satisfied by current buffer
-                if (buffer_data and request_start >= buffer_start and
-                    (request_end + 1) <= buffer_end):
-                    # Serve from buffer
-                    buffer_offset = request_start - buffer_start
-                    data_length = request_end - request_start + 1
-                    log.debug(f"rivenvfs.read - BUF-HIT-FH path={path} off={request_start}-{request_end} bytes={data_length} span={buffer_start}-{buffer_end}")
-                    try:
-                        sh = self._shared_buffers.get(path)
-                        if sh is not None:
-                            prev = int(sh.get("read_high_water", -1))
-                            endv = request_end
-                            if endv > prev:
-                                sh["read_high_water"] = endv
-                                self._shared_buffers[path] = sh
-                    except Exception:
-                        pass
-                    return buffer_data[buffer_offset:buffer_offset + data_length]
-                # If request fits entirely in prefetched next buffer, swap and serve
-                # Need to fetch new data
-                chunk = self.chunk_size
-                delta = request_start - buffer_end
-                near_contiguous = (delta >= 0) and (delta <= self.near_contiguous_threshold)
-                contiguous = (request_start == buffer_end) or near_contiguous
-                is_promoted = bool(shared.get("promoted", False))
-                if contiguous:
-                    # Continue from buffer_end to avoid gaps
-                    fetch_start = buffer_end
-                    desired_len = chunk if is_promoted else size
-                else:
-                    # For random/non-contiguous access, fetch exactly what was requested
-                    fetch_start = request_start
-                    desired_len = size
+            # Prefetch next aligned chunk (fire-and-forget)
+            if file_size is None or next_aligned_start < file_size:
+                pf_end = next_aligned_end if file_size is None else min(next_aligned_end, file_size - 1)
+                trio.lowlevel.spawn_system_task(self._prefetch_next_chunk, path, url, next_aligned_start, pf_end)
 
-                fetch_end = fetch_start + desired_len - 1
-                if file_size is not None:
-                    fetch_end = min(fetch_end, file_size - 1)
-
-
-                # In-flight de-duplication per fetch_start
-                inflight = handle_info.setdefault("inflight", {})
-                wait_event = inflight.get(fetch_start)
-                if wait_event is None:
-                    wait_event = inflight[fetch_start] = trio.Event()
-                    leader = True
-                else:
-                    leader = False
-
-            # If follower, wait for leader to finish this chunk and serve from buffer
-            if not leader:
-                await wait_event.wait()
-                async with buffer_lock:
-                    buffer_data: bytes = handle_info.get("buffer_data", b"")
-                    buffer_start: int = int(handle_info.get("buffer_start", 0))
-                    buffer_end_local: int = int(handle_info.get("buffer_end", 0))
-                    # Verify coverage after leader finished; if covered, serve from buffer
-                    if (buffer_data and request_start >= buffer_start and (request_end + 1) <= buffer_end_local):
-                        buffer_offset = request_start - buffer_start
-                        data_length = request_end - request_start + 1
-                        try:
-                            sh = self._shared_buffers.get(path)
-                            if sh is not None:
-                                prev = int(sh.get("read_high_water", -1))
-                                endv = request_end
-                                if endv > prev:
-                                    sh["read_high_water"] = endv
-                                    self._shared_buffers[path] = sh
-                        except Exception:
-                            pass
-                        return buffer_data[buffer_offset:buffer_offset + data_length]
-                    # Not covered (leader failed or short-read far from our range); compute fallback fetch
-                    fallback_fetch_start = request_start
-                    fallback_fetch_end = request_end
-                # Fallback fetch (acts independently of inflight to recover)
-
-                # Scaling profile removed: no dynamic scaling
-                sems = []
-                if self._global_network_sem is not None:
-                    sems.append(self._global_network_sem)
-                sems.append(network_sem)
-                if len(sems) == 2:
-                    async with sems[0]:
-                        async with sems[1]:
-                            fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
-                else:
-                    async with network_sem:
-                        fb_data = await self._fetch_data_block(path, url, fallback_fetch_start, fallback_fetch_end)
-
-                # Populate cache with fallback-fetched block only when promoted
-                sh = self._shared_buffers.get(path) or {}
-                if bool(sh.get("promoted", False)):
-                    self.cache.put(path, fallback_fetch_start, fb_data)
-
-                # Update buffer and return
-                async with buffer_lock:
-                    handle_info["buffer_start"] = fallback_fetch_start
-                    handle_info["buffer_data"] = fb_data
-                    handle_info["buffer_end"] = fallback_fetch_start + len(fb_data)
-                    self._file_handles[fh] = handle_info
-                    buffer_offset = request_start - fallback_fetch_start
-                    data_length = request_end - request_start + 1
-                    try:
-                        sh = self._shared_buffers.get(path)
-                        if sh is not None:
-                            prev = int(sh.get("read_high_water", -1))
-                            endv = request_end
-                            if endv > prev:
-                                sh["read_high_water"] = endv
-                                self._shared_buffers[path] = sh
-                    except Exception:
-                        pass
-                    return fb_data[buffer_offset:buffer_offset + data_length]
-
-            # Leader path: perform network fetch outside buffer lock, with cleanup on error
-            evt_signaled = False
-            try:
-                fetch_started = time.monotonic()
-
-                # If the request range is fully within a reserved next prefetch window, wait briefly
-                try:
-                    rns = int(shared.get("reserved_next_start", 0))
-                    rne = int(shared.get("reserved_next_end", 0))
-                except Exception:
-                    rns = 0 ; rne = 0
-                if rne > rns and request_start >= rns and (request_end + 1) <= rne:
-                    try:
-                        evt = shared.get("prefetch_evt")
-                        if evt is not None:
-                            log.debug(f"rivenvfs.read - WAIT-PF path={path} request={request_start}-{request_end} reserved={rns}-{rne}")
-                            with trio.move_on_after(0.4):
-                                await evt.wait()
-                            # Re-check cache first after wait
-                            cached_after_wait = self.cache.get(path, request_start, request_end)
-                            if cached_after_wait is not None:
-                                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start}-{request_end} bytes={len(cached_after_wait)} (post-wait)")
-                                try:
-                                    sh = self._shared_buffers.get(path)
-                                    if sh is not None:
-                                        prev = int(sh.get("read_high_water", -1))
-                                        endv = request_end
-                                        if endv > prev:
-                                            sh["read_high_water"] = endv
-                                            self._shared_buffers[path] = sh
-                                except Exception:
-                                    pass
-                                return cached_after_wait
-
-                    except Exception:
-                        pass
-
-                # Scaling profile removed: no dynamic scaling
-                sems = []
-                if self._global_network_sem is not None:
-                    sems.append(self._global_network_sem)
-                sems.append(network_sem)
-                if len(sems) == 2:
-                    async with sems[0]:
-                        async with sems[1]:
-                            fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
-                else:
-                    async with network_sem:
-                        fetched_data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
-                fetch_elapsed = max(time.monotonic() - fetch_started, 1e-6)
-                # Populate cache with leader-fetched block only when promoted
-                sh = self._shared_buffers.get(path) or {}
-                if bool(sh.get("promoted", False)):
-                    self.cache.put(path, fetch_start, fetched_data)
-
-                bytes_fetched = len(fetched_data)
-
-                # Update per-handle throughput metrics and log
-                metrics = handle_info.get("metrics") or {"start_time": None, "total_net_bytes": 0, "total_fetch_time": 0.0, "fetch_count": 0}
-                if not metrics.get("start_time"):
-                    metrics["start_time"] = time.monotonic()
-                metrics["total_net_bytes"] += bytes_fetched
-                metrics["total_fetch_time"] += fetch_elapsed
-                metrics["fetch_count"] = int(metrics.get("fetch_count", 0)) + 1
-                inst_mbps = (bytes_fetched * 8.0) / (fetch_elapsed * 1_000_000.0)
-                avg_mbps = (metrics["total_net_bytes"] * 8.0) / (max(metrics["total_fetch_time"], 1e-6) * 1_000_000.0)
-                if avg_mbps < 50.0 and metrics["fetch_count"] >= 3 and not metrics.get("warned_low", False):
-                    log.warning(f"Low throughput for {path}: avg={avg_mbps:.1f} Mbps over {metrics['fetch_count']} fetches")
-                    metrics["warned_low"] = True
-                log.debug(f"THR path={path} fetched={bytes_fetched/1048576.0:.2f} MiB in {fetch_elapsed:.2f}s => {inst_mbps:.1f} Mbps avg={avg_mbps:.1f} Mbps off={fetch_start}-{fetch_end}")
-                handle_info["metrics"] = metrics
-
-                # Update buffer in handle and signal followers
-                async with buffer_lock:
-                    handle_info["buffer_start"] = fetch_start
-                    handle_info["buffer_data"] = fetched_data
-                    handle_info["buffer_end"] = fetch_start + len(fetched_data)
-                    self._file_handles[fh] = handle_info
-                    inflight = handle_info.setdefault("inflight", {})
-                    evt = inflight.pop(fetch_start, None)
-                    if evt:
-                        evt.set()
-                        evt_signaled = True
-
-                    buffer_offset = request_start - fetch_start
-                    data_length = request_end - request_start + 1
-                    result = fetched_data[buffer_offset:buffer_offset + data_length]
-                # Mirror into shared per-path buffer so other FDs can reuse
-                async with shared_lock:
-                    # Update sequential detector and promotion (no shared bytes)
-                    try:
-                        if contiguous:
-                            shared["seq_count"] = int(shared.get("seq_count", 0)) + 1
-                        else:
-                            shared["seq_count"] = 0
-                        if (not bool(shared.get("promoted", False))) and int(shared.get("seq_count", 0)) >= int(self._promotion_threshold):
-                            shared["promoted"] = True
-                    except Exception:
-                        pass
-                    self._shared_buffers[path] = shared
-
-                # Consider background prefetch (shared, fire-and-forget)
-                try:
-                    async with shared_lock:
-                        # Compute next prefetch start immediately after current fetched range (no shared bytes)
-                        last_end = int(shared.get("last_prefetch_end", -1))
-                        # Only schedule prefetch if we fetched at least one full chunk (clear sequential signal)
-                        if len(fetched_data) >= self.chunk_size and bool(shared.get("promoted", False)) and not shared.get("prefetching", False):
-                            # Start immediately after current fetched range; avoid overlap with any prior prefetch
-                            s_prefetch_start = max(fetch_start + len(fetched_data), last_end + 1)
-                            if (file_size is None) or (s_prefetch_start < file_size):
-                                s_prefetch_end = s_prefetch_start + self.readahead_size - 1
-                                if file_size is not None:
-                                    s_prefetch_end = min(s_prefetch_end, file_size - 1)
-                                shared["prefetching"] = True
-                                shared["reserved_next_start"] = s_prefetch_start
-                                shared["reserved_next_end"] = s_prefetch_end
-                                try:
-                                    shared["prefetch_evt"] = trio.Event()
-                                except Exception:
-                                    shared["prefetch_evt"] = None
-                                self._shared_buffers[path] = shared
-                                trio.lowlevel.spawn_system_task(self._prefetch_task, path, url, s_prefetch_start, s_prefetch_end)
-                except Exception:
-                    pass
-
-                log.debug(f"Read {len(result)} bytes from {path} at offset {off}")
-                try:
-                    sh = self._shared_buffers.get(path)
-                    if sh is not None:
-                        prev = int(sh.get("read_high_water", -1))
-                        endv = off + len(result) - 1
-                        if endv > prev:
-                            sh["read_high_water"] = endv
-                            self._shared_buffers[path] = sh
-                except Exception:
-                    pass
-                return result
-            finally:
-                if not evt_signaled:
-                    # Ensure we never leave followers waiting indefinitely
-                    try:
-                        async with buffer_lock:
-                            inflight = handle_info.setdefault("inflight", {})
-                            evt = inflight.pop(fetch_start, None)
-                            if evt:
-                                evt.set()
-                    except Exception:
-                        pass
-
+            if not data:
+                return b""
+            # Return only the requested subrange from the fetched chunk
+            start_idx = request_start - aligned_chunk_start
+            need_len = request_end - request_start + 1
+            return data[start_idx:start_idx + need_len]
         except pyfuse3.FUSEError:
             raise
         except Exception as ex:
-            log.exception("read error fh=%s: %s", fh, ex)
+            log.exception("read(simple) error fh=%s: %s", fh, ex)
             raise pyfuse3.FUSEError(errno.EIO)
+
+    async def _prefetch_next_chunk(self, path: str, url: str, start: int, end: int) -> None:
+        """Prefetch the next sequential chunk into cache without blocking reads."""
+        try:
+            if start < 0:
+                return
+            # Skip if already cached
+            if self.cache.get(path, start, end) is not None:
+                return
+            existing_buffers = self._buffers.get(path, None)
+            if existing_buffers:
+                if start in existing_buffers:
+                    return
+            if not existing_buffers:
+                self._buffers[path] = []
+            self._buffers[path].append(start)
+            data = await self._fetch_data_block(path, url, start, end)
+            self._buffers[path].remove(start)
+            if data:
+                self.cache.put(path, start, data)
+                log.trace(f"path={path} start={start} end={end} bytes={end-start}")
+        except Exception:
+            # Best-effort: ignore prefetch errors
+            pass
 
     async def release(self, fh: int):
         """Release/close a file handle."""
         try:
-            handle_info = self._file_handles.pop(fh, None)
-            if handle_info:
-                # Clean up curl handle if it exists
-                curl_handle = handle_info.get('curl_handle')
-                if curl_handle:
-                    try:
-                        curl_handle.close()
-                        log.debug(f"Closed curl handle for fh={fh}")
-                    except Exception as e:
-                        log.warning(f"Error closing curl handle for fh={fh}: {e}")
-
-                log.debug(f"Released file handle {fh}")
+            self._file_handles.pop(fh, None)
+            log.trace(f"Released file handle {fh}")
         except Exception as ex:
             log.exception("release error fh=%s: %s", fh, ex)
             raise pyfuse3.FUSEError(errno.EIO)
@@ -1469,18 +998,14 @@ class RivenVFS(pyfuse3.Operations):
         return None
 
     async def access(self, inode: int, mode: int, ctx=None) -> None:
-        """Check file access permissions."""
+        """Check file access permissions.
+        Be permissive for write checks to avoid client false negatives; actual writes still fail with EROFS.
+        """
         try:
-            import os
-            # Read-only filesystem: allow read/execute, deny write
-            if mode & os.W_OK:
-                raise pyfuse3.FUSEError(errno.EACCES)
-
-            # Check if file/directory exists
+            # Check existence only; permission enforcement happens at operation time
             path = self._get_path_from_inode(inode)
             if not self.db.exists(path):
                 raise pyfuse3.FUSEError(errno.ENOENT)
-
             return None
         except pyfuse3.FUSEError:
             raise
@@ -1488,7 +1013,6 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("access error inode=%s mode=%s: %s", inode, mode, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    # Mutating operations (unlink, rmdir, rename)
     async def unlink(self, parent_inode: int, name: bytes, ctx):
         """Remove a file."""
         try:
@@ -1535,3 +1059,70 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("rename error: old=%s/%s new=%s/%s: %s",
                          parent_inode_old, name_old, parent_inode_new, name_new, ex)
             raise pyfuse3.FUSEError(errno.EIO)
+
+    # HTTP helpers
+
+    def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
+        try:
+            status_code, body, _ = self.http.perform_range(target_url, start, end, http10=False, ignore_content_length=False)
+            return status_code, body
+        except pycurl.error as e:
+            log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
+            # Content-Length workaround (HTTP/1.0 + ignore length)
+            if e.args and e.args[0] == 8:
+                status_code, body, _ = self.http.perform_range(target_url, start, end, http10=True, ignore_content_length=True)
+                log.info(f"Content-Length workaround successful for {target_url}")
+                return status_code, body
+            raise
+        except Exception:
+            raise
+
+    async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
+        max_attempts = 4
+        import time
+        backoffs = [0.2, 0.5, 1.0]
+        for attempt in range(max_attempts):
+            try:
+                status, content = await trio.to_thread.run_sync(
+                    self._http_range_request, target_url, start, end
+                )
+                if status == 206:
+                    log.trace(f"path={path} start={start} end={end} bytes={end-start}")
+                    return content
+                elif status == 200 and start == 0:
+                    # Full body returned; slice to requested range length
+                    log.trace(f"path={path} start={0} end={end + 1} bytes={end + 1}")
+                    return content[:(end - start + 1)]
+                elif status == 416:
+                    # Requested range not satisfiable; treat as EOF
+                    return b''
+                elif status in (403, 404, 410) or (status == 200 and start > 0):
+                    # Likely URL expired or server quirk; refresh and retry once
+                    if attempt < max_attempts - 1:
+                        self._url_cache.pop(path, None)
+                        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
+                        if fresh_url:
+                            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
+                            target_url = fresh_url
+                            # small backoff before retry
+                            if attempt < len(backoffs):
+                                await trio.sleep(backoffs[attempt])
+                # Unexpected status
+                raise pyfuse3.FUSEError(errno.EIO)
+            except pycurl.error as e:
+                log.warning(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
+                # Try refresh URL and backoff before next attempt
+                if attempt < max_attempts - 1:
+                    self._url_cache.pop(path, None)
+                    fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
+                    if fresh_url and fresh_url != target_url:
+                        self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
+                        target_url = fresh_url
+                        log.info(f"Retrying with fresh URL for {path}")
+                    if attempt < len(backoffs):
+                        await trio.sleep(backoffs[attempt])
+                    continue
+                raise pyfuse3.FUSEError(errno.EIO)
+        raise pyfuse3.FUSEError(errno.EIO)
+
+
