@@ -1,5 +1,4 @@
 import asyncio
-import os
 from datetime import datetime
 from typing import List, Literal, Optional
 
@@ -17,8 +16,6 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem import FilesystemService
-from program.services.scrapers import Scraping
-from program.services.downloaders import Downloader
 from program.types import Event
 
 from ..models.shared import MessageResponse

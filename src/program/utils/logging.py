@@ -51,7 +51,7 @@ def setup_logger(level):
         "COMPLETED": (20, "FFFFFF", "🟢"),
         "CACHE": (5, "527826", "📜"), # trace
         "NOT_FOUND": (20, "818589", "🤷‍"),
-        "NEW": (20, "e63946", "✨"),
+        "NEW": (20, "ce7fab", "✨"),
         "FILES": (20, "FFFFE0", "🗃️ "),
         "ITEM": (20, "92a1cf", "🗃️ "),
         "DISCOVERY": (20, "e56c49", "🔍"),
@@ -86,7 +86,7 @@ def setup_logger(level):
     log_format = (
         "<fg #818589>{time:YY-MM-DD} {time:HH:mm:ss}</fg #818589> | "
         "<level>{level.icon}</level> <level>{level: <9}</level> | "
-        "<fg #990066>{module}</fg #990066>.<fg #990066>{function}</fg #990066> - <level>{message}</level>"
+        "<fg #e7e7e7>{module}</fg #e7e7e7>.<fg #e7e7e7>{function}</fg #e7e7e7> - <level>{message}</level>"
     )
 
     logger.configure(handlers=[

@@ -1115,7 +1115,7 @@ class RivenVFS(pyfuse3.Operations):
             # Global cache check before touching shared/per-handle buffers
             cached_bytes = self.cache.get(path, request_start, request_end)
             if cached_bytes is not None:
-                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start}-{request_end} bytes={len(cached_bytes)}")
+                log.log("VFS", f"CACHE-HIT READ path={path} off={request_start}-{request_end} bytes={len(cached_bytes)}")
                 try:
                     sh = self._shared_buffers.get(path)
                     if sh is not None:
@@ -1300,13 +1300,13 @@ class RivenVFS(pyfuse3.Operations):
                     try:
                         evt = shared.get("prefetch_evt")
                         if evt is not None:
-                            log.debug(f"rivenvfs.read - WAIT-PF path={path} request={request_start}-{request_end} reserved={rns}-{rne}")
+                            log.log("VFS", f"READ-WAIT-PF path={path} request={request_start}-{request_end} reserved={rns}-{rne}")
                             with trio.move_on_after(0.4):
                                 await evt.wait()
                             # Re-check cache first after wait
                             cached_after_wait = self.cache.get(path, request_start, request_end)
                             if cached_after_wait is not None:
-                                log.debug(f"rivenvfs.read - CACHE-HIT path={path} off={request_start}-{request_end} bytes={len(cached_after_wait)} (post-wait)")
+                                log.log("VFS", f"CACHE-HIT READ path={path} off={request_start}-{request_end} bytes={len(cached_after_wait)} (post-wait)")
                                 try:
                                     sh = self._shared_buffers.get(path)
                                     if sh is not None:

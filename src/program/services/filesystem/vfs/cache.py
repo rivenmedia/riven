@@ -368,7 +368,7 @@ class CacheManager:
             pass
         self._last_log = now
         stats = self.backend.stats()
-        logger.bind(component="RivenVFS").debug(f"Cache stats: {stats}")
+        logger.bind(component="RivenVFS").log("VFS", f"Cache stats: {stats}")
 
     def trim(self) -> None:
         self.backend.trim()
