@@ -1,5 +1,4 @@
 import asyncio
-import os
 from datetime import datetime
 from typing import List, Literal, Optional
 
@@ -17,8 +16,6 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem import FilesystemService
-from program.services.scrapers import Scraping
-from program.services.downloaders import Downloader
 from program.types import Event
 
 from ..models.shared import MessageResponse
@@ -30,8 +27,8 @@ router = APIRouter(
 )
 
 
-def handle_ids(ids: str) -> list[str]:
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [str(ids)]
+def handle_ids(ids: str) -> list[int]:
+    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
@@ -61,7 +58,7 @@ class ItemsResponse(BaseModel):
 
 @router.get(
     "",
-    summary="Retrieve Media Items",
+    summary="Search Media Items",
     description="Fetch media items with optional filters and pagination",
     operation_id="get_items",
 )
@@ -91,10 +88,7 @@ async def get_items(
         if search_lower.startswith("tt"):
             query = query.where(MediaItem.imdb_id == search_lower)
         else:
-            query = query.where(
-                (func.lower(MediaItem.title).like(f"%{search_lower}%"))
-                | (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
-            )
+            query = query.where(func.lower(MediaItem.title).like(f"%{search_lower}%"))
 
     if states:
         states = states.split(",")
@@ -285,30 +279,10 @@ async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"
             logger.error(f"Error fetching item with ID {id}: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.get(
-    "/imdb/{imdb_ids}",
-    summary="Retrieve Media Items By IMDb IDs",
-    description="Fetch media items by IMDb IDs",
-    operation_id="get_items_by_imdb_ids",
-)
-async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
-    ids = imdb_ids.split(",")
-    with db.Session() as session:
-        items = []
-        for id in ids:
-            item = (
-                session.execute(select(MediaItem).where(MediaItem.imdb_id == id).where(MediaItem.type.in_(["movie", "show"])))
-                .unique()
-                .scalar_one()
-            )
-            if item:
-                items.append(item)
-        return [item.to_extended_dict() for item in items]
-
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -318,7 +292,7 @@ class ResetResponse(BaseModel):
     operation_id="reset_items",
 )
 async def reset_items(request: Request, ids: str) -> ResetResponse:
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
         for media_item in db_functions.get_items_by_ids(ids):
             try:
@@ -355,7 +329,7 @@ class RetryResponse(BaseModel):
 )
 async def retry_items(request: Request, ids: str) -> RetryResponse:
     """Re-add items to the queue"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     for id in ids:
         try:
             item = db_functions.get_item_by_id(id)
@@ -435,7 +409,7 @@ async def update_new_releases_items(request: Request, update_type: Literal["seri
 
 class RemoveResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.delete(
@@ -458,7 +432,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     We explicitly avoid pre-deleting seasons/episodes or clearing stream links—
     that work is delegated to the database for speed and consistency.
     """
-    ids: List[str] = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
@@ -626,7 +600,7 @@ async def reset_item_streams(_: Request, item_id: int, db: Session = Depends(get
 
 class PauseResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 @router.post(
     "/pause",
@@ -636,7 +610,7 @@ class PauseResponse(BaseModel):
 )
 async def pause_items(request: Request, ids: str) -> PauseResponse:
     """Pause items and their children from being processed"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
             for media_item in db_functions.get_items_by_ids(ids):
@@ -670,7 +644,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
 )
 async def unpause_items(request: Request, ids: str) -> PauseResponse:
     """Unpause items and their children to resume processing"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
             for media_item in db_functions.get_items_by_ids(ids):

@@ -928,7 +928,7 @@ class RivenVFS(pyfuse3.Operations):
                 if file_size is None or next_aligned_start < file_size:
                     pf_end = next_aligned_end if file_size is None else min(next_aligned_end, file_size - 1)
                     trio.lowlevel.spawn_system_task(self._prefetch_next_chunk, path, url, next_aligned_start, pf_end)
-                log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
+                log.log("VFS", f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
                 return cached_bytes
 
             # Fetch exactly one aligned chunk and cache it
@@ -937,7 +937,6 @@ class RivenVFS(pyfuse3.Operations):
             if data:
                 self.cache.put(path, aligned_chunk_start, data)
                 log.trace(f"fh={fh} path={path} off={request_start} size={request_end} bytes={request_end - request_start} source=fetch")
-
 
             # Prefetch next aligned chunk (fire-and-forget)
             if file_size is None or next_aligned_start < file_size:
