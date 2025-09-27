@@ -978,13 +978,9 @@ class RivenVFS(pyfuse3.Operations):
                         # Cache the fetched data
                         self.cache.put(path, fetch_start, data)
 
-                        # Return only the requested subrange (always slice for promoted reads)
-                        if is_promoted:
-                            start_idx = off - fetch_start
-                            returned_data = data[start_idx:start_idx + size]
-                        else:
-                            # Non-promoted: we fetched exactly what was requested
-                            returned_data = data
+                        # Always slice to return exactly what was requested
+                        start_idx = off - fetch_start
+                        returned_data = data[start_idx:start_idx + size]
                     else:
                         returned_data = b""
 
@@ -994,14 +990,19 @@ class RivenVFS(pyfuse3.Operations):
                 handle_info["last_read_end"] = off + len(returned_data)
 
                 # Data integrity check: ensure we return exactly the requested size
-                if returned_data and len(returned_data) != size:
+                # But account for file size boundaries - we can't read past EOF
+                expected_size = size
+                if file_size is not None and off + size > file_size:
+                    expected_size = max(0, file_size - off)
+
+                if returned_data and len(returned_data) != expected_size:
                     # This should never happen, but if it does, truncate/pad to exact size
-                    if len(returned_data) > size:
-                        returned_data = returned_data[:size]
-                        log.warning(f"Scanner read returned too much data: got {len(returned_data)} bytes, expected {size}")
+                    if len(returned_data) > expected_size:
+                        returned_data = returned_data[:expected_size]
+                        log.warning(f"Scanner read returned too much data: got {len(returned_data)} bytes, expected {expected_size}")
                     else:
-                        log.error(f"Scanner read returned too little data: got {len(returned_data)} bytes, expected {size}")
-                        # For media playback, returning partial data is worse than returning empty
+                        log.error(f"Scanner read returned too little data: got {len(returned_data)} bytes, expected {expected_size}")
+                        # For media playbook, returning partial data is worse than returning empty
                         returned_data = b""
 
                 opener = handle_info.get("opener_name")
@@ -1069,6 +1070,8 @@ class RivenVFS(pyfuse3.Operations):
                         returned_data = data[start_idx:start_idx + need_len]
 
                 # Data integrity check: ensure we return exactly the requested size
+                # The expected_size is already correctly calculated as request_end - request_start + 1
+                # which accounts for file size clamping done earlier
                 expected_size = request_end - request_start + 1
                 if returned_data and len(returned_data) != expected_size:
                     # This should never happen, but if it does, truncate/pad to exact size
