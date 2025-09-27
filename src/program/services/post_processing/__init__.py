@@ -25,7 +25,7 @@ class PostProcessing:
         if Subliminal.should_submit(item):
             self.services[Subliminal].run(item)
         if item.last_state == States.Completed:
-            clear_streams(item)
+            clear_streams(media_item_id=item.id)
         yield item
 
 
