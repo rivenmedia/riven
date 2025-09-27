@@ -84,8 +84,8 @@ class FilesystemModel(Observable):
     vfs_cache_ttl_seconds: int = 2 * 60 * 60
     vfs_cache_eviction: str = "LRU"  # LRU|TTL
     vfs_cache_metrics: bool = True
-    vfs_chunk_mb: int = 64  # size of a single fetch chunk (MB)
-    vfs_readahead_chunks: int = 1  # how many chunks to prefetch ahead
+    vfs_chunk_mb: int = 32  # size of a single fetch chunk (MB)
+    fetch_ahead_size_mb: int = 128  # how many MB to fetch ahead
 
 # Content Services
 

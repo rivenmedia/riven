@@ -1,3 +1,5 @@
+#docker compose -f docker-compose-dev.yml up -d --build --no-deps
+#docker compose -f docker-compose-dev.yml down
 services:
   riven:
     build:
@@ -7,6 +9,7 @@ services:
     container_name: riven
     restart: unless-stopped
     tty: true
+    shm_size: 1024m
     ports:
       - "8080:8080"
     environment:
@@ -21,8 +24,8 @@ services:
     security_opt:
       - apparmor:unconfined
     volumes:
-      - ./riven/data:/riven/data
-      - ./mount:/mount:rshared,z
+      - ./container_data/riven:/riven/data
+      - ./container_data/mount:/mount:rshared,z
     depends_on:
       riven_postgres:
         condition: service_healthy
@@ -39,9 +42,20 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: riven
     volumes:
-      - ./riven_db:/var/lib/postgresql/data/pgdata
+      - ./container_data/db:/var/lib/postgresql/data/pgdata
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # jellyfin:
+  #   image: jellyfin/jellyfin
+  #   container_name: jellyfin
+  #   user: 1000:1000
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8096:8096"
+  #   volumes:
+  #     - ./container_data/jellyfin:/config
+  #     - ./container_data/mount:/mount:rslave,z

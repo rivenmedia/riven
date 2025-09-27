@@ -216,30 +216,30 @@ class DiskBackend(CacheBackend):
                                 fp_c = self._file_for(cand_key)
                                 try:
                                     with fp_c.open("rb") as f:
-                                        c_data = f.read()
+                                        f.seek(offset)
+                                        slice_data = f.read(needed_len)
                                 except FileNotFoundError:
                                     pass
                                 else:
-                                    sz = len(c_data)
                                     with self._lock:
                                         if ent2 is None:
-                                            self._index[cand_key] = (sz, time.time(), path, c_start)
-                                            self._total_bytes += sz
+                                            self._index[cand_key] = (c_sz, time.time(), path, c_start)
+                                            self._total_bytes += c_sz
                                         else:
                                             self._index.move_to_end(cand_key, last=True)
-                                            prev_sz = ent2[0]
-                                            self._index[cand_key] = (sz, time.time(), path, c_start)
-                                            self._total_bytes += max(0, sz - prev_sz)
+                                            # keep recorded size as c_sz
+                                            self._index[cand_key] = (c_sz, time.time(), path, c_start)
                                     self._metrics.hits += 1
                                     self._metrics.bytes_from_cache += needed_len
-                                    return c_data[offset:offset + needed_len]
+                                    return slice_data
                 # no coverage found; proceed to direct file probe below
         # Direct probe for exact key on filesystem and rebuild index
         fp = self._file_for(k)
-        data: Optional[bytes] = None
         try:
+            st_size = fp.stat().st_size
             with fp.open("rb") as f:
-                data = f.read()
+                length = max(0, end - start + 1)
+                data = f.read(length)
         except FileNotFoundError:
             data = None
         if data is None:
@@ -247,21 +247,20 @@ class DiskBackend(CacheBackend):
                 self._index.pop(k, None)
             self._metrics.misses += 1
             return None
-        # If we got here but entry was missing in index, rebuild it
+        # If we got here but entry was missing in index, rebuild it using stat size
         with self._lock:
             if k not in self._index:
-                sz = len(data)
-                self._index[k] = (sz, time.time(), path, start)
+                self._index[k] = (st_size, time.time(), path, start)
                 lst = self._by_path.setdefault(path, [])
                 insort(lst, start)
-                self._total_bytes += sz
+                self._total_bytes += st_size
         if end < start:
             return b""
-        length = end - start + 1
-        if len(data) >= length:
+        need = end - start + 1
+        if len(data) >= need:
             self._metrics.hits += 1
-            self._metrics.bytes_from_cache += length
-            return data[:length]
+            self._metrics.bytes_from_cache += need
+            return data
         self._metrics.misses += 1
         return None
 

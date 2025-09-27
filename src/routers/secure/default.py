@@ -14,6 +14,7 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
+from program.services.filesystem.filesystem_service import FilesystemService
 
 from ..models.shared import MessageResponse
 
@@ -283,3 +284,15 @@ async def fetch_calendar(_: Request) -> CalendarResponse:
         return CalendarResponse(
             data=db_functions.create_calendar(session)
         )
+
+class VFSStatsResponse(BaseModel):
+    stats: dict[str, dict] = Field(description="VFS statistics")
+
+@router.get(
+    "/vfs_stats",
+    summary="Get VFS Statistics",
+    description="Get statistics about the VFS",
+    operation_id="get_vfs_stats",
+)
+async def get_vfs_stats(request: Request) -> VFSStatsResponse:
+    return VFSStatsResponse(stats=request.app.program.services[FilesystemService].riven_vfs._opener_stats)
