@@ -24,7 +24,7 @@ services:
     security_opt:
       - apparmor:unconfined
     volumes:
-      - ./data/riven:/riven/data
+      - ./container_data/riven:/riven/data
       - ./container_data/mount:/mount:rshared,z
     depends_on:
       riven_postgres:
