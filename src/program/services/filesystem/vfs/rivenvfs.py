@@ -137,6 +137,12 @@ from .cache import CacheManager, CacheConfig
 
 log = logger
 
+MEDIA_SCANNERS = [
+    "PMS ScannerPipe", # Plex
+    "Plex Media Scan", # Plex
+    "ffprobe" # Jellyfin
+]
+
 class RivenVFS(pyfuse3.Operations):
     """
     Riven Virtual File System - A FUSE-based VFS for streaming media content.
@@ -892,9 +898,7 @@ class RivenVFS(pyfuse3.Operations):
                 "path": path,
                 "file_info": file_info,
                 "opener_name": opener_name,
-                "is_scanner": opener_name in ["PMS ScannerPipe", "Plex Media Scan", # Plex
-                                              "ffprobe" # Jellyfin
-],
+                "is_scanner": opener_name in MEDIA_SCANNERS,
                 "buffers": [],
                 "sequential_reads": 0,
                 "last_read_end": 0,
