@@ -410,7 +410,7 @@ class MediaItem(db.Model):
         except Exception as e:
             logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
-        clear_streams(self)
+        clear_streams(media_item_id=self.id)
         self.active_stream = {}
 
         self.set("active_stream", {})

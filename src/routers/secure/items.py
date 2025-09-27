@@ -299,7 +299,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
                 request.app.program.em.cancel_job(media_item.id)
                 active_hash = media_item.active_stream.get("infohash", None)
                 active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
-                db_functions.clear_streams(media_item)
+                db_functions.clear_streams(media_item_id=media_item.id)
                 db_functions.reset_media_item(media_item)
                 if active_stream:
                     # lets blacklist the active stream so it doesnt get used again
@@ -592,7 +592,7 @@ async def reset_item_streams(_: Request, item_id: int, db: Session = Depends(get
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    db_functions.clear_streams(item)
+    db_functions.clear_streams(media_item_id=item.id)
 
     return {
         "message": f"Successfully reset streams for item {item_id}",
