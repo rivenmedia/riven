@@ -314,8 +314,8 @@ class RivenVFS(pyfuse3.Operations):
             fs = settings_manager.settings.filesystem
         except Exception:
             fs = None
-        cache_dir = fs.vfs_cache_dir
-        size_mb = fs.vfs_cache_max_size_mb
+        cache_dir = fs.cache_dir
+        size_mb = fs.cache_max_size_mb
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -330,14 +330,14 @@ class RivenVFS(pyfuse3.Operations):
         if free_bytes > 0 and configured_bytes > int(free_bytes * 0.9):
             effective_max_bytes = int(free_bytes * 0.9)
             logger.bind(component="RivenVFS").warning(
-                f"vfs_cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
+                f"cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
             )
         cfg = CacheConfig(
             cache_dir=cache_dir,
             max_size_bytes=effective_max_bytes,
-            ttl_seconds=int(getattr(fs, "vfs_cache_ttl_seconds", 2 * 60 * 60)),
-            eviction=(getattr(fs, "vfs_cache_eviction", "LRU") or "LRU"),
-            metrics_enabled=bool(getattr(fs, "vfs_cache_metrics", True)),
+            ttl_seconds=int(getattr(fs, "cache_ttl_seconds", 2 * 60 * 60)),
+            eviction=(getattr(fs, "cache_eviction", "LRU") or "LRU"),
+            metrics_enabled=bool(getattr(fs, "cache_metrics", True)),
         )
         self.cache = Cache(cfg)
 
@@ -360,7 +360,7 @@ class RivenVFS(pyfuse3.Operations):
         self.http = ProviderHTTP()
 
         # Chunking
-        self.chunk_size = fs.vfs_chunk_mb * 1024 * 1024
+        self.chunk_size = fs.chunk_size_mb * 1024 * 1024
 
         # Prefetch window size (number of chunks to prefetch ahead of current read position)
         # This determines how many chunks ahead we prefetch for smooth streaming

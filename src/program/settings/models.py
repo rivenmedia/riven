@@ -79,12 +79,12 @@ class FilesystemModel(Observable):
     mount_path: Path = Path("/path/to/riven/mount")
     debug_fuse: bool = False
     separate_anime_dirs: bool = False
-    vfs_cache_dir: Path = Path("/dev/shm/riven-cache")
-    vfs_cache_max_size_mb: int = 10240   # 10 GiB
-    vfs_cache_ttl_seconds: int = 2 * 60 * 60
-    vfs_cache_eviction: str = "LRU"  # LRU|TTL
-    vfs_cache_metrics: bool = True
-    vfs_chunk_mb: int = 8  # size of a single fetch chunk (MB)
+    cache_dir: Path = Path("/dev/shm/riven-cache")
+    cache_max_size_mb: int = 10240   # 10 GiB
+    cache_ttl_seconds: int = 2 * 60 * 60
+    cache_eviction: str = "LRU"  # LRU|TTL
+    cache_metrics: bool = True
+    chunk_size_mb: int = 8  # size of a single fetch chunk (MB)
     fetch_ahead_chunks: int = 4  # how many MB to fetch ahead
 
 # Content Services
