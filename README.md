@@ -210,11 +210,11 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
 
 ## RivenVFS and Caching
 
-### What the settings do (MB units)
+### What the settings do
 - `vfs_cache_dir`: Directory to store on‑disk cache files (use a user‑writable path).
 - `vfs_cache_max_size_mb`: Max cache size (MB) for the VFS cache directory.
 - `vfs_chunk_mb`: Size of individual CDN requests (MB). Default 32MB provides good balance between efficiency and connection reliability.
-- `fetch_ahead_size_mb`: Total amount of data (MB) to prefetch ahead of current read position. Default 128MB prefetches ~4 chunks ahead for smooth streaming.
+- `fetch_ahead_chunks`: Number of chunks to prefetch ahead of current read position. Default 4 chunks prefetches 128MB ahead (4 × 32MB) for smooth streaming with fair multi-user scheduling.
 - `ttl_seconds`: Optional expiry horizon when using `eviction = "TTL"` (default eviction is `LRU`).
 
 - Eviction behavior:

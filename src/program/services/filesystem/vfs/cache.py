@@ -59,9 +59,9 @@ class CacheBackend:
 
 
 
-class DiskBackend(CacheBackend):
+class Cache:
     """
-    Simple file-based block cache on disk. Keys map to files under disk_dir.
+    Simple file-based block cache on disk with cross-chunk boundary support.
     We maintain a small in-memory LRU index for eviction decisions.
     """
 
@@ -185,61 +185,77 @@ class DiskBackend(CacheBackend):
             self._metrics.evictions += removed
 
     def get(self, path: str, start: int, end: int) -> Optional[bytes]:
-        k = self._key(path, start)
+        needed_len = max(0, end - start + 1)
+        if needed_len == 0:
+            return b""
+
         with self._lock:
-            ent = self._index.get(k)
-            if ent:
-                sz, _ts, _p, _s = ent
-                self._index.move_to_end(k, last=True)
-                self._index[k] = (sz, time.time(), _p, _s)
-            else:
-                # Fast subrange coverage via per-path sorted starts
-                needed_len = max(0, end - start + 1)
-                s_list = self._by_path.get(path)
-                if s_list:
-                    idx = bisect_right(s_list, start) - 1
-                    if idx >= 0:
-                        c_start = s_list[idx]
-                        cand_key = self._key(path, c_start)
-                        ent2 = self._index.get(cand_key)
-                        c_sz = ent2[0] if ent2 else None
-                        if c_sz is None:
-                            fp_c = self._file_for(cand_key)
-                            try:
-                                c_sz = fp_c.stat().st_size if fp_c.exists() else None
-                            except Exception:
-                                c_sz = None
-                        if c_sz is not None:
-                            offset = start - c_start
-                            if 0 <= offset and (c_sz - offset) >= needed_len:
-                                # Read candidate and return slice
-                                fp_c = self._file_for(cand_key)
-                                try:
-                                    with fp_c.open("rb") as f:
-                                        f.seek(offset)
-                                        slice_data = f.read(needed_len)
-                                except FileNotFoundError:
-                                    pass
-                                else:
-                                    with self._lock:
-                                        if ent2 is None:
-                                            self._index[cand_key] = (c_sz, time.time(), path, c_start)
-                                            self._total_bytes += c_sz
-                                        else:
-                                            self._index.move_to_end(cand_key, last=True)
-                                            # keep recorded size as c_sz
-                                            self._index[cand_key] = (c_sz, time.time(), path, c_start)
-                                    self._metrics.hits += 1
-                                    self._metrics.bytes_from_cache += needed_len
-                                    return slice_data
-                # no coverage found; proceed to direct file probe below
-        # Direct probe for exact key on filesystem and rebuild index
+            # Try multi-chunk stitching for cross-chunk boundary requests
+            s_list = self._by_path.get(path)
+            if s_list:
+                result_data = bytearray()
+                current_pos = start
+                chunks_used = []
+
+                while current_pos <= end:
+                    # Find chunk that contains current_pos
+                    idx = bisect_right(s_list, current_pos) - 1
+                    if idx < 0:
+                        break  # No chunk starts at or before current_pos
+
+                    chunk_start = s_list[idx]
+                    chunk_key = self._key(path, chunk_start)
+                    chunk_entry = self._index.get(chunk_key)
+
+                    if not chunk_entry:
+                        break  # Chunk not in index
+
+                    chunk_size, chunk_ts, _, _ = chunk_entry
+                    chunk_end = chunk_start + chunk_size - 1
+
+                    # Check if this chunk covers current_pos
+                    if current_pos < chunk_start or current_pos > chunk_end:
+                        break  # Gap in coverage
+
+                    # Read chunk data from disk
+                    chunk_file = self._file_for(chunk_key)
+                    try:
+                        with chunk_file.open("rb") as f:
+                            chunk_data = f.read()
+                    except FileNotFoundError:
+                        break  # Chunk file missing
+
+                    # Calculate what portion of this chunk we need
+                    copy_start = max(current_pos, chunk_start) - chunk_start
+                    copy_end = min(end, chunk_end) - chunk_start
+
+                    if copy_start <= copy_end and copy_end < len(chunk_data):
+                        result_data.extend(chunk_data[copy_start:copy_end + 1])
+                        chunks_used.append((chunk_key, chunk_ts))
+                        current_pos = chunk_end + 1
+                    else:
+                        break
+
+                # Check if we got complete coverage
+                if len(result_data) == needed_len:
+                    # Promote all used chunks to MRU
+                    for chunk_key, _ in chunks_used:
+                        self._index.move_to_end(chunk_key, last=True)
+                        # Update timestamp for the chunks we accessed
+                        chunk_entry = self._index[chunk_key]
+                        self._index[chunk_key] = (chunk_entry[0], time.time(), chunk_entry[2], chunk_entry[3])
+
+                    self._metrics.hits += 1
+                    self._metrics.bytes_from_cache += needed_len
+                    return bytes(result_data)
+
+        # Fallback: Direct probe for exact key on filesystem and rebuild index
+        k = self._key(path, start)
         fp = self._file_for(k)
+        data: Optional[bytes] = None
         try:
-            st_size = fp.stat().st_size
             with fp.open("rb") as f:
-                length = max(0, end - start + 1)
-                data = f.read(length)
+                data = f.read()
         except FileNotFoundError:
             data = None
         if data is None:
@@ -247,20 +263,21 @@ class DiskBackend(CacheBackend):
                 self._index.pop(k, None)
             self._metrics.misses += 1
             return None
-        # If we got here but entry was missing in index, rebuild it using stat size
+        # If we got here but entry was missing in index, rebuild it
         with self._lock:
             if k not in self._index:
-                self._index[k] = (st_size, time.time(), path, start)
+                sz = len(data)
+                self._index[k] = (sz, time.time(), path, start)
                 lst = self._by_path.setdefault(path, [])
                 insort(lst, start)
-                self._total_bytes += st_size
+                self._total_bytes += sz
         if end < start:
             return b""
-        need = end - start + 1
-        if len(data) >= need:
+        length = end - start + 1
+        if len(data) >= length:
             self._metrics.hits += 1
-            self._metrics.bytes_from_cache += need
-            return data
+            self._metrics.bytes_from_cache += length
+            return data[:length]
         self._metrics.misses += 1
         return None
 
@@ -321,39 +338,7 @@ class DiskBackend(CacheBackend):
             s["total_bytes"] = self._total_bytes
             s["entries"] = len(self._index)
         return s
-
-
-
-
-class CacheManager:
-    def __init__(self, cfg: CacheConfig) -> None:
-        self.cfg = cfg
-        # Prepare cache dir and fall back to user cache if not accessible
-        try:
-            cfg.cache_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            try:
-                fallback_root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-                fallback_dir = fallback_root / "riven"
-                fallback_dir.mkdir(parents=True, exist_ok=True)
-                logger.warning(
-                    f"Cache dir {cfg.cache_dir} not accessible ({e}). Falling back to {fallback_dir}."
-                )
-                cfg.cache_dir = fallback_dir
-            except Exception as e2:
-                # If even fallback is not accessible, keep going; DiskBackend will likely fail writes gracefully
-                logger.warning(
-                    f"Cache fallback dir not accessible ({e2}). Continuing with configured path: {cfg.cache_dir}."
-                )
-        self.backend: CacheBackend = DiskBackend(cfg)
-        self._last_log = 0.0
-
-    def get(self, path: str, start: int, end: int) -> Optional[bytes]:
-        return self.backend.get(path, start, end)
-
-    def put(self, path: str, start: int, data: bytes) -> None:
-        self.backend.put(path, start, data)
-
+    
     def maybe_log_stats(self) -> None:
         now = time.time()
         if not self.cfg.metrics_enabled:
@@ -362,13 +347,9 @@ class CacheManager:
             return
         # Proactive safe trim before logging to keep within caps
         try:
-            self.backend.trim()
+            self.trim()
         except Exception:
             pass
         self._last_log = now
-        stats = self.backend.stats()
+        stats = self.stats()
         logger.bind(component="RivenVFS").log("VFS", f"Cache stats: {stats}")
-
-    def trim(self) -> None:
-        self.backend.trim()
-
