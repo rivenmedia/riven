@@ -1349,6 +1349,8 @@ class RivenVFS(pyfuse3.Operations):
                         current_chunk_start += self.chunk_size
                         continue
 
+                    # Mark as in-progress IMMEDIATELY to prevent race conditions
+                    path_chunks.add(current_chunk_start)
                     chunks_to_fetch.append((current_chunk_start, chunk_end))
                     current_chunk_start += self.chunk_size
 
@@ -1361,10 +1363,7 @@ class RivenVFS(pyfuse3.Operations):
                     window_size_mb = (prefetch_end - prefetch_start + 1) // (1024*1024)
                     log.trace(f"Scheduling {len(chunks_to_fetch)} chunks for {path}: NEW window [{prefetch_start}-{prefetch_end}] = {window_size_mb}MB")
 
-                    # Mark chunks as in progress for this path (shared across all file handles)
-                    for chunk_start, chunk_end in chunks_to_fetch:
-                        path_chunks.add(chunk_start)
-
+                    # Chunks are already marked as in-progress above to prevent race conditions
                     # Schedule chunks with the global scheduler for fair allocation
                     await self._prefetch_scheduler.schedule_chunks(
                         path=path,
