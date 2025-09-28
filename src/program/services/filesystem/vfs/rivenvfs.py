@@ -1115,6 +1115,14 @@ class RivenVFS(pyfuse3.Operations):
         if fh not in self._file_handles:
             return
 
+        # Get file size to avoid prefetching beyond EOF
+        handle_info = self._file_handles[fh]
+        file_info = handle_info.get("file_info")
+        file_size = None
+        if file_info:
+            size_raw = file_info.get("size")
+            file_size = int(size_raw) if size_raw is not None else None
+
         # Get or create prefetch lock for this path
         if path not in self._prefetch_locks:
             self._prefetch_locks[path] = trio.Lock()
@@ -1133,6 +1141,14 @@ class RivenVFS(pyfuse3.Operations):
                 # Determine prefetch window: from current read position to fetch_ahead_size ahead
                 # Ignore the 'end' parameter as it only represents one chunk, we want the full prefetch window
                 desired_prefetch_end = start + self.fetch_ahead_size - 1
+
+                # Clamp prefetch window to file size boundaries
+                if file_size is not None:
+                    desired_prefetch_end = min(desired_prefetch_end, file_size - 1)
+
+                # If we're already at or past EOF, nothing to prefetch
+                if file_size is not None and start >= file_size:
+                    return
 
                 # Optimize: only prefetch the NEW portion beyond what we've already prefetched
                 if state['last_prefetch_pos'] >= start:
@@ -1155,6 +1171,14 @@ class RivenVFS(pyfuse3.Operations):
 
                 while current_chunk_start <= prefetch_end:
                     chunk_end = min(current_chunk_start + self.chunk_size - 1, prefetch_end)
+
+                    # Clamp chunk end to file size
+                    if file_size is not None:
+                        chunk_end = min(chunk_end, file_size - 1)
+
+                    # Skip if chunk start is beyond file end
+                    if file_size is not None and current_chunk_start >= file_size:
+                        break
 
                     # Skip if already cached
                     if self.cache.get(path, current_chunk_start, chunk_end) is not None:
