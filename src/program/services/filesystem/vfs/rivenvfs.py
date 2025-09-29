@@ -35,14 +35,18 @@ from __future__ import annotations
 import os
 import shutil
 import errno
+import time
+from dataclasses import dataclass
 from loguru import logger
 import subprocess
 import io
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 
 import urllib.parse
 import threading
+
+from src.program.services.downloaders import Downloader
 
 class ProviderHTTP:
     """
@@ -133,7 +137,7 @@ from .db import VFSDatabase
 from .providers import ProviderManager
 
 from program.settings.manager import settings_manager
-from .cache import CacheManager, CacheConfig
+from .cache import Cache, CacheConfig
 
 log = logger
 
@@ -142,6 +146,138 @@ MEDIA_SCANNERS = [
     "Plex Media Scan", # Plex
     "ffprobe" # Jellyfin
 ]
+
+
+@dataclass
+class PrefetchChunk:
+    """Represents a chunk to be prefetched with priority information."""
+    path: str
+    url: str
+    start: int
+    end: int
+    priority: int  # 0 = highest (first chunk for user), 1+ = lower priority
+    user_session: str  # Unique identifier for this user's session
+    created_at: float  # Timestamp for aging
+
+
+class PrefetchScheduler:
+    """Fair multi-user prefetch scheduler with priority-based round-robin allocation."""
+
+    def __init__(self):
+        self._queue: List[PrefetchChunk] = []
+        self._active_chunks: Dict[str, PrefetchChunk] = {}  # chunk_key -> chunk
+        self._user_sessions: Dict[str, int] = {}  # path -> session_counter
+        self._lock = trio.Lock()
+        self._scheduler_nursery = None
+        self._running = False
+
+    async def start(self):
+        """Start the scheduler background task."""
+        if not self._running:
+            self._running = True
+            # The scheduler will be started when first chunk is queued
+
+    async def stop(self):
+        """Stop the scheduler and cancel all pending chunks."""
+        self._running = False
+        if self._scheduler_nursery:
+            self._scheduler_nursery.cancel_scope.cancel()
+
+    def _get_user_session(self, path: str) -> str:
+        """Get or create a unique session ID for this path."""
+        if path not in self._user_sessions:
+            self._user_sessions[path] = 0
+        self._user_sessions[path] += 1
+        return f"{path}#{self._user_sessions[path]}"
+
+    def _chunk_key(self, chunk: PrefetchChunk) -> str:
+        """Generate unique key for chunk tracking."""
+        return f"{chunk.path}:{chunk.start}-{chunk.end}"
+
+    async def schedule_chunks(self, path: str, url: str, chunks: List[tuple[int, int]],
+                            cache_manager, fetch_func) -> None:
+        """Schedule multiple chunks for prefetching with fair allocation."""
+        if not chunks:
+            return
+
+        user_session = self._get_user_session(path)
+        current_time = time.time()
+
+        # Create prioritized chunks (first chunk gets priority 0, others get 1, 2, 3...)
+        prefetch_chunks = []
+        for i, (start, end) in enumerate(chunks):
+            chunk = PrefetchChunk(
+                path=path,
+                url=url,
+                start=start,
+                end=end,
+                priority=i,  # First chunk has highest priority
+                user_session=user_session,
+                created_at=current_time
+            )
+            prefetch_chunks.append(chunk)
+
+        async with self._lock:
+            # Add chunks to queue with priority ordering
+            self._queue.extend(prefetch_chunks)
+            # Sort by priority first, then by creation time for fairness
+            self._queue.sort(key=lambda c: (c.priority, c.created_at))
+
+            # Start scheduler if not running
+            if not self._scheduler_nursery and self._running:
+                # We'll start the scheduler in the background
+                trio.lowlevel.spawn_system_task(self._run_scheduler, cache_manager, fetch_func)
+
+    async def _run_scheduler(self, cache_manager, fetch_func):
+        """Main scheduler loop that processes chunks fairly."""
+        async with trio.open_nursery() as nursery:
+            self._scheduler_nursery = nursery
+
+            while self._running:
+                try:
+                    # Check if we can start more chunks
+                    async with self._lock:
+                        if self._queue:
+                            # Get next chunk to process
+                            chunk = self._queue.pop(0)
+                            chunk_key = self._chunk_key(chunk)
+
+                            # Skip if already being processed
+                            if chunk_key not in self._active_chunks:
+                                self._active_chunks[chunk_key] = chunk
+                                nursery.start_soon(self._process_chunk, chunk, cache_manager, fetch_func)
+
+                    # Brief pause to prevent busy waiting
+                    await trio.sleep(0.1)
+
+                except Exception as e:
+                    log.trace(f"Prefetch scheduler error: {e}")
+
+    async def _process_chunk(self, chunk: PrefetchChunk, cache_manager, fetch_func):
+        """Process a single chunk fetch."""
+        chunk_key = self._chunk_key(chunk)
+        try:
+            # Check cache first
+            cached_data = cache_manager.get(chunk.path, chunk.start, chunk.end)
+            if cached_data is not None:
+                log.trace(f"Prefetch chunk {chunk.path} [{chunk.start}-{chunk.end}] already cached")
+                return
+
+            # Fetch the chunk
+            log.trace(f"Prefetching chunk {chunk.path} [{chunk.start}-{chunk.end}] priority={chunk.priority}")
+            data = await fetch_func(chunk.path, chunk.url, chunk.start, chunk.end)
+
+            if data:
+                cache_manager.put(chunk.path, chunk.start, data)
+                chunk_size_mb = len(data) // (1024*1024)
+                log.trace(f"Prefetched chunk {chunk.path} [{chunk.start}-{chunk.end}] = {chunk_size_mb}MB")
+
+        except Exception as e:
+            log.trace(f"Prefetch chunk failed for {chunk.path} [{chunk.start}-{chunk.end}]: {e}")
+        finally:
+            # Remove from active tracking
+            async with self._lock:
+                self._active_chunks.pop(chunk_key, None)
 
 class RivenVFS(pyfuse3.Operations):
     """
@@ -160,28 +296,25 @@ class RivenVFS(pyfuse3.Operations):
     removing, and managing virtual files and directories.
     """
 
-    def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
+    def __init__(self, mountpoint: str, downloader: Downloader) -> None:
         """
         Initialize the Riven Virtual File System.
 
         Args:
             mountpoint: Directory where the VFS will be mounted
-            providers: Dictionary of provider instances (e.g., Real-Debrid, Premiumize)
-            debug_fuse: Enable FUSE debug logging
+            downloader: Downloader service instance
 
         Raises:
             OSError: If mountpoint cannot be prepared or FUSE initialization fails
         """
         super().__init__()
-        self.debug_fuse = bool(debug_fuse)
-        self.providers: Dict[str, object] = providers or {}
         # Initialize VFS cache from settings
         try:
             fs = settings_manager.settings.filesystem
         except Exception:
             fs = None
-        cache_dir = fs.vfs_cache_dir
-        size_mb = fs.vfs_cache_max_size_mb
+        cache_dir = fs.cache_dir
+        size_mb = fs.cache_max_size_mb
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -196,18 +329,18 @@ class RivenVFS(pyfuse3.Operations):
         if free_bytes > 0 and configured_bytes > int(free_bytes * 0.9):
             effective_max_bytes = int(free_bytes * 0.9)
             logger.bind(component="RivenVFS").warning(
-                f"vfs_cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
+                f"cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
             )
         cfg = CacheConfig(
             cache_dir=cache_dir,
             max_size_bytes=effective_max_bytes,
-            ttl_seconds=int(getattr(fs, "vfs_cache_ttl_seconds", 2 * 60 * 60)),
-            eviction=(getattr(fs, "vfs_cache_eviction", "LRU") or "LRU"),
-            metrics_enabled=bool(getattr(fs, "vfs_cache_metrics", True)),
+            ttl_seconds=int(getattr(fs, "cache_ttl_seconds", 2 * 60 * 60)),
+            eviction=(getattr(fs, "cache_eviction", "LRU") or "LRU"),
+            metrics_enabled=bool(getattr(fs, "cache_metrics", True)),
         )
-        self.cache = CacheManager(cfg)
+        self.cache = Cache(cfg)
 
-        self.provider_manager = ProviderManager(self.providers)
+        self.provider_manager = ProviderManager(downloader)
         self.db = VFSDatabase(provider_manager=self.provider_manager)
 
         # Core path <-> inode mapping for FUSE operations
@@ -226,12 +359,12 @@ class RivenVFS(pyfuse3.Operations):
         self.http = ProviderHTTP()
 
         # Chunking
-        self.chunk_size = fs.vfs_chunk_mb * 1024 * 1024
+        self.chunk_size = fs.chunk_size_mb * 1024 * 1024
 
-        # Prefetch window size (total amount to prefetch ahead of current read position)
-        # This is larger than chunk_size to prefetch multiple chunks ahead
+        # Prefetch window size (number of chunks to prefetch ahead of current read position)
+        # This determines how many chunks ahead we prefetch for smooth streaming
         # Will be wired to FilesystemModel configuration separately
-        self.fetch_ahead_size = fs.fetch_ahead_size_mb * 1024 * 1024
+        self.fetch_ahead_chunks = fs.fetch_ahead_chunks
 
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
@@ -240,9 +373,15 @@ class RivenVFS(pyfuse3.Operations):
         # Opener statistics
         self._opener_stats: Dict[str, Dict] = {}
 
-        # Per-path prefetch coordination (for multi-user scenarios)
-        self._prefetch_state: Dict[str, Dict] = {}  # path -> {chunks_in_progress: set, last_prefetch_pos: int}
+        # Per-file-handle prefetch tracking (for proper multi-user coordination)
+        self._fh_prefetch_state: Dict[int, Dict] = {}  # fh -> {last_prefetch_pos: int, prefetch_window_end: int}
+        # Per-path coordination for avoiding duplicate chunk fetches across file handles
+        self._path_chunks_in_progress: Dict[str, Set[int]] = {}  # path -> set of chunk_starts being fetched
         self._prefetch_locks: Dict[str, trio.Lock] = {}  # path -> lock for coordinating prefetch
+
+        # Global prefetch scheduler for fair multi-user resource allocation
+        self._prefetch_scheduler = PrefetchScheduler()
+        self._scheduler_started = False
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
@@ -904,6 +1043,12 @@ class RivenVFS(pyfuse3.Operations):
                 "last_read_end": 0,
             }
 
+            # Initialize per-file-handle prefetch state
+            self._fh_prefetch_state[fh] = {
+                'last_prefetch_pos': -1,
+                'prefetch_window_end': -1
+            }
+
             log.trace(f"Opened file {path} with handle {fh}")
             return pyfuse3.FileInfo(fh=fh)
         except pyfuse3.FUSEError:
@@ -933,12 +1078,15 @@ class RivenVFS(pyfuse3.Operations):
             if size == 0:
                 return b""
 
-            # Resolve URL with caching
+            # Resolve URL with caching (async database operation)
             import time
             now = time.time()
             cached_url_info = self._url_cache.get(path)
             if not cached_url_info or (now - float(cached_url_info.get("timestamp", 0))) > self.url_cache_ttl:
-                url = self.db.get_download_url(path, for_http=True, force_resolve=False)
+                # Move database query to thread pool to avoid blocking
+                url = await trio.to_thread.run_sync(
+                    lambda: self.db.get_download_url(path, for_http=True, force_resolve=False)
+                )
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 self._url_cache[path] = {"url": url, "timestamp": now}
@@ -967,16 +1115,20 @@ class RivenVFS(pyfuse3.Operations):
                 if fetch_end < fetch_start:
                     return b""
 
-                # Try cache first for exactly what kernel asked
-                cached_bytes = self.cache.get(path, off, off + size - 1)
+                # Try cache first for exactly what kernel asked (async cache operation)
+                cached_bytes = await trio.to_thread.run_sync(
+                    lambda: self.cache.get(path, off, off + size - 1)
+                )
                 if cached_bytes is not None:
                     returned_data = cached_bytes
                 else:
                     # Fetch the determined range (exact for non-promoted, larger for promoted)
                     data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
                     if data:
-                        # Cache the fetched data
-                        self.cache.put(path, fetch_start, data)
+                        # Cache the fetched data in background to avoid blocking
+                        trio.lowlevel.spawn_system_task(
+                            self._cache_put_async, path, fetch_start, data
+                        )
 
                         # Always slice to return exactly what was requested
                         start_idx = off - fetch_start
@@ -1028,8 +1180,10 @@ class RivenVFS(pyfuse3.Operations):
                 next_aligned_start = last_chunk_start + self.chunk_size
                 next_aligned_end = next_aligned_start + self.chunk_size - 1
 
-                # Try cache first for exactly what kernel asked
-                cached_bytes = self.cache.get(path, request_start, request_end)
+                # Try cache first for exactly what kernel asked (async cache operation)
+                cached_bytes = await trio.to_thread.run_sync(
+                    lambda: self.cache.get(path, request_start, request_end)
+                )
                 if cached_bytes is not None:
                     returned_data = cached_bytes
                     log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
@@ -1043,13 +1197,18 @@ class RivenVFS(pyfuse3.Operations):
                         if file_size is not None:
                             chunk_end = min(chunk_end, file_size - 1)
 
-                        # Try cache first for this chunk
-                        chunk_data = self.cache.get(path, current_chunk_start, chunk_end)
+                        # Try cache first for this chunk (async cache operation)
+                        chunk_data = await trio.to_thread.run_sync(
+                            lambda: self.cache.get(path, current_chunk_start, chunk_end)
+                        )
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(path, url, current_chunk_start, chunk_end)
                             if chunk_data:
-                                self.cache.put(path, current_chunk_start, chunk_data)
+                                # Cache in background to avoid blocking
+                                trio.lowlevel.spawn_system_task(
+                                    self._cache_put_async, path, current_chunk_start, chunk_data
+                                )
 
                         if chunk_data:
                             all_data += chunk_data
@@ -1059,7 +1218,7 @@ class RivenVFS(pyfuse3.Operations):
                     data = all_data
 
                     if data:
-                        log.trace(f"fh={fh} path={path} off={request_start} size={request_end} bytes={request_end - request_start} source=fetch")
+                        log.trace(f"fh={fh} path={path} off={request_start} end={request_end} bytes={request_end - request_start} source=fetch")
 
                     if not data:
                         returned_data = b""
@@ -1104,16 +1263,24 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def _prefetch_next_chunk(self, fh: int, path: str, url: str, start: int, end: int) -> None:
-        """Prefetch multiple chunk_size requests to fill the fetch_ahead_size window.
+        """Prefetch multiple chunk_size requests for fetch_ahead_chunks chunks.
 
         Architecture:
-        - chunk_size (32MB) = individual CDN request size
-        - fetch_ahead_size (128MB) = total prefetch window
-        - Schedules multiple 32MB requests to fill 128MB window
-        - Coordinates across multiple users reading the same file
+        - chunk_size (eg. 32MB) = individual CDN request size
+        - fetch_ahead_chunks (eg. 4) = number of chunks to prefetch ahead
+        - Schedules 4 x 32MB requests = 128MB total prefetch window
+        - Coordinates across multiple users reading the same file with fair scheduling
         """
         if fh not in self._file_handles:
             return
+
+        # Get file size to avoid prefetching beyond EOF
+        handle_info = self._file_handles[fh]
+        file_info = handle_info.get("file_info")
+        file_size = None
+        if file_info:
+            size_raw = file_info.get("size")
+            file_size = int(size_raw) if size_raw is not None else None
 
         # Get or create prefetch lock for this path
         if path not in self._prefetch_locks:
@@ -1121,32 +1288,53 @@ class RivenVFS(pyfuse3.Operations):
 
         async with self._prefetch_locks[path]:
             try:
-                # Initialize prefetch state for this path if needed
-                if path not in self._prefetch_state:
-                    self._prefetch_state[path] = {
-                        'chunks_in_progress': set(),
-                        'last_prefetch_pos': -1
+                # Start scheduler on first use (lazy initialization)
+                if not self._scheduler_started:
+                    await self._prefetch_scheduler.start()
+                    self._scheduler_started = True
+
+                # Initialize per-file-handle prefetch state
+                if fh not in self._fh_prefetch_state:
+                    self._fh_prefetch_state[fh] = {
+                        'last_prefetch_pos': -1,
+                        'prefetch_window_end': -1
                     }
 
-                state = self._prefetch_state[path]
+                # Initialize per-path chunk tracking
+                if path not in self._path_chunks_in_progress:
+                    self._path_chunks_in_progress[path] = set()
 
-                # Determine prefetch window: from current read position to fetch_ahead_size ahead
-                # Ignore the 'end' parameter as it only represents one chunk, we want the full prefetch window
-                desired_prefetch_end = start + self.fetch_ahead_size - 1
+                fh_state = self._fh_prefetch_state[fh]
+                path_chunks = self._path_chunks_in_progress[path]
 
-                # Optimize: only prefetch the NEW portion beyond what we've already prefetched
-                if state['last_prefetch_pos'] >= start:
-                    # We've already prefetched past this read position
-                    # Only prefetch the new portion beyond our last prefetch
-                    prefetch_start = state['last_prefetch_pos'] + 1
+                # Determine prefetch window: from current file handle's read position for fetch_ahead_chunks chunks
+                # This ensures each file handle only prefetches its own window, not the entire file
+                desired_prefetch_end = start + (self.fetch_ahead_chunks * self.chunk_size) - 1
+
+                # Clamp prefetch window to file size boundaries
+                if file_size is not None:
+                    desired_prefetch_end = min(desired_prefetch_end, file_size - 1)
+
+                # If we're already at or past EOF, nothing to prefetch
+                if file_size is not None and start >= file_size:
+                    return
+
+                # Calculate chunk-aligned prefetch start to ensure we cover the current read position
+                read_chunk_start = (start // self.chunk_size) * self.chunk_size
+
+                # Optimize: only prefetch the NEW portion beyond what this file handle has already prefetched
+                if fh_state['last_prefetch_pos'] >= start:
+                    # This file handle has already prefetched past this read position
+                    # Only prefetch the new portion beyond our last prefetch for this file handle
+                    prefetch_start = fh_state['last_prefetch_pos'] + 1
                     prefetch_end = desired_prefetch_end
 
-                    # If there's nothing new to prefetch, skip
+                    # If there's nothing new to prefetch for this file handle, skip
                     if prefetch_start > prefetch_end:
                         return
                 else:
-                    # We haven't prefetched this area yet, prefetch the full window
-                    prefetch_start = start
+                    # This file handle hasn't prefetched this area yet, prefetch from the chunk containing current read
+                    prefetch_start = read_chunk_start
                     prefetch_end = desired_prefetch_end
 
                 # Calculate chunk-aligned ranges to prefetch
@@ -1156,54 +1344,70 @@ class RivenVFS(pyfuse3.Operations):
                 while current_chunk_start <= prefetch_end:
                     chunk_end = min(current_chunk_start + self.chunk_size - 1, prefetch_end)
 
+                    # Clamp chunk end to file size
+                    if file_size is not None:
+                        chunk_end = min(chunk_end, file_size - 1)
+
+                    # Skip if chunk start is beyond file end
+                    if file_size is not None and current_chunk_start >= file_size:
+                        break
+
                     # Skip if already cached
                     if self.cache.get(path, current_chunk_start, chunk_end) is not None:
                         current_chunk_start += self.chunk_size
                         continue
 
-                    # Skip if already being fetched
-                    if current_chunk_start in state['chunks_in_progress']:
+                    # Skip if already being fetched by any file handle for this path
+                    if current_chunk_start in path_chunks:
                         current_chunk_start += self.chunk_size
                         continue
 
+                    # Mark as in-progress IMMEDIATELY to prevent race conditions
+                    path_chunks.add(current_chunk_start)
                     chunks_to_fetch.append((current_chunk_start, chunk_end))
                     current_chunk_start += self.chunk_size
 
-                # Update last prefetch position
-                state['last_prefetch_pos'] = prefetch_end
+                # Update last prefetch position for this specific file handle
+                fh_state['last_prefetch_pos'] = prefetch_end
+                fh_state['prefetch_window_end'] = prefetch_end
 
-                # Schedule chunk fetches concurrently
+                # Schedule chunk fetches using global scheduler for fair multi-user allocation
                 if chunks_to_fetch:
                     window_size_mb = (prefetch_end - prefetch_start + 1) // (1024*1024)
-                    log.trace(f"Prefetching {len(chunks_to_fetch)} chunks for {path}: NEW window [{prefetch_start}-{prefetch_end}] = {window_size_mb}MB (last_prefetch_pos={state['last_prefetch_pos']})")
+                    log.trace(f"Scheduling {len(chunks_to_fetch)} chunks for {path}: NEW window [{prefetch_start}-{prefetch_end}] = {window_size_mb}MB")
 
-                    async def fetch_chunk(chunk_start: int, chunk_end: int):
-                        try:
-                            # Mark as in progress
-                            state['chunks_in_progress'].add(chunk_start)
-
-                            # Fetch the chunk
-                            data = await self._fetch_data_block(path, url, chunk_start, chunk_end)
-                            if data:
-                                self.cache.put(path, chunk_start, data)
-                                chunk_size_mb = len(data) // (1024*1024)
-                                log.trace(f"Prefetched chunk {path} [{chunk_start}-{chunk_end}] = {chunk_size_mb}MB")
-                        except Exception as e:
-                            log.trace(f"Prefetch chunk failed for {path} [{chunk_start}-{chunk_end}]: {e}")
-                        finally:
-                            # Remove from in-progress tracking
-                            state['chunks_in_progress'].discard(chunk_start)
-
-                    # Launch all chunk fetches concurrently
-                    async with trio.open_nursery() as nursery:
-                        for chunk_start, chunk_end in chunks_to_fetch:
-                            nursery.start_soon(fetch_chunk, chunk_start, chunk_end)
+                    # Chunks are already marked as in-progress above to prevent race conditions
+                    # Schedule chunks with the global scheduler for fair allocation
+                    await self._prefetch_scheduler.schedule_chunks(
+                        path=path,
+                        url=url,
+                        chunks=chunks_to_fetch,
+                        cache_manager=self.cache,
+                        fetch_func=self._fetch_data_block_with_cleanup
+                    )
                 else:
-                    log.trace(f"No NEW chunks to prefetch for {path}: desired_end={desired_prefetch_end}, last_pos={state['last_prefetch_pos']}")
+                    log.trace(f"No NEW chunks to prefetch for fh={fh} path={path}: desired_end={desired_prefetch_end}, fh_last_pos={fh_state['last_prefetch_pos']}")
 
             except Exception as e:
                 log.trace(f"Prefetch coordination failed for {path}: {e}")
                 # Best-effort: ignore prefetch errors
+
+    async def _cache_put_async(self, path: str, start: int, data: bytes) -> None:
+        """Async wrapper for cache.put() to avoid blocking the read path."""
+        try:
+            await trio.to_thread.run_sync(lambda: self.cache.put(path, start, data))
+        except Exception as e:
+            log.trace(f"Background cache put failed for {path} [{start}]: {e}")
+
+    async def _fetch_data_block_with_cleanup(self, path: str, url: str, start: int, end: int) -> bytes:
+        """Wrapper for _fetch_data_block that handles prefetch state cleanup."""
+        try:
+            data = await self._fetch_data_block(path, url, start, end)
+            return data
+        finally:
+            # Clean up in-progress tracking for this path
+            if path in self._path_chunks_in_progress:
+                self._path_chunks_in_progress[path].discard(start)
 
     async def release(self, fh: int):
         """Release/close a file handle."""
@@ -1211,12 +1415,16 @@ class RivenVFS(pyfuse3.Operations):
             handle_info = self._file_handles.pop(fh, None)
             if handle_info:
                 path = handle_info.get("path")
-                # Clean up prefetch state if no other handles are using this path
+
+                # Clean up per-file-handle prefetch state
+                self._fh_prefetch_state.pop(fh, None)
+
+                # Clean up per-path state if no other handles are using this path
                 if path:
                     remaining_handles = [h for h in self._file_handles.values() if h.get("path") == path]
                     if not remaining_handles:
-                        # No other handles for this path, clean up prefetch state
-                        self._prefetch_state.pop(path, None)
+                        # No other handles for this path, clean up shared path state
+                        self._path_chunks_in_progress.pop(path, None)
                         self._prefetch_locks.pop(path, None)
             log.trace(f"Released file handle {fh}")
         except Exception as ex:
