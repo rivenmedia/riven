@@ -77,7 +77,6 @@ class DownloadersModel(Observable):
 
 class FilesystemModel(Observable):
     mount_path: Path = Path("/path/to/riven/mount")
-    debug_fuse: bool = False
     separate_anime_dirs: bool = False
     cache_dir: Path = Path("/dev/shm/riven-cache")
     cache_max_size_mb: int = 10240   # 10 GiB

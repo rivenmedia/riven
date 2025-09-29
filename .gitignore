@@ -22,6 +22,7 @@ config
 CLAUDE.md
 .cursor/
 release_manager.py
+container_data
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

@@ -294,20 +294,18 @@ class RivenVFS(pyfuse3.Operations):
     removing, and managing virtual files and directories.
     """
 
-    def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None, debug_fuse: bool = False) -> None:
+    def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None) -> None:
         """
         Initialize the Riven Virtual File System.
 
         Args:
             mountpoint: Directory where the VFS will be mounted
             providers: Dictionary of provider instances (e.g., Real-Debrid, Premiumize)
-            debug_fuse: Enable FUSE debug logging
 
         Raises:
             OSError: If mountpoint cannot be prepared or FUSE initialization fails
         """
         super().__init__()
-        self.debug_fuse = bool(debug_fuse)
         self.providers: Dict[str, object] = providers or {}
         # Initialize VFS cache from settings
         try:

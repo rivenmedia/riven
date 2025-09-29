@@ -54,7 +54,6 @@ class FilesystemService:
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 providers=providers,
-                debug_fuse=self.settings.debug_fuse,
             )
 
         except ImportError as e:
