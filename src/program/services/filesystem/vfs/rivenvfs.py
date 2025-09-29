@@ -1078,12 +1078,15 @@ class RivenVFS(pyfuse3.Operations):
             if size == 0:
                 return b""
 
-            # Resolve URL with caching
+            # Resolve URL with caching (async database operation)
             import time
             now = time.time()
             cached_url_info = self._url_cache.get(path)
             if not cached_url_info or (now - float(cached_url_info.get("timestamp", 0))) > self.url_cache_ttl:
-                url = self.db.get_download_url(path, for_http=True, force_resolve=False)
+                # Move database query to thread pool to avoid blocking
+                url = await trio.to_thread.run_sync(
+                    lambda: self.db.get_download_url(path, for_http=True, force_resolve=False)
+                )
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 self._url_cache[path] = {"url": url, "timestamp": now}
@@ -1112,16 +1115,20 @@ class RivenVFS(pyfuse3.Operations):
                 if fetch_end < fetch_start:
                     return b""
 
-                # Try cache first for exactly what kernel asked
-                cached_bytes = self.cache.get(path, off, off + size - 1)
+                # Try cache first for exactly what kernel asked (async cache operation)
+                cached_bytes = await trio.to_thread.run_sync(
+                    lambda: self.cache.get(path, off, off + size - 1)
+                )
                 if cached_bytes is not None:
                     returned_data = cached_bytes
                 else:
                     # Fetch the determined range (exact for non-promoted, larger for promoted)
                     data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
                     if data:
-                        # Cache the fetched data
-                        self.cache.put(path, fetch_start, data)
+                        # Cache the fetched data in background to avoid blocking
+                        trio.lowlevel.spawn_system_task(
+                            self._cache_put_async, path, fetch_start, data
+                        )
 
                         # Always slice to return exactly what was requested
                         start_idx = off - fetch_start
@@ -1173,8 +1180,10 @@ class RivenVFS(pyfuse3.Operations):
                 next_aligned_start = last_chunk_start + self.chunk_size
                 next_aligned_end = next_aligned_start + self.chunk_size - 1
 
-                # Try cache first for exactly what kernel asked
-                cached_bytes = self.cache.get(path, request_start, request_end)
+                # Try cache first for exactly what kernel asked (async cache operation)
+                cached_bytes = await trio.to_thread.run_sync(
+                    lambda: self.cache.get(path, request_start, request_end)
+                )
                 if cached_bytes is not None:
                     returned_data = cached_bytes
                     log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
@@ -1188,13 +1197,18 @@ class RivenVFS(pyfuse3.Operations):
                         if file_size is not None:
                             chunk_end = min(chunk_end, file_size - 1)
 
-                        # Try cache first for this chunk
-                        chunk_data = self.cache.get(path, current_chunk_start, chunk_end)
+                        # Try cache first for this chunk (async cache operation)
+                        chunk_data = await trio.to_thread.run_sync(
+                            lambda: self.cache.get(path, current_chunk_start, chunk_end)
+                        )
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(path, url, current_chunk_start, chunk_end)
                             if chunk_data:
-                                self.cache.put(path, current_chunk_start, chunk_data)
+                                # Cache in background to avoid blocking
+                                trio.lowlevel.spawn_system_task(
+                                    self._cache_put_async, path, current_chunk_start, chunk_data
+                                )
 
                         if chunk_data:
                             all_data += chunk_data
@@ -1377,6 +1391,13 @@ class RivenVFS(pyfuse3.Operations):
             except Exception as e:
                 log.trace(f"Prefetch coordination failed for {path}: {e}")
                 # Best-effort: ignore prefetch errors
+
+    async def _cache_put_async(self, path: str, start: int, data: bytes) -> None:
+        """Async wrapper for cache.put() to avoid blocking the read path."""
+        try:
+            await trio.to_thread.run_sync(lambda: self.cache.put(path, start, data))
+        except Exception as e:
+            log.trace(f"Background cache put failed for {path} [{start}]: {e}")
 
     async def _fetch_data_block_with_cleanup(self, path: str, url: str, start: int, end: int) -> bytes:
         """Wrapper for _fetch_data_block that handles prefetch state cleanup."""
