@@ -46,6 +46,8 @@ from typing import Dict, List, Optional, Set, Tuple
 import urllib.parse
 import threading
 
+from src.program.services.downloaders import Downloader
+
 class ProviderHTTP:
     """
     Shared pycurl-based HTTP client with connection reuse via CurlShare and a simple
@@ -294,19 +296,18 @@ class RivenVFS(pyfuse3.Operations):
     removing, and managing virtual files and directories.
     """
 
-    def __init__(self, mountpoint: str, providers: Optional[Dict[str, object]] = None) -> None:
+    def __init__(self, mountpoint: str, downloader: Downloader) -> None:
         """
         Initialize the Riven Virtual File System.
 
         Args:
             mountpoint: Directory where the VFS will be mounted
-            providers: Dictionary of provider instances (e.g., Real-Debrid, Premiumize)
+            downloader: Downloader service instance
 
         Raises:
             OSError: If mountpoint cannot be prepared or FUSE initialization fails
         """
         super().__init__()
-        self.providers: Dict[str, object] = providers or {}
         # Initialize VFS cache from settings
         try:
             fs = settings_manager.settings.filesystem
@@ -339,7 +340,7 @@ class RivenVFS(pyfuse3.Operations):
         )
         self.cache = Cache(cfg)
 
-        self.provider_manager = ProviderManager(self.providers)
+        self.provider_manager = ProviderManager(downloader)
         self.db = VFSDatabase(provider_manager=self.provider_manager)
 
         # Core path <-> inode mapping for FUSE operations
@@ -1074,7 +1075,7 @@ class RivenVFS(pyfuse3.Operations):
             size_raw = file_info.get("size")
             file_size = int(size_raw) if size_raw is not None else None
 
-            if size == 0:
+            if size == 0 or handle_info.get("is_scanner", False):
                 return b""
 
             # Resolve URL with caching

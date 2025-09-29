@@ -10,50 +10,31 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.path_utils import generate_target_path
 from program.services.filesystem.common_utils import get_items_to_update
+from program.services.downloaders import Downloader
 
 
 
 class FilesystemService:
     """Filesystem service for VFS-only mode"""
 
-    def __init__(self):
+    def __init__(self, downloader: Downloader):
         # Service key matches settings category name for reinitialization logic
         self.key = "filesystem"
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
-        self._initialize_rivenvfs()
+        self._initialize_rivenvfs(downloader)
 
-    def _initialize_rivenvfs(self):
+    def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize RivenVFS"""
         try:
             from .vfs import RivenVFS
-            from program.services.downloaders import Downloader
 
             logger.info("Initializing RivenVFS")
 
-            # Get the main downloader service which manages all provider instances
-            downloader_service = Downloader()
-            if not downloader_service.initialized:
-                logger.warning("No downloader services are initialized, RivenVFS will have limited functionality")
-                providers = {}
-            else:
-                # Use the initialized downloader services as providers
-                # Map provider names to their corresponding downloader instances
-                providers = {}
-                for service_class, service_instance in downloader_service.services.items():
-                    if service_instance.initialized:
-                        # Map service class names to provider keys expected by RivenVFS
-                        if 'RealDebrid' in service_class.__name__:
-                            providers['realdebrid'] = service_instance
-                        elif 'AllDebrid' in service_class.__name__:
-                            providers['alldebrid'] = service_instance
-                        elif 'TorBox' in service_class.__name__:
-                            providers['torbox'] = service_instance
-
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
-                providers=providers,
+                downloader=downloader,
             )
 
         except ImportError as e:

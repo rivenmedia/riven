@@ -2,13 +2,15 @@ from __future__ import annotations
 from typing import Dict, Optional, Union
 import logging
 
+from src.program.services.downloaders import Downloader
+
 log = logging.getLogger(__name__)
 
 class ProviderManager:
     """Manages multiple providers and handles URL resolution logic"""
 
-    def __init__(self, providers: Optional[Dict[str, object]] = None):
-        self.providers = providers or {}
+    def __init__(self, downloader: Downloader = None):
+        self.downloader = downloader
 
     def detect_provider_from_url(self, url: str) -> Optional[str]:
         """Detect which provider a URL belongs to"""
@@ -33,12 +35,11 @@ class ProviderManager:
         """Construct a restricted URL from provider name and ID"""
         if provider_name == 'realdebrid':
             return f"https://real-debrid.com/d/{provider_id}"
-        elif provider_name == 'premiumize':
-            return f"https://premiumize.me/d/{provider_id}"
         elif provider_name == 'alldebrid':
-            return f"https://alldebrid.com/dl/{provider_id}"
-
-        # Add more providers here as needed
+            raise NotImplementedError("AllDebrid does not support restricted URLs just yet.")
+            # return f"https://alldebrid.com/dl/{provider_id}"
+        elif provider_name == 'torbox':
+            raise NotImplementedError("TorBox does not support restricted URLs just yet.")
 
         return provider_id  # Fallback to using the ID as-is
 
@@ -68,7 +69,7 @@ class ProviderManager:
                 'size': 0
             }
 
-        provider = self.providers.get(provider_name)
+        provider = next((service for service in self.downloader.services.values() if service.initialized and provider_name in service.key), None)
         if not provider:
             log.warning(f"Provider '{provider_name}' not available")
             return {

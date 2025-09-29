@@ -83,12 +83,13 @@ class Program(threading.Thread):
         composite_indexer = IndexerService()
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
+        _downloader = Downloader()
         self.services = {
             IndexerService: composite_indexer,
             Scraping: Scraping(),
-            FilesystemService: FilesystemService(),
             Updater: Updater(),
-            Downloader: Downloader(),
+            Downloader: _downloader,
+            FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
         }
 
@@ -105,6 +106,8 @@ class Program(threading.Thread):
             logger.error("No Scraping service initialized, you must enable at least one.")
         if not self.services[Downloader].initialized:
             logger.error("No Downloader service initialized, you must enable at least one.")
+        if not self.services[FilesystemService].initialized:
+            logger.error("Filesystem service failed to initialize, check your settings.")
         if not self.services[Updater].initialized:
             logger.error("No Updater service initialized, you must enable at least one.")
 
