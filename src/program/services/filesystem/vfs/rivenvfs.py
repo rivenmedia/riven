@@ -1075,7 +1075,7 @@ class RivenVFS(pyfuse3.Operations):
             size_raw = file_info.get("size")
             file_size = int(size_raw) if size_raw is not None else None
 
-            if size == 0 or handle_info.get("is_scanner", False):
+            if size == 0:
                 return b""
 
             # Resolve URL with caching
