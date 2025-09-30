@@ -74,13 +74,14 @@ class VFSDatabase:
             ).one_or_none()
             if not fe:
                 if path == '/':
-                    return {'virtual_path': '/', 'name': '/', 'size': 0, 'is_directory': True, 'modified': None}
+                    return {'virtual_path': '/', 'name': '/', 'size': 0, 'is_directory': True, 'created': None, 'modified': None}
                 return None
             return {
                 'virtual_path': fe.path,
                 'name': os.path.basename(fe.path) or '/',
                 'size': int(fe.file_size or 0),
                 'is_directory': bool(fe.is_directory),
+                'created': fe.created_at.isoformat() if fe.created_at else None,
                 'modified': fe.updated_at.isoformat() if fe.updated_at else None,
             }
 
@@ -90,23 +91,37 @@ class VFSDatabase:
         out: List[Dict] = []
         with self.SessionLocal() as s:
             # Query FilesystemEntry for virtual files only
-            q = s.query(FilesystemEntry.path, FilesystemEntry.file_size, FilesystemEntry.is_directory, FilesystemEntry.updated_at)
+            q = s.query(FilesystemEntry.path, FilesystemEntry.file_size, FilesystemEntry.is_directory, FilesystemEntry.created_at, FilesystemEntry.updated_at)
             if path == '/':
                 rows = q.all()
-                for vp, size, is_dir, lm in rows:
+                for vp, size, is_dir, created, modified in rows:
                     if vp == '/':
                         continue
                     parent = os.path.dirname(vp.rstrip('/')) or '/'
                     if parent == '/':
                         name = os.path.basename(vp.rstrip('/'))
-                        out.append({'virtual_path': vp, 'name': name, 'size': size, 'is_directory': bool(is_dir), 'modified': lm.isoformat() if lm else None})
+                        out.append({
+                            'virtual_path': vp,
+                            'name': name,
+                            'size': size,
+                            'is_directory': bool(is_dir),
+                            'created': created.isoformat() if created else None,
+                            'modified': modified.isoformat() if modified else None
+                        })
             else:
                 rows = q.filter(FilesystemEntry.path.like(prefix + '%')).all()
-                for vp, size, is_dir, lm in rows:
+                for vp, size, is_dir, created, modified in rows:
                     parent = os.path.dirname(vp.rstrip('/')) or '/'
                     if parent == path:
                         name = os.path.basename(vp.rstrip('/'))
-                        out.append({'virtual_path': vp, 'name': name, 'size': size, 'is_directory': bool(is_dir), 'modified': lm.isoformat() if lm else None})
+                        out.append({
+                            'virtual_path': vp,
+                            'name': name,
+                            'size': size,
+                            'is_directory': bool(is_dir),
+                            'created': created.isoformat() if created else None,
+                            'modified': modified.isoformat() if modified else None
+                        })
         out.sort(key=lambda d: d['name'])
         return out
 

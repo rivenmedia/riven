@@ -51,8 +51,8 @@ from src.program.services.downloaders import Downloader
 class ProviderHTTP:
     """
     Shared pycurl-based HTTP client with connection reuse via CurlShare and a simple
-    per-host easy-handle pool. No rate limiting/token buckets here; focus is on
-    reusing TCP/TLS sessions across requests to reduce handshake latency.
+    per-host easy-handle pool. Uses HTTP/2 for multiplexing multiple range requests
+    over a single connection, reducing handshake latency and improving performance.
     """
     def __init__(self) -> None:
         self._share = pycurl.CurlShare()
@@ -67,6 +67,13 @@ class ProviderHTTP:
         self._pool: dict[str, list[pycurl.Curl]] = {}
         self._lock = threading.Lock()
 
+        # Check if HTTP/2 is available in this libcurl build
+        self._http2_available = hasattr(pycurl, 'CURL_HTTP_VERSION_2_0')
+        if self._http2_available:
+            log.bind(component="RivenVFS").debug("HTTP/2 support detected, will use HTTP/2 for video streaming")
+        else:
+            log.bind(component="RivenVFS").warning("HTTP/2 not available in libcurl, falling back to HTTP/1.1")
+
     def _configure_common(self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False) -> None:
         c.setopt(pycurl.NOSIGNAL, 1)
         c.setopt(pycurl.FOLLOWLOCATION, 1)
@@ -76,7 +83,17 @@ class ProviderHTTP:
         c.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
         c.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
         c.setopt(pycurl.LOW_SPEED_TIME, 15)
-        c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0 if http10 else pycurl.CURL_HTTP_VERSION_1_1)
+
+        # Use HTTP/2 if available and not explicitly requesting HTTP/1.0
+        # HTTP/2 provides multiplexing for better performance with range requests
+        if http10:
+            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0)
+        elif self._http2_available:
+            # CURL_HTTP_VERSION_2_0 enables HTTP/2 with fallback to HTTP/1.1
+            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_2_0)
+        else:
+            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_1)
+
         c.setopt(pycurl.HTTP09_ALLOWED, 1)
         try:
             c.setshare(self._share)
@@ -890,22 +907,53 @@ class RivenVFS(pyfuse3.Operations):
             attrs.st_blocks = 1
 
             import stat
-            now_ns = self._current_time_ns()
-            attrs.st_atime_ns = now_ns
-            attrs.st_mtime_ns = now_ns
-            attrs.st_ctime_ns = now_ns
 
             # Special case for root directory
             if path == "/":
                 attrs.st_mode = stat.S_IFDIR | 0o755
                 attrs.st_nlink = 2
                 attrs.st_size = 0
+                # Use current time for root directory
+                now_ns = self._current_time_ns()
+                attrs.st_atime_ns = now_ns
+                attrs.st_mtime_ns = now_ns
+                attrs.st_ctime_ns = now_ns
                 return attrs
 
             # For other paths, check database
             entry_info = self._get_entry_cached(path)
             if entry_info is None:
                 raise pyfuse3.FUSEError(errno.ENOENT)
+
+            # Use created_at timestamp from database for consistent file attributes
+            # This prevents media players from thinking files have changed
+            created_ts = entry_info.get("created")
+            modified_ts = entry_info.get("modified")
+
+            if created_ts:
+                from datetime import datetime
+                try:
+                    created_dt = datetime.fromisoformat(created_ts)
+                    created_ns = int(created_dt.timestamp() * 1_000_000_000)
+                except Exception:
+                    created_ns = self._current_time_ns()
+            else:
+                created_ns = self._current_time_ns()
+
+            if modified_ts:
+                from datetime import datetime
+                try:
+                    modified_dt = datetime.fromisoformat(modified_ts)
+                    modified_ns = int(modified_dt.timestamp() * 1_000_000_000)
+                except Exception:
+                    modified_ns = created_ns
+            else:
+                modified_ns = created_ns
+
+            # Set timestamps: ctime = creation, mtime = modification, atime = access (use mtime)
+            attrs.st_ctime_ns = created_ns
+            attrs.st_mtime_ns = modified_ns
+            attrs.st_atime_ns = modified_ns  # Use mtime for atime to avoid constant updates
 
             if entry_info["is_directory"]:
                 attrs.st_mode = stat.S_IFDIR | 0o755
