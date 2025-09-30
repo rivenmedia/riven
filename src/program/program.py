@@ -375,3 +375,5 @@ class Program(threading.Thread):
             return enhanced_item
         except StopIteration:
             return None
+
+riven = Program()

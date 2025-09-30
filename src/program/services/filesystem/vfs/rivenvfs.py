@@ -134,7 +134,6 @@ import io
 import os
 
 from .db import VFSDatabase
-from .providers import ProviderManager
 
 from program.settings.manager import settings_manager
 from .cache import Cache, CacheConfig
@@ -340,8 +339,8 @@ class RivenVFS(pyfuse3.Operations):
         )
         self.cache = Cache(cfg)
 
-        self.provider_manager = ProviderManager(downloader)
-        self.db = VFSDatabase(provider_manager=self.provider_manager)
+        self.downloader = downloader
+        self.db = VFSDatabase(downloader=downloader)
 
         # Core path <-> inode mapping for FUSE operations
         self._path_to_inode: Dict[str, int] = {"/": pyfuse3.ROOT_INODE}
@@ -1553,7 +1552,7 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 elif status == 403:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
-                    log.warning(f"HTTP 403 Forbidden for {path} (attempt {attempt + 1})")
+                    log.trace(f"HTTP 403 Forbidden for {path} (attempt {attempt + 1})")
                     if attempt < max_attempts - 1:
                         await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                         continue
@@ -1572,7 +1571,7 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 elif status == 429:
                     # Rate limited - back off exponentially, don't refresh URL
-                    log.warning(f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})")
+                    log.trace(f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})")
                     if attempt < max_attempts - 1:
                         backoff_time = min(backoffs[min(attempt, len(backoffs) - 1)] * 2, 5.0)
                         await trio.sleep(backoff_time)
@@ -1580,15 +1579,15 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EAGAIN)
                 elif status == 200 and start > 0:
                     # Server doesn't support ranges but returned full content
-                    log.warning(f"Server returned full content instead of range for {path}")
+                    log.trace(f"Server returned full content instead of range for {path}")
                     raise pyfuse3.FUSEError(errno.EIO)
                 else:
                     # Other unexpected status codes
-                    log.warning(f"Unexpected HTTP status {status} for {path}")
+                    log.trace(f"Unexpected HTTP status {status} for {path}")
                     raise pyfuse3.FUSEError(errno.EIO)
             except pycurl.error as e:
                 error_code = e.args[0] if e.args else 0
-                log.warning(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
+                log.trace(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
 
                 # Only refresh URL on connection-related errors, not rate limiting
                 if error_code in (6, 7, 28) and attempt == 0:  # Host resolution, connection, timeout

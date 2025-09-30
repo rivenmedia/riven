@@ -399,8 +399,8 @@ class MediaItem(db.Model):
         # Remove filesystem entry if it exists
         if self.filesystem_entry:
             from program.services.filesystem.filesystem_service import FilesystemService
-            from program.program import program
-            filesystem_service = program.services.get(FilesystemService)
+            from program.program import riven
+            filesystem_service = riven.services.get(FilesystemService)
             if filesystem_service:
                 filesystem_service.delete_item_files_by_id(self.id)
 
@@ -428,8 +428,8 @@ class MediaItem(db.Model):
         # Remove filesystem entry if it exists
         if self.filesystem_entry:
             from program.services.filesystem.filesystem_service import FilesystemService
-            from program.program import program
-            filesystem_service = program.services.get(FilesystemService)
+            from program.program import riven
+            filesystem_service = riven.services.get(FilesystemService)
             if filesystem_service:
                 filesystem_service.delete_item_files_by_id(self.id)
 
