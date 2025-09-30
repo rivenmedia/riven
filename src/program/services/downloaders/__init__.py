@@ -21,7 +21,6 @@ from program.services.downloaders.models import (
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
-from .alldebrid import AllDebridDownloader
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
 
@@ -32,33 +31,42 @@ class Downloader:
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            AllDebridDownloader: AllDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
         }
-        self.service = next((service for service in self.services.values() if service.initialized), None)
+        # Get all initialized services instead of just the first one
+        self.initialized_services = [service for service in self.services.values() if service.initialized]
+        # Keep backward compatibility - primary service is the first initialized one
+        self.service = self.initialized_services[0] if self.initialized_services else None
         self.initialized = self.validate()
         # Track circuit breaker retry attempts per item
         self._circuit_breaker_retries = {}
-        # Track service-level cooldown when circuit breaker is open
-        self._service_cooldown_until = None
+        # Track per-service cooldowns when circuit breaker is open
+        self._service_cooldowns = {}  # {service.key: datetime}
 
     def validate(self):
-        if self.service is None:
+        if not self.initialized_services:
             logger.error(
                 "No downloader service is initialized. Please initialize a downloader service."
             )
             return False
+        logger.info(f"Initialized {len(self.initialized_services)} downloader service(s): {', '.join(s.key for s in self.initialized_services)}")
         return True
 
 
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
-        # Check if service is in cooldown due to circuit breaker
-        # TODO: This should most likely be in state transition.
-        if self._service_cooldown_until and datetime.now() < self._service_cooldown_until:
-            next_attempt = self._service_cooldown_until
-            logger.warning(f"Downloader service in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
+        # Check if all services are in cooldown due to circuit breaker
+        now = datetime.now()
+        available_services = [
+            service for service in self.initialized_services
+            if service.key not in self._service_cooldowns or self._service_cooldowns[service.key] <= now
+        ]
+
+        if not available_services:
+            # All services are in cooldown, reschedule for the earliest available time
+            next_attempt = min(self._service_cooldowns.values())
+            logger.warning(f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
             yield (item, next_attempt)
             return
 
@@ -66,63 +74,83 @@ class Downloader:
             download_success = False
             # Sort streams by resolution and rank (highest first) using simple, fast sorting
             sorted_streams = _sort_streams_by_quality(item.streams)
-            for stream in sorted_streams:
-                container: Optional[TorrentContainer] = self.validate_stream(stream, item)
-                if not container:
-                    continue
 
-                try:
-                    download_result = self.download_cached_stream(stream, container)
-                    if self.update_item_attributes(item, download_result):
-                        logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}]")
-                        download_success = True
-                        break
-                    else:
-                        raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
-                except Exception as e:
-                    logger.debug(f"Stream {stream.infohash} failed: {e}")
-                    if "download_result" in locals() and download_result.id:
-                        try:
-                            self.service.delete_torrent(download_result.id)
-                            logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service.")
-                        except Exception as e:
-                            logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on debrid service: {e}")
+            for stream in sorted_streams:
+                # Try each available service for this stream before blacklisting
+                stream_failed_on_all_services = True
+
+                for service in available_services:
+                    logger.debug(f"Trying stream {stream.infohash} on {service.key} for {item.log_string}")
+
+                    try:
+                        # Validate stream on this specific service
+                        container: Optional[TorrentContainer] = self.validate_stream_on_service(stream, item, service)
+                        if not container:
+                            logger.debug(f"Stream {stream.infohash} not available on {service.key}")
+                            continue
+
+                        # Try to download using this service
+                        download_result = self.download_cached_stream_on_service(stream, container, service)
+                        if self.update_item_attributes(item, download_result, service):
+                            logger.log("DEBRID", f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}] using {service.key}")
+                            download_success = True
+                            stream_failed_on_all_services = False
+                            break
+                        else:
+                            raise NoMatchingFilesException(f"No valid files found for {item.log_string} ({item.id})")
+
+                    except CircuitBreakerOpen as e:
+                        # This specific service hit circuit breaker, set cooldown and try next service
+                        cooldown_duration = timedelta(minutes=1)
+                        self._service_cooldowns[service.key] = datetime.now() + cooldown_duration
+                        logger.warning(f"Circuit breaker OPEN for {service.key}, trying next service for stream {stream.infohash}")
+                        continue
+
+                    except Exception as e:
+                        logger.debug(f"Stream {stream.infohash} failed on {service.key}: {e}")
+                        if "download_result" in locals() and download_result.id:
+                            try:
+                                service.delete_torrent(download_result.id)
+                                logger.debug(f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}.")
+                            except Exception as del_e:
+                                logger.debug(f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}: {del_e}")
+                        continue
+
+                # If stream succeeded on any service, we're done
+                if download_success:
+                    break
+
+                # Only blacklist if stream failed on ALL available services
+                if stream_failed_on_all_services:
+                    logger.debug(f"Stream {stream.infohash} failed on all {len(available_services)} available service(s), blacklisting")
                     item.blacklist_stream(stream)
-        except CircuitBreakerOpen as e:
-            # Circuit breaker is open, set service-level cooldown and reschedule the item
-            cooldown_duration = timedelta(minutes=1)  # 2 minute cooldown
-            self._service_cooldown_until = datetime.now() + cooldown_duration
-            
-            retry_count = self._circuit_breaker_retries.get(item.id, 0)
-            if retry_count >= 6:  # Max retries reached
-                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, max retries reached. Setting service cooldown for 1 minute.")
-                self._circuit_breaker_retries.pop(item.id, None)
-                yield item
-            else:
-                # Increment retry count and reschedule
-                self._circuit_breaker_retries[item.id] = retry_count + 1
-                next_attempt = self._service_cooldown_until
-                logger.warning(f"Circuit breaker OPEN for {e.name} with item {item.id}, retry {retry_count + 1}/6. Setting service cooldown for 2 minutes, rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
-                yield (item, next_attempt)
-            return
+
+        except Exception as e:
+            logger.error(f"Unexpected error in downloader for {item.log_string} ({item.id}): {e}")
 
         if not download_success:
             logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
         else:
-            # Clear retry count and service cooldown on successful download
+            # Clear retry count and service cooldowns on successful download
             self._circuit_breaker_retries.pop(item.id, None)
-            self._service_cooldown_until = None
+            self._service_cooldowns.clear()
 
         yield item
 
     def validate_stream(self, stream: Stream, item: MediaItem) -> Optional[TorrentContainer]:
         """
         Validate a single stream by ensuring its files match the item's requirements.
+        Uses the primary service for backward compatibility.
         """
-        container = self.get_instant_availability(stream.infohash, item.type)
+        return self.validate_stream_on_service(stream, item, self.service)
+
+    def validate_stream_on_service(self, stream: Stream, item: MediaItem, service) -> Optional[TorrentContainer]:
+        """
+        Validate a single stream on a specific service by ensuring its files match the item's requirements.
+        """
+        container = service.get_instant_availability(stream.infohash, item.type)
         if not container:
-            logger.debug(f"Stream {stream.infohash} is not cached or valid.")
-            item.blacklist_stream(stream)
+            logger.debug(f"Stream {stream.infohash} is not cached or valid on {service.key}.")
             return None
 
         valid_files = []
@@ -149,11 +177,13 @@ class Downloader:
             container.files = valid_files
             return container
 
-        item.blacklist_stream(stream)
         return None
 
-    def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent) -> bool:
+    def update_item_attributes(self, item: MediaItem, download_result: DownloadedTorrent, service=None) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
+        if service is None:
+            service = self.service
+
         try:
             if not download_result.container:
                 raise NotCachedException(f"No container found for {item.log_string} ({item.id})")
@@ -191,7 +221,7 @@ class Downloader:
                     elif file_data.season == 0:
                         continue
 
-                if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap, processed_episode_ids):
+                if self.match_file_to_item(item, file_data, file, download_result, show, episode_cap, processed_episode_ids, service):
                     found = True
 
             return found
@@ -206,15 +236,19 @@ class Downloader:
             download_result: DownloadedTorrent,
             show: Optional[Show] = None,
             episode_cap: int = None,
-            processed_episode_ids: Optional[set[str]] = None
+            processed_episode_ids: Optional[set[str]] = None,
+            service = None
         ) -> bool:
         """Check if the file matches the item and update attributes."""
+        if service is None:
+            service = self.service
+
         logger.debug(f"match_file_to_item: item={item.id} type={item.type} file='{file.filename}'")
         found = False
 
         if item.type == "movie" and file_data.item_type == "movie":
             logger.debug("match_file_to_item: movie match -> updating attributes")
-            self._update_attributes(item, file, download_result)
+            self._update_attributes(item, file, download_result, service)
             return True
 
         if item.type in ("show", "season", "episode"):
@@ -238,7 +272,7 @@ class Downloader:
                     if processed_episode_ids is not None and str(episode.id) in processed_episode_ids:
                         continue
                     logger.debug(f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'")
-                    self._update_attributes(episode, file, download_result)
+                    self._update_attributes(episode, file, download_result, service)
                     if processed_episode_ids is not None:
                         processed_episode_ids.add(str(episode.id))
                     logger.debug(f"Matched episode {episode.log_string} to file {file.filename}")
@@ -250,15 +284,25 @@ class Downloader:
         return found
 
     def download_cached_stream(self, stream: Stream, container: TorrentContainer) -> DownloadedTorrent:
-        """Download a cached stream"""
-        torrent_id: int = self.add_torrent(stream.infohash)
-        info: TorrentInfo = self.get_torrent_info(torrent_id)
+        """Download a cached stream using the primary service"""
+        return self.download_cached_stream_on_service(stream, container, self.service)
+
+    def download_cached_stream_on_service(self, stream: Stream, container: TorrentContainer, service) -> DownloadedTorrent:
+        """Download a cached stream using a specific service"""
+        torrent_id: int = service.add_torrent(stream.infohash)
+        if service.key == "torbox":
+            for file in container.files:
+                file.download_url = service.get_download_url(torrent_id, file.file_id)
+        info: TorrentInfo = service.get_torrent_info(torrent_id)
         if container.file_ids:
-            self.select_files(torrent_id, container.file_ids)
+            service.select_files(torrent_id, container.file_ids)
         return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
 
-    def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent) -> None:
+    def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None) -> None:
         """Update the item attributes"""
+        if service is None:
+            service = self.service
+
         item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
 
         # Create FilesystemEntry for virtual file if download URL is available
@@ -270,7 +314,7 @@ class Downloader:
                 filesystem_entry = FilesystemEntry.create_virtual_entry(
                     path=path,
                     download_url=debrid_file.download_url,
-                    provider=self.service.key,
+                    provider=service.key,
                     provider_download_id=str(download_result.info.id),
                     file_size=debrid_file.filesize or 0,
                     original_filename=debrid_file.filename,

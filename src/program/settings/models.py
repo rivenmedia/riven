@@ -50,11 +50,6 @@ class RealDebridModel(Observable):
     api_key: str = ""
 
 
-class AllDebridModel(Observable):
-    enabled: bool = False
-    api_key: str = ""
-
-
 class TorBoxModel(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -68,7 +63,6 @@ class DownloadersModel(Observable):
     episode_filesize_mb_max: int = -1  # -1 is no limit
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
-    all_debrid: AllDebridModel = AllDebridModel()
     torbox: TorBoxModel = TorBoxModel()
 
 

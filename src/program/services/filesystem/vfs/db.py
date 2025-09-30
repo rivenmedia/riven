@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, TYPE_CHECKING
 
 from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
@@ -11,9 +11,18 @@ from loguru import logger as log
 
 from sqlalchemy.orm.exc import StaleDataError
 
+if TYPE_CHECKING:
+    from program.services.downloaders import Downloader
+
 class VFSDatabase:
-    def __init__(self, provider_manager=None) -> None:
-        self.provider_manager = provider_manager
+    def __init__(self, downloader: Optional["Downloader"] = None) -> None:
+        """
+        Initialize VFS Database.
+
+        Args:
+            downloader: Downloader instance with initialized services for URL resolution
+        """
+        self.downloader = downloader
         self.SessionLocal = db.Session
         self._ensure_default_directories()
 
@@ -103,12 +112,12 @@ class VFSDatabase:
 
     def get_download_url(self, path: str, for_http: bool = False, force_resolve: bool = False) -> Optional[str]:
         """
-        Get download URL for a file.
+        Get download URL for a file using database-driven provider lookup.
 
         Args:
             path: Virtual file path
-            for_http: If True, return URL for HTTP requests. Does not resolve unless force_resolve is True.
-            force_resolve: If True, attempt to resolve provider URLs to unrestricted links and update storage.
+            for_http: If True, return URL for HTTP requests (uses unrestricted URL)
+            force_resolve: If True, force refresh of unrestricted URL from provider
 
         Returns:
             URL string or None if not found
@@ -122,66 +131,66 @@ class VFSDatabase:
                 if not fe:
                     return None
 
-                if not self.provider_manager:
-                    # No provider manager
+                # If no downloader available, return what we have
+                if not self.downloader:
                     if not for_http:
-                        log.debug(f"{path} -> using stored restricted URL (no provider_manager)")
+                        log.debug(f"{path} -> using stored download_url (no downloader)")
                         return fe.download_url
                     chosen = fe.unrestricted_url or fe.download_url
                     log.debug(
-                        f"{path} -> using {'unrestricted' if fe.unrestricted_url else 'restricted'} URL (no provider_manager)"
+                        f"{path} -> using {'unrestricted' if fe.unrestricted_url else 'download'} URL (no downloader)"
                     )
                     return chosen
 
-                # Compute the restricted URL from stored data (if needed)
-                stored_url = self.provider_manager.get_download_url(
-                    fe.download_url,
-                    fe.provider,
-                    fe.provider_download_id
-                )
-
-                # Persist restricted URL if we didn't have one
-                if stored_url and not fe.download_url:
-                    fe.download_url = stored_url
-                    log.debug(f"{path} -> persisted restricted URL")
-
-                # If caller wants the stored URL for persistence, return it
+                # For non-HTTP reads (persistence), return the stored download_url
                 if not for_http:
-                    log.debug(f"{path} -> returning restricted stored URL for persistence")
-                    return stored_url
+                    log.debug(f"{path} -> returning stored download_url for persistence")
+                    return fe.download_url
 
                 # For HTTP reads: prefer persisted unrestricted URL if present and no forced refresh
                 if fe.unrestricted_url and not force_resolve:
                     log.debug(f"{path} -> using persisted unrestricted URL")
                     return fe.unrestricted_url
 
-                # If we don't even have a restricted URL, nothing to use
-                if not stored_url:
-                    log.debug(f"{path} -> no restricted URL available; cannot resolve")
+                # Need to resolve/refresh the URL
+                if not fe.download_url:
+                    log.debug(f"{path} -> no download_url available; cannot resolve")
                     return None
 
-                # Resolve (first open or refresh-after-failure): try to obtain unrestricted URL
-                provider_name = fe.provider or self.provider_manager.detect_provider_from_url(stored_url)
-                if provider_name:
-                    try:
-                        log.debug(f"{path} -> resolving unrestricted URL via provider '{provider_name}'")
-                        result = self.provider_manager.resolve_url(stored_url, provider_name)
-                        if result and result.get('download_url'):
-                            # Update persisted unrestricted URL for future reads
-                            fe.unrestricted_url = result['download_url']
-                            log.debug(f"{path} -> updated unrestricted_url and will use it for reads")
-                            # Update file size if available and not already set
-                            if not fe.file_size and result.get('size'):
-                                fe.file_size = int(result['size'])
-                            return fe.unrestricted_url
-                    except Exception as e:
-                        log.warning(f"{path} -> resolve failed via provider '{provider_name}': {e}")
+                # Get the provider service from the downloader
+                if not fe.provider:
+                    log.warning(f"{path} -> no provider specified in database")
+                    return fe.download_url
 
-                # Fallbacks
-                log.debug(
-                    f"{path} -> fallback to {'unrestricted' if fe.unrestricted_url else 'restricted'} URL"
+                # Find the matching service
+                service = next(
+                    (s for s in self.downloader.initialized_services if s.key == fe.provider),
+                    None
                 )
-                return fe.unrestricted_url or stored_url
+                if not service:
+                    log.warning(f"{path} -> provider '{fe.provider}' not initialized")
+                    return fe.unrestricted_url or fe.download_url
+
+                # Resolve URL using the provider's resolve_link method
+                try:
+                    log.debug(f"{path} -> resolving URL via provider '{fe.provider}'")
+                    result = service.resolve_link(fe.download_url)
+                    if result and result.get('download_url'):
+                        # Update persisted unrestricted URL for future reads
+                        fe.unrestricted_url = result['download_url']
+                        log.debug(f"{path} -> updated unrestricted_url")
+                        # Update file size if available and not already set
+                        if not fe.file_size and result.get('size'):
+                            fe.file_size = int(result['size'])
+                        return fe.unrestricted_url
+                except Exception as e:
+                    log.warning(f"{path} -> resolve failed via provider '{fe.provider}': {e}")
+
+                # Fallback to what we have
+                log.debug(
+                    f"{path} -> fallback to {'unrestricted' if fe.unrestricted_url else 'download'} URL"
+                )
+                return fe.unrestricted_url or fe.download_url
         except StaleDataError:
             # Entry was deleted concurrently during read; treat as missing
             log.debug(f"{path} -> entry disappeared during read; returning None")

@@ -294,23 +294,26 @@ class ResetResponse(BaseModel):
 async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids: list[int] = handle_ids(ids)
     try:
-        for media_item in db_functions.get_items_by_ids(ids):
-            try:
-                request.app.program.em.cancel_job(media_item.id)
-                active_hash = media_item.active_stream.get("infohash", None)
-                active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
-                db_functions.clear_streams(media_item_id=media_item.id)
-                db_functions.reset_media_item(media_item)
-                if active_stream:
-                    # lets blacklist the active stream so it doesnt get used again
-                    db_functions.blacklist_stream(media_item, active_stream)
-                    logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
-            except ValueError as e:
-                logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error while resetting item with id {media_item.id}: {str(e)}")
-                continue
+        with db.Session() as session:
+            for media_item in db_functions.get_items_by_ids(ids, session=session):
+                try:
+                    request.app.program.em.cancel_job(media_item.id)
+                    active_hash = media_item.active_stream.get("infohash", None)
+                    active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
+                    db_functions.clear_streams(media_item_id=media_item.id)
+                    media_item.reset()
+                    if active_stream:
+                        # lets blacklist the active stream so it doesnt get used again
+                        db_functions.blacklist_stream(media_item, active_stream)
+                        logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
+                    session.merge(media_item)
+                    session.commit()
+                except ValueError as e:
+                    logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Unexpected error while resetting item with id {media_item.id}: {str(e)}")
+                    continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"message": f"Reset items with id {ids}", "ids": ids}
@@ -318,7 +321,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(

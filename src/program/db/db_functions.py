@@ -78,6 +78,7 @@ def get_items_by_ids(
     session: Optional[Session] = None,
     *,
     load_tree: bool = False,
+    expunge: bool = None,
 ) -> List["MediaItem"]:
     """
     Fetch a list of MediaItems by their IDs using one round trip.
@@ -85,7 +86,9 @@ def get_items_by_ids(
     - Preserves the input order at the SQL layer via CASE(..) ORDER BY.
     - Optionally eager-load Show -> seasons -> episodes using select-in if load_tree=True.
     - Calls .unique() to collapse duplicates that arise from joined eager loads.
-    - Returns detached instances (expunged) to avoid lazy-loads on closed sessions.
+    - By default, returns detached instances (expunged) when no session is provided,
+      or attached instances when a session is provided.
+    - Use expunge=True to force expunging even with a provided session.
     """
     if not ids:
         return []
@@ -110,15 +113,20 @@ def get_items_by_ids(
     else:
         _s = session
 
+    # Default expunge behavior: expunge only if we created the session
+    if expunge is None:
+        expunge = close_me
+
     try:
         result = _s.execute(
             stmt.execution_options(stream_results=True),
             {"item_ids": list(ids)},
         ).unique()
         rows: List["MediaItem"] = [obj for obj in result.scalars().yield_per(500)]
-        for obj in rows:
-            if object_session(obj) is _s:
-                _s.expunge(obj)
+        if expunge:
+            for obj in rows:
+                if object_session(obj) is _s:
+                    _s.expunge(obj)
         by_id: Dict[int, "MediaItem"] = {m.id: m for m in rows}
         return [by_id[i] for i in ids if i in by_id]
     finally:
