@@ -1,6 +1,5 @@
 """Plex Updater module"""
-import os
-from typing import Dict, Generator, List, Union
+from typing import Dict, List
 
 from kink import di
 from loguru import logger
@@ -10,22 +9,18 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
 
 from program.apis.plex_api import PlexAPI
-from program.media.item import Episode, Movie, Season, Show
+from program.services.updaters.base import BaseUpdater
 from program.settings.manager import settings_manager
 
 
-class PlexUpdater:
+class PlexUpdater(BaseUpdater):
     def __init__(self):
-        self.key = "plexupdater"
-        self.initialized = False
+        super().__init__("Plex")
         self.library_path = settings_manager.settings.updaters.library_path
         self.settings = settings_manager.settings.updaters.plex
         self.api = None
         self.sections: Dict[LibrarySection, List[str]] = {}
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Plex Updater initialized!")
+        self._initialize()
 
     def validate(self) -> bool:  # noqa: C901
         """Validate Plex library"""
@@ -65,66 +60,10 @@ class PlexUpdater:
             logger.exception(f"Plex exception thrown: {e}")
         return False
 
-    def run(self, item: Union[Movie, Show, Season, Episode]) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
-        """Update Plex library section for a single item or a season with its episodes"""
-
-        item_type = "movie" if isinstance(item, Movie) else "show"
-        updated = False
-        updated_episodes = []
-        items_to_update = []
-
-        if isinstance(item, (Movie, Episode)):
-            items_to_update = [item]
-        elif isinstance(item, Show):
-            for season in item.seasons:
-                items_to_update += [
-                    e for e in season.episodes
-                    if e.available_in_vfs
-                ]
-        elif isinstance(item, Season):
-            items_to_update = [
-                e for e in item.episodes
-                if e.available_in_vfs
-            ]
-
-        if not items_to_update:
-            logger.debug(f"No items to update for {item.log_string}")
-            return
-
-        section_name = None
-        # any failures are usually because we are updating Plex too fast
-        for section, paths in self.sections.items():
-            if section.type == item_type:
-                for path in paths:
-                    if isinstance(item, (Show, Season)):
-                        for episode in items_to_update:
-                            fe_path = episode.filesystem_entry.path if episode.filesystem_entry else None
-                            if not fe_path:
-                                continue
-                            abs_dir = os.path.dirname(os.path.join(self.library_path, fe_path.lstrip("/")))
-                            if abs_dir.startswith(path):
-                                if self.api.update_section(section, abs_dir):
-                                    updated_episodes.append(episode)
-                                    section_name = section.title
-                                    updated = True
-                    elif isinstance(item, (Movie, Episode)):
-                        fe_path = item.filesystem_entry.path if item.filesystem_entry else None
-                        if not fe_path:
-                            continue
-                        abs_dir = os.path.dirname(os.path.join(self.library_path, fe_path.lstrip("/")))
-                        if abs_dir.startswith(path):
-                            if self.api.update_section(section, abs_dir):
-                                section_name = section.title
-                                updated = True
-
-        if updated:
-            if isinstance(item, (Show, Season)):
-                if len(updated_episodes) == len(items_to_update):
-                    logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
-                else:
-                    updated_episodes_log = ", ".join([str(ep.number) for ep in updated_episodes])
-                    logger.log("PLEX", f"Updated section {section_name} for episodes {updated_episodes_log} in {item.log_string}")
-            else:
-                logger.log("PLEX", f"Updated section {section_name} for {item.log_string}")
-
-        yield item
+    def refresh_path(self, path: str) -> bool:
+        """Refresh a specific path in Plex by finding the matching section"""
+        for section, section_paths in self.sections.items():
+            for section_path in section_paths:
+                if path.startswith(section_path):
+                    return self.api.update_section(section, path)
+        return False

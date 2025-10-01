@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import datetime
 from typing import List, Literal, Optional
 
@@ -16,6 +17,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem import FilesystemService
+from program.services.updaters import Updater
 from program.types import Event
 
 from ..models.shared import MessageResponse
@@ -431,78 +433,65 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
       - hierarchy children (Season/Episode via parent_id),
       - Subtitle rows (Subtitle.parent_id → MediaItem.id),
       - StreamRelation / StreamBlacklistRelation rows.
-
-    We explicitly avoid pre-deleting seasons/episodes or clearing stream links—
-    that work is delegated to the database for speed and consistency.
     """
     ids: list[int] = handle_ids(ids)
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
-    media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
-    if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
+    # Load items
+    items: List[MediaItem] = db_functions.get_items_by_ids(ids)
+    if not items:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
 
-    for item in media_items:
-        if not item or not isinstance(item, MediaItem):
-            continue
-        logger.debug(f"Removing item with ID {item.id}")
-        request.app.program.em.cancel_job(item.id)  # this will cancel the item and all its children
-        await asyncio.sleep(0.2)  # Ensure cancellation is processed
+    # Get services
+    filesystem_service: FilesystemService = request.app.program.services.get(FilesystemService)
+    overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
+    updater: Updater | None = request.app.program.services.get(Updater)
 
-        # Remove VFS entries recursively before DB deletions
-        filesystem_service = request.app.program.services.get(FilesystemService)
-        filesystem_service.delete_item_files_by_id(item.id)
-        if item.type == "show":
-            for season in item.seasons:
-                for episode in season.episodes:
-                    db_functions.delete_media_item_by_id(episode.id)
-                db_functions.delete_media_item_by_id(season.id)
-        db_functions.clear_streams(media_item_id=item.id)
-
-        if item.overseerr_id:
-            overseerr: Overseerr = request.app.program.services.get(Overseerr)
-            if overseerr:
-                overseerr.delete_request(item.overseerr_id)
-                logger.debug(f"Deleted request from Overseerr with ID {item.overseerr_id}")
-
-    # Load items (allow any concrete type; callers may pass show/movie/season/episode)
-    items: List[MediaItem] = db_functions.get_items_by_ids(ids)
-    found_ids = {it.id for it in items}
-    missing = [i for i in ids if i not in found_ids]
-    if missing:
-        # Keep existing behavior: all must exist, otherwise 404
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item(s) not found: {missing}",
-        )
-
-    # Cancel active jobs first (your EventManager cancels children too)
+    # Process all items in a single loop
     for item in items:
-        logger.debug(f"Canceling jobs for {item.id}")
+        logger.debug(f"Removing item with ID {item.id}")
+
+        # 1. Cancel active jobs (EventManager cancels children too)
         request.app.program.em.cancel_job(item.id)
 
-    # Give the scheduler a tick to process cancellations (non-blocking)
-    await asyncio.sleep(0.2)
+        # 2. Get filesystem path before deletion for media server refresh
+        refresh_path = None
+        if item.filesystem_entry and item.filesystem_entry.path:
+            abs_path = os.path.join(updater.library_path, item.filesystem_entry.path.lstrip("/"))
+            if item.type == "movie":
+                refresh_path = os.path.dirname(os.path.dirname(abs_path))
+            else:  # show, season, episode
+                refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
 
-    # Side-effects outside the DB (symlinks, Overseerr) before deleting rows
-    overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
+        # 3. Remove VFS entries
+        if filesystem_service:
+            filesystem_service.delete_item_files_by_id(item.id)
 
-    for item in items:
+        # 4. Clear streams
+        db_functions.clear_streams(media_item_id=item.id)
+
+        # 5. Delete from Overseerr
         if item.overseerr_id and overseerr:
             try:
                 overseerr.delete_request(item.overseerr_id)
                 logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
             except Exception as e:
-                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id} for {item.id}: {e}")
+                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id}: {e}")
 
-    # Single responsibility: remove root MediaItem(s); cascades handle the rest
-    for item in items:
-        logger.debug(f"Deleting item {item.id} via cascade")
+        # 6. Delete from database (CASCADE handles children)
         ok = db_functions.delete_media_item_by_id(item.id)
         if not ok:
-            # If one fails, continue deleting the rest but report a 500 afterward
             logger.error(f"Failed to delete item {item.id}")
+            continue
+
+        # 7. Trigger media server refresh to remove from library
+        if updater and updater.initialized and refresh_path:
+            updater.refresh_path(refresh_path)
+            logger.debug(f"Triggered media server refresh for {refresh_path}")
+
+    # Give the scheduler a moment to process cancellations
+    await asyncio.sleep(0.2)
 
     logger.info(f"Successfully removed items: {ids}")
     return {"message": f"Removed items with ids {ids}", "ids": ids}
