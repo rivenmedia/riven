@@ -8,6 +8,7 @@ from program.services.downloaders.models import (
     InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
+    UserInfo,
 )
 from program.settings.manager import settings_manager
 from program.utils import get_version
@@ -81,26 +82,13 @@ class TorBoxDownloader(DownloaderBase):
 
     def _validate_premium(self) -> bool:
         """Validate premium status"""
-        try:
-            resp: SmartResponse = self.api.session.get("user/me")
-            if not resp.ok:
-                logger.error(f"Failed to validate premium: {self._handle_error(resp)}")
-                return False
-            
-            data = resp.data.data
-            if not data.plan > 0:
-                logger.error("Premium membership required")
-                return False
-
-            expiration = datetime.strptime(data.premium_expires_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
-            logger.info(premium_days_left(expiration))
-            return True
-        except CircuitBreakerOpen as e:
-            logger.error(f"Circuit breaker while validating premium: {e}")
+        user_info = self.get_user_info()
+        if not user_info.premium_status:
+            logger.error("Premium membership required")
             return False
-        except Exception as e:
-            logger.error(f"Failed to validate premium status: {e}")
-            return False
+        
+        logger.info(premium_days_left(user_info.premium_expires_at))
+        return True
         
     def select_files(self, torrent_id: str, _: List[str] = None) -> None:
         pass
@@ -350,3 +338,55 @@ class TorBoxDownloader(DownloaderBase):
             'name': 'file',
             'size': 0,
         }
+
+    def get_user_info(self) -> Optional[UserInfo]:
+        """
+        Get normalized user information from TorBox.
+
+        Returns:
+            UserInfo: Normalized user information including premium status and expiration
+        """
+        try:
+            resp: SmartResponse = self.api.session.get("user/me")
+            if not resp.ok:
+                logger.error(f"Failed to get user info: {self._handle_error(resp)}")
+                return None
+
+            data = resp.data.data
+
+            # Parse expiration datetime
+            expiration = None
+            premium_days = None
+            if hasattr(data, 'premium_expires_at') and data.premium_expires_at:
+                try:
+                    expiration = datetime.strptime(data.premium_expires_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+                    time_left = expiration - datetime.utcnow()
+                    premium_days = time_left.days
+                except Exception as e:
+                    logger.debug(f"Failed to parse expiration date: {e}")
+
+            # Parse cooldown datetime
+            cooldown = None
+            if hasattr(data, 'cooldown_until') and data.cooldown_until:
+                try:
+                    cooldown = datetime.strptime(data.cooldown_until, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+                except Exception as e:
+                    logger.debug(f"Failed to parse cooldown date: {e}")
+
+            return UserInfo(
+                service="torbox",
+                username=None,  # TorBox doesn't provide username
+                email=getattr(data, 'email', None),
+                user_id=data.id,
+                premium_status="premium" if getattr(data, 'plan', 0) > 0 else "free",
+                premium_expires_at=expiration.replace(tzinfo=None),
+                premium_days_left=premium_days,
+                total_downloaded_bytes=getattr(data, 'total_bytes_downloaded', None),
+                cooldown_until=cooldown,
+            )
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN while getting user info: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get user info: {e}")
+            return None

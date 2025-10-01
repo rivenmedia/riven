@@ -10,6 +10,7 @@ from program.services.downloaders.models import (
     ParsedFileData,
     TorrentContainer,
     TorrentInfo,
+    UserInfo,
 )
 from program.settings.manager import settings_manager
 
@@ -84,6 +85,15 @@ class DownloaderBase(ABC):
 
         Args:
             torrent_id: ID of the torrent to delete
+        """
+
+    @abstractmethod
+    def get_user_info(self) -> Optional[UserInfo]:
+        """
+        Get normalized user information from the debrid service
+
+        Returns:
+            UserInfo: Normalized user information including premium status and expiration
         """
 
 

@@ -13,6 +13,7 @@ from program.services.downloaders.models import (
     InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
+    UserInfo,
 )
 from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
@@ -100,27 +101,13 @@ class RealDebridDownloader(DownloaderBase):
         Returns:
             True if premium membership is active; otherwise False.
         """
-        try:
-            resp: SmartResponse = self.api.session.get("user")
-            if not resp.ok:
-                logger.error(f"Failed to validate premium: {self._handle_error(resp)}")
-                return False
-
-            if not resp.data.premium:
-                logger.error("Premium membership required")
-                return False
-
-            expiration = datetime.fromisoformat(
-                resp.data.expiration.replace("Z", "+00:00")
-            ).replace(tzinfo=None)
-            logger.info(premium_days_left(expiration))
-            return True
-        except CircuitBreakerOpen as e:
-            logger.error(f"Circuit breaker while validating premium: {e}")
+        user_info = self.get_user_info()
+        if not user_info.premium_status:
+            logger.error("Premium membership required")
             return False
-        except Exception as e:
-            logger.error(f"Failed to validate premium status: {e}")
-            return False
+
+        logger.info(premium_days_left(user_info.premium_expires_at))
+        return True
 
     def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
         """
@@ -490,4 +477,48 @@ class RealDebridDownloader(DownloaderBase):
             }
         except Exception as e:
             logger.debug(f"resolve_link failed for {link}: {e}")
+            return None
+
+    def get_user_info(self) -> Optional[UserInfo]:
+        """
+        Get normalized user information from Real-Debrid.
+
+        Returns:
+            UserInfo: Normalized user information including premium status and expiration
+        """
+        try:
+            resp: SmartResponse = self.api.session.get("user")
+            self._maybe_backoff(resp)
+            if not resp.ok:
+                logger.error(f"Failed to get user info: {self._handle_error(resp)}")
+                return None
+
+            data = resp.data
+
+            # Parse expiration datetime
+            expiration = None
+            premium_days = None
+            if hasattr(data, 'expiration') and data.expiration:
+                try:
+                    expiration = datetime.fromisoformat(data.expiration.replace("Z", "+00:00"))
+                    time_left = expiration - datetime.now(expiration.tzinfo)
+                    premium_days = time_left.days
+                except Exception as e:
+                    logger.debug(f"Failed to parse expiration date: {e}")
+
+            return UserInfo(
+                service="realdebrid",
+                username=getattr(data, 'username', None),
+                email=getattr(data, 'email', None),
+                user_id=data.id,
+                premium_status="premium" if getattr(data, 'premium', 0) > 0 else "free",
+                premium_expires_at=expiration.replace(tzinfo=None),
+                premium_days_left=premium_days,
+                points=getattr(data, 'points', None),
+            )
+        except CircuitBreakerOpen as e:
+            logger.warning(f"Circuit breaker OPEN while getting user info: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get user info: {e}")
             return None

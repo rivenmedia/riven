@@ -164,3 +164,19 @@ class DownloadedTorrent(BaseModel):
     infohash: str
     container: TorrentContainer
     info: TorrentInfo
+
+
+class UserInfo(BaseModel):
+    """Normalized user information across different debrid services"""
+    service: Literal["realdebrid", "torbox"]
+    username: Optional[str] = None
+    email: Optional[str] = None
+    user_id: Union[int, str]
+    premium_status: Literal["free", "premium"]
+    premium_expires_at: Optional[datetime] = None
+    premium_days_left: Optional[int] = None
+
+    # Service-specific fields (optional)
+    points: Optional[int] = None  # Real-Debrid
+    total_downloaded_bytes: Optional[int] = None  # TorBox
+    cooldown_until: Optional[datetime] = None  # TorBox
