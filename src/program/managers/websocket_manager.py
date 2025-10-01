@@ -1,8 +1,9 @@
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, List, Any
 import asyncio
-import json
 from datetime import datetime
+from typing import Any, Dict, List
+
+from fastapi import WebSocket, WebSocketDisconnect
+
 
 class ConnectionManager:
     def __init__(self):

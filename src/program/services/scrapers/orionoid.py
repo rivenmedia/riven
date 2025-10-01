@@ -4,14 +4,8 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import ScraperRequestHandler
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
@@ -27,9 +21,21 @@ class Orionoid:
         self.is_premium = False
         self.is_unlimited = False
         self.initialized = False
-        rate_limit_params = get_rate_limit_params(max_calls=1, period=5) if self.settings.ratelimit else None
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.request_handler = ScraperRequestHandler(session)
+
+        if self.settings.ratelimit:
+            rate_limits = {
+                "api.orionoid.com": {"rate": 50/60, "capacity": 50}  # 50 calls per minute
+            }
+        else:
+            rate_limits = {}
+        
+        self.session = SmartSession(
+            base_url=self.base_url,
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
+        
         if self.validate():
             self.is_premium = self.check_premium()
             self.initialized = True
@@ -48,15 +54,15 @@ class Orionoid:
             logger.error("Orionoid timeout is not set or invalid.")
             return False
         try:
-            url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
-            if response.is_ok and hasattr(response.data, "result"):
+            url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+            response = self.session.get(url, timeout=self.timeout)
+            if response.ok and hasattr(response.data, "result"):
                 if response.data.result.status != "success":
                     logger.error(
                         f"Orionoid API Key is invalid. Status: {response.data.result.status}",
                     )
                     return False
-                if not response.is_ok:
+                if not response.ok:
                     logger.error(
                         f"Orionoid Status Code: {response.status_code}, Reason: {response.data.reason}",
                     )
@@ -70,9 +76,9 @@ class Orionoid:
 
     def check_premium(self) -> bool:
         """Check if the user is active, has a premium account, and has RealDebrid service enabled."""
-        url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-        response = self.request_handler.execute(HttpMethod.GET, url)
-        if response.is_ok and hasattr(response.data, "data"):
+        url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+        response = self.session.get(url)
+        if response.ok and hasattr(response.data, "data"):
             active = response.data.data.status == "active"
             premium = response.data.data.subscription.package.premium
             debrid = response.data.data.service.realdebrid
@@ -82,10 +88,10 @@ class Orionoid:
 
     def check_limit(self) -> bool:
         """Check if the user has exceeded the rate limit for the Orionoid API."""
-        url = f"{self.base_url}?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
+        url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
         try:
-            response = self.request_handler.execute(HttpMethod.GET,  url)
-            if response.is_ok and hasattr(response.data, "data"):
+            response = self.session.get(url)
+            if response.ok and hasattr(response.data, "data"):
                 remaining = response.data.data.requests.streams.daily.remaining
                 if remaining is None:
                     return False
@@ -108,10 +114,11 @@ class Orionoid:
 
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Orionoid ratelimit exceeded for item: {item.log_string}")
         except Exception as e:
-            logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Orionoid ratelimit exceeded for item: {item.log_string}")
+            else:
+                logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
         return {}
 
     def _build_query_params(self, item: MediaItem) -> dict:
@@ -151,8 +158,8 @@ class Orionoid:
     def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Orionoid` scrape method"""
         params = self._build_query_params(item)
-        response = self.request_handler.execute(HttpMethod.GET, self.base_url, params=params, timeout=self.timeout)
-        if not response.is_ok or not hasattr(response.data, "data"):
+        response = self.session.get("", params=params, timeout=self.timeout)
+        if not response.ok or not hasattr(response.data, "data"):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 

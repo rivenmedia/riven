@@ -17,7 +17,7 @@ class Subtitle(db.Model):
     language: Mapped[str] = mapped_column(String)
     file: Mapped[str] = mapped_column(String, nullable=True)
 
-    parent_id: Mapped[str] = mapped_column(ForeignKey("MediaItem.id", ondelete="CASCADE"))
+    parent_id: Mapped[int] = mapped_column(ForeignKey("MediaItem.id", ondelete="CASCADE"))
     parent: Mapped["MediaItem"] = relationship("MediaItem", back_populates="subtitles")
 
     __table_args__ = (

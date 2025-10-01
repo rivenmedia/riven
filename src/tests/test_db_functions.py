@@ -1,13 +1,21 @@
+# tests/test_db_functions.py
+from __future__ import annotations
+
+import os
+
 import pytest
 from RTN import ParsedData, Torrent
+from sqlalchemy import create_engine, text
 from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
 from program.db.db_functions import (
-    blacklist_stream,
+    clear_streams,
     delete_media_item,
+    get_item_by_external_id,
     get_items_by_ids,
-    reset_streams,
+    item_exists_by_any_id,
+    set_stream_blacklisted,
 )
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
@@ -15,381 +23,269 @@ from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 
 @pytest.fixture(scope="session")
 def test_container():
-    with PostgresContainer("postgres:16.4-alpine3.20", username="postgres", password="postgres", dbname="riven", port=5432).with_bind_ports(5432, 5432) as postgres:
-        yield postgres
+    # One container for the whole test session
+    with PostgresContainer(
+        "postgres:16.4-alpine3.20",
+        username="postgres",
+        password="postgres",
+        dbname="riven",
+    ) as pg:
+        yield pg
+
+
+@pytest.fixture(scope="session")
+def db_engine(test_container):
+    """
+    One engine + one migrated schema for the whole test session.
+    We also relax durability for speed (safe in tests).
+    """
+    url = test_container.get_connection_url()
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    # Make Alembic target this DB
+    os.environ["DATABASE_URL"] = url
+
+    # Run migrations ONCE (big win)
+    run_migrations(database_url=url)
+
+    # Build an engine for tests
+    engine = create_engine(url, future=True, pool_pre_ping=True)
+
+    # Speed knobs (commit is much cheaper now)
+    with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn.execute(text("SET synchronous_commit = OFF"))
+        # Optional extras:
+        # conn.execute(text("SET client_min_messages = WARNING"))
+        # conn.execute(text("SET log_statement = 'none'"))
+
+    # Rebind global db.* so app code uses this engine
+    db.engine = engine
+    db.Session.configure(bind=engine)
+
+    yield engine
+
+    engine.dispose()
+
+
 @pytest.fixture(scope="function")
-def test_scoped_db_session(test_container):
-    run_migrations()
+def test_scoped_db_session(db_engine):
+    """
+    Hand out a Session for each test. After each test, TRUNCATE all tables
+    instead of dropping the schema / rerunning migrations. Very fast.
+    """
     session = db.Session()
-    yield session
-    session.close()
-    db.drop_all()
+    try:
+        yield session
+    finally:
+        session.close()
+        # Fast cleanup: TRUNCATE everything, reset sequences
+        with db_engine.connect() as conn:
+            tables = conn.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            ).scalars().all()
+            if tables:
+                quoted = ", ".join(f'"public"."{t}"' for t in tables)
+                conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+                conn.commit()
 
-def test_reset_streams_for_mediaitem_with_no_streams(test_scoped_db_session):
-    media_item = MediaItem({"name":"MediaItem with No Streams"})
-    media_item.item_id = "tt123456"
-    test_scoped_db_session.add(media_item)
+
+
+def _torrent(rt: str, ih: str, pt: str, rank=100, lev=0.9) -> Torrent:
+    pd = ParsedData(parsed_title=pt, raw_title=rt)
+    return Torrent(raw_title=rt, infohash=ih, data=pd, fetch=True, rank=rank, lev_ratio=lev)
+
+def _movie(tmdb_id: str, imdb_id: str | None = None, title="Movie") -> Movie:
+    return Movie({"title": title, "tmdb_id": tmdb_id, "imdb_id": imdb_id, "type": "movie"})
+
+def _show_tree(tvdb: str, seasons: list[int], eps: int) -> tuple[Show, list[Season], list[Episode]]:
+    show = Show({"title": "Show", "tvdb_id": tvdb, "type": "show"})
+    all_s, all_e = [], []
+    for s in seasons:
+        season = Season({"number": s, "tvdb_id": f"{tvdb}-{s}", "type": "season"})
+        season.parent = show
+        season.parent_id = show.id
+        all_s.append(season)
+        for e in range(1, eps + 1):
+            ep = Episode({"number": e, "tvdb_id": f"{tvdb}-{s}-{e}", "type": "episode"})
+            ep.parent = season
+            ep.parent_id = season.id
+            all_e.append(ep)
+    show.seasons = all_s
+    for s in all_s:
+        s.episodes = [e for e in all_e if e.parent_id == s.id]
+    return show, all_s, all_e
+
+
+# ------------------------------ Tests -------------------------------------- #
+
+def test_clear_streams_when_none_exist(test_scoped_db_session):
+    m = _movie("10001", "tt10001")
+    test_scoped_db_session.add(m)
     test_scoped_db_session.commit()
 
-    reset_streams(media_item)
+    clear_streams(media_item_id=m.id)
 
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item.id).count() == 0
-    assert test_scoped_db_session.query(StreamBlacklistRelation).filter_by(media_item_id=media_item.id).count() == 0
+    from sqlalchemy import select
+    assert test_scoped_db_session.execute(select(StreamRelation).where(StreamRelation.parent_id == m.id)).scalar_one_or_none() is None
+    assert test_scoped_db_session.execute(select(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id)).scalar_one_or_none() is None
 
 
-def test_add_new_mediaitem_with_multiple_streams_and_reset_streams(test_scoped_db_session):
-    media_item = MediaItem({"name":"New MediaItem"})
-    media_item.item_id = "tt123456"
-    stream1 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.9
-    ))
-    stream2 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.8
-    ))
-    test_scoped_db_session.add(media_item)
-    test_scoped_db_session.add(stream1)
-    test_scoped_db_session.add(stream2)
-    test_scoped_db_session.commit()
-
-    stream_relation1 = StreamRelation(parent_id=media_item.id, child_id=stream1.id)
-    stream_relation2 = StreamRelation(parent_id=media_item.id, child_id=stream2.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.add(stream_relation2)
-    test_scoped_db_session.commit()
-
-    reset_streams(media_item)
-
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item.id).count() == 0
-    assert test_scoped_db_session.query(StreamBlacklistRelation).filter_by(media_item_id=media_item.id).count() == 0
-
-def test_blacklists_active_stream(test_scoped_db_session):
-    media_item = MediaItem({"name":"New MediaItem"})
-    media_item.item_id = "tt123456"
-    stream = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.9
-    ))
-    test_scoped_db_session.add(media_item)
-    test_scoped_db_session.add(stream)
-    test_scoped_db_session.commit()
-    stream_relation = StreamRelation(parent_id=media_item.id, child_id=stream.id)
-    test_scoped_db_session.add(stream_relation)
-    test_scoped_db_session.commit()
-
-    blacklist_stream(media_item, stream)
-
-    assert test_scoped_db_session.query(StreamBlacklistRelation).filter_by(media_item_id=media_item.id, stream_id=stream.id).count() == 1
-
-def test_successfully_resets_streams(test_scoped_db_session):
-    media_item = MediaItem({"name":"New MediaItem"})
-    media_item.item_id = "tt123456"
-     
-    stream1 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.9
-    ))
-
-    stream2 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.8
-    ))
+def test_add_multiple_streams_then_clear_streams(test_scoped_db_session):
+    from sqlalchemy import func, select
     
-    test_scoped_db_session.add(media_item)
-    test_scoped_db_session.add(stream1)
-    test_scoped_db_session.add(stream2)
+    m = _movie("10002", "tt10002")
+    s1 = Stream(_torrent("Example.Movie.2020.1080p", "997592a005d9c162391803c615975676738d6a11", "Example Movie"))
+    s2 = Stream(_torrent("Example.Movie.2020.720p",  "c24046b60d764b2b58dce6fbb676bcd3cfcd257e", "Example Movie"))
+    test_scoped_db_session.add_all([m, s1, s2])
     test_scoped_db_session.commit()
 
-    stream_relation1 = StreamRelation(parent_id=media_item.id, child_id=stream1.id)
-    stream_relation2 = StreamRelation(parent_id=media_item.id, child_id=stream2.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.add(stream_relation2)
+    test_scoped_db_session.add_all([
+        StreamRelation(parent_id=m.id, child_id=s1.id),
+        StreamRelation(parent_id=m.id, child_id=s2.id),
+    ])
     test_scoped_db_session.commit()
 
-    reset_streams(media_item)
+    clear_streams(media_item_id=m.id)
 
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item.id).count() == 0
-    assert test_scoped_db_session.query(StreamBlacklistRelation).filter_by(media_item_id=media_item.id).count() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id)).scalar() == 0
+    # clear_streams only drops associations, not Stream rows
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id.in_([s1.id, s2.id]))).scalar() == 2
 
-def test_delete_media_item_success(test_scoped_db_session):
-    media_item = MediaItem({"name":"New MediaItem"})
-    media_item.item_id = "tt123456"
-    test_scoped_db_session.add(media_item)
 
-    stream1 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.9
-    ))
-    test_scoped_db_session.add(stream1)
-    test_scoped_db_session.commit()
+def test_blacklist_and_unblacklist_stream(test_scoped_db_session):
+    from sqlalchemy import func, select
     
-    stream_relation1 = StreamRelation(parent_id=media_item.id, child_id=stream1.id)
-    test_scoped_db_session.add(stream_relation1)
+    m = _movie("10003", "tt10003")
+    s = Stream(_torrent("Example.Movie.2021.1080p", "997592a005d9c162391803c615975676738d6a12", "Example Movie"))
+    test_scoped_db_session.add_all([m, s])
     test_scoped_db_session.commit()
 
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item.id).count() == 1
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 1
+    test_scoped_db_session.add(StreamRelation(parent_id=m.id, child_id=s.id))
+    test_scoped_db_session.commit()
+
+    changed = set_stream_blacklisted(m, s, blacklisted=True)
+    assert changed is True
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m.id, StreamRelation.child_id == s.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id, StreamBlacklistRelation.stream_id == s.id)).scalar() == 1
+
+    changed_back = set_stream_blacklisted(m, s, blacklisted=False)
+    assert changed_back is True
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id, StreamBlacklistRelation.stream_id == s.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m.id, StreamRelation.child_id == s.id)).scalar() == 1
+
+
+def test_delete_movie_cascades_and_deletes_orphan_streams(test_scoped_db_session):
+    from sqlalchemy import func, select
     
-    delete_media_item(media_item)
-
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 0
-
-def test_delete_show_with_seasons_and_episodes_success(test_scoped_db_session):
-    show = Show({"title": "New Show"})
-    show.item_id = "tt654321"
-    test_scoped_db_session.add(show)
+    m = _movie("10004", "tt10004")
+    s = Stream(_torrent("Movie", "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd", "Movie"))
+    test_scoped_db_session.add_all([m, s])
     test_scoped_db_session.commit()
 
-    season1 = Season({"number": 1, "parent": show})
-    season1.parent_id = show.id
-    test_scoped_db_session.add(season1)
+    test_scoped_db_session.add(StreamRelation(parent_id=m.id, child_id=s.id))
     test_scoped_db_session.commit()
 
-    episode1 = Episode({"number": 1})
-    episode2 = Episode({"number": 2})
-    episode1.parent_id = season1.id
-    episode2.parent_id = season1.id
-    test_scoped_db_session.add(episode1)
-    test_scoped_db_session.add(episode2)
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 1
+
+    delete_media_item(m)
+
+    # item + associations are gone
+    assert test_scoped_db_session.execute(select(func.count()).select_from(MediaItem).where(MediaItem.id == m.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m.id)).scalar() == 0
+    # stream was orphaned -> purged
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 0
+
+
+def test_delete_show_cascades_and_deletes_orphan_streams(test_scoped_db_session):
+    from sqlalchemy import func, select
+    
+    show, seasons, eps = _show_tree("20001", [1], 2)
+    s = Stream(_torrent("Show.S01E01", "abcd1234abcd1234abcd1234abcd1234abcd1234", "Show"))
+    test_scoped_db_session.add_all([show] + seasons + eps + [s])
     test_scoped_db_session.commit()
 
-    stream1 = Stream(Torrent(
-        raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
-        infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title="Example Show", raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=200,
-        lev_ratio=0.95
-    ))
-    test_scoped_db_session.add(stream1)
+    test_scoped_db_session.add(StreamRelation(parent_id=show.id, child_id=s.id))
     test_scoped_db_session.commit()
-
-    stream_relation1 = StreamRelation(parent_id=show.id, child_id=stream1.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.commit()
-
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 1
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 2
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 1
 
     delete_media_item(show)
 
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 0
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 0
+    # hierarchy + associations are gone
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Show).where(Show.id == show.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Season).where(Season.parent_id == show.id)).scalar() == 0
+    # orphan stream purged
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 0
 
-def test_delete_show_by_id_with_seasons_and_episodes_success(test_scoped_db_session):
-    show = Show({"title": "New Show"})
-    show.item_id = "tt654321"
-    test_scoped_db_session.add(show)
+
+def test_delete_one_of_two_items_sharing_stream_does_not_delete_stream(test_scoped_db_session):
+    from sqlalchemy import func, select
+    
+    m1 = _movie("30010", "tt30010")
+    m2 = _movie("30011", "tt30011")
+    s = Stream(_torrent("Shared", "feedfacefeedfacefeedfacefeedfacefeedface", "Shared"))
+    test_scoped_db_session.add_all([m1, m2, s])
     test_scoped_db_session.commit()
 
-    season1 = Season({"number": 1, "parent": show})
-    season1.parent_id = show.id
-    test_scoped_db_session.add(season1)
+    test_scoped_db_session.add_all([
+        StreamRelation(parent_id=m1.id, child_id=s.id),
+        StreamRelation(parent_id=m2.id, child_id=s.id),
+    ])
     test_scoped_db_session.commit()
 
-    episode1 = Episode({"number": 1})
-    episode2 = Episode({"number": 2})
-    episode1.parent_id = season1.id
-    episode2.parent_id = season1.id
-    test_scoped_db_session.add(episode1)
-    test_scoped_db_session.add(episode2)
-    test_scoped_db_session.commit()
+    delete_media_item(m1)
 
-    stream1 = Stream(Torrent(
-        raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
-        infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title="Example Show", raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=200,
-        lev_ratio=0.95
-    ))
-    test_scoped_db_session.add(stream1)
-    test_scoped_db_session.commit()
+    # still referenced by m2, so stream remains
+    assert test_scoped_db_session.execute(select(func.count()).select_from(MediaItem).where(MediaItem.id == m1.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m1.id)).scalar() == 0
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 1
 
-    stream_relation1 = StreamRelation(parent_id=show.id, child_id=stream1.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.commit()
+    delete_media_item(m2)
+    # now orphaned -> purged
+    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 0
 
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 1
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 2
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 1
-
-    delete_media_item(show)
-
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 0
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 0
-
-def test_delete_show_by_item_id_with_seasons_and_episodes_success(test_scoped_db_session):
-    show = Show({"title": "New Show"})
-    show.item_id = "tt654321"
-    test_scoped_db_session.add(show)
-    test_scoped_db_session.commit()
-
-    season1 = Season({"number": 1, "parent": show})
-    season1.parent_id = show.id
-    test_scoped_db_session.add(season1)
-    test_scoped_db_session.commit()
-
-    episode1 = Episode({"number": 1})
-    episode2 = Episode({"number": 2})
-    episode1.parent_id = season1.id
-    episode2.parent_id = season1.id
-    test_scoped_db_session.add(episode1)
-    test_scoped_db_session.add(episode2)
-    test_scoped_db_session.commit()
-
-    stream1 = Stream(Torrent(
-        raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example",
-        infohash="abcd1234abcd1234abcd1234abcd1234abcd1234",
-        data=ParsedData(parsed_title="Example Show", raw_title="Example.Show.S01E01.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=200,
-        lev_ratio=0.95
-    ))
-    test_scoped_db_session.add(stream1)
-    test_scoped_db_session.commit()
-
-    stream_relation1 = StreamRelation(parent_id=show.id, child_id=stream1.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.commit()
-
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 1
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 2
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 1
-
-    delete_media_item(show)
-
-    assert test_scoped_db_session.query(Show).filter_by(id=show.id).count() == 0
-    assert test_scoped_db_session.query(Season).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Episode).filter_by(parent_id=season1.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=show.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 0
-
-def test_delete_media_items_by_ids_success(test_scoped_db_session):
-    media_item1 = MediaItem({"name": "New MediaItem 1"})
-    media_item1.item_id = "tt123456"
-    test_scoped_db_session.add(media_item1)
-
-    media_item2 = MediaItem({"name": "New MediaItem 2"})
-    media_item2.item_id = "tt654321"
-    test_scoped_db_session.add(media_item2)
-
-    stream1 = Stream(Torrent(
-        raw_title="Example.Movie.2020.1080p.BluRay.x264-Example",
-        infohash="997592a005d9c162391803c615975676738d6a11",
-        data=ParsedData(parsed_title="Example Movie", raw_title="Example.Movie.2020.1080p.BluRay.x264-Example"),
-        fetch=True,
-        rank=150,
-        lev_ratio=0.9
-    ))
-    test_scoped_db_session.add(stream1)
-
-    stream2 = Stream(Torrent(
-        raw_title="Another.Movie.2021.720p.WEBRip.x264-Another",
-        infohash="997592a005d9c162391803c615975676738d6a12",
-        data=ParsedData(parsed_title="Another Movie", raw_title="Another.Movie.2021.720p.WEBRip.x264-Another"),
-        fetch=True,
-        rank=200,
-        lev_ratio=0.85
-    ))
-    test_scoped_db_session.add(stream2)
-    test_scoped_db_session.commit()
-
-    stream_relation1 = StreamRelation(parent_id=media_item1.id, child_id=stream1.id)
-    stream_relation2 = StreamRelation(parent_id=media_item2.id, child_id=stream2.id)
-    test_scoped_db_session.add(stream_relation1)
-    test_scoped_db_session.add(stream_relation2)
-    test_scoped_db_session.commit()
-
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item1.id).count() == 1
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item2.id).count() == 1
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item1.id).count() == 1
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item2.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 1
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream2.id).count() == 1
-    assert media_item1.id != media_item2.id
-
-    delete_media_item(media_item1)
-    delete_media_item(media_item2)
-
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item1.id).count() == 0
-    assert test_scoped_db_session.query(MediaItem).filter_by(id=media_item2.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item1.id).count() == 0
-    assert test_scoped_db_session.query(StreamRelation).filter_by(parent_id=media_item2.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream1.id).count() == 0
-    assert test_scoped_db_session.query(Stream).filter_by(id=stream2.id).count() == 0
 
 def test_get_media_items_by_ids_success(test_scoped_db_session):
-    show = Show({"title": "Test Show"})
-    show.item_id = "tt00112233"
-    test_scoped_db_session.add(show)
+    show, seasons, eps = _show_tree("20002", [1], 2)
+    mov = _movie("30001", "tt30001", title="Test Movie")
+    test_scoped_db_session.add_all([show] + seasons + eps + [mov])
     test_scoped_db_session.commit()
 
-    season = Season({"number": 1, "parent": show})
-    season.parent_id = show.id
-    test_scoped_db_session.add(season)
+    ids = [show.id, seasons[0].id, eps[0].id, eps[1].id, mov.id]
+    items = get_items_by_ids(ids)
+
+    assert len(items) == 5
+    assert any(isinstance(x, Show) and x.id == show.id for x in items)
+    assert any(isinstance(x, Season) and x.id == seasons[0].id for x in items)
+    assert any(isinstance(x, Episode) and x.id == eps[0].id for x in items)
+    assert any(isinstance(x, Episode) and x.id == eps[1].id for x in items)
+    assert any(isinstance(x, Movie) and x.id == mov.id for x in items)
+
+
+def test_item_exists_by_any_id_paths(test_scoped_db_session):
+    mov = _movie("30002", "tt30002", title="Exists Check")
+    test_scoped_db_session.add(mov)
     test_scoped_db_session.commit()
 
-    episode1 = Episode({"number": 1})
-    episode2 = Episode({"number": 2})
-    episode1.parent_id = season.id
-    episode2.parent_id = season.id
-    test_scoped_db_session.add(episode1)
-    test_scoped_db_session.add(episode2)
+    assert item_exists_by_any_id(item_id=mov.id, tvdb_id=None, tmdb_id=None, imdb_id=None, session=test_scoped_db_session)
+    assert item_exists_by_any_id(item_id=None, tvdb_id=None, tmdb_id=30002, imdb_id=None, session=test_scoped_db_session)
+    assert item_exists_by_any_id(item_id=None, tvdb_id=None, tmdb_id=None, imdb_id="tt30002", session=test_scoped_db_session)
+
+def test_item_exists_by_any_id_negative(test_scoped_db_session):
+    assert not item_exists_by_any_id(item_id="non_existent", tvdb_id=None, tmdb_id=None, imdb_id=None, session=test_scoped_db_session)
+
+def test_get_item_by_external_id_edge_cases(test_scoped_db_session):
+    with pytest.raises(ValueError, match="At least one external ID must be provided"):
+        get_item_by_external_id(session=test_scoped_db_session)
+
+    assert get_item_by_external_id(imdb_id="tt99999999", session=test_scoped_db_session) is None
+
+    mov = _movie("30003", "tt30003", title="External ID")
+    test_scoped_db_session.add(mov)
     test_scoped_db_session.commit()
 
-    movie = Movie({"title": "Test Movie"})
-    movie.item_id = "tt00443322"
-    test_scoped_db_session.add(movie)
-    test_scoped_db_session.commit()
+    found = get_item_by_external_id(imdb_id="tt30003", session=test_scoped_db_session)
+    assert found is not None and found.id == mov.id
 
-    media_items = get_items_by_ids([show.id, season.id, episode1.id, episode2.id, movie.id])
-
-    assert len(media_items) == 5
-
-    assert any(isinstance(item, Show) and item.id == show.id for item in media_items)
-    assert any(isinstance(item, Season) and item.id == season.id for item in media_items)
-    assert any(isinstance(item, Episode) and item.id == episode1.id for item in media_items)
-    assert any(isinstance(item, Episode) and item.id == episode2.id for item in media_items)
-    assert any(isinstance(item, Movie) and item.id == movie.id for item in media_items)
+    delete_media_item(mov)

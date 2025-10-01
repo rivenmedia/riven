@@ -1,362 +1,371 @@
 import json
-from enum import Enum
+import time
+from collections import deque
+from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Type
+from typing import Dict, Optional
+from urllib.parse import urlparse
 
+import requests
 from loguru import logger
 from lxml import etree
-from pyrate_limiter import (
-    Duration,
-    Limiter,
-    MemoryListBucket,
-    MemoryQueueBucket,
-    RequestRate,
-)
-from requests import Session
 from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectTimeout, HTTPError, RequestException, ConnectionError, ReadTimeout, SSLError, Timeout
-from requests.models import Response
-from requests_cache import CachedSession, CacheMixin
-from requests_ratelimiter import (
-    LimiterAdapter,
-    LimiterMixin,
-    LimiterSession,
-    SQLiteBucket,
-)
 from urllib3.util.retry import Retry
-from xmltodict import parse as parse_xml
-
-from program.utils import data_dir_path
 
 
-class HttpMethod(Enum):
-    GET = "GET"
-    POST = "POST"
-    PUT = "PUT"
-    DELETE = "DELETE"
-    PATCH = "PATCH"
+class TokenBucket:
+    """
+    Token bucket for rate limiting.
 
+    This implements a classic token bucket algorithm with a queue
+    for housekeeping of consumed tokens.
 
-class ResponseType(Enum):
-    SIMPLE_NAMESPACE = "simple_namespace"
-    DICT = "dict"
-
-
-class BaseRequestParameters:
-    """Holds base parameters that may be included in every request."""
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert all non-None attributes to a dictionary for inclusion in requests."""
-        return {key: value for key, value in self.__dict__.items() if value is not None}
-
-
-class ResponseObject:
-    """Response object to handle different response formats.
-
-    :param response: The response object to parse.
-    :param response_type: The response type to parse the content as.
+    Attributes:
+        rate (float): Tokens per second.
+        capacity (int): Maximum number of tokens in the bucket.
+        tokens (int): Current number of tokens.
+        last_refill (float): Timestamp of last refill.
+        queue (deque): Queue of timestamps for consumed tokens.
     """
 
-    def __init__(self, response: Response, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE):
-        self.response = response
-        self.is_ok = response.ok
-        self.status_code = response.status_code
-        self.response_type = response_type
-        self.data = self.handle_response(response, response_type)
+    def __init__(self, rate: float, capacity: int):
+        """Initialize the token bucket."""
+        self.rate = rate
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last_refill = time.monotonic()
+        self.queue = deque()
 
-
-    def handle_response(self, response: Response, response_type: ResponseType) -> dict | SimpleNamespace:
-        """Parse the response content based on content type.
-
-        :param response: The response object to parse.
-        :param response_type: The response type to parse the content as.
-        :return: Parsed response content.
+    def consume(self, tokens: int = 1) -> bool:
         """
+        Consume tokens from the bucket.
 
-        timeout_statuses = [408, 460, 504, 520, 524, 522, 598, 599]
-        rate_limit_statuses = [429]
-        client_error_statuses = list(range(400, 451))  # 400-450
-        server_error_statuses = list(range(500, 512))  # 500-511
+        Args:
+            tokens (int): Number of tokens to consume.
 
-        if self.status_code in timeout_statuses:
-            raise ConnectTimeout(f"Connection timed out with status {self.status_code}", response=response)
-        if self.status_code in rate_limit_statuses:
-            raise RateLimitExceeded(f"Rate Limit Exceeded {self.status_code}", response=response)
-        if self.status_code in client_error_statuses:
-            raise RequestException(f"Client error with status {self.status_code}", response=response)
-        if self.status_code in server_error_statuses:
-            raise RequestException(f"Server error with status {self.status_code}", response=response)
-        if not self.is_ok:
-            raise RequestException(f"Request failed with status {self.status_code}", response=response)
+        Returns:
+            bool: True if tokens were successfully consumed, False otherwise.
+        """
+        self._refill()
+        if self.tokens >= tokens:
+            self.tokens -= tokens
+            self.queue.append(time.monotonic())
+            return True
+        return False
 
-        content_type = response.headers.get("Content-Type", "")
-        if not content_type or response.content == b"":
-            return {}
+    def wait(self, tokens: int = 1):
+        """
+        Block until enough tokens are available.
+
+        Args:
+            tokens (int): Number of tokens to consume.
+        """
+        while not self.consume(tokens):
+            time.sleep(0.05)
+
+    def _refill(self):
+        """Refill tokens based on elapsed time."""
+        now = time.monotonic()
+        elapsed = now - self.last_refill
+        refill = elapsed * self.rate
+        if refill >= 1:
+            self.tokens = min(self.capacity, self.tokens + int(refill))
+            self.last_refill = now
+
+    def cleanup(self, ttl: float = 60):
+        """
+        Clean up expired token timestamps from the queue.
+
+        Args:
+            ttl (float): Time-to-live in seconds for old tokens.
+        """
+        now = time.monotonic()
+        expired = 0
+        while self.queue and (now - self.queue[0]) >= ttl:
+            self.queue.popleft()
+            expired += 1
+        if expired:
+            logger.debug(f"Cleaned up {expired} expired tokens")
+
+
+class CircuitBreakerOpen(RuntimeError):
+    """Raised when a circuit breaker is OPEN and requests should fail fast."""
+    def __init__(self, name: str):
+        super().__init__(f"Circuit breaker OPEN for {name}")
+        self.name = name
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker for per-domain failure handling.
+
+    Attributes:
+        failure_threshold (int): Number of failures before tripping.
+        recovery_time (int): Seconds to wait before attempting recovery.
+        failures (int): Current failure count.
+        last_failure_time (float): Timestamp of last failure.
+        state (str): Current state: 'CLOSED', 'OPEN', 'HALF_OPEN'.
+    """
+
+    def __init__(self, failure_threshold: int = 5, recovery_time: int = 30, name: str = "unknown"):
+        """Initialize the circuit breaker."""
+        self.failure_threshold = failure_threshold
+        self.recovery_time = recovery_time
+        self.failures = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = "CLOSED"
+        self.name = name
+
+    def before_request(self):
+        """
+        Check circuit breaker before making a request.
+
+        Raises:
+            RuntimeError: If the breaker is OPEN and recovery time not passed.
+        """
+        if self.state == "OPEN":
+            if (time.monotonic() - self.last_failure_time) > self.recovery_time:
+                self.state = "HALF_OPEN"
+                logger.debug(f"Breaker for {self.name} HALF_OPEN (probe)")
+            else:
+                logger.debug(f"Breaker for {self.name} OPEN (fail-fast)")
+                raise CircuitBreakerOpen(self.name)
+
+    def after_request(self, success: bool):
+        """
+        Update circuit breaker state after a request.
+
+        Args:
+            success (bool): True if the request succeeded, False otherwise.
+        """
+        if success:
+            if self.state in ("HALF_OPEN", "OPEN"):
+                self._reset()
+        else:
+            self.failures += 1
+            self.last_failure_time = time.monotonic()
+            if self.failures >= self.failure_threshold:
+                self.state = "OPEN"
+                logger.warning(f"Circuit breaker tripped to OPEN for {self.name}")
+
+    def _reset(self):
+        """Reset the circuit breaker to CLOSED state."""
+        self.failures = 0
+        self.state = "CLOSED"
+        self.last_failure_time = None
+        logger.info(f"Circuit breaker reset to CLOSED for {self.name}")
+
+
+class SmartResponse(requests.Response):
+    """
+    SmartResponse automatically parses JSON/XML/RSS responses into dot-notation objects.
+
+    Attributes:
+        _cached_data: Cached parsed data.
+    """
+
+    _cached_data = None
+
+    @property
+    def data(self):
+        """
+        Lazily parse the response content into a SimpleNamespace object.
+
+        Returns:
+            SimpleNamespace or dict: Parsed response data.
+        """
+        if self._cached_data is not None:
+            return self._cached_data
+
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type or self.content == b"":
+            self._cached_data = {}
+            return self._cached_data
 
         try:
             if "application/json" in content_type:
-                if response_type == ResponseType.DICT:
-                    return response.json()
-                return json.loads(response.content, object_hook=lambda item: SimpleNamespace(**item))
-            elif "application/xml" in content_type or "text/xml" in content_type:
-                return xml_to_simplenamespace(response.content)
-            elif "application/rss+xml" in content_type or "application/atom+xml" in content_type:
-                return parse_xml(response.content)
+                self._cached_data = json.loads(
+                    self.content, object_hook=lambda d: SimpleNamespace(**d)
+                )
+            elif "application/xml" in content_type or "text/xml" in content_type or "application/rss+xml" in content_type or "application/atom+xml" in content_type:
+                self._cached_data = self._xml_to_simplenamespace(self.content)
             else:
-                return {}
+                self._cached_data = {}
         except Exception as e:
             logger.error(f"Failed to parse response content: {e}", exc_info=True)
-            return {}
+            self._cached_data = {}
 
-class BaseRequestHandler:
-    """Base request handler for services.
+        return self._cached_data
 
-    :param session: The session to use for requests.
-    :param response_type: The response type to parse the content as.
-    :param base_url: Optional base URL to use for requests.
-    :param base_params: Optional base parameters to include in requests.
-    :param custom_exception: Optional custom exception to raise on request failure.
-    :param request_logging: Boolean indicating if request logging should be enabled.
-    """
-    def __init__(self, session: Session | LimiterSession, response_type: ResponseType = ResponseType.SIMPLE_NAMESPACE, base_url: Optional[str] = None, base_params: Optional[BaseRequestParameters] = None,
-                 custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        self.session = session
-        self.response_type = response_type
-        self.BASE_URL = base_url
-        self.BASE_REQUEST_PARAMS = base_params or BaseRequestParameters()
-        self.custom_exception = custom_exception or Exception
-        self.request_logging = request_logging
-        self.timeout = 15
-
-    def _request(self, method: HttpMethod, endpoint: str, ignore_base_url: Optional[bool] = None, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
-        """Generic request handler with error handling, using kwargs for flexibility.
-
-        :param method: HTTP method to use for the request.
-        :param endpoint: Endpoint to request.
-        :param ignore_base_url: Boolean indicating if the base URL should be ignored.
-        :param overriden_response_type: Optional response type to use for the request.
-        :param retry_policy: Optional retry policy to use for the request.
-        :param kwargs: Additional parameters to pass to the request.
-        :return: ResponseObject with the response data.
+    def _xml_to_simplenamespace(self, xml_string: str) -> SimpleNamespace:
         """
+        Convert XML string to SimpleNamespace object.
+
+        Args:
+            xml_string (str): XML content.
+
+        Returns:
+            SimpleNamespace: Parsed XML.
+        """
+        root = etree.fromstring(xml_string)
+
+        def element_to_simplenamespace(element):
+            children_as_ns = {child.tag: element_to_simplenamespace(child) for child in element}
+            attributes = {key: value for key, value in element.attrib.items()}
+            attributes.update(children_as_ns)
+            return SimpleNamespace(**attributes, text=element.text)
+
+        return element_to_simplenamespace(root)
+
+
+class LogRetry(Retry):
+    """Retry that logs Retry-After-derived sleep before the next retry."""
+
+    def increment(self, method=None, url=None, response=None, error=None, *_args, **kwargs):
+        """Let urllib3 compute the next retry state first"""
+        new_retry = super().increment(method=method, url=url, response=response, error=error, *_args, **kwargs)
+
         try:
-            url = f"{self.BASE_URL}/{endpoint}".rstrip('/') if not ignore_base_url and self.BASE_URL else endpoint
+            if response is not None and self.respect_retry_after_header:
+                ra = response.headers.get("Retry-After")
+                if ra:
+                    delay = None
+                    try:
+                        delay = int(ra)
+                    except ValueError:
+                        try:
+                            dt = parsedate_to_datetime(ra)
+                            delay = max(0, int(round(dt.timestamp() - time.time())))
+                        except Exception:
+                            delay = None
 
-            request_params = self.BASE_REQUEST_PARAMS.to_dict()
-            if request_params:
-                kwargs.setdefault('params', {}).update(request_params)
-            elif 'params' in kwargs and not kwargs['params']:
-                del kwargs['params']
+                    # If parsing failed, fall back to exponential backoff time (for completeness)
+                    if delay is None:
+                        delay = new_retry.get_backoff_time() or 0
 
-            kwargs.setdefault("timeout", self.timeout)
+                    status = getattr(response, "status", None) or getattr(response, "status_code", "unknown")
+                    logger.warning(f"Retry-After detected for {method.upper()} {url}: status={status}, retrying in {int(round(delay))}s")
+        except Exception:
+            # Never break the retry pipeline due to logging
+            pass
 
-            if self.request_logging:
-                logger.debug(f"Making request to {url} with kwargs: {kwargs}")
-
-            response = self.session.request(method.value, url, **kwargs)
-            response.raise_for_status()
-
-            request_response_type = overriden_response_type or self.response_type
-
-            response_obj = ResponseObject(response=response, response_type=request_response_type)
-            if self.request_logging:
-                logger.debug(f"ResponseObject: status_code={response_obj.status_code}, data={response_obj.data}")
-            return response_obj
-
-        except (HTTPError, ConnectTimeout, ReadTimeout, ConnectionError, SSLError, Timeout, RequestException) as e:
-            if isinstance(e, HTTPError) and e.response is not None and e.response.status_code == 429:
-                raise RateLimitExceeded(f"Rate limit exceeded for {url}", response=e.response) from e
-            else:
-                # Log the specific exception type for debugging
-                exception_type = type(e).__name__
-                logger.debug(f"Request to {url} failed with {exception_type}: {e}")
-                raise self.custom_exception(f"Request failed [{exception_type}]: {e}") from e
+        return new_retry
 
 
-class RateLimitExceeded(Exception):
-    """Rate limit exceeded exception for requests."""
-    def __init__(self, message, response=None):
-        super().__init__(message)
-        self.response = response
-
-class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
-    """Session class with caching and rate-limiting behavior."""
-    pass
-
-def create_service_session(
-        rate_limit_params: Optional[dict] = None,
-        use_cache: bool = False,
-        cache_params: Optional[dict] = None,
-        session_adapter: Optional[HTTPAdapter | LimiterAdapter] = None,
-        retry_policy: Optional[Retry] = None,
-        log_config: Optional[bool] = False,
-) -> Session | CachedSession | CachedLimiterSession:
+class SmartSession(requests.Session):
     """
-    Create a session for a specific service with optional caching and rate-limiting.
+    SmartSession adds automatic SmartResponse wrapping, rate limiting, circuit breaker, proxies, and retries.
 
-    :param rate_limit_params: Dictionary of rate-limiting parameters.
-    :param use_cache: Boolean indicating if caching should be enabled.
-    :param cache_params: Dictionary of caching parameters if caching is enabled.
-    :param session_adapter: Optional custom HTTP adapter to use for the session.
-    :param retry_policy: Optional retry policy to use for the session.
-    :param log_config: Boolean indicating if the session configuration should be logged.
-    :return: Configured session for the service.
-    """
-    if use_cache and not cache_params:
-        raise ValueError("Cache parameters must be provided if use_cache is True.")
-
-    if use_cache and cache_params:
-        if log_config:
-            logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
-            logger.debug(f"Cache Parameters: {cache_params}")
-        session_class = CachedLimiterSession if rate_limit_params else CachedSession
-        cache_session = session_class(**rate_limit_params, **cache_params)
-        _create_and_mount_session_adapter(cache_session, session_adapter, retry_policy, log_config)
-        return cache_session
-
-    if rate_limit_params:
-        if log_config:
-            logger.debug(f"Rate Limit Parameters: {rate_limit_params}")
-        limiter_session = LimiterSession(**rate_limit_params)
-        _create_and_mount_session_adapter(limiter_session, session_adapter, retry_policy, log_config)
-        return limiter_session
-
-    standard_session = Session()
-    _create_and_mount_session_adapter(standard_session, session_adapter, retry_policy, log_config)
-    return standard_session
-
-
-def get_rate_limit_params(
-        custom_limiter: Optional[Limiter] = None,
-        per_second: Optional[int] = None,
-        per_minute: Optional[int] = None,
-        per_hour: Optional[int] = None,
-        calculated_rate: Optional[int] = None,
-        max_calls: Optional[int] = None,
-        period: Optional[int] = None,
-        db_name: Optional[str] = None,
-        use_memory_list: bool = False,
-        limit_statuses: Optional[list[int]] = None,
-        max_delay: Optional[int] = 0,
-) -> Dict[str, any]:
-    """
-    Generate rate limit parameters for a service. If `db_name` is not provided,
-    use an in-memory bucket for rate limiting.
-
-    :param custom_limiter: Optional custom limiter to use for rate limiting.
-    :param per_second: Requests per second limit.
-    :param per_minute: Requests per minute limit.
-    :param per_hour: Requests per hour limit.
-    :param calculated_rate: Optional calculated rate for requests per minute.
-    :param max_calls: Maximum calls allowed in a specified period.
-    :param period: Time period in seconds for max_calls.
-    :param db_name: Optional name for the SQLite database file for persistent rate limiting.
-    :param use_memory_list: If true, use MemoryListBucket instead of MemoryQueueBucket for in-memory limiting.
-    :param limit_statuses: Optional list of status codes to track for rate limiting.
-    :param max_delay: Optional maximum delay for rate limiting.
-    :return: Dictionary with rate limit configuration.
+    Attributes:
+        base_url (str): Optional base URL; relative request URLs will be resolved against this.
+        rate_limits (dict): Optional per-domain rate limits, e.g., {"api.example.com": {"rate": 1, "capacity": 5}}.
+        proxies (dict): Optional dictionary of HTTP/HTTPS proxies.
+        retries (int): Number of retries for failed requests.
+        backoff_factor (float): Backoff factor for retries.
+        response_class (type): Response class to wrap requests.
+        limiters (dict): Per-domain TokenBucket instances.
+        breakers (dict): Per-domain CircuitBreaker instances.
     """
 
-    bucket_class = SQLiteBucket if db_name else (MemoryListBucket if use_memory_list else MemoryQueueBucket)
-    bucket_kwargs = {"path": data_dir_path / f"{db_name}.db"} if db_name else {}
+    response_class = SmartResponse
 
-    rate_limits = []
-    if per_second:
-        rate_limits.append(RequestRate(per_second, Duration.SECOND))
-    if per_minute:
-        rate_limits.append(RequestRate(per_minute, Duration.MINUTE))
-    if per_hour:
-        rate_limits.append(RequestRate(per_hour, Duration.HOUR))
-    if calculated_rate:
-        rate_limits.append(RequestRate(calculated_rate, Duration.MINUTE))
-    if max_calls and period:
-        rate_limits.append(RequestRate(max_calls, Duration.SECOND * period))
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        rate_limits: Optional[Dict[str, Dict[str, int]]] = None,
+        proxies: Optional[Dict[str, str]] = None,
+        retries: int = 3,
+        backoff_factor: float = 0.3,
+    ):
+        """
+        Initialize SmartSession.
 
-    if not rate_limits:
-        raise ValueError("At least one rate limit (per_second, per_minute, per_hour, calculated_rate, or max_calls and period) must be specified.")
+        Args:
+            base_url (str): Optional base URL; relative request URLs will be resolved against this.
+            rate_limits (dict): Optional per-domain rate limits, e.g., {"api.example.com": {"rate": 1, "capacity": 5}}.
+            proxies (dict): Optional dictionary of HTTP/HTTPS proxies.
+            retries (int): Number of retries for failed requests.
+            backoff_factor (float): Backoff factor for retries.
+        """
+        super().__init__()
 
-    limiter = custom_limiter or Limiter(*rate_limits, bucket_class=bucket_class, bucket_kwargs=bucket_kwargs)
+        adapter = HTTPAdapter(
+            pool_connections=50,
+            pool_maxsize=100,
+            pool_block=True,
+            max_retries=LogRetry(
+                total=retries,
+                backoff_factor=backoff_factor,
+                status_forcelist=[429, 500, 502, 503, 504],
+                respect_retry_after_header=True, # honor server-provided delay
+            )
+        )
+        self.mount("http://", adapter)
+        self.mount("https://", adapter)
 
-    return {
-        'limiter': limiter,
-        'bucket_class': bucket_class,
-        'bucket_kwargs': bucket_kwargs,
-        'limit_statuses': limit_statuses or [429],
-        'max_delay': max_delay,
-    }
+        self.base_url = base_url.rstrip("/") if base_url else None
+        self.limiters: Dict[str, TokenBucket] = {}
+        self.breakers: Dict[str, CircuitBreaker] = {}
+
+        if rate_limits:
+            for domain, cfg in rate_limits.items():
+
+                self.limiters[domain] = TokenBucket(
+                    rate=cfg.get("rate", 1), capacity=cfg.get("capacity", 5)
+                )
+                self.breakers[domain] = CircuitBreaker(name=domain)
+
+        if proxies:
+            self.proxies.update(proxies)
+
+    def request(self, method: str, url: str, **kwargs) -> SmartResponse:
+        """
+        Make a request with automatic SmartResponse, rate limiting, and circuit breaker.
+
+        Args:
+            method (str): HTTP method.
+            url (str): Request URL (relative or absolute).
+            **kwargs: Additional requests.Session parameters.
+
+        Returns:
+            SmartResponse: Parsed response object.
+        """
+        if self.base_url and not url.lower().startswith(("http://", "https://")):
+            url = f"{self.base_url}/{url.lstrip('/')}"
+
+        parsed = urlparse(url)
+        domain = parsed.hostname.lower() if parsed.hostname else ""
+
+        breaker = self.breakers.get(domain)
+        if breaker:
+            breaker.before_request()
+
+        limiter = self.limiters.get(domain)
+        if limiter:
+            limiter.wait()
+
+        try:
+            resp: SmartResponse = super().request(method, url, **kwargs)
+            resp.__class__ = SmartResponse
+            success_for_breaker = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
+            if breaker:
+                breaker.after_request(success_for_breaker)
+            return resp
+        except Exception:
+            if breaker:
+                breaker.after_request(False)
+            raise
 
 
-def get_cache_params(cache_name: str = 'cache', expire_after: Optional[int] = 60) -> dict:
-    """Generate cache parameters for a service, ensuring the cache file is in the specified directory.
-
-    :param cache_name: The name of the cache file excluding the extension.
-    :param expire_after: The time in seconds to expire the cache.
-    :return: Dictionary with cache configuration.
+def get_hostname_from_url(url: str) -> str:
     """
-    cache_path = data_dir_path / f"{cache_name}.db"
-    return {'cache_name': cache_path, 'expire_after': expire_after}
+    Extract the hostname from a URL.
 
+    Args:
+        url (str): URL string.
 
-def get_retry_policy(retries: int = 3, backoff_factor: float = 0.3, status_forcelist: Optional[list[int]] = None) -> Retry:
+    Returns:
+        str: Lowercase hostname.
     """
-    Create a retry policy for requests.
-
-    :param retries: The maximum number of retry attempts.
-    :param backoff_factor: A backoff factor to apply between attempts.
-    :param status_forcelist: A list of HTTP status codes that we should force a retry on.
-    :return: Configured Retry object.
-    """
-    return Retry(total=retries, backoff_factor=backoff_factor, status_forcelist=status_forcelist or [500, 502, 503, 504])
-
-
-def get_http_adapter(
-        retry_policy: Optional[Retry] = None,
-        pool_connections: Optional[int] = 50,
-        pool_maxsize: Optional[int] = 100,
-        pool_block: Optional[bool] = True
-) -> HTTPAdapter:
-    """
-    Create an HTTP adapter with retry policy and optional rate limiting.
-
-    :param retry_policy: The retry policy to use for the adapter.
-    :param pool_connections: The number of connection pools to allow.
-    :param pool_maxsize: The maximum number of connections to keep in the pool.
-    :param pool_block: Boolean indicating if the pool should block when full.
-    """
-    adapter_kwargs = {
-        'max_retries': retry_policy,
-        'pool_connections': pool_connections,
-        'pool_maxsize': pool_maxsize,
-        'pool_block': pool_block,
-    }
-    return HTTPAdapter(**adapter_kwargs)
-
-
-def xml_to_simplenamespace(xml_string: str) -> SimpleNamespace:
-    """Convert an XML string to a SimpleNamespace object."""
-    root = etree.fromstring(xml_string)
-    def element_to_simplenamespace(element):
-        children_as_ns = {child.tag: element_to_simplenamespace(child) for child in element}
-        attributes = {key: value for key, value in element.attrib.items()}
-        attributes.update(children_as_ns)
-        return SimpleNamespace(**attributes, text=element.text)
-    return element_to_simplenamespace(root)
-
-
-def _create_and_mount_session_adapter(
-        session: Session,
-        adapter_instance: Optional[HTTPAdapter] = None,
-        retry_policy: Optional[Retry] = None,
-        log_config: Optional[bool] = False):
-    """
-    Create and mount an HTTP adapter to a session.
-
-    :param session: The session to mount the adapter to.
-    :param retry_policy: The retry policy to use for the adapter.
-    """
-    adapter = adapter_instance or get_http_adapter(retry_policy)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-
-    if log_config:
-        logger.debug(f"Mounted http adapter with params: {adapter.__dict__} to session.")
+    parsed = urlparse(url)
+    return parsed.hostname.lower() if parsed.hostname else ""

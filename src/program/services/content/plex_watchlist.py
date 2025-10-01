@@ -6,6 +6,7 @@ from loguru import logger
 from requests import HTTPError
 
 from program.apis.plex_api import PlexAPI
+from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 
@@ -39,7 +40,7 @@ class PlexWatchlist:
             for rss_url in self.settings.rss:
                 try:
                     response = self.api.validate_rss(rss_url)
-                    response.response.raise_for_status()
+                    response.raise_for_status()
                     self.api.rss_enabled = True
                 except HTTPError as e:
                     if e.response.status_code == 404:
@@ -58,14 +59,33 @@ class PlexWatchlist:
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
         try:
-            watchlist_items: list[str] = self.api.get_items_from_watchlist()
-            rss_items: list[str] = self.api.get_items_from_rss() if self.api.rss_enabled else []
+            watchlist_items: list[dict[str, str]] = self.api.get_items_from_watchlist()
+            rss_items: list[tuple[str, str]] = self.api.get_items_from_rss() if self.api.rss_enabled else []
         except Exception as e:
             logger.warning(f"Error fetching items: {e}")
             return
 
-        plex_items: set[str] = set(watchlist_items) | set(rss_items)
-        items_to_yield: list[MediaItem] = [MediaItem({"imdb_id": imdb_id, "requested_by": self.key}) for imdb_id in plex_items if imdb_id and imdb_id.startswith("tt")]
+        items_to_yield: list[MediaItem] = []
 
-        logger.info(f"Fetched {len(items_to_yield)} items from plex watchlist")
+        if watchlist_items:
+            for d in watchlist_items:
+                if d["tvdb_id"] and not d["tmdb_id"]: # show
+                    items_to_yield.append(MediaItem({"tvdb_id": d["tvdb_id"], "requested_by": self.key}))
+                elif d["tmdb_id"] and not d["tvdb_id"]: # movie
+                    items_to_yield.append(MediaItem({"tmdb_id": d["tmdb_id"], "requested_by": self.key}))
+                # elif d["imdb_id"] and not d["tvdb_id"] and not d["tmdb_id"]: # going to have to guess these...
+                #     items_to_yield.append(MediaItem({"imdb_id": d["imdb_id"], "requested_by": self.key}))
+
+        if rss_items:
+            for r in rss_items:
+                _type, _id = r
+                if _type == "show":
+                    items_to_yield.append(MediaItem({"tvdb_id": _id, "requested_by": self.key}))
+                elif _type == "movie":
+                    items_to_yield.append(MediaItem({"tmdb_id": _id, "requested_by": self.key}))
+
+        if items_to_yield:
+            items_to_yield = [item for item in items_to_yield if not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id)]
+
+        logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
         yield items_to_yield

@@ -1,6 +1,6 @@
-from typing import Optional, Annotated
+from typing import Annotated, Optional
 
-from fastapi import HTTPException, Security, status, Query
+from fastapi import HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from program.settings.manager import settings_manager

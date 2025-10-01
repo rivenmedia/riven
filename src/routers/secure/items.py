@@ -1,15 +1,14 @@
 import asyncio
-from datetime import datetime
 import os
-from typing import Literal, Optional
+from datetime import datetime
+from typing import List, Literal, Optional
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from RTN import parse_media_file
 from loguru import logger
 from pydantic import BaseModel
+from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from program.db import db_functions
@@ -17,11 +16,9 @@ from program.db.db import db, get_db
 from program.media.item import MediaItem
 from program.media.state import States
 from program.services.content import Overseerr
-from program.services.indexers.trakt import TraktIndexer
-from program.symlink import Symlinker
+from program.services.filesystem import FilesystemService
+from program.services.updaters import Updater
 from program.types import Event
-from program.services.libraries.symlink import fix_broken_symlinks
-from program.settings.manager import settings_manager
 
 from ..models.shared import MessageResponse
 
@@ -32,8 +29,8 @@ router = APIRouter(
 )
 
 
-def handle_ids(ids: str) -> list[str]:
-    ids = [str(id) for id in ids.split(",")] if "," in ids else [str(ids)]
+def handle_ids(ids: str) -> list[int]:
+    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
@@ -63,7 +60,7 @@ class ItemsResponse(BaseModel):
 
 @router.get(
     "",
-    summary="Retrieve Media Items",
+    summary="Search Media Items",
     description="Fetch media items with optional filters and pagination",
     operation_id="get_items",
 )
@@ -93,10 +90,7 @@ async def get_items(
         if search_lower.startswith("tt"):
             query = query.where(MediaItem.imdb_id == search_lower)
         else:
-            query = query.where(
-                (func.lower(MediaItem.title).like(f"%{search_lower}%"))
-                | (func.lower(MediaItem.imdb_id).like(f"%{search_lower}%"))
-            )
+            query = query.where(func.lower(MediaItem.title).like(f"%{search_lower}%"))
 
     if states:
         states = states.split(",")
@@ -107,7 +101,7 @@ async def get_items(
                 if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
                     filter_states.append(state_enum)
                     break
-        if 'All' not in states:
+        if "All" not in states:
             if len(filter_states) == len(states):
                 query = query.where(MediaItem.last_state.in_(filter_states))
             else:
@@ -190,89 +184,107 @@ async def get_items(
 @router.post(
     "/add",
     summary="Add Media Items",
-    description="Add media items with bases on imdb IDs",
+    description="""Add media items with bases on TMDB ID or TVDB ID,
+                   you can add multiple IDs by comma separating them.""",
     operation_id="add_items",
 )
-async def add_items(request: Request, imdb_ids: str = None) -> MessageResponse:
-    if not imdb_ids:
-        raise HTTPException(status_code=400, detail="No IMDb ID(s) provided")
+async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: Optional[str] = None, media_type: Optional[Literal["movie", "tv"]] = None) -> MessageResponse:
+    if not tmdb_ids and not tvdb_ids:
+        raise HTTPException(status_code=400, detail="No ID(s) provided")
 
-    ids = imdb_ids.split(",")
+    all_tmdb_ids = []
+    all_tvdb_ids = []
 
-    valid_ids = []
-    for id in ids:
-        if not id.startswith("tt"):
-            logger.warning(f"Invalid IMDb ID {id}, skipping")
-        else:
-            valid_ids.append(id)
+    if tmdb_ids and media_type == "movie":
+        all_tmdb_ids = [id.strip() for id in tmdb_ids.split(",")] if "," in tmdb_ids else [tmdb_ids.strip()]
+        all_tmdb_ids = [id for id in all_tmdb_ids if id]
 
-    if not valid_ids:
-        raise HTTPException(status_code=400, detail="No valid IMDb ID(s) provided")
+    if tvdb_ids and media_type == "tv":
+        all_tvdb_ids = [id.strip() for id in tvdb_ids.split(",")] if "," in tvdb_ids else [tvdb_ids.strip()]
+        all_tvdb_ids = [id for id in all_tvdb_ids if id]
 
-    with db.Session() as _:
-        for id in valid_ids:
-            item = MediaItem(
-                {"imdb_id": id, "requested_by": "riven", "requested_at": datetime.now()}
-            )
-            request.app.program.em.add_item(item)
+    added_count = 0
+    items = []
 
-    return {"message": f"Added {len(valid_ids)} item(s) to the queue"}
+    with db.Session():
+        if media_type == "movie" and tmdb_ids:
+            for id in all_tmdb_ids:
+                if not db_functions.item_exists_by_any_id(tmdb_id=id):
+                    item = MediaItem({"tmdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+                    if item:
+                        items.append(item)
+                else:
+                    logger.debug(f"Item with TMDB ID {id} already exists")
+
+        if media_type == "tv" and tvdb_ids:
+            for id in all_tvdb_ids:
+                if not db_functions.item_exists_by_any_id(tvdb_id=id):
+                    item = MediaItem({"tvdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
+                    if item:
+                        items.append(item)
+                else:
+                    logger.debug(f"Item with TVDB ID {id} already exists")
+
+        if items:
+            for item in items:
+                request.app.program.em.add_item(item)
+                added_count += 1
+
+    return {"message": f"Added {added_count} item(s) to the queue"}
 
 @router.get(
     "/{id}",
-    summary="Retrieve Media Item",
-    description="Fetch a single media item by ID",
+    summary="Get Media Item by ID",
+    description="Fetch a single media item by TMDB ID, TVDB ID or item ID. TMDB and TVDB IDs are strings, item ID is an integer.",
     operation_id="get_item",
 )
-async def get_item(_: Request, id: str, use_tmdb_id: Optional[bool] = False) -> dict:
+async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv", "item"] = None, with_streams: Optional[bool] = False) -> dict:
+    if not id:
+        raise HTTPException(status_code=400, detail="No ID or media type provided")
+
     with db.Session() as session:
-        query = select(MediaItem)
-        if use_tmdb_id:
-            query = query.where(MediaItem.tmdb_id == id).where(MediaItem.type.in_(["movie", "show"]))
+        if media_type == "movie":
+            # needs to be a string
+            query = select(MediaItem).where(
+                    MediaItem.tmdb_id == id,
+                )
+        elif media_type == "tv":
+            # needs to be a string
+            query = select(MediaItem).where(
+                MediaItem.tvdb_id == id,
+            )
+        elif media_type == "item":
+            # needs to be an integer
+            _id = int(id)
+            query = select(MediaItem).where(
+                MediaItem.id == _id,
+            )
         else:
-            query = query.where(MediaItem.id == id)
+            raise HTTPException(status_code=400, detail="Invalid media type")
+
         try:
             item = session.execute(query).unique().scalar_one_or_none()
             if item:
-                return item.to_extended_dict(with_streams=False)
-            raise NoResultFound
-        except NoResultFound:
-            raise HTTPException(status_code=404, detail="Item not found")
-        except Exception as e:
-            if "Multiple rows were found when one or none was required" in str(e):
-                duplicate_ids = set()
-                items = session.execute(query).unique().scalars().all()
-                for item in items:
-                    duplicate_ids.add(item.id)
-                logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+                return item.to_extended_dict(with_streams=with_streams)
             else:
-                logger.error(f"Error fetching item with ID {id}: {str(e)}")
+                raise HTTPException(status_code=404, detail="Item not found")
+        except Exception as e:
+            # Handle multiple results
+            if "Multiple rows were found when one or none was required" in str(e):
+                items = session.execute(query).unique().scalars().all()
+                duplicate_ids = {item.id for item in items}
+                logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Multiple items found with ID {id}: {duplicate_ids}"
+                )
+            logger.error(f"Error fetching item with ID {id}: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.get(
-    "/imdb/{imdb_ids}",
-    summary="Retrieve Media Items By IMDb IDs",
-    description="Fetch media items by IMDb IDs",
-    operation_id="get_items_by_imdb_ids",
-)
-async def get_items_by_imdb_ids(request: Request, imdb_ids: str) -> list[dict]:
-    ids = imdb_ids.split(",")
-    with db.Session() as session:
-        items = []
-        for id in ids:
-            item = (
-                session.execute(select(MediaItem).where(MediaItem.imdb_id == id).where(MediaItem.type.in_(["movie", "show"])))
-                .unique()
-                .scalar_one()
-            )
-            if item:
-                items.append(item)
-        return [item.to_extended_dict() for item in items]
 
 
 class ResetResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -282,25 +294,28 @@ class ResetResponse(BaseModel):
     operation_id="reset_items",
 )
 async def reset_items(request: Request, ids: str) -> ResetResponse:
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
-        for media_item in db_functions.get_items_by_ids(ids):
-            try:
-                request.app.program.em.cancel_job(media_item.id)
-                active_hash = media_item.active_stream.get("infohash", None)
-                active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
-                db_functions.clear_streams(media_item)
-                db_functions.reset_media_item(media_item)
-                if active_stream:
-                    # lets blacklist the active stream so it doesnt get used again
-                    db_functions.blacklist_stream(media_item, active_stream)
-                    logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
-            except ValueError as e:
-                logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error while resetting item with id {media_item.id}: {str(e)}")
-                continue
+        with db.Session() as session:
+            for media_item in db_functions.get_items_by_ids(ids, session=session):
+                try:
+                    request.app.program.em.cancel_job(media_item.id)
+                    active_hash = media_item.active_stream.get("infohash", None)
+                    active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
+                    db_functions.clear_streams(media_item_id=media_item.id)
+                    media_item.reset()
+                    if active_stream:
+                        # lets blacklist the active stream so it doesnt get used again
+                        db_functions.blacklist_stream(media_item, active_stream)
+                        logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
+                    session.merge(media_item)
+                    session.commit()
+                except ValueError as e:
+                    logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Unexpected error while resetting item with id {media_item.id}: {str(e)}")
+                    continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"message": f"Reset items with id {ids}", "ids": ids}
@@ -308,7 +323,7 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
 class RetryResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.post(
@@ -319,7 +334,7 @@ class RetryResponse(BaseModel):
 )
 async def retry_items(request: Request, ids: str) -> RetryResponse:
     """Re-add items to the queue"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     for id in ids:
         try:
             item = db_functions.get_item_by_id(id)
@@ -374,34 +389,32 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
         ]
     }
 
-class RepairSymlinksResponse(BaseModel):
+
+class UpdateNewReleasesResponse(BaseModel):
     message: str
+    updated_items: list[dict]
 
 @router.post(
-    "/repair_symlinks",
-    summary="Repair Broken Symlinks",
-    description="Repair broken symlinks in the library. Optionally, provide a directory path to only scan that directory.",
-    operation_id="repair_symlinks",
+    "/update_new_releases",
+    summary="Update New Releases",
+    description="Update state for new releases",
+    operation_id="update_new_releases_items",
 )
-async def repair_symlinks(request: Request, directory: Optional[str] = None) -> RepairSymlinksResponse:
-    library_path = settings_manager.settings.symlink.library_path
-    rclone_path = settings_manager.settings.symlink.rclone_path
-
-    if directory:
-        specific_directory = os.path.join(library_path, directory)
-        if not os.path.isdir(specific_directory):
-            raise HTTPException(status_code=400, detail=f"Directory {specific_directory} does not exist.")
-    else:
-        specific_directory = None
-
-    fix_broken_symlinks(library_path, rclone_path, specific_directory=specific_directory)
-
-    return {"message": "Symlink repair process completed."}
+async def update_new_releases_items(request: Request, update_type: Literal["series", "seasons", "episodes"] = "episodes", hours: Optional[int] = 24) -> UpdateNewReleasesResponse:
+    with db.Session() as session:
+        updated_items = db_functions.update_new_releases(session, update_type=update_type, hours=hours)
+        for item_id in updated_items:
+            request.app.program.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
+        if updated_items:
+            logger.log("API", f"Successfully updated {len(updated_items)} items")
+        else:
+            logger.log("API", "No items required state updates")
+    return {"message": f"Updated {len(updated_items)} items", "updated_items": updated_items}
 
 
 class RemoveResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 
 @router.delete(
@@ -409,48 +422,84 @@ class RemoveResponse(BaseModel):
     summary="Remove Media Items",
     description="Remove media items based on item IDs",
     operation_id="remove_item",
+    response_model=RemoveResponse,  # keep if you already use this
 )
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
-    ids: list[str] = handle_ids(ids)
-    try:
-        media_items: list[MediaItem] = db_functions.get_items_by_ids(ids, ["movie", "show"])
-        if not media_items or not all(isinstance(item, MediaItem) for item in media_items):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
-        for item in media_items:
-            if not item or not isinstance(item, MediaItem):
-                continue
-            logger.debug(f"Removing item with ID {item.id}")
-            request.app.program.em.cancel_job(item.id)  # this will cancel the item and all its children
-            await asyncio.sleep(0.2)  # Ensure cancellation is processed
-            if item.type == "show":
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        db_functions.delete_media_item_by_id(episode.id)
-                    db_functions.delete_media_item_by_id(season.id)
-            db_functions.clear_streams_by_id(item.id)
+    """
+    Remove one or more media items by their IDs.
 
-            symlink_service = request.app.program.services.get(Symlinker)
-            if symlink_service:
-                symlink_service.delete_item_symlinks_by_id(item.id)
+    This uses ON DELETE CASCADE, so deleting the root MediaItem row also removes:
+      - joined-table rows (Movie/Show/Season/Episode),
+      - hierarchy children (Season/Episode via parent_id),
+      - Subtitle rows (Subtitle.parent_id → MediaItem.id),
+      - StreamRelation / StreamBlacklistRelation rows.
+    """
+    ids: list[int] = handle_ids(ids)
+    if not ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
-            if item.overseerr_id:
-                overseerr: Overseerr = request.app.program.services.get(Overseerr)
-                if overseerr:
-                    overseerr.delete_request(item.overseerr_id)
-                    logger.debug(f"Deleted request from Overseerr with ID {item.overseerr_id}")
+    # Load items
+    items: List[MediaItem] = db_functions.get_items_by_ids(ids)
+    if not items:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
 
-            logger.debug(f"Deleting item from database with ID {item.id}")
-            db_functions.delete_media_item_by_id(item.id)
-            logger.info(f"Successfully removed item with ID {item.id}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Get services
+    filesystem_service: FilesystemService = request.app.program.services.get(FilesystemService)
+    overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
+    updater: Updater | None = request.app.program.services.get(Updater)
 
+    # Process all items in a single loop
+    for item in items:
+        logger.debug(f"Removing item with ID {item.id}")
+
+        # 1. Cancel active jobs (EventManager cancels children too)
+        request.app.program.em.cancel_job(item.id)
+
+        # 2. Get filesystem path before deletion for media server refresh
+        refresh_path = None
+        if item.filesystem_entry and item.filesystem_entry.path:
+            abs_path = os.path.join(updater.library_path, item.filesystem_entry.path.lstrip("/"))
+            if item.type == "movie":
+                refresh_path = os.path.dirname(os.path.dirname(abs_path))
+            else:  # show, season, episode
+                refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
+
+        # 3. Remove VFS entries
+        if filesystem_service:
+            filesystem_service.delete_item_files_by_id(item.id)
+
+        # 4. Clear streams
+        db_functions.clear_streams(media_item_id=item.id)
+
+        # 5. Delete from Overseerr
+        if item.overseerr_id and overseerr:
+            try:
+                overseerr.delete_request(item.overseerr_id)
+                logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id}: {e}")
+
+        # 6. Delete from database (CASCADE handles children)
+        ok = db_functions.delete_media_item_by_id(item.id)
+        if not ok:
+            logger.error(f"Failed to delete item {item.id}")
+            continue
+
+        # 7. Trigger media server refresh to remove from library
+        if updater and updater.initialized and refresh_path:
+            updater.refresh_path(refresh_path)
+            logger.debug(f"Triggered media server refresh for {refresh_path}")
+
+    # Give the scheduler a moment to process cancellations
+    await asyncio.sleep(0.2)
+
+    logger.info(f"Successfully removed items: {ids}")
     return {"message": f"Removed items with ids {ids}", "ids": ids}
 
 @router.get(
     "/{item_id}/streams"
 )
-async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
+async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -472,7 +521,7 @@ async def get_item_streams(_: Request, item_id: str, db: Session = Depends(get_d
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist"
 )
-async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
+async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -486,7 +535,7 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.blacklist_stream(item, stream, db)
+    db_functions.set_stream_blacklisted(item, stream, blacklisted=True, session=db)
 
     return {
         "message": f"Blacklisted stream {stream_id} for item {item_id}",
@@ -495,7 +544,7 @@ async def blacklist_stream(_: Request, item_id: str, stream_id: int, db: Session
 @router.post(
     "/{item_id}/streams/{stream_id}/unblacklist"
 )
-async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Session = Depends(get_db)):
+async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -510,7 +559,7 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.unblacklist_stream(item, stream, db)
+    db_functions.set_stream_blacklisted(item, stream, blacklisted=False, session=db)
 
     return {
         "message": f"Unblacklisted stream {stream_id} for item {item_id}",
@@ -522,7 +571,7 @@ async def unblacklist_stream(_: Request, item_id: str, stream_id: int, db: Sessi
     description="Reset all streams for a media item",
     operation_id="reset_item_streams",
 )
-async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get_db)):
+async def reset_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -535,7 +584,7 @@ async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    db_functions.clear_streams(item)
+    db_functions.clear_streams(media_item_id=item.id)
 
     return {
         "message": f"Successfully reset streams for item {item_id}",
@@ -543,7 +592,7 @@ async def reset_item_streams(_: Request, item_id: str, db: Session = Depends(get
 
 class PauseResponse(BaseModel):
     message: str
-    ids: list[str]
+    ids: list[int]
 
 @router.post(
     "/pause",
@@ -553,7 +602,7 @@ class PauseResponse(BaseModel):
 )
 async def pause_items(request: Request, ids: str) -> PauseResponse:
     """Pause items and their children from being processed"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
             for media_item in db_functions.get_items_by_ids(ids):
@@ -570,7 +619,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
                         session.merge(media_item)
                         session.commit()
 
-                    logger.info(f"Successfully paused items.")
+                    logger.info("Successfully paused items.")
                 except Exception as e:
                     logger.error(f"Failed to pause {media_item.log_string}: {str(e)}")
                     continue
@@ -587,7 +636,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
 )
 async def unpause_items(request: Request, ids: str) -> PauseResponse:
     """Unpause items and their children to resume processing"""
-    ids = handle_ids(ids)
+    ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
             for media_item in db_functions.get_items_by_ids(ids):
@@ -606,23 +655,29 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"message": f"Successfully unpaused items.", "ids": ids}
+    return {"message": "Successfully unpaused items.", "ids": ids}
 
 class ReindexResponse(BaseModel):
     message: str
 
 @router.post(
     "/reindex",
-    summary="Reindex item with Trakt Indexer to pick up new season & episode releases.",
+    summary="Reindex item with Composite Indexer to pick up new season & episode releases.",
     description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
-    operation_id="trakt_reindexer"
+    operation_id="composite_reindexer"
 )
-async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
-    """Reindex item through Trakt manually"""
+async def reindex_item(request: Request, item_id: Optional[int] = None, tvdb_id: Optional[str] = None, tmdb_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
+    """Reindex item through Composite Indexer manually"""
     if item_id:
         item: MediaItem = db_functions.get_item_by_id(item_id)
+    elif tvdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(tvdb_id=tvdb_id)
+    elif tmdb_id:
+        item: MediaItem = db_functions.get_item_by_external_id(tmdb_id=tmdb_id)
     elif imdb_id:
         item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
+    elif any([item_id, tvdb_id, tmdb_id, imdb_id]):
+        item: MediaItem = db_functions.get_item_by_external_id(tvdb_id=tvdb_id, tmdb_id=tmdb_id, imdb_id=imdb_id)
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
 
@@ -633,9 +688,10 @@ async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
 
     try:
-        trakt_indexer = request.app.program.all_services[TraktIndexer]
+        from program.services.indexers.composite import CompositeIndexer
+        c_indexer = request.app.program.all_services[CompositeIndexer]
         item.indexed_at = None
-        reindexed_item = next(trakt_indexer.run(item, log_msg=True))
+        reindexed_item = next(c_indexer.run(item, log_msg=True))
         
         if reindexed_item:
             with db.Session() as session:
@@ -646,7 +702,7 @@ async def reindex_item(request: Request, item_id: Optional[str] = None, imdb_id:
             request.app.program.em.add_event(Event("RetryItem", item.id))
             return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
         else:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Trakt")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
 
     except Exception as e:
         logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
@@ -662,7 +718,7 @@ class FfprobeResponse(BaseModel):
     description="Parse a media file",
     operation_id="ffprobe_media_files",
 )
-async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
+async def ffprobe_symlinks(request: Request, id: int) -> FfprobeResponse:
     """Parse all symlinks from item. Requires ffmpeg to be installed."""
     item: MediaItem = db_functions.get_item_by_id(id)
     if not item:
@@ -671,19 +727,19 @@ async def ffprobe_symlinks(request: Request, id: str) -> FfprobeResponse:
     data = {}
     try:
         if item.type in ("movie", "episode"):
-            if item.symlink_path:
-                data[item.id] = parse_media_file(item.symlink_path)
+            if item.filesystem_path:
+                data[item.id] = parse_media_file(item.filesystem_path)
 
         elif item.type == "show":
             for season in item.seasons:
                 for episode in season.episodes:
-                    if episode.symlink_path:
-                        data[episode.id] = parse_media_file(episode.symlink_path)
+                    if episode.filesystem_path:
+                        data[episode.id] = parse_media_file(episode.filesystem_path)
 
         elif item.type == "season":
             for episode in item.episodes:
-                if episode.symlink_path:
-                    data[episode.id] = parse_media_file(episode.symlink_path)
+                if episode.filesystem_path:
+                    data[episode.id] = parse_media_file(episode.filesystem_path)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 

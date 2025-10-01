@@ -3,23 +3,12 @@ import base64
 import json
 from typing import Dict
 
-import regex
 from loguru import logger
-from requests import ConnectTimeout, ReadTimeout
-from requests.exceptions import RequestException
 
-from program.media.item import MediaItem, Show
-from program.services.scrapers.shared import (
-    ScraperRequestHandler,
-    _get_stremio_identifier,
-)
+from program.media.item import MediaItem
+from program.services.scrapers.shared import _get_stremio_identifier
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    create_service_session,
-    get_rate_limit_params,
-)
+from program.utils.request import SmartSession, get_hostname_from_url
 
 
 class Comet:
@@ -51,9 +40,20 @@ class Comet:
             "resolutions": {},
             "options": {}
         }).encode("utf-8")).decode("utf-8")
-        rate_limit_params = get_rate_limit_params(per_hour=300) if self.settings.ratelimit else None
-        session = create_service_session(rate_limit_params=rate_limit_params)
-        self.request_handler = ScraperRequestHandler(session)
+        
+        if self.settings.ratelimit:
+            rate_limits = {
+                get_hostname_from_url(self.settings.url): {"rate": 300/60, "capacity": 300}  # 300 calls per minute
+            }
+        else:
+            rate_limits = None
+        
+        self.session = SmartSession(
+            base_url=self.settings.url.rstrip("/"),
+            rate_limits=rate_limits,
+            retries=3,
+            backoff_factor=0.3
+        )
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -73,9 +73,8 @@ class Comet:
             logger.error("Comet ratelimit must be a valid boolean.")
             return False
         try:
-            url = f"{self.settings.url}/manifest.json"
-            response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
-            if response.is_ok:
+            response = self.session.get("/manifest.json", timeout=self.timeout)
+            if response.ok:
                 return True
         except Exception as e:
             logger.error(f"Comet failed to initialize: {e}", )
@@ -86,30 +85,27 @@ class Comet:
         and update the object with scraped streams"""
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Comet ratelimit exceeded for item: {item.log_string}")
-        except ConnectTimeout:
-            logger.warning(f"Comet connection timeout for item: {item.log_string}")
-        except ReadTimeout:
-            logger.warning(f"Comet read timeout for item: {item.log_string}")
-        except RequestException as e:
-            logger.error(f"Comet request exception: {str(e)}")
         except Exception as e:
-            logger.error(f"Comet exception thrown: {str(e)}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Comet ratelimit exceeded for item: {item.log_string}")
+            elif "timeout" in str(e).lower():
+                logger.warning(f"Comet timeout for item: {item.log_string}")
+            else:
+                logger.error(f"Comet exception thrown: {str(e)}")
         return {}
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
-        url = f"{self.settings.url}/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
+        url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
-        response = self.request_handler.execute(HttpMethod.GET, url, timeout=self.timeout)
-        if not response.is_ok or not getattr(response.data, "streams", None):
+        response = self.session.get(url, timeout=self.timeout)
+        if not response.ok or not getattr(response.data, "streams", None):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents = {
-            stream.infoHash: stream.description.split("\n")[0] 
+            stream.infoHash: stream.description.split("\n")[0].replace("📄 ", "")
             for stream in response.data.streams if hasattr(stream, "infoHash")
             and stream.infoHash
         }
