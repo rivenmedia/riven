@@ -248,6 +248,9 @@ class EventManager:
                             except Exception as e:
                                 if not suppress_logs:
                                     logger.error(f"Error cancelling future for {fid}: {str(e)}")
+            
+            for fid in ids_to_cancel:
+                self.remove_id_from_queues(fid)
 
     def next(self) -> Event:
         """
