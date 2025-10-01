@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
 from loguru import logger
 from requests import exceptions
 
@@ -36,6 +37,9 @@ class RealDebridAPI:
             api_key: Real-Debrid API key.
             proxy_url: Optional proxy URL used for both HTTP and HTTPS.
         """
+        self.api_key = api_key
+        self.proxy_url = proxy_url
+
         # 250 req/min ~= 4.17 rps with capacity 250
         rate_limits = {"api.real-debrid.com": {"rate": 250 / 60, "capacity": 250}}
         self.session = SmartSession(
@@ -130,56 +134,87 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             torrent_id = self.add_torrent(infohash)
-            container, reason = self._process_torrent(torrent_id, infohash, item_type)
+            container, reason, info = self._process_torrent(torrent_id, infohash, item_type)
             if container is None and reason:
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                # Failed validation - delete the torrent
+                if torrent_id:
+                    try:
+                        self.delete_torrent(torrent_id)
+                    except Exception as e:
+                        logger.debug(f"Failed to delete failed torrent {torrent_id}: {e}")
+                return None
+
+            # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
+            # This eliminates 2 API calls per stream (add_torrent + get_torrent_info in download phase)
+            if container:
+                container.torrent_id = torrent_id
+                container.torrent_info = info
+
             return container
 
         except CircuitBreakerOpen:
             # Don't swallow the breaker; upstream orchestration decides backoff policy.
             logger.debug(f"Circuit breaker OPEN for Real-Debrid; skipping {infohash}")
+            # Clean up on circuit breaker
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception:
+                    pass
             raise
         except RealDebridError as e:
             # add_torrent/select_files/delete_torrent surface HTTP error context via _handle_error
             logger.warning(f"Availability check failed [{infohash}]: {e}")
-            return None
-        except InvalidDebridFileException as e:
-            logger.debug(f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}")
-            return None
-        except exceptions.ReadTimeout as e:
-            logger.debug(f"Availability check failed [{infohash}]: Timeout - {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Availability check failed [{infohash}]: Unexpected error - {e}")
-            return None
-        finally:
-            # Best-effort cleanup; do not mask the main outcome.
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
-                except CircuitBreakerOpen:
-                    logger.debug(f"Circuit breaker while deleting torrent {torrent_id}; suppressed in cleanup.")
-                except Exception as e:
-                    logger.error(f"Failed to delete torrent {torrent_id}: {e}")
+                except Exception:
+                    pass
+            return None
+        except InvalidDebridFileException as e:
+            logger.debug(f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}")
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception:
+                    pass
+            return None
+        except exceptions.ReadTimeout as e:
+            logger.debug(f"Availability check failed [{infohash}]: Timeout - {e}")
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception:
+                    pass
+            return None
+        except Exception as e:
+            logger.error(f"Availability check failed [{infohash}]: Unexpected error - {e}")
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception:
+                    pass
+            return None
 
     def _process_torrent(
         self,
         torrent_id: str,
         infohash: str,
         item_type: str,
-    ) -> Tuple[Optional[TorrentContainer], Optional[str]]:
+    ) -> Tuple[Optional[TorrentContainer], Optional[str], Optional[TorrentInfo]]:
         """
-        Process a single torrent and return (container, reason).
+        Process a single torrent and return (container, reason, info).
 
         Returns:
-            (TorrentContainer or None, human-readable reason string if None)
+            (TorrentContainer or None, human-readable reason string if None, TorrentInfo or None)
         """
         info = self.get_torrent_info(torrent_id)
         if not info:
-            return None, "no torrent info returned by Real-Debrid"
+            return None, "no torrent info returned by Real-Debrid", None
 
         if not info.files:
-            return None, "no files present in the torrent"
+            return None, "no files present in the torrent", None
 
         if info.status == "waiting_files_selection":
             video_exts = tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS)
@@ -189,15 +224,16 @@ class RealDebridDownloader(DownloaderBase):
                 if meta["filename"].lower().endswith(video_exts)
             ]
             if not video_ids:
-                return None, "no video files found to select"
+                return None, "no video files found to select", None
 
             # Select only video files
             self.select_files(torrent_id, video_ids)
 
-            # Refresh info
+            # Refresh info - REQUIRED to verify torrent is actually downloaded after selection
+            # Real-Debrid may still be processing, so we need to check the actual status
             info = self.get_torrent_info(torrent_id)
             if not info:
-                return None, "failed to refresh torrent info after selection"
+                return None, "failed to refresh torrent info after selection", None
 
         if info.status == "downloaded":
             files: List[DebridFile] = []
@@ -227,17 +263,18 @@ class RealDebridDownloader(DownloaderBase):
                     logger.debug(f"{infohash}: {e}")  # noisy per-file details kept at debug
 
             if not files:
-                return None, "no valid files after validation"
+                return None, "no valid files after validation", None
 
-            return TorrentContainer(infohash=infohash, files=files), None
+            # Return container WITH the TorrentInfo to avoid re-fetching in download phase
+            return TorrentContainer(infohash=infohash, files=files), None, info
 
         if info.status in ("downloading", "queued"):
-            return None, f"Not instantly available (status={info.status})"
+            return None, f"Not instantly available (status={info.status})", None
 
         if info.status in ("magnet_error", "error", "virus", "dead", "compressing", "uploading"):
-            return None, f"Invalid on Real-Debrid (status={info.status})"
+            return None, f"Invalid on Real-Debrid (status={info.status})", None
 
-        return None, f"unsupported torrent status: {info.status}"
+        return None, f"unsupported torrent status: {info.status}", None
 
     def add_torrent(self, infohash: str) -> str:
         """
@@ -398,30 +435,59 @@ class RealDebridDownloader(DownloaderBase):
         return resp.data
 
     def unrestrict_link(self, link: str) -> Optional[dict]:
-        """Unrestrict a link using Real-Debrid API"""
-        resp: SmartResponse = self.api.session.post(f"unrestrict/link", data={"link": link})
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise RealDebridError(self._handle_error(resp))
-        return resp.data
+        """
+        Unrestrict a link using direct requests library, bypassing SmartSession rate limiting.
+
+        This is used by VFS for frequent file access where rate limiting would cause issues
+        (e.g., Plex scanning 100+ files). The VFS already caches unrestricted URLs in the
+        database, so this is only called on cache misses or URL expiration.
+
+        Returns:
+            Response data dict with 'download', 'filename', 'filesize' fields, or None on error
+        """
+        try:
+            headers = {"Authorization": f"Bearer {self.api.api_key}"}
+            proxies = None
+            if self.api.proxy_url:
+                proxies = {"http": self.api.proxy_url, "https": self.api.proxy_url}
+
+            response = requests.post(
+                f"{self.api.BASE_URL}/unrestrict/link",
+                data={"link": link},
+                headers=headers,
+                proxies=proxies,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                class ResponseData:
+                    def __init__(self, data):
+                        for key, value in data.items():
+                            setattr(self, key, value)
+                return ResponseData(data)
+            else:
+                logger.debug(f"Direct unrestrict failed with status {response.status_code}: {response.text}")
+                return None
+        except Exception as e:
+            logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
+            return None
 
     def resolve_link(self, link: str) -> Optional[Dict]:
-        try:
-            for d in self.get_downloads():
-                if d.link == link or d.download == link:
-                    return {
-                        'download_url': d.download,
-                        'name': d.filename,
-                        'size': int(d.filesize or 0),
-                    }
-        except Exception:
-            pass
+        """
+        Resolve a link to get download URL, bypassing rate limiting for VFS usage.
+
+        Uses unrestrict_link_direct() to avoid rate limiting issues during Plex scans.
+        """
         try:
             resp = self.unrestrict_link(link)
+            if not resp:
+                return None
             return {
                 'download_url': resp.download,
                 'name': resp.filename or resp.original_filename,
                 'size': int(resp.filesize or 0),
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"resolve_link failed for {link}: {e}")
             return None

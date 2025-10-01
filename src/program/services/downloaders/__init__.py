@@ -316,14 +316,32 @@ class Downloader:
         return self.download_cached_stream_on_service(stream, container, self.service)
 
     def download_cached_stream_on_service(self, stream: Stream, container: TorrentContainer, service) -> DownloadedTorrent:
-        """Download a cached stream using a specific service"""
-        torrent_id: int = service.add_torrent(stream.infohash)
+        """
+        Download a cached stream using a specific service.
+        """
+        # Check if we already have a torrent_id from validation (Real-Debrid optimization)
+        if container.torrent_id:
+            torrent_id = container.torrent_id
+            logger.debug(f"Reusing torrent_id {torrent_id} from validation for {stream.infohash}")
+        else:
+            # Fallback: add torrent if not cached (e.g., TorBox or old flow)
+            torrent_id: int = service.add_torrent(stream.infohash)
+
         if service.key == "torbox":
             for file in container.files:
                 file.download_url = service.get_download_url(torrent_id, file.file_id)
-        info: TorrentInfo = service.get_torrent_info(torrent_id)
+
+        # Check if we already have torrent_info from validation (Real-Debrid optimization)
+        if container.torrent_info:
+            info = container.torrent_info
+            logger.debug(f"Reusing cached torrent_info for {stream.infohash}")
+        else:
+            # Fallback: fetch info if not cached
+            info: TorrentInfo = service.get_torrent_info(torrent_id)
+
         if container.file_ids:
             service.select_files(torrent_id, container.file_ids)
+
         return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
 
     def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None) -> None:
@@ -379,5 +397,9 @@ class Downloader:
     def resolve_link(self, link: str) -> Optional[Dict]:
         """Resolve a link to a download URL"""
         return self.service.resolve_link(link)
+    
+    def get_user_info(self, service) -> Dict:
+        """Get user information"""
+        return service.get_user_info()
     
     

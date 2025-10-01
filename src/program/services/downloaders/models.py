@@ -106,6 +106,8 @@ class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
     infohash: str
     files: List[DebridFile] = Field(default_factory=list)
+    torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
+    torrent_info: Optional['TorrentInfo'] = None  # Cached info to avoid re-fetching
 
     @property
     def cached(self) -> bool:
