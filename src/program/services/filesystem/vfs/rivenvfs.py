@@ -134,9 +134,18 @@ class ProviderHTTP:
             c.setopt(pycurl.WRITEHEADER, header_buffer)
             c.perform()
             status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
-            return status_code, response_buffer.getvalue(), header_buffer.getvalue().decode('utf-8', errors='replace')
+            # Extract data before closing buffers
+            response_data = response_buffer.getvalue()
+            header_data = header_buffer.getvalue().decode('utf-8', errors='replace')
+            return status_code, response_data, header_data
         finally:
-            # Avoid keeping large buffers referenced
+            # Explicitly close buffers to free memory immediately
+            try:
+                response_buffer.close()
+                header_buffer.close()
+            except Exception:
+                pass
+            # Clear curl handle references to buffers
             try:
                 c.setopt(pycurl.WRITEDATA, None)
                 c.setopt(pycurl.WRITEHEADER, None)
