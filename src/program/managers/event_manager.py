@@ -123,6 +123,10 @@ class EventManager:
                         logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
                         return
 
+                    # Cache the item state in the event for efficient priority sorting
+                    if item and item.last_state:
+                        event.item_state = item.last_state.name
+
             self._queued_events.append(event)
             if log_message:
                 logger.debug(f"Added {event.log_message} to the queue.")
@@ -254,10 +258,22 @@ class EventManager:
 
     def next(self) -> Event:
         """
-        Get the next event in the queue with an optional timeout.
+        Get the next event in the queue, prioritizing items closest to completion.
+
+        Priority order (highest to lowest):
+        0. Items in Completed state (closest to completion)
+        1. Items in Symlinked state
+        2. Items in Downloaded state
+        3. Items in Scraped state
+        4. Items in Indexed state
+        5. All other states
+
+        Within each priority level, events are sorted by run_at timestamp.
+
+        Performance: Uses cached item_state from Event object to avoid database queries.
 
         Raises:
-            Empty: If the queue is empty.
+            Empty: If the queue is empty or no events are ready to run.
 
         Returns:
             Event: The next event in the queue.
@@ -265,10 +281,44 @@ class EventManager:
         while True:
             if self._queued_events:
                 with self.mutex:
-                    self._queued_events.sort(key=lambda event: event.run_at)
-                    if self._queued_events and datetime.now() >= self._queued_events[0].run_at:
-                        event = self._queued_events.pop(0)
-                        return event
+                    now = datetime.now()
+
+                    # Filter events that are ready to run (run_at <= now)
+                    ready_events = [event for event in self._queued_events if event.run_at <= now]
+
+                    if not ready_events:
+                        raise Empty
+
+                    # Define state priority (lower number = higher priority)
+                    state_priority = {
+                        "Completed": 0,
+                        "PartiallyCompleted": 1,
+                        "Symlinked": 2,
+                        "Downloaded": 3,
+                        "Scraped": 4,
+                        "Indexed": 5,
+                    }
+
+                    def get_event_priority(event: Event) -> tuple:
+                        """
+                        Returns a tuple for sorting: (state_priority, run_at)
+                        Items with higher priority states come first, then sorted by run_at.
+                        Uses cached item_state to avoid database queries.
+                        """
+                        if event.item_state:
+                            priority = state_priority.get(event.item_state, 999)
+                            return (priority, event.run_at)
+
+                        # Default priority for items without state or content-only events
+                        return (999, event.run_at)
+
+                    # Sort by priority (state first, then run_at)
+                    ready_events.sort(key=get_event_priority)
+
+                    # Get the highest priority event
+                    event = ready_events[0]
+                    self._queued_events.remove(event)
+                    return event
             raise Empty
 
     def _id_in_queue(self, _id: str) -> bool:
