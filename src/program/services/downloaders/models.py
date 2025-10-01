@@ -1,7 +1,7 @@
-import regex
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Union
 
+import regex
 from pydantic import BaseModel, Field
 
 from program.settings.manager import settings_manager
@@ -50,6 +50,7 @@ class DebridFile(BaseModel):
     file_id: Optional[int] = Field(default=None)
     filename: Optional[str] = Field(default=None)
     filesize: Optional[int] = Field(default=None)
+    download_url: Optional[str] = Field(default=None)
 
     @classmethod
     def create(
@@ -89,7 +90,8 @@ class DebridFile(BaseModel):
         return {
             "filename": self.filename,
             "filesize": self.filesize,
-            "file_id": self.file_id
+            "file_id": self.file_id,
+            "download_url": self.download_url
         }
 
 
@@ -104,6 +106,8 @@ class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
     infohash: str
     files: List[DebridFile] = Field(default_factory=list)
+    torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
+    torrent_info: Optional['TorrentInfo'] = None  # Cached info to avoid re-fetching
 
     @property
     def cached(self) -> bool:
@@ -136,6 +140,7 @@ class TorrentInfo(BaseModel):
     completed_at: Optional[datetime] = None
     alternative_filename: Optional[str] = None
     files: Dict[int, Dict[str, Union[int, str]]] = Field(default_factory=dict)  # Real-Debrid only
+    links: List[str] = Field(default_factory=list)  # Real-Debrid download links
 
     @property
     def size_mb(self) -> float:
@@ -159,3 +164,19 @@ class DownloadedTorrent(BaseModel):
     infohash: str
     container: TorrentContainer
     info: TorrentInfo
+
+
+class UserInfo(BaseModel):
+    """Normalized user information across different debrid services"""
+    service: Literal["realdebrid", "torbox"]
+    username: Optional[str] = None
+    email: Optional[str] = None
+    user_id: Union[int, str]
+    premium_status: Literal["free", "premium"]
+    premium_expires_at: Optional[datetime] = None
+    premium_days_left: Optional[int] = None
+
+    # Service-specific fields (optional)
+    points: Optional[int] = None  # Real-Debrid
+    total_downloaded_bytes: Optional[int] = None  # TorBox
+    cooldown_until: Optional[datetime] = None  # TorBox

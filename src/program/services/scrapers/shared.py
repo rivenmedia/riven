@@ -1,8 +1,8 @@
 """Shared functions for scrapers."""
 import hashlib
-from bencodepy import decode, encode
-from typing import Dict, Optional, Set, Type
+from typing import Dict, Set
 
+from bencodepy import decode, encode
 from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
 
@@ -10,28 +10,12 @@ from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from program.utils.request import (
-    create_service_session,
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-)
-
+from program.utils.request import SmartSession
 
 scraping_settings = settings_manager.settings.scraping
 ranking_settings = settings_manager.settings.ranking
 ranking_model = models.get(ranking_settings.profile)
 rtn = RTN(ranking_settings, ranking_model)
-
-
-class ScraperRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
-
-    def execute(self, method: HttpMethod, endpoint: str, overriden_response_type: ResponseType = None, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, overriden_response_type=overriden_response_type, **kwargs)
 
 
 def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = True) -> Dict[str, Stream]:
@@ -59,44 +43,87 @@ def _parse_results(item: MediaItem, results: Dict[str, str], log_msg: bool = Tru
                 aliases=aliases
             )
 
+            if item.type == "movie":
+                # If movie item, disregard torrents with seasons and episodes
+                if torrent.data.episodes or torrent.data.seasons:
+                    logger.trace(f"Skipping show torrent for movie {item.log_string}: {raw_title}")
+                    continue
+
+            if item.type == "show":
+                # make sure the torrent has at least 2 episodes (should weed out most junk)
+                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                    logger.trace(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
+                    continue
+
+                # make sure all of the item seasons are present in the torrent
+                if not all(season.number in torrent.data.seasons for season in item.seasons):
+                    logger.trace(f"Skipping torrent with incorrect number of seasons for {item.log_string}: {raw_title}")
+                    continue
+
+                if torrent.data.episodes and not torrent.data.seasons and len(item.seasons) == 1 and not all(episode.number in torrent.data.episodes for episode in item.seasons[0].episodes):
+                    logger.trace(f"Skipping torrent with incorrect number of episodes for {item.log_string}: {raw_title}")
+                    continue
+
+            if item.type == "season":
+                if torrent.data.seasons and item.number not in torrent.data.seasons:
+                    logger.trace(f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}")
+                    continue
+                
+                # make sure the torrent has at least 2 episodes (should weed out most junk)
+                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                    logger.trace(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
+                    continue
+
+                # disregard torrents with incorrect season number
+                if item.number not in torrent.data.seasons:
+                    logger.trace(f"Skipping incorrect season torrent for {item.log_string}: {raw_title}")
+                    continue
+
+                if torrent.data.episodes and not all(episode.number in torrent.data.episodes for episode in item.episodes):
+                    logger.trace(f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}")
+                    continue
+
+            if item.type == "episode":
+                # Disregard torrents with incorrect episode number logic:
+                skip = False
+                # If the torrent has episodes, but the episode number is not present
+                if torrent.data.episodes:
+                    if item.number not in torrent.data.episodes and item.absolute_number not in torrent.data.episodes:
+                        skip = True
+                # If the torrent does not have episodes, but has seasons, and the parent season is not present
+                elif torrent.data.seasons:
+                    if item.parent.number not in torrent.data.seasons:
+                        skip = True
+                # If the torrent has neither episodes nor seasons, skip (junk)
+                else:
+                    skip = True
+
+                if skip:
+                    logger.trace(f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}")
+                    continue
+
             if torrent.data.country and not item.is_anime:
                 # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
-                if _get_item_country(item) != torrent.data.country:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
+                if torrent.data.country and torrent.data.country not in _get_item_country(item):
+                    logger.trace(f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}")
                     continue
 
             if torrent.data.year and not _check_item_year(item, torrent.data):
                 # If year is present, then check to make sure it's correct
-                if scraping_settings.parse_debug:
-                    logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
+                logger.debug(f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}")
                 continue
 
             if item.is_anime and scraping_settings.dubbed_anime_only:
                 # If anime and user wants dubbed only, then check to make sure it's dubbed
                 if not torrent.data.dubbed:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
-                    continue
-
-            if item.type in ("show", "season"):
-                # if there are episodes, then check to make sure theres multiple
-                if torrent.data.episodes and not len(torrent.data.episodes) > 7:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}")
-                    continue
-
-            if item.type == "show":
-                if not item.is_anime and len(item.seasons) > 1 and not len(torrent.data.seasons) > 1:
-                    if scraping_settings.parse_debug:
-                        logger.debug(f"Skipping torrent with too few seasons for {item.log_string}: {raw_title}")
+                    logger.trace(f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}")
                     continue
 
             torrents.add(torrent)
             processed_infohashes.add(infohash)
         except Exception as e:
-            if scraping_settings.parse_debug and log_msg:
-                logger.debug(f"GarbageTorrent: {e}")
+            if log_msg:
+                logger.trace(f"GarbageTorrent: {e}")
             processed_infohashes.add(infohash)
             continue
 
@@ -119,12 +146,23 @@ def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
     return data.year in [item.aired_at.year - 1, item.aired_at.year, item.aired_at.year + 1]
 
 def _get_item_country(item: MediaItem) -> str:
-    """Get the country code for a country."""
+    """Get the country code for a country.""" 
+    country = ""
+
     if item.type == "season":
-        return item.parent.country.upper()
+        country = item.parent.country.upper()
     elif item.type == "episode":
-        return item.parent.parent.country.upper()
-    return item.country.upper()
+        country = item.parent.parent.country.upper()
+    else:
+        country = item.country.upper()
+
+    # need to normalize
+    if country == "USA":
+        country = "US"
+    elif country == "GB":
+        country = "UK"
+
+    return country
 
 def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
     """Get the stremio identifier for a media item based on its type."""
@@ -142,11 +180,11 @@ def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
 
 def _get_infohash_from_torrent_url(url: str) -> str:
     """Extract the infohash from a torrent URL."""
-    session = create_service_session()
+    session = SmartSession()
     with session.get(url, stream=True) as r:
         r.raise_for_status()
         torrent_data = r.content
         torrent_dict = decode(torrent_data)
-        info = torrent_dict[b'info']
+        info = torrent_dict[b"info"]
         infohash = hashlib.sha1(encode(info)).hexdigest()
     return infohash

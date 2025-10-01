@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -8,12 +8,14 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, select
 
 from program.apis import TraktAPI
+from program.db import db_functions
 from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.services.downloaders import Downloader
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
-from program.db import db_functions
+from program.services.filesystem.filesystem_service import FilesystemService
 
 from ..models.shared import MessageResponse
 
@@ -29,39 +31,78 @@ async def health(request: Request) -> MessageResponse:
     }
 
 
-class RDUser(BaseModel):
-    id: int
-    username: str
-    email: str
-    points: int = Field(description="User's RD points")
-    locale: str
-    avatar: str = Field(description="URL to the user's avatar")
-    type: Literal["free", "premium"]
-    premium: int = Field(description="Premium subscription left in seconds")
+class DownloaderUserInfo(BaseModel):
+    """Normalized downloader user information response"""
+    service: Literal["realdebrid", "torbox", "alldebrid"]
+    username: Optional[str] = None
+    email: Optional[str] = None
+    user_id: int | str
+    premium_status: Literal["free", "premium"]
+    premium_expires_at: Optional[str] = None
+    premium_days_left: Optional[int] = None
+    points: Optional[int] = None
+    total_downloaded_bytes: Optional[int] = None
+    cooldown_until: Optional[str] = None
 
 
-@router.get("/rd", operation_id="rd")
-async def get_rd_user() -> RDUser:
-    api_key = settings_manager.settings.downloaders.real_debrid.api_key
-    headers = {"Authorization": f"Bearer {api_key}"}
+class DownloaderUserInfoResponse(BaseModel):
+    """Response containing user info for all initialized downloader services"""
+    services: list[DownloaderUserInfo]
 
-    proxy = (
-        settings_manager.settings.downloaders.proxy_url
-        if settings_manager.settings.downloaders.proxy_url
-        else None
-    )
 
-    response = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user",
-        headers=headers,
-        proxies=proxy if proxy else None,
-        timeout=10,
-    )
+@router.get("/downloader_user_info", operation_id="download_user_info")
+async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
+    """
+    Get normalized user information from all initialized downloader services.
 
-    if response.status_code != 200:
-        return {"success": False, "message": response.json()}
+    Returns user info including premium status, expiration, and service-specific details
+    for all active downloader services (Real-Debrid, TorBox, AllDebrid, etc.)
+    """
+    try:
+        # Get the downloader service from the program
+        downloader: Downloader = request.app.program.services.get(Downloader)
 
-    return response.json()
+        if not downloader or not downloader.initialized:
+            raise HTTPException(status_code=503, detail="No downloader service is initialized")
+
+        # Get user info from all initialized services
+        services_info = []
+
+        for service in downloader.initialized_services:
+            try:
+                user_info = service.get_user_info()
+
+                if user_info:
+                    # Convert datetime objects to ISO strings for JSON serialization
+                    services_info.append(DownloaderUserInfo(
+                        service=user_info.service,
+                        username=user_info.username,
+                        email=user_info.email,
+                        user_id=user_info.user_id,
+                        premium_status=user_info.premium_status,
+                        premium_expires_at=user_info.premium_expires_at.isoformat() if user_info.premium_expires_at else None,
+                        premium_days_left=user_info.premium_days_left,
+                        points=user_info.points,
+                        total_downloaded_bytes=user_info.total_downloaded_bytes,
+                        cooldown_until=user_info.cooldown_until.isoformat() if user_info.cooldown_until else None,
+                    ))
+                else:
+                    logger.warning(f"Failed to get user info from {service.key}")
+            except Exception as e:
+                logger.error(f"Error getting user info from {service.key}: {e}")
+                # Continue to next service instead of failing completely
+                continue
+
+        if not services_info:
+            raise HTTPException(status_code=500, detail="Failed to retrieve user information from any downloader service")
+
+        return DownloaderUserInfoResponse(services=services_info)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting downloader user info: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/generateapikey", operation_id="generateapikey")
 async def generate_apikey() -> MessageResponse:
@@ -120,7 +161,7 @@ class StatsResponse(BaseModel):
     total_episodes: int
     total_symlinks: int
     incomplete_items: int
-    incomplete_retries: dict[str, int] = Field(
+    incomplete_retries: dict[int, int] = Field(
         description="Media item log string: number of retries"
     )
     states: dict[States, int]
@@ -132,8 +173,8 @@ async def get_stats(_: Request) -> StatsResponse:
     with db.Session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
-            movies_symlinks = conn.execute(select(func.count(Movie.id)).where(Movie.symlinked == True)).scalar_one()
-            episodes_symlinks = conn.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one()
+            movies_symlinks = conn.execute(select(func.count(Movie.id)).where(Movie.filesystem_entry_id.isnot(None))).scalar_one()
+            episodes_symlinks = conn.execute(select(func.count(Episode.id)).where(Episode.filesystem_entry_id.isnot(None))).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
 
             total_movies = conn.execute(select(func.count(Movie.id))).scalar_one()
@@ -198,7 +239,7 @@ async def get_logs() -> LogsResponse:
 
 
 class EventResponse(BaseModel):
-    events: dict[str, list[str]]
+    events: dict[str, list[int]]
 
 @router.get("/events", operation_id="events")
 async def get_events(
@@ -211,11 +252,11 @@ class MountResponse(BaseModel):
     files: dict[str, str]
 
 @router.get("/mount", operation_id="mount")
-async def get_rclone_files() -> MountResponse:
-    """Get all files in the rclone mount."""
+async def get_mount_files() -> MountResponse:
+    """Get all files in the Riven VFS mount."""
     import os
 
-    rclone_dir = settings_manager.settings.symlink.rclone_path
+    mount_dir = str(settings_manager.settings.filesystem.mount_path)
     file_map = {}
 
     def scan_dir(path):
@@ -226,7 +267,7 @@ async def get_rclone_files() -> MountResponse:
                 elif entry.is_dir():
                     scan_dir(entry.path)
 
-    scan_dir(rclone_dir)  # dict of `filename: filepath``
+    scan_dir(mount_dir)  # dict of `filename: filepath``
     return MountResponse(files=file_map)
 
 
@@ -253,7 +294,7 @@ async def upload_logs() -> UploadLogsResponse:
 
         response = requests.post(
             "https://paste.c-net.org/",
-            data=log_contents.encode('utf-8'),
+            data=log_contents.encode("utf-8"),
             headers={"Content-Type": "text/plain"}
         )
 
@@ -283,3 +324,15 @@ async def fetch_calendar(_: Request) -> CalendarResponse:
         return CalendarResponse(
             data=db_functions.create_calendar(session)
         )
+
+class VFSStatsResponse(BaseModel):
+    stats: dict[str, dict] = Field(description="VFS statistics")
+
+@router.get(
+    "/vfs_stats",
+    summary="Get VFS Statistics",
+    description="Get statistics about the VFS",
+    operation_id="get_vfs_stats",
+)
+async def get_vfs_stats(request: Request) -> VFSStatsResponse:
+    return VFSStatsResponse(stats=request.app.program.services[FilesystemService].riven_vfs._opener_stats)

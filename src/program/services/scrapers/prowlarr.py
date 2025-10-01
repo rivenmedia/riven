@@ -1,10 +1,9 @@
 """ Prowlarr scraper module """
 
 import concurrent.futures
-import queue
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict
 
 import regex
 from loguru import logger
@@ -12,15 +11,9 @@ from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import ScraperRequestHandler, _get_infohash_from_torrent_url
+from program.services.scrapers.shared import _get_infohash_from_torrent_url
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    HttpMethod,
-    RateLimitExceeded,
-    get_http_adapter,
-    get_rate_limit_params,
-    create_service_session
-)
+from program.utils.request import SmartSession
 
 
 class SearchParams(BaseModel):
@@ -62,19 +55,20 @@ class Prowlarr:
             "X-Api-Key": self.api_key,
         }
         self.timeout = self.settings.timeout
-        self.request_handler = None
-        self.indexer_handler = None
+        self.session = None
         self.last_indexer_scan = None
         self.initialized = self.validate()
         if not self.initialized and not self.api_key:
             return
         logger.success("Prowlarr initialized!")
 
-    def _create_session(self, pool_connections: int = 1, pool_maxsize: int = 1) -> ScraperRequestHandler:
-        rate_limit_params = get_rate_limit_params(max_calls=1, period=self.settings.limiter_seconds) if self.settings.ratelimit else None
-        http_adapter = get_http_adapter(pool_connections=pool_connections, pool_maxsize=pool_maxsize)
-        session = create_service_session(rate_limit_params=rate_limit_params, session_adapter=http_adapter)
-        return ScraperRequestHandler(session)
+    def _create_session(self) -> SmartSession:
+        """Create a session for Prowlarr"""
+        return SmartSession(
+            base_url=f"{self.settings.url.rstrip('/')}/api/v1",
+            retries=3,
+            backoff_factor=0.3
+        )
 
     def validate(self) -> bool:
         """Validate Prowlarr settings."""
@@ -89,9 +83,8 @@ class Prowlarr:
                 if not isinstance(self.settings.ratelimit, bool):
                     logger.error("Prowlarr ratelimit must be a valid boolean.")
                     return False
-                self.indexer_handler = self._create_session()
+                self.session = self._create_session()
                 self.indexers = self.get_indexers()
-                self.request_handler = self._create_session(pool_connections=len(self.indexers), pool_maxsize=len(self.indexers))
                 if not self.indexers:
                     logger.error("No Prowlarr indexers configured.")
                     return False
@@ -106,8 +99,8 @@ class Prowlarr:
         return False
 
     def get_indexers(self) -> list[Indexer]:
-        statuses = self.indexer_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexerstatus", timeout=15, headers=self.headers)
-        response = self.indexer_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/indexer", timeout=15, headers=self.headers)
+        statuses = self.session.get("/indexerstatus", timeout=15, headers=self.headers)
+        response = self.session.get("/indexer", timeout=15, headers=self.headers)
         data = response.data
         statuses = statuses.data
         indexers = []
@@ -116,7 +109,7 @@ class Prowlarr:
             if statuses:
                 status = next((x for x in statuses if x.indexerId == id), None)
                 if status and status.disabledTill > datetime.now().isoformat():
-                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime('%Y-%m-%d %H:%M')
+                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime("%Y-%m-%d %H:%M")
                     logger.debug(f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping")
                     continue
 
@@ -198,12 +191,13 @@ class Prowlarr:
 
         try:
             return self.scrape(item)
-        except RateLimitExceeded:
-            logger.debug(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
-        except RequestException as e:
-            logger.error(f"Prowlarr request exception: {e}")
         except Exception as e:
-            logger.exception(f"Prowlarr failed to scrape item with error: {e}")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                logger.debug(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
+            elif isinstance(e, RequestException):
+                logger.error(f"Prowlarr request exception: {e}")
+            else:
+                logger.exception(f"Prowlarr failed to scrape item with error: {e}")
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
@@ -317,8 +311,8 @@ class Prowlarr:
             return {}
 
         start_time = time.time()
-        response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/api/v1/search", params=params, timeout=self.timeout, headers=self.headers)
-        if not response.is_ok:
+        response = self.session.get("/search", params=params, timeout=self.timeout, headers=self.headers)
+        if not response.ok:
             message = response.data.message or "Unknown error"
             logger.debug(f"Failed to scrape {indexer.name}: [{response.status_code}] {message}")
             self.indexers.remove(indexer)
@@ -327,22 +321,26 @@ class Prowlarr:
 
         data = response.data
         streams = {}
+
         for torrent in data:
             title = torrent.title
             infohash = torrent.infoHash if hasattr(torrent, "infoHash") else None
             guid = torrent.guid if hasattr(torrent, "guid") else None
+
             if not infohash and not guid:
                 continue
+
             if not infohash and guid and not guid.endswith(".torrent"):
                 infohash = INFOHASH_PATTERN.search(guid)
                 if infohash:
                     infohash = infohash.group(1).lower()
                 else:
                     continue
+
             if not infohash and guid and guid.endswith(".torrent"):
                 try:
                     infohash = _get_infohash_from_torrent_url(url=guid)
-                    if not infohash or not len(infohash) == 40:
+                    if not infohash or len(infohash) != 40:
                         continue
                     infohash = infohash.lower()
                 except Exception:

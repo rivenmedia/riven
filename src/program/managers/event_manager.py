@@ -1,21 +1,20 @@
-import os
 import threading
 import traceback
-import sqlalchemy.orm
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+import sqlalchemy.orm
 from loguru import logger
 from pydantic import BaseModel
 
 from program.db import db_functions
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
-from program.types import Event
 from program.media.item import MediaItem
+from program.types import Event
 
 
 class EventUpdate(BaseModel):
@@ -90,6 +89,8 @@ class EventManager:
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
+            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
+            # self.remove_event_from_queue(future.event)
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"
@@ -121,6 +122,10 @@ class EventManager:
                     if item.is_parent_blocked():
                         logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
                         return
+
+                    # Cache the item state in the event for efficient priority sorting
+                    if item and item.last_state:
+                        event.item_state = item.last_state.name
 
             self._queued_events.append(event)
             if log_message:
@@ -247,13 +252,28 @@ class EventManager:
                             except Exception as e:
                                 if not suppress_logs:
                                     logger.error(f"Error cancelling future for {fid}: {str(e)}")
+            
+            for fid in ids_to_cancel:
+                self.remove_id_from_queues(fid)
 
     def next(self) -> Event:
         """
-        Get the next event in the queue with an optional timeout.
+        Get the next event in the queue, prioritizing items closest to completion.
+
+        Priority order (highest to lowest):
+        0. Items in Completed state (closest to completion)
+        1. Items in Symlinked state
+        2. Items in Downloaded state
+        3. Items in Scraped state
+        4. Items in Indexed state
+        5. All other states
+
+        Within each priority level, events are sorted by run_at timestamp.
+
+        Performance: Uses cached item_state from Event object to avoid database queries.
 
         Raises:
-            Empty: If the queue is empty.
+            Empty: If the queue is empty or no events are ready to run.
 
         Returns:
             Event: The next event in the queue.
@@ -261,10 +281,44 @@ class EventManager:
         while True:
             if self._queued_events:
                 with self.mutex:
-                    self._queued_events.sort(key=lambda event: event.run_at)
-                    if self._queued_events and datetime.now() >= self._queued_events[0].run_at:
-                        event = self._queued_events.pop(0)
-                        return event
+                    now = datetime.now()
+
+                    # Filter events that are ready to run (run_at <= now)
+                    ready_events = [event for event in self._queued_events if event.run_at <= now]
+
+                    if not ready_events:
+                        raise Empty
+
+                    # Define state priority (lower number = higher priority)
+                    state_priority = {
+                        "Completed": 0,
+                        "PartiallyCompleted": 1,
+                        "Symlinked": 2,
+                        "Downloaded": 3,
+                        "Scraped": 4,
+                        "Indexed": 5,
+                    }
+
+                    def get_event_priority(event: Event) -> tuple:
+                        """
+                        Returns a tuple for sorting: (state_priority, run_at)
+                        Items with higher priority states come first, then sorted by run_at.
+                        Uses cached item_state to avoid database queries.
+                        """
+                        if event.item_state:
+                            priority = state_priority.get(event.item_state, 999)
+                            return (priority, event.run_at)
+
+                        # Default priority for items without state or content-only events
+                        return (0, event.run_at)
+
+                    # Sort by priority (state first, then run_at)
+                    ready_events.sort(key=get_event_priority)
+
+                    # Get the highest priority event
+                    event = ready_events[0]
+                    self._queued_events.remove(event)
+                    return event
             raise Empty
 
     def _id_in_queue(self, _id: str) -> bool:
@@ -295,11 +349,13 @@ class EventManager:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
-        Args:
-            event (Event): The event to add to the queue.
+        - If the event has a DB-backed item_id, we keep your existing parent/child
+        dedupe logic based on item_id + related ids.
+        - If the event is content-only (no item_id), we now dedupe using *all* known ids
+        (tmdb/tvdb/imdb) against both queued and running events with a single-pass check.
 
         Returns:
-            bool: True if the event was added to the queue, False if it was already present.
+            True if queued; False if deduped away.
         """
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
@@ -316,12 +372,15 @@ class EventManager:
                     logger.debug(f"Child of Item ID {item_id} is already in the queue or running, skipping.")
                     return False
         else:
-            imdb_id = event.content_item.imdb_id
-            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._queued_events):
-                logger.debug(f"Content Item with IMDB ID {imdb_id} is already in queue, skipping.")
+            # Content-only
+            ci: Optional[MediaItem] = getattr(event, "content_item", None)
+            if ci is None:
+                logger.debug("Event has neither item_id nor content_item; skipping.")
                 return False
-            if any(event.content_item and event.content_item.imdb_id == imdb_id for event in self._running_events):
-                logger.debug(f"Content Item with IMDB ID {imdb_id} is already running, skipping.")
+
+            # Single-pass checks: queued and running
+            if self.item_exists_in_queue(ci, self._queued_events) or self.item_exists_in_queue(ci, self._running_events):
+                logger.debug(f"Content Item with {ci.log_string} is already queued or running, skipping.")
                 return False
 
         self.add_event_to_queue(event)
@@ -334,11 +393,11 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        # For now lets just support imdb_ids...
-        if not db_functions.get_item_by_external_id(imdb_id=item.imdb_id):
+        if not db_functions.item_exists_by_any_id(item.id, item.tvdb_id, item.tmdb_id, item.imdb_id):
             if self.add_event(Event(service, content_item=item)):
-                logger.debug(f"Added item with IMDB ID {item.imdb_id} to the queue.")
-
+                logger.debug(f"Added item with {item.log_string} to the queue.")
+                return True
+        return False
 
     def get_event_updates(self) -> Dict[str, List[str]]:
         """
@@ -357,3 +416,43 @@ class EventManager:
                 table.append(event.item_id)
 
         return updates
+
+    def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
+        """
+        Check in a single pass whether any of the item's identifying ids (id, tmdb_id,
+        tvdb_id, imdb_id) is already represented in the given event queue.
+
+        This avoids building temporary sets (lower allocs) and returns early on first match.
+        Worst-case O(n), typically faster in practice.
+
+        Args:
+            item: The media item to check. Only non-None ids are considered.
+            queue: The event list to search.
+
+        Returns:
+            True if a match is found; otherwise False.
+        """
+        item_id: Optional[str] = getattr(item, "id", None)
+        tmdb_id: Optional[str] = getattr(item, "tmdb_id", None)
+        tvdb_id: Optional[str] = getattr(item, "tvdb_id", None)
+        imdb_id: Optional[str] = getattr(item, "imdb_id", None)
+
+        if not (item_id or tmdb_id or tvdb_id or imdb_id):
+            return False
+
+        for ev in queue:
+            if item_id is not None and getattr(ev, "item_id", None) == item_id:
+                return True
+
+            ci = getattr(ev, "content_item", None)
+            if ci is None:
+                continue
+
+            if tmdb_id is not None and getattr(ci, "tmdb_id", None) == tmdb_id:
+                return True
+            if tvdb_id is not None and getattr(ci, "tvdb_id", None) == tvdb_id:
+                return True
+            if imdb_id is not None and getattr(ci, "imdb_id", None) == imdb_id:
+                return True
+
+        return False

@@ -56,10 +56,12 @@ def vacuum_and_analyze_index_maintenance() -> None:
     except Exception as e:
         logger.error(f"Error during VACUUM and ANALYZE: {e}")
 
-def run_migrations():
+def run_migrations(database_url=None):
     """Run any pending migrations on startup"""
     try:
         alembic_cfg = Config(root_dir / "src" / "alembic.ini")
+        if database_url:
+            alembic_cfg.set_main_option("sqlalchemy.url", database_url)
         command.upgrade(alembic_cfg, "head")
     except Exception as e:
         logger.error(f"Migration failed: {e}")

@@ -1,7 +1,7 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from RTN.models import SettingsModel
@@ -50,11 +50,6 @@ class RealDebridModel(Observable):
     api_key: str = ""
 
 
-class AllDebridModel(Observable):
-    enabled: bool = False
-    api_key: str = ""
-
-
 class TorBoxModel(Observable):
     enabled: bool = False
     api_key: str = ""
@@ -68,20 +63,22 @@ class DownloadersModel(Observable):
     episode_filesize_mb_max: int = -1  # -1 is no limit
     proxy_url: str = ""
     real_debrid: RealDebridModel = RealDebridModel()
-    all_debrid: AllDebridModel = AllDebridModel()
     torbox: TorBoxModel = TorBoxModel()
 
 
-# Symlink Service
+# Filesystem Service
 
 
-class SymlinkModel(Observable):
-    rclone_path: Path = Path()
-    library_path: Path = Path()
+class FilesystemModel(Observable):
+    mount_path: Path = Path("/path/to/riven/mount")
     separate_anime_dirs: bool = False
-    repair_symlinks: bool = False
-    repair_interval: float = 6  # hours
-
+    cache_dir: Path = Path("/dev/shm/riven-cache")
+    cache_max_size_mb: int = 10240   # 10 GiB
+    cache_ttl_seconds: int = 2 * 60 * 60
+    cache_eviction: str = "LRU"  # LRU|TTL
+    cache_metrics: bool = True
+    chunk_size_mb: int = 8  # size of a single fetch chunk (MB)
+    fetch_ahead_chunks: int = 4  # how many MB to fetch ahead
 
 # Content Services
 
@@ -119,6 +116,7 @@ class EmbyLibraryModel(Observable):
 
 class UpdatersModel(Observable):
     updater_interval: int = 120
+    library_path: Path = Path("/path/to/library/mount")
     plex: PlexLibraryModel = PlexLibraryModel()
     jellyfin: JellyfinLibraryModel = JellyfinLibraryModel()
     emby: EmbyLibraryModel = EmbyLibraryModel()
@@ -197,16 +195,8 @@ class TorrentioConfig(Observable):
     filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
     url: str = "http://torrentio.strem.fun"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
-    proxy_url: str = ""
-
-
-class KnightcrawlerConfig(Observable):
-    enabled: bool = False
-    filter: str = "sort=qualitysize%7Cqualityfilter=480p,scr,cam"
-    url: str = "https://knightcrawler.elfhosted.com"
-    timeout: int = 30
     ratelimit: bool = True
+    proxy_url: str = ""
 
 
 class CometConfig(Observable):
@@ -220,7 +210,7 @@ class ZileanConfig(Observable):
     enabled: bool = False
     url: str = "http://localhost:8181"
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class MediafusionConfig(Observable):
@@ -235,12 +225,12 @@ class OrionoidConfig(Observable):
     api_key: str = ""
     cached_results_only: bool = False
     parameters: dict[str, Any] = {
-        "video3d": "false",
+        "video3d": False,
         "videoquality": "sd_hd8k",
         "limitcount": 5,
     }
     timeout: int = 30
-    ratelimit: bool = Field(default=True, deprecated=deprecation_warning)
+    ratelimit: bool = True
 
 
 class JackettConfig(Observable):
@@ -260,23 +250,29 @@ class ProwlarrConfig(Observable):
     limiter_seconds: int = 60
 
 
+class RarbgConfig(Observable):
+    enabled: bool = False
+    url: str = "https://therarbg.to"
+    timeout: int = 30
+    ratelimit: bool = True
+
+
 class ScraperModel(Observable):
     after_2: float = 2
     after_5: float = 6
     after_10: float = 24
-    parse_debug: bool = False
     enable_aliases: bool = True
     bucket_limit: int = Field(default=5, ge=0, le=20)
     max_failed_attempts: int = Field(default=0, ge=0, le=10)
     dubbed_anime_only: bool = False
     torrentio: TorrentioConfig = TorrentioConfig()
-    knightcrawler: KnightcrawlerConfig = KnightcrawlerConfig()
     jackett: JackettConfig = JackettConfig()
     prowlarr: ProwlarrConfig = ProwlarrConfig()
     orionoid: OrionoidConfig = OrionoidConfig()
     mediafusion: MediafusionConfig = MediafusionConfig()
     zilean: ZileanConfig = ZileanConfig()
     comet: CometConfig = CometConfig()
+    rarbg: RarbgConfig = RarbgConfig()
 
 
 # Version Ranking Model (set application defaults here!)
@@ -318,13 +314,9 @@ class PostProcessing(Observable):
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
-    debug: bool = True
-    debug_database: bool = False
-    log: bool = True
-    force_refresh: bool = False
-    map_metadata: bool = True
+    debug: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     tracemalloc: bool = False
-    symlink: SymlinkModel = SymlinkModel()
+    filesystem: FilesystemModel = FilesystemModel()
     updaters: UpdatersModel = UpdatersModel()
     downloaders: DownloadersModel = DownloadersModel()
     content: ContentModel = ContentModel()
@@ -334,6 +326,14 @@ class AppModel(Observable):
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
+
+    @field_validator("debug", mode="before")
+    def check_debug(cls, v):
+        if v == True:
+            return "DEBUG"
+        elif v == False:
+            return "INFO"
+        return v
 
     def __init__(self, **data: Any):
         current_version = get_version()

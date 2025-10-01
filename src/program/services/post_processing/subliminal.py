@@ -1,4 +1,3 @@
-import os
 import pathlib
 
 from babelfish import Language
@@ -48,38 +47,30 @@ class Subliminal:
     def enabled(self):
         return self.settings.enabled
 
-    def scan_files_and_download(self):
-        # Do we want this?
-        pass
-        # videos = _scan_videos(settings_manager.settings.symlink.library_path)
-        # subtitles = download_best_subtitles(videos, {Language("eng")})
-        # for video, subtitle in subtitles.items():
-        #     original_name = video.name
-        #     video.name = pathlib.Path(video.symlink)
-        #     saved = save_subtitles(video, subtitle)
-        #     video.name = original_name
-        #     for subtitle in saved:
-        #         logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(video.symlink).stem}")
-
     def get_subtitles(self, item):
         if item.type in ["movie", "episode"]:
-            real_name = pathlib.Path(item.symlink_path).resolve().name
+            # Get the original filename, handling both symlinks and VFS
+            real_name = self._get_original_filename(item)
             try:
                 video = Video.fromname(real_name)
-                video.symlink_path = item.symlink_path
-                video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, pathlib.Path(item.symlink_path).parent)
+                video.vfs_path = item.mounted_vfs_path
+                video.subtitle_languages = get_existing_subtitles(pathlib.Path(item.mounted_vfs_path).stem, pathlib.Path(item.mounted_vfs_path).parent)
                 return video, self.pool.download_best_subtitles(self.pool.list_subtitles(video, self.languages), video, self.languages)
             except ValueError:
                 logger.error(f"Could not parse video name: {real_name}")
         return {}
 
+    def _get_original_filename(self, item) -> str:
+        """Get the original filename for an item using FilesystemEntry"""
+        return item.filesystem_entry.get_original_filename()
+
     def save_subtitles(self, video, subtitles, item):
         for subtitle in subtitles:
             original_name = video.name
-            video.name = pathlib.Path(video.symlink_path)
+            video.name = pathlib.Path(video.vfs_path)
             saved = save_subtitles(video, [subtitle])
             for subtitle in saved:
-                logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(item.symlink_path).stem}")
+                logger.info(f"Downloaded ({subtitle.language}) subtitle for {pathlib.Path(item.mounted_vfs_path).stem}")
             video.name = original_name
 
 
@@ -96,8 +87,8 @@ class Subliminal:
 
 
     def update_item(self, item):
-        folder = pathlib.Path(item.symlink_path).parent
-        subs = get_existing_subtitles(pathlib.Path(item.symlink_path).stem, folder)
+        folder = pathlib.Path(item.mounted_vfs_path).parent
+        subs = get_existing_subtitles(pathlib.Path(item.mounted_vfs_path).stem, folder)
         for lang in subs:
             key = str(lang)
             for subtitle in item.subtitles:
@@ -107,27 +98,6 @@ class Subliminal:
 
     def should_submit(item):
         return item.type in ["movie", "episode"] and not any(subtitle.file is not None for subtitle in item.subtitles)
-
-def _scan_videos(directory):
-    """
-    Scan the given directory recursively for video files.
-
-    :param directory: Path to the directory to scan
-    :return: List of Video objects
-    """
-    videos = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith((".mp4", ".mkv", ".avi", ".mov", ".wmv")):
-                video_path = os.path.join(root, file)
-                video_name = pathlib.Path(video_path).resolve().name
-                video = Video.fromname(video_name)
-                video.symlink = pathlib.Path(video_path)
-
-                # Scan for subtitle files
-                video.subtitle_languages = get_existing_subtitles(video.symlink.stem, pathlib.Path(root))
-                videos.append(video)
-    return videos
 
 def create_language_from_string(lang: str) -> Language:
     try:

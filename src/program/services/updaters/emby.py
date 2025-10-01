@@ -1,42 +1,22 @@
 """Emby Updater module"""
-from types import SimpleNamespace
-from typing import Generator, Optional, Type
-
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.services.updaters.base import BaseUpdater
 from program.settings.manager import settings_manager
-from program.utils.request import (
-    BaseRequestHandler,
-    HttpMethod,
-    ResponseObject,
-    ResponseType,
-    Session,
-    create_service_session,
-)
+from program.utils.request import SmartSession
 
 
-class EmbyRequestHandler(BaseRequestHandler):
-    def __init__(self, session: Session, response_type=ResponseType.SIMPLE_NAMESPACE, custom_exception: Optional[Type[Exception]] = None, request_logging: bool = False):
-        super().__init__(session, response_type=response_type, custom_exception=custom_exception, request_logging=request_logging)
+class EmbyUpdater(BaseUpdater):
+    """Emby media server updater implementation"""
 
-    def execute(self, method: HttpMethod, endpoint: str, **kwargs) -> ResponseObject:
-        return super()._request(method, endpoint, **kwargs)
-
-class EmbyUpdater:
     def __init__(self):
-        self.key = "emby"
-        self.initialized = False
+        super().__init__("Emby")
         self.settings = settings_manager.settings.updaters.emby
-        session = create_service_session()
-        self.request_handler = EmbyRequestHandler(session)
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Emby Updater initialized!")
+        self.session = SmartSession(retries=3, backoff_factor=0.3)
+        self._initialize()
 
     def validate(self) -> bool:
-        """Validate Emby library"""
+        """Validate Emby configuration and connectivity"""
         if not self.settings.enabled:
             return False
         if not self.settings.api_key:
@@ -46,76 +26,22 @@ class EmbyUpdater:
             logger.error("Emby URL is not set!")
             return False
         try:
-            response = self.request_handler.execute(HttpMethod.GET, f"{self.settings.url}/Users?api_key={self.settings.api_key}")
-            if response.is_ok:
-                self.initialized = True
+            response = self.session.get(f"{self.settings.url}/Users?api_key={self.settings.api_key}")
+            if response.ok:
                 return True
         except Exception as e:
             logger.exception(f"Emby exception thrown: {e}")
         return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Update Emby library for a single item or a season with its episodes"""
-        items_to_update = []
-
-        if item.type in ["movie", "episode"]:
-            items_to_update = [item]
-        elif item.type == "show":
-            for season in item.seasons:
-                items_to_update += [e for e in season.episodes if e.symlinked and e.update_folder != "updated"]
-        elif item.type == "season":
-            items_to_update = [e for e in item.episodes if e.symlinked and e.update_folder != "updated"]
-
-        if not items_to_update:
-            logger.debug(f"No items to update for {item.log_string}")
-            return
-
-        updated = False
-        updated_episodes = []
-
-        for item_to_update in items_to_update:
-            if self.update_item(item_to_update):
-                updated_episodes.append(item_to_update)
-                updated = True
-
-        if updated:
-            if item.type in ["show", "season"]:
-                if len(updated_episodes) == len(items_to_update):
-                    logger.log("EMBY", f"Updated all episodes for {item.log_string}")
-                else:
-                    updated_episodes_log = ", ".join([str(ep.number) for ep in updated_episodes])
-                    logger.log("EMBY", f"Updated episodes {updated_episodes_log} in {item.log_string}")
-            else:
-                logger.log("EMBY", f"Updated {item.log_string}")
-
-        yield item
-
-
-    def update_item(self, item: MediaItem) -> bool:
-        """Update the Emby item"""
-        if item.symlinked and item.update_folder != "updated" and item.symlink_path:
-            try:
-                response = self.request_handler.execute(HttpMethod.POST,
-                    f"{self.settings.url}/Library/Media/Updated",
-                    json={"Updates": [{"Path": item.symlink_path, "UpdateType": "Created"}]},
-                    params={"api_key": self.settings.api_key},
-                )
-                if response.is_ok:
-                    return True
-            except Exception as e:
-                logger.error(f"Failed to update Emby item: {e}")
-        return False
-
-    # not needed to update, but maybe useful in the future?
-    def get_libraries(self) -> list[SimpleNamespace]:
-        """Get the libraries from Emby"""
+    def refresh_path(self, path: str) -> bool:
+        """Refresh a specific path in Emby"""
         try:
-            response = self.request_handler.execute(HttpMethod.GET,
-                f"{self.settings.url}/Library/VirtualFolders",
+            response = self.session.post(
+                f"{self.settings.url}/Library/Media/Updated",
+                json={"Updates": [{"Path": path, "UpdateType": "Created"}]},
                 params={"api_key": self.settings.api_key},
             )
-            if response.is_ok and response.data:
-                return response.data
+            return response.ok
         except Exception as e:
-            logger.error(f"Failed to get Emby libraries: {e}")
-        return []
+            logger.error(f"Failed to refresh Emby path {path}: {e}")
+            return False

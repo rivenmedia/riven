@@ -59,7 +59,7 @@ async def get_settings(paths: str) -> dict[str, Any]:
 
         for k in keys:
             if k not in current_obj:
-                return None
+                continue
             current_obj = current_obj[k]
 
         data[path] = current_obj

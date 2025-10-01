@@ -2,10 +2,7 @@ import argparse
 
 from program.db.db_functions import (
     hard_reset_database,
-    hard_reset_database_pre_migration,
 )
-from program.services.libraries.symlink import fix_broken_symlinks
-from program.settings.manager import settings_manager
 from program.utils.logging import log_cleaner, logger
 
 
@@ -22,19 +19,9 @@ def handle_args():
         help="Hard reset the database.",
     )
     parser.add_argument(
-        "--hard_reset_db_pre_migration",
-        action="store_true",
-        help="Hard reset the database.",
-    )
-    parser.add_argument(
         "--clean_logs",
         action="store_true",
         help="Clean old logs.",
-    )
-    parser.add_argument(
-        "--fix_symlinks",
-        action="store_true",
-        help="Fix broken symlinks.",
     )
     parser.add_argument(
         "-p", "--port",
@@ -50,18 +37,9 @@ def handle_args():
         logger.info("Hard reset the database")
         exit(0)
 
-    if args.hard_reset_db_pre_migration:
-        hard_reset_database_pre_migration()
-        logger.info("Hard reset the database")
-        exit(0)
-
     if args.clean_logs:
         log_cleaner()
         logger.info("Cleaned old logs.")
-        exit(0)
-
-    if args.fix_symlinks:
-        fix_broken_symlinks(settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path)
         exit(0)
 
     return args

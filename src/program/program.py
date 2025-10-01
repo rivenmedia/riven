@@ -6,12 +6,12 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from kink import di
 from rich.live import Live
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
 from program.services.content import (
     Listrr,
     Mdblist,
@@ -20,9 +20,7 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import Downloader
-from program.services.indexers.trakt import TraktIndexer
-from program.services.libraries import SymlinkLibrary
-from program.services.libraries.symlink import fix_broken_symlinks
+from program.services.indexers import IndexerService, TMDBIndexer, TVDBIndexer
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
@@ -30,16 +28,16 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import create_progress_bar, log_cleaner, logger
-from program.utils.request import RateLimitExceeded
 
 from .state_transition import process_event
-from .symlink import Symlinker
+from .services.filesystem import FilesystemService
 from .types import Event
 
 if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from program.db import db_functions
 from program.db.db import (
@@ -78,21 +76,28 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
 
+        tmdb_indexer = TMDBIndexer()
+        tvdb_indexer = TVDBIndexer()
+        di[TMDBIndexer] = tmdb_indexer
+        di[TVDBIndexer] = tvdb_indexer
+        composite_indexer = IndexerService()
+
+        # Instantiate services fresh on each settings change; settings_manager observers handle reinit
+        _downloader = Downloader()
         self.services = {
-            TraktIndexer: TraktIndexer(),
+            IndexerService: composite_indexer,
             Scraping: Scraping(),
-            Symlinker: Symlinker(),
             Updater: Updater(),
-            Downloader: Downloader(),
-            # Depends on Symlinker having created the file structure so needs
-            # to run after it
-            SymlinkLibrary: SymlinkLibrary(),
+            Downloader: _downloader,
+            FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
         }
 
         self.all_services = {
             **self.requesting_services,
-            **self.services
+            **self.services,
+            TMDBIndexer: tmdb_indexer,
+            TVDBIndexer: tvdb_indexer,
         }
 
         if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
@@ -101,6 +106,8 @@ class Program(threading.Thread):
             logger.error("No Scraping service initialized, you must enable at least one.")
         if not self.services[Downloader].initialized:
             logger.error("No Downloader service initialized, you must enable at least one.")
+        if not self.services[FilesystemService].initialized:
+            logger.error("Filesystem service failed to initialize, check your settings.")
         if not self.services[Updater].initialized:
             logger.error("No Updater service initialized, you must enable at least one.")
 
@@ -135,12 +142,6 @@ class Program(threading.Thread):
             settings_manager.save()
 
         self.initialize_apis()
-        self.initialize_services()
-
-        max_worker_env_vars = [var for var in os.environ if var.endswith("_MAX_WORKERS")]
-        if max_worker_env_vars:
-            for var in max_worker_env_vars:
-                logger.log("PROGRAM", f"{var} is set to {os.environ[var]} workers")
 
         if not self.validate():
             logger.log("PROGRAM", "----------------------------------------------")
@@ -159,23 +160,26 @@ class Program(threading.Thread):
             logger.success("Database created successfully")
 
         run_migrations()
-        self._init_db_from_symlinks()
+
+        # Initialize services AFTER database schema is ready
+        self.initialize_services()
 
         with db.Session() as session:
-            movies_symlinks = session.execute(select(func.count(Movie.id)).where(Movie.symlinked == True)).scalar_one() # noqa
-            episodes_symlinks = session.execute(select(func.count(Episode.id)).where(Episode.symlinked == True)).scalar_one() # noqa
-            total_symlinks = movies_symlinks + episodes_symlinks
+            # Count items with filesystem entries
+            movies_with_fs = session.execute(select(func.count(Movie.id)).where(Movie.filesystem_entry_id.is_not(None))).scalar_one()
+            episodes_with_fs = session.execute(select(func.count(Episode.id)).where(Episode.filesystem_entry_id.is_not(None))).scalar_one()
+            total_with_fs = movies_with_fs + episodes_with_fs
             total_movies = session.execute(select(func.count(Movie.id))).scalar_one()
             total_shows = session.execute(select(func.count(Show.id))).scalar_one()
             total_seasons = session.execute(select(func.count(Season.id))).scalar_one()
             total_episodes = session.execute(select(func.count(Episode.id))).scalar_one()
             total_items = session.execute(select(func.count(MediaItem.id))).scalar_one()
 
-            logger.log("ITEM", f"Movies: {total_movies} (Symlinks: {movies_symlinks})")
+            logger.log("ITEM", f"Movies: {total_movies} (With filesystem: {movies_with_fs})")
             logger.log("ITEM", f"Shows: {total_shows}")
             logger.log("ITEM", f"Seasons: {total_seasons}")
-            logger.log("ITEM", f"Episodes: {total_episodes} (Symlinks: {episodes_symlinks})")
-            logger.log("ITEM", f"Total Items: {total_items} (Symlinks: {total_symlinks})")
+            logger.log("ITEM", f"Episodes: {total_episodes} (With filesystem: {episodes_with_fs})")
+            logger.log("ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})")
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
@@ -197,36 +201,41 @@ class Program(threading.Thread):
             if item_ids:
                 logger.log("PROGRAM", f"Successfully retried {len(item_ids)} incomplete items")
             else:
-                logger.log("PROGRAM", "No items required retrying")
+                logger.log("NOT_FOUND", "No items required retrying")
 
     def _update_ongoing(self) -> None:
         """Update state for ongoing and unreleased items."""
         with db.Session() as session:
             updated_items = db_functions.update_ongoing(session)
-            for item_id, previous_state, new_state in updated_items:
+            for item_id in updated_items:
                 self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
-                logger.debug(f"Updated state for item {item_id} from {previous_state} to {new_state}")
 
             if updated_items:
                 logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
             else:
-                logger.log("PROGRAM", "No items required state updates")
+                logger.log("NOT_FOUND", "No ongoing items required state updates")
+
+    def _update_new_releases(self) -> None:
+        """Update state for new releases."""
+        with db.Session() as session:
+            changed_items = db_functions.update_new_releases(session, update_type="episodes", hours=24)
+            for item_id in changed_items:
+                self.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
+            
+            if changed_items:
+                logger.log("PROGRAM", f"Successfully fetched {len(changed_items)} new releases")
+            else:
+                logger.log("NOT_FOUND", "No new releases found")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             self._update_ongoing: {"interval": 60 * 60 * 4},
             self._retry_library: {"interval": 60 * 60 * 24},
+            self._update_new_releases: {"interval": 60 * 60},
             log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
-
-        if settings_manager.settings.symlink.repair_symlinks:
-            scheduled_functions[fix_broken_symlinks] = {
-                "interval": 60 * 60 * settings_manager.settings.symlink.repair_interval,
-                "args": [settings_manager.settings.symlink.library_path, settings_manager.settings.symlink.rclone_path]
-            }
-            # logger.warning("Symlink repair is disabled, this will be re-enabled in the future.")
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -244,10 +253,26 @@ class Program(threading.Thread):
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
-        scheduled_services = {**self.requesting_services, SymlinkLibrary: self.services[SymlinkLibrary]}
+        scheduled_services = {**self.requesting_services}
         for service_cls, service_instance in scheduled_services.items():
             if not service_instance.initialized:
                 continue
+
+            # If the service supports webhooks and webhook mode is enabled, run it once now and do not schedule periodically
+            use_webhook = getattr(getattr(service_instance, "settings", object()), "use_webhook", False)
+            if use_webhook:
+                self.scheduler.add_job(
+                    self.em.submit_job,
+                    "date",
+                    run_date=datetime.now(),
+                    args=[service_cls, self],
+                    id=f"{service_cls.__name__}_update_once",
+                    replace_existing=True,
+                    misfire_grace_time=30,
+                )
+                logger.debug(f"Scheduled {service_cls.__name__} to run once (webhook mode enabled).")
+                continue
+
             if not (update_interval := getattr(service_instance.settings, "update_interval", False)):
                 continue
 
@@ -259,7 +284,7 @@ class Program(threading.Thread):
                 id=f"{service_cls.__name__}_update",
                 max_instances=1,
                 replace_existing=True,
-                next_run_time=datetime.now() if service_cls != SymlinkLibrary else None,
+                next_run_time=datetime.now(),
                 coalesce=False,
             )
             logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
@@ -340,118 +365,15 @@ class Program(threading.Thread):
                     executor["_executor"].shutdown(wait=False)
         if hasattr(self, "scheduler") and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+
+        self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")
 
     def _enhance_item(self, item: MediaItem) -> MediaItem | None:
         try:
-            enhanced_item = next(self.services[TraktIndexer].run(item, log_msg=False))
+            enhanced_item = next(self.services[IndexerService].run(item, log_msg=False))
             return enhanced_item
         except StopIteration:
             return None
 
-    def _init_db_from_symlinks(self):
-        """Initialize the database from symlinks."""
-        start_time = datetime.now()
-        with db.Session() as session:
-            # Check if database is empty
-            if not session.execute(select(func.count(MediaItem.id))).scalar_one():
-                if not settings_manager.settings.map_metadata:
-                    return
-
-                logger.log("PROGRAM", "Collecting items from symlinks, this may take a while depending on library size")
-                try:
-                    items = self.services[SymlinkLibrary].run()
-                    errors = []
-                    added_items = set()
-
-                    # Convert items to list and get total count
-                    items_list = [item for item in items if isinstance(item, (Movie, Show))]
-                    total_items = len(items_list)
-                    progress, console = create_progress_bar(total_items)
-                    task = progress.add_task("Enriching items with metadata", total=total_items, log="")
-                    processed_count = 0
-
-                    with Live(progress, console=console, refresh_per_second=10):
-                        for item in items_list:
-                            processed_count += 1
-                            log_message = ""
-
-                            try:
-                                # Skip duplicates
-                                if not item or item.imdb_id in added_items:
-                                    errors.append(f"Duplicate symlink directory found for {item.log_string if item else 'Unknown'}")
-                                    log_message = f"Skipped duplicate: {item.log_string if item else 'Unknown'}"
-                                    progress.update(task, advance=1, log=log_message)
-                                    continue
-
-                                if db_functions.get_item_by_id(item.id, session=session):
-                                    errors.append(f"Duplicate item found in database for id: {item.id}")
-                                    log_message = f"Already in database: {item.log_string}"
-                                    progress.update(task, advance=1, log=log_message)
-                                    continue
-
-                                # Enhance item with Trakt data
-                                try:
-                                    enhanced_item = self._enhance_item(item)
-                                    if not enhanced_item:
-                                        errors.append(f"Failed to enhance {item.log_string} ({item.imdb_id}) with Trakt Indexer")
-                                        log_message = f"Failed to enhance: {item.log_string}"
-                                        progress.update(task, advance=1, log=log_message)
-                                        continue
-                                except RateLimitExceeded:
-                                    # Rate limit hit - wait and retry once
-                                    logger.warning(f"Rate limit hit for {item.log_string}, waiting 10 seconds...")
-                                    time.sleep(10)
-                                    try:
-                                        enhanced_item = self._enhance_item(item)
-                                        if not enhanced_item:
-                                            errors.append(f"Failed to enhance {item.log_string} after retry")
-                                            log_message = f"Failed after retry: {item.log_string}"
-                                            progress.update(task, advance=1, log=log_message)
-                                            continue
-                                    except Exception as e:
-                                        errors.append(f"Rate limit retry failed for {item.log_string}: {str(e)}")
-                                        log_message = f"Retry failed: {item.log_string}"
-                                        progress.update(task, advance=1, log=log_message)
-                                        continue
-                                except Exception as e:
-                                    errors.append(f"Error enhancing {item.log_string}: {str(e)}")
-                                    log_message = f"Error: {item.log_string}"
-                                    progress.update(task, advance=1, log=log_message)
-                                    continue
-
-                                # Save to database
-                                enhanced_item.store_state()
-                                session.add(enhanced_item)
-                                added_items.add(item.imdb_id)
-
-                                # Commit every 25 items to avoid large transactions
-                                if processed_count % 25 == 0:
-                                    session.commit()
-
-                                log_message = f"Successfully Indexed {enhanced_item.log_string}"
-                                progress.update(task, advance=1, log=log_message)
-
-                            except Exception as e:
-                                errors.append(f"Unexpected error for {item.log_string}: {str(e)}")
-                                continue
-
-                        # Final commit for any remaining items
-                        session.commit()
-                        progress.update(task, log="Finished Indexing Symlinks!")
-
-                    if errors:
-                        logger.error("Errors encountered during initialization")
-                        for error in errors:
-                            logger.error(error)
-
-                except Exception as e:
-                    session.rollback()
-                    logger.error(f"Failed to initialize database from symlinks: {str(e)}")
-                    return
-
-                elapsed_time = datetime.now() - start_time
-                total_seconds = elapsed_time.total_seconds()
-                hours, remainder = divmod(total_seconds, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                logger.success(f"Database initialized, time taken: h{int(hours):02d}:m{int(minutes):02d}:s{int(seconds):02d}")
+riven = Program()

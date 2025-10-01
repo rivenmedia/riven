@@ -1,19 +1,19 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, Generator, List
 
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.media.stream import Stream
 from program.media.state import States
+from program.media.stream import Stream
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
-from program.services.scrapers.knightcrawler import Knightcrawler
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
+from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
@@ -28,7 +28,6 @@ class Scraping:
         self.max_failed_attempts = settings_manager.settings.scraping.max_failed_attempts
         self.imdb_services = {  # If we are missing imdb_id then we cant scrape here
             Torrentio: Torrentio(),
-            Knightcrawler: Knightcrawler(),
             Orionoid: Orionoid(),
             Mediafusion: Mediafusion(),
             Comet: Comet()
@@ -36,7 +35,8 @@ class Scraping:
         self.keyword_services = {
             Jackett: Jackett(),
             Prowlarr: Prowlarr(),
-            Zilean: Zilean()
+            Zilean: Zilean(),
+            Rarbg: Rarbg()
         }
         self.services = {
             **self.imdb_services,
@@ -55,7 +55,10 @@ class Scraping:
             logger.debug(f"Skipping scrape for {item.log_string}: Item is paused")
             yield item
 
-        logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        if self.max_failed_attempts > 0:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}/{self.max_failed_attempts}. Current scraped times: {item.scraped_times}")
+        else:
+            logger.debug(f"Starting scrape process for {item.log_string} ({item.id}). Current failed attempts: {item.failed_attempts}. Current scraped times: {item.scraped_times}")
 
         if self.can_we_scrape(item):
             sorted_streams = self.scrape(item)
@@ -66,18 +69,29 @@ class Scraping:
             ]
 
             if new_streams:
+                # Ensure streams don't carry stale backrefs to detached parents
+                for s in new_streams:
+                    try:
+                        if hasattr(s, "parents") and isinstance(s.parents, list):
+                            s.parents.clear()
+                        if hasattr(s, "blacklisted_parents") and isinstance(s.blacklisted_parents, list):
+                            s.blacklisted_parents.clear()
+                    except Exception:
+                        pass
                 item.streams.extend(new_streams)
                 item.failed_attempts = 0  # Reset failed attempts on success
                 logger.log("SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}")
             else:
                 logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-                item.failed_attempts = getattr(item, 'failed_attempts', 0) + 1
+                item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
                 if self.max_failed_attempts > 0 and item.failed_attempts >= self.max_failed_attempts:
                     item.store_state(States.Failed)
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}")
-                else:
+                elif self.max_failed_attempts > 0:
                     logger.debug(f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries: {item.log_string}")
+                else:
+                    logger.debug(f"Failed scraping after {item.failed_attempts} tries: {item.log_string}")
 
             item.set("scraped_at", datetime.now())
             item.set("scraped_times", item.scraped_times + 1)
@@ -130,11 +144,6 @@ class Scraping:
         """Check if we can scrape an item."""
         if not item.is_released:
             logger.debug(f"Cannot scrape {item.log_string}: Item is not released")
-            return False
-        if item.active_stream:
-            logger.debug(f"Cannot scrape {item.log_string}: Item was already downloaded by another session")
-            return False    
-        if not cls.should_submit(item):
             return False
         return True
 
