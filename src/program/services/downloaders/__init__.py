@@ -75,9 +75,14 @@ class Downloader:
             # Sort streams by resolution and rank (highest first) using simple, fast sorting
             sorted_streams = _sort_streams_by_quality(item.streams)
 
+            # Track if we hit circuit breaker on any service
+            hit_circuit_breaker = False
+            tried_streams = 0
+
             for stream in sorted_streams:
                 # Try each available service for this stream before blacklisting
                 stream_failed_on_all_services = True
+                stream_hit_circuit_breaker = False
 
                 for service in available_services:
                     logger.debug(f"Trying stream {stream.infohash} on {service.key} for {item.log_string}")
@@ -104,6 +109,13 @@ class Downloader:
                         cooldown_duration = timedelta(minutes=1)
                         self._service_cooldowns[service.key] = datetime.now() + cooldown_duration
                         logger.warning(f"Circuit breaker OPEN for {service.key}, trying next service for stream {stream.infohash}")
+                        stream_hit_circuit_breaker = True
+                        hit_circuit_breaker = True
+
+                        # If this is the only initialized service, don't mark stream as failed
+                        # We want to retry this stream after cooldown
+                        if len(self.initialized_services) == 1:
+                            stream_failed_on_all_services = False
                         continue
 
                     except Exception as e:
@@ -120,16 +132,32 @@ class Downloader:
                 if download_success:
                     break
 
-                # Only blacklist if stream failed on ALL available services
+                # Only blacklist if stream genuinely failed on ALL available services
+                # Don't blacklist if we hit circuit breaker in single-provider mode
                 if stream_failed_on_all_services:
-                    logger.debug(f"Stream {stream.infohash} failed on all {len(available_services)} available service(s), blacklisting")
-                    item.blacklist_stream(stream)
+                    if stream_hit_circuit_breaker and len(self.initialized_services) == 1:
+                        logger.debug(f"Stream {stream.infohash} hit circuit breaker on single provider, will retry after cooldown")
+                    else:
+                        logger.debug(f"Stream {stream.infohash} failed on all {len(available_services)} available service(s), blacklisting")
+                        item.blacklist_stream(stream)
+                
+                tried_streams += 1
+                if tried_streams >= 3:
+                    yield item
 
         except Exception as e:
             logger.error(f"Unexpected error in downloader for {item.log_string} ({item.id}): {e}")
 
         if not download_success:
-            logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
+            # Check if we hit circuit breaker in single-provider mode
+            if hit_circuit_breaker and len(self.initialized_services) == 1:
+                # Reschedule for after cooldown instead of failing
+                next_attempt = min(self._service_cooldowns.values())
+                logger.warning(f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}")
+                yield (item, next_attempt)
+                return
+            else:
+                logger.debug(f"Failed to download any streams for {item.log_string} ({item.id})")
         else:
             # Clear retry count and service cooldowns on successful download
             self._circuit_breaker_retries.pop(item.id, None)
@@ -351,3 +379,5 @@ class Downloader:
     def resolve_link(self, link: str) -> Optional[Dict]:
         """Resolve a link to a download URL"""
         return self.service.resolve_link(link)
+    
+    
