@@ -310,7 +310,7 @@ class EventManager:
                             return (priority, event.run_at)
 
                         # Default priority for items without state or content-only events
-                        return (999, event.run_at)
+                        return (0, event.run_at)
 
                     # Sort by priority (state first, then run_at)
                     ready_events.sort(key=get_event_priority)
