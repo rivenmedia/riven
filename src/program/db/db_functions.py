@@ -72,67 +72,6 @@ def get_item_by_id(
             _s.expunge(item)
         return item
 
-def get_items_by_ids(
-    ids: Sequence[int],
-    item_types: Optional[List[str]] = None,
-    session: Optional[Session] = None,
-    *,
-    load_tree: bool = False,
-    expunge: bool = None,
-) -> List["MediaItem"]:
-    """
-    Fetch a list of MediaItems by their IDs using one round trip.
-
-    - Preserves the input order at the SQL layer via CASE(..) ORDER BY.
-    - Optionally eager-load Show -> seasons -> episodes using select-in if load_tree=True.
-    - Calls .unique() to collapse duplicates that arise from joined eager loads.
-    - By default, returns detached instances (expunged) when no session is provided,
-      or attached instances when a session is provided.
-    - Use expunge=True to force expunging even with a provided session.
-    """
-    if not ids:
-        return []
-
-    from program.media.item import MediaItem, Season, Show
-
-    pos = {v: i for i, v in enumerate(ids)}
-    order_clause = case(pos, value=MediaItem.id, else_=len(ids))
-    id_param = bindparam("item_ids", expanding=True)
-
-    stmt = select(MediaItem).where(MediaItem.id.in_(id_param)).order_by(order_clause)
-    if load_tree:
-        stmt = stmt.options(selectinload(Show.seasons).selectinload(Season.episodes))
-    if item_types:
-        stmt = stmt.where(MediaItem.type.in_(item_types))
-
-    close_me = False
-    if session is None:
-        from program.db.db import db
-        _s: Session = db.Session()
-        close_me = True
-    else:
-        _s = session
-
-    # Default expunge behavior: expunge only if we created the session
-    if expunge is None:
-        expunge = close_me
-
-    try:
-        result = _s.execute(
-            stmt.execution_options(stream_results=True),
-            {"item_ids": list(ids)},
-        ).unique()
-        rows: List["MediaItem"] = [obj for obj in result.scalars().yield_per(500)]
-        if expunge:
-            for obj in rows:
-                if object_session(obj) is _s:
-                    _s.expunge(obj)
-        by_id: Dict[int, "MediaItem"] = {m.id: m for m in rows}
-        return [by_id[i] for i in ids if i in by_id]
-    finally:
-        if close_me:
-            _s.close()
-
 def get_item_by_external_id(
     imdb_id: Optional[str] = None,
     tvdb_id: Optional[str] = None,
@@ -201,63 +140,6 @@ def item_exists_by_any_id(
             select(func.count()).select_from(MediaItem).where(or_(*clauses)).limit(1)
         ).scalar_one()
         return count > 0
-
-def get_item_by_symlink_path(
-    filepath: str,
-    session: Optional[Session] = None,
-) -> List["MediaItem"]:
-    """
-    Return items that match an exact symlink_path. Returns detached instances.
-    """
-    from program.media.item import MediaItem
-
-    with _maybe_session(session) as (_s, _owns):
-        result = _s.execute(
-            select(MediaItem).where(MediaItem.symlink_path == filepath).execution_options(stream_results=True)
-        ).unique()
-        items: List["MediaItem"] = [obj for obj in result.scalars().yield_per(500)]
-        for itm in items:
-            _s.expunge(itm)
-        return items
-
-def get_item_by_imdb_and_episode(
-    tvdb_id: str = None,
-    tmdb_id: str = None,
-    season_number: Optional[int] = None,
-    episode_number: Optional[int] = None,
-    session: Optional[Session] = None,
-) -> List["MediaItem"]:
-    """
-    If season+episode provided, return matching Episode(s) for the show with tvdb_id.
-    Otherwise, return Movie(s) with that tvdb_id.
-    Returns detached instances.
-    """
-    from program.media.item import Episode, Movie, Season, Show
-
-    if not tvdb_id and not tmdb_id:
-        raise ValueError("Either tvdb_id or tmdb_id must be provided")
-
-    with _maybe_session(session) as (_s, _owns):
-        if season_number is not None and episode_number is not None:
-            result = _s.execute(
-                select(Episode)
-                .options(selectinload(Episode.parent).selectinload(Season.parent))
-                .where(
-                    Episode.parent.has(Season.parent.has(Show.tvdb_id == tvdb_id)),
-                    Episode.parent.has(Season.number == season_number),
-                    Episode.number == episode_number,
-                ).execution_options(stream_results=True)
-            )
-            rows = [r for r in result.scalars().yield_per(200)]
-            for r in rows:
-                _s.expunge(r)
-            return rows
-
-        result = _s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id).execution_options(stream_results=True))
-        rows = [r for r in result.scalars().yield_per(200)]
-        for r in rows:
-            _s.expunge(r)
-        return rows
 
 def clear_streams(
     *,

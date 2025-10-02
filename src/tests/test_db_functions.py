@@ -13,7 +13,6 @@ from program.db.db_functions import (
     clear_streams,
     delete_media_item,
     get_item_by_external_id,
-    get_items_by_ids,
     item_exists_by_any_id,
     set_stream_blacklisted,
 )
@@ -244,23 +243,6 @@ def test_delete_one_of_two_items_sharing_stream_does_not_delete_stream(test_scop
     delete_media_item(m2)
     # now orphaned -> purged
     assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id == s.id)).scalar() == 0
-
-
-def test_get_media_items_by_ids_success(test_scoped_db_session):
-    show, seasons, eps = _show_tree("20002", [1], 2)
-    mov = _movie("30001", "tt30001", title="Test Movie")
-    test_scoped_db_session.add_all([show] + seasons + eps + [mov])
-    test_scoped_db_session.commit()
-
-    ids = [show.id, seasons[0].id, eps[0].id, eps[1].id, mov.id]
-    items = get_items_by_ids(ids)
-
-    assert len(items) == 5
-    assert any(isinstance(x, Show) and x.id == show.id for x in items)
-    assert any(isinstance(x, Season) and x.id == seasons[0].id for x in items)
-    assert any(isinstance(x, Episode) and x.id == eps[0].id for x in items)
-    assert any(isinstance(x, Episode) and x.id == eps[1].id for x in items)
-    assert any(isinstance(x, Movie) and x.id == mov.id for x in items)
 
 
 def test_item_exists_by_any_id_paths(test_scoped_db_session):
