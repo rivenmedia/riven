@@ -11,7 +11,17 @@ from program.utils.logging import log_cleaner, logger
 
 
 def snapshot_database(snapshot_dir: Path = None):
-    """Create a snapshot of the current database state."""
+    """
+    Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
+    
+    Creates a snapshot file in `snapshot_dir` (defaults to ./data/db_snapshot), choosing either to run `pg_dump` directly or to run it inside a detected PostgreSQL Docker container when the configured host indicates a local/container instance. On success the snapshot file is written and `latest.sql` is updated to point to the new snapshot; on failure no symlink update is performed.
+    
+    Parameters:
+        snapshot_dir (Path | None): Directory to store snapshot files. If None, uses ./data/db_snapshot.
+    
+    Returns:
+        bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
+    """
     from program.settings.manager import settings_manager
 
     if snapshot_dir is None:
@@ -153,7 +163,15 @@ def snapshot_database(snapshot_dir: Path = None):
 
 
 def restore_database(snapshot_file: Path = None):
-    """Restore database from a snapshot."""
+    """
+    Restore the configured PostgreSQL database from a SQL snapshot file.
+    
+    Parameters:
+        snapshot_file (Path | None): Path to the SQL snapshot to restore. If None, uses ./data/db_snapshot/latest.sql.
+    
+    Returns:
+        bool: `True` if the restore completed successfully, `False` otherwise.
+    """
     from program.settings.manager import settings_manager
 
     if snapshot_file is None:
@@ -277,6 +295,14 @@ def restore_database(snapshot_file: Path = None):
 
 
 def handle_args():
+    """
+    Parse CLI arguments for database utilities and perform immediate actions for certain flags.
+    
+    When invoked, parses flags for cache ignoring, hard database reset, log cleaning, creating a database snapshot, restoring a snapshot, and server port. If --hard_reset_db or --clean_logs are set, the corresponding operation is performed and the process exits. If --snapshot_db or --restore_db are set, the snapshot or restore operation is performed and the process exits with status 0 on success or 1 on failure. Otherwise, the parsed arguments are returned for further use.
+    
+    Returns:
+        argparse.Namespace: The parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ignore_cache",

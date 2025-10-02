@@ -348,6 +348,21 @@ class ResetResponse(BaseModel):
     operation_id="reset_items",
 )
 async def reset_items(request: Request, ids: str) -> ResetResponse:
+    """
+    Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
+    
+    Parameters:
+        request (Request): FastAPI request object used to access application services.
+        ids (str): Comma-separated list of item IDs (e.g., "1,2,3") to reset.
+    
+    Returns:
+        ResetResponse: Dictionary with a human-readable message and the list of processed item IDs:
+            - message (str): Summary of the performed reset.
+            - ids (list[int]): The numeric IDs that were processed.
+    
+    Raises:
+        HTTPException: Raised with status 400 when the provided `ids` string cannot be parsed into valid IDs.
+    """
     ids: list[int] = handle_ids(ids)
 
     # Get updater service for media server refresh
@@ -372,6 +387,13 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
                             refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
 
                     def mutation(i: MediaItem, s: Session):
+                        """
+                        Blacklist the MediaItem's currently active stream and reset the item's state.
+                        
+                        Parameters:
+                            i (MediaItem): The item to mutate.
+                            s (Session): Database session (provided for caller context; not used directly here).
+                        """
                         i.blacklist_active_stream()
                         i.reset()
 
@@ -503,13 +525,19 @@ class RemoveResponse(BaseModel):
 )
 async def remove_item(request: Request, ids: str) -> RemoveResponse:
     """
-    Remove one or more media items by their IDs.
-
-    This uses ON DELETE CASCADE, so deleting the root MediaItem row also removes:
-      - joined-table rows (Movie/Show/Season/Episode),
-      - hierarchy children (Season/Episode via parent_id),
-      - Subtitle rows (Subtitle.parent_id → MediaItem.id),
-      - StreamRelation / StreamBlacklistRelation rows.
+    Remove one or more media items identified by their IDs.
+    
+    Deletes the MediaItem rows and their related data (joined-table rows, hierarchical children, subtitles, and stream relations) and coordinates related side effects: cancels active jobs for the item, deletes an associated Overseerr request when present, and triggers a media server library refresh for the item's library path when an Updater service is available and initialized.
+    
+    Parameters:
+        request (Request): FastAPI request object (used to access application services).
+        ids (str): Comma-separated string of one or more numeric item IDs.
+    
+    Returns:
+        dict: Response containing a human-readable message and the list of removed item IDs, e.g. {"message": "...", "ids": [1,2]}.
+    
+    Raises:
+        HTTPException: If no IDs are provided or if an item type is not removable (only "movie" and "show" are allowed).
     """
     ids: list[int] = handle_ids(ids)
     if not ids:

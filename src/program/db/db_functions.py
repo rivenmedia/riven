@@ -51,9 +51,16 @@ def get_item_by_id(
     load_tree: bool = False,
 ) -> "MediaItem" | None:
     """
-    Get a MediaItem by its ID, optionally constraining by type.
-    Optionally load seasons/episodes for shows via selectinload if load_tree=True.
-    Returns a detached instance safe for use outside the session.
+    Retrieve a MediaItem by its database ID.
+    
+    Parameters:
+    	item_id (int): The numeric primary key of the MediaItem to retrieve.
+    	item_types (Optional[List[str]]): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
+    	session (Optional[Session]): Database session to use; if omitted, a new session will be created for the query.
+    	load_tree (bool): If True, include related seasons and episodes when the item is a show.
+    
+    Returns:
+    	MediaItem | None: The matching MediaItem detached from the session, or `None` if no matching item exists.
     """
     if not item_id:
         return None
@@ -79,8 +86,20 @@ def get_item_by_external_id(
     session: Optional[Session] = None,
 ) -> "MediaItem" | None:
     """
-    Get a movie/show by any external ID (IMDb/TVDB/TMDB).
-    Loads seasons/episodes for shows via selectinload.
+    Retrieve a movie or show by one of its external identifiers.
+    
+    If a matching show is returned, its seasons and episodes are also loaded. At least one of `imdb_id`, `tvdb_id`, or `tmdb_id` must be provided.
+    
+    Parameters:
+        imdb_id (Optional[str]): IMDb identifier to match.
+        tvdb_id (Optional[str]): TVDB identifier to match.
+        tmdb_id (Optional[str]): TMDB identifier to match.
+    
+    Returns:
+        MediaItem: The matched movie or show, or `None` if no match is found.
+    
+    Raises:
+        ValueError: If none of `imdb_id`, `tvdb_id`, or `tmdb_id` are provided.
     """
     from program.media.item import MediaItem, Season, Show
 
@@ -115,10 +134,15 @@ def item_exists_by_any_id(
     session: Optional[Session] = None,
 ) -> bool:
     """
-    Return True if ANY provided identifier matches an existing MediaItem.
-
-    Previous behavior chained .where() equalities on all fields, which only
-    matched when *all* IDs belonged to the same row. This version matches ANY.
+    Check whether any provided identifier corresponds to an existing MediaItem.
+    
+    At least one of `item_id`, `tvdb_id`, `tmdb_id`, or `imdb_id` must be supplied; otherwise a ValueError is raised.
+    
+    Returns:
+        `true` if at least one matching MediaItem exists, `false` otherwise.
+    
+    Raises:
+        ValueError: If no identifier is provided.
     """
     from program.media.item import MediaItem
 
@@ -147,7 +171,10 @@ def clear_streams(
     session: Optional[Session] = None,
 ) -> None:
     """
-    Remove ALL stream relations and blacklists for a media item in one transaction.
+    Remove all stream relations and blacklist entries for a media item in a single transaction.
+    
+    Parameters:
+        media_item_id (int): ID of the media item whose stream relations and blacklist entries will be removed.
     """
     with _maybe_session(session) as (_s, _owns):
         _s.execute(delete(StreamRelation).where(StreamRelation.parent_id == media_item_id))
@@ -156,8 +183,14 @@ def clear_streams(
 
 def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
     """
-    Return (root_id, related_ids) where related_ids are all children under the root,
-    depending on the root type. Uses set-based selects.
+    Return the root media item ID and a list of its descendant item IDs.
+    
+    For a show, `related_ids` contains season IDs followed by episode IDs for those seasons.
+    For a season, `related_ids` contains episode IDs for that season.
+    For other item types, `related_ids` is an empty list.
+    
+    Returns:
+        tuple: `(root_id, related_ids)` where `related_ids` is a list of descendant media item IDs.
     """
     from program.media.item import Episode, MediaItem, Season
 
@@ -373,11 +406,22 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
 
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
     """
-    Run a worker function `fn` against an existing or soon-to-exist MediaItem.
-    Supports both:
-      - event.item_id path: load + process item, update parent state if needed
-      - event.content_item path: index new item (idempotent via item_exists_by_any_id)
-      - generator path (no event): emit items into the program.em queue
+    Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
+    
+    Depending on the provided event, this function executes one of three flows:
+    - event.item_id: load the existing MediaItem, pass it into `fn`, and if `fn` produces an item update related parent/item state and commit the session (unless cancelled).
+    - event.content_item: index a new item produced by `fn` and perform an idempotent insert (skip if any known external ID already exists); handle race conditions that result in duplicate inserts.
+    - no event: iterate over values yielded by `fn()` and enqueue produced MediaItem instances into program.em for later processing.
+    
+    Parameters:
+        fn: A callable or generator used to process or produce MediaItem objects.
+        service: The calling service (used for logging/queueing context).
+        program: The program runtime which exposes the event manager/queue (program.em).
+        event: An Event object that may contain `item_id` or `content_item`, selecting the processing path.
+        cancellation_event: An Event used to short-circuit commits/updates if set.
+    
+    Returns:
+        The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
     """
     from program.media.item import MediaItem
 

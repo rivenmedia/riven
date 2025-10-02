@@ -342,7 +342,12 @@ class MediaItem(db.Model):
         _set_nested_attr(self, key, value)
 
     def get_top_title(self) -> str:
-        """Get the top title of the item."""
+        """
+        Return the top-level title for this media item.
+        
+        Returns:
+            str: The show's title for seasons and episodes (parent for season, grandparent for episode); otherwise the item's own title.
+        """
         if self.type == "season":
             return self.parent.title
         elif self.type == "episode":
@@ -353,21 +358,41 @@ class MediaItem(db.Model):
     # Filesystem entry properties
     @property
     def filesystem_entry(self) -> Optional["FilesystemEntry"]:
-        """Get the first filesystem entry (for backward compatibility)"""
+        """
+        Return the first filesystem entry for this media item to preserve backward compatibility.
+        
+        Returns:
+            The first `FilesystemEntry` instance if any exist, otherwise `None`.
+        """
         return self.filesystem_entries[0] if self.filesystem_entries else None
 
     @property
     def filesystem_path(self) -> Optional[str]:
-        """Get the filesystem path (returns first entry if multiple exist)"""
+        """
+        Return the filesystem path of the first FilesystemEntry for this media item, if any.
+        
+        Returns:
+            The filesystem path string from the first entry, or None if no entries exist.
+        """
         return self.filesystem_entries[0].path if self.filesystem_entries else None
 
     @property
     def available_in_vfs(self) -> bool:
-        """Whether this item is available in the mounted VFS (checks if any entry is available)."""
+        """
+        Indicates whether any filesystem entry for this media item is available in the mounted VFS.
+        
+        Returns:
+            `true` if at least one associated filesystem entry is available in the mounted VFS, `false` otherwise.
+        """
         return any(fe.available_in_vfs for fe in self.filesystem_entries) if self.filesystem_entries else False
 
     def get_top_imdb_id(self) -> str:
-        """Get the imdb_id of the item at the top of the hierarchy."""
+        """
+        Return the IMDb identifier for the top-level item in the hierarchy.
+        
+        Returns:
+            imdb_id (str | None): IMDb identifier string from the show (top-level) when this item is a season or episode; otherwise the item's own `imdb_id`. May be `None` if no identifier is set.
+        """
         if self.type == "season":
             return self.parent.imdb_id
         elif self.type == "episode":
@@ -387,7 +412,11 @@ class MediaItem(db.Model):
         return hash(self.id)
 
     def reset(self):
-        """Reset item attributes."""
+        """
+        Reset this item's internal state and recursively reset child items when applicable.
+        
+        For a show, resets all seasons and their episodes; for a season, resets its episodes. After child resets, resets this item and updates its stored state.
+        """
         if self.type == "show":
             for season in self.seasons:
                 for episode in season.episodes:
@@ -400,13 +429,10 @@ class MediaItem(db.Model):
         self.store_state()
 
     def _reset(self):
-        """Reset item attributes for rescraping.
-
-        Clears filesystem entries, subtitles, and streams. ORM CASCADE handles:
-        - FilesystemEntry deletion (cascade='all, delete-orphan')
-        - VFS cache invalidation (FilesystemEntry before_delete event listener)
-        - Subtitle file deletion from disk (Subtitle before_delete event listener)
-        - Orphaned stream cleanup (database CASCADE)
+        """
+        Reset the media item and its related associations to prepare for rescraping.
+        
+        Clears filesystem entries, subtitles, active and related streams, and resets scraping-related metadata (updated, scraped_at, scraped_times, failed_attempts). ORM cascade and configured event listeners are relied upon to delete associated records and perform filesystem/VFS cleanup where applicable.
         """
         # Clear filesystem entries - ORM automatically deletes orphaned entries
         self.filesystem_entries.clear()
@@ -776,7 +802,18 @@ def _set_nested_attr(obj, key, value):
 
 
 def copy_item(item):
-    """Copy an item"""
+    """
+    Create a copy of a MediaItem-derived object, preserving its concrete subclass and hierarchy.
+    
+    Parameters:
+        item (MediaItem): The media item (Movie, Show, Season, Episode, or MediaItem) to copy.
+    
+    Returns:
+        MediaItem: A new instance of the same concrete subclass containing copied data from `item`.
+    
+    Raises:
+        ValueError: If `item` is not an instance of a supported MediaItem subclass.
+    """
     if isinstance(item, Movie):
         return Movie(item={}).copy(item)
     elif isinstance(item, Show):

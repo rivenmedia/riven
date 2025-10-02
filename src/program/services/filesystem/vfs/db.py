@@ -66,6 +66,22 @@ class VFSDatabase:
 
     # --- Queries ---
     def get_entry(self, path: str) -> Optional[Dict]:
+        """
+        Retrieve metadata for a virtual filesystem entry or for a virtual directory inferred from stored entries.
+        
+        Parameters:
+            path (str): Path to look up; the path will be normalized before lookup.
+        
+        Returns:
+            dict: If an entry exists or the path represents a virtual directory, a dictionary with keys:
+                - `virtual_path`: the normalized virtual path.
+                - `name`: the basename of the path or `'/'` for root.
+                - `size`: file size in bytes (0 for directories or unknown sizes).
+                - `is_directory`: `True` for directories, `False` for files.
+                - `created`: ISO 8601 creation timestamp or `None` if not available.
+                - `modified`: ISO 8601 modification timestamp or `None` if not available.
+            None: If no entry exists and the path does not correspond to any virtual directory.
+        """
         path = self._norm(path)
         with self.SessionLocal() as s:
             # Query FilesystemEntry for virtual files only
@@ -105,6 +121,21 @@ class VFSDatabase:
             return None
 
     def list_directory(self, path: str) -> List[Dict]:
+        """
+        List entries directly under a virtual filesystem path, including synthesized virtual intermediate directories for deeper descendants.
+        
+        Parameters:
+            path (str): Virtual path to list (e.g., "/", "/movies"). Trailing slashes are normalized.
+        
+        Returns:
+            List[dict]: A list of entry dictionaries sorted by name. Each dictionary contains:
+                - virtual_path (str): Full virtual path of the entry or synthesized directory.
+                - name (str): The final path component (entry name).
+                - size (int): File size in bytes (0 for directories or synthesized entries).
+                - is_directory (bool): True for directories (including synthesized virtual directories).
+                - created (str|None): ISO 8601 timestamp of creation, or None if not available.
+                - modified (str|None): ISO 8601 timestamp of last modification, or None if not available.
+        """
         path = self._norm(path)
         prefix = '/' if path == '/' else path + '/'
         out: List[Dict] = []
@@ -266,6 +297,15 @@ class VFSDatabase:
 
     # --- Mutations ---
     def add_directory(self, path: str) -> str:
+        """
+        Ensure a virtual directory exists at the given path and return the normalized path.
+        
+        Parameters:
+            path (str): Path to the directory to add. The path is normalized (canonicalized and ensured to have a leading slash) before use.
+        
+        Returns:
+            str: The normalized directory path.
+        """
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
             if not self.exists(path):
@@ -280,7 +320,14 @@ class VFSDatabase:
         return path
 
     def add_file(self, path: str, url: Optional[str], size: int = 0, provider: Optional[str] = None, provider_download_id: Optional[str] = None) -> str:
-        """Add a file to the VFS database. Directories are created virtually on-the-fly."""
+        """
+        Create or update a file entry in the virtual filesystem; parent directories are implicit (virtual).
+        
+        If an entry for the normalized path does not exist, a new file entry is created with the provided download URL, provider metadata, and size. If an entry already exists, its download URL, file size, provider, provider_download_id, and modification timestamp are updated.
+        
+        Returns:
+        	the normalized path that was added or updated.
+        """
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
             fe = s.query(FilesystemEntry).filter_by(
@@ -306,8 +353,15 @@ class VFSDatabase:
 
     def remove(self, path: str) -> bool:
         """
-        Remove a path and all its descendants from the VFS database.
-        Uses ORM deletes to ensure before_delete event listeners fire for VFS cache invalidation.
+        Remove a path and its descendants from the virtual filesystem.
+        
+        Performs ORM deletes for the entry at the normalized path and all of its descendants so ORM before_delete listeners can run (e.g., to invalidate VFS caches). After deletion, prunes empty parent directories up to the configured default roots. The root path ('/') is not removed.
+        
+        Parameters:
+        	path (str): The virtual path to remove; it will be normalized before use.
+        
+        Returns:
+        	bool: `True` if the operation was performed for a non-root path, `False` otherwise.
         """
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
@@ -331,8 +385,13 @@ class VFSDatabase:
 
     def _prune_empty_dirs(self, s, start_dir: str) -> None:
         """
-        Remove empty directory entries up the chain, stopping at defaults or root.
-        Uses ORM deletes to ensure before_delete event listeners fire for VFS cache invalidation.
+        Prune empty directory entries upward from a starting directory until reaching a default directory or root.
+        
+        Deletes any directory row that has no descendants using ORM deletes so SQLAlchemy `before_delete` listeners run (used for VFS cache invalidation). Traversal stops when the current directory is `'/'`, empty, or one of the preserved default directories (`/movies`, `/shows`, `/anime_movies`, `/anime_shows`).
+        
+        Parameters:
+            s: Database session used for ORM queries and deletes.
+            start_dir (str): Virtual path at which to begin pruning; the path will be normalized.
         """
         default_dirs = {'/movies', '/shows', '/anime_movies', '/anime_shows'}
         cur = self._norm(start_dir)
@@ -352,6 +411,20 @@ class VFSDatabase:
             cur = os.path.dirname(cur.rstrip('/')) or '/'
 
     def rename(self, old_path: str, new_path: str, provider: Optional[str] = None, provider_download_id: Optional[str] = None, download_url: Optional[str] = None, size: Optional[int] = None) -> bool:
+        """
+        Rename a filesystem entry and its descendants to a new virtual path, optionally updating provider and download metadata.
+        
+        Parameters:
+            old_path (str): Existing virtual path of the entry to rename.
+            new_path (str): Target virtual path to assign to the entry and its descendants.
+            provider (Optional[str]): New provider identifier to set on the entry if provided.
+            provider_download_id (Optional[str]): New provider-specific download ID to set if provided.
+            download_url (Optional[str]): New stored download URL to set on the entry if provided.
+            size (Optional[int]): New file size (in bytes) to set on the entry if provided.
+        
+        Returns:
+            bool: `true` if the entry existed and was updated (including children), `false` if the source entry was not found.
+        """
         old_path = self._norm(old_path)
         new_path = self._norm(new_path)
         if old_path == new_path and provider is None and provider_download_id is None and download_url is None and size is None:
