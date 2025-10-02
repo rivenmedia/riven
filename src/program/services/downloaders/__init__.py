@@ -353,26 +353,27 @@ class Downloader:
 
         # Create FilesystemEntry for virtual file if download URL is available
         if debrid_file.download_url:
-            session = object_session(item)
             path = f"/__incoming__/{item.id}/{debrid_file.filename}"
-            filesystem_entry = session.query(FilesystemEntry).filter_by(path=path).first()
-            if not filesystem_entry:
-                filesystem_entry = FilesystemEntry.create_virtual_entry(
-                    path=path,
-                    download_url=debrid_file.download_url,
-                    provider=service.key,
-                    provider_download_id=str(download_result.info.id),
-                    file_size=debrid_file.filesize or 0,
-                    original_filename=debrid_file.filename,
-                    original_folder=download_result.info.alternative_filename or download_result.info.name
-                )
-                session.add(filesystem_entry)
-                session.flush()  # Ensure filesystem_entry.id is populated
 
-            # Link via relationship so in-memory state is updated immediately
+            # Check if filesystem entry already exists
+            session = object_session(item)
+            if session:
+                existing_entry = session.query(FilesystemEntry).filter_by(path=path).first()
+                if existing_entry:
+                    item.filesystem_entry = existing_entry
+                    return
+
+            filesystem_entry = FilesystemEntry.create_virtual_entry(
+                path=path,
+                download_url=debrid_file.download_url,
+                provider=service.key,
+                provider_download_id=str(download_result.info.id),
+                file_size=debrid_file.filesize or 0,
+                original_filename=debrid_file.filename,
+                original_folder=download_result.info.alternative_filename or download_result.info.name
+            )
+
             item.filesystem_entry = filesystem_entry
-            item.active_stream = {"infohash": download_result.infohash, "id": download_result.info.id}
-            session.flush()
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """Check if the torrent is cached"""
