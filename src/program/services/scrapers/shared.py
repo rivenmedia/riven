@@ -1,16 +1,13 @@
 """Shared functions for scrapers."""
-import hashlib
 from typing import Dict, Set
 
-from bencodepy import decode, encode
 from loguru import logger
 from RTN import RTN, ParsedData, Torrent, sort_torrents
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.versions import models
-from program.utils.request import SmartSession
 
 scraping_settings = settings_manager.settings.scraping
 ranking_settings = settings_manager.settings.ranking
@@ -163,28 +160,3 @@ def _get_item_country(item: MediaItem) -> str:
         country = "UK"
 
     return country
-
-def _get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
-    """Get the stremio identifier for a media item based on its type."""
-    if isinstance(item, Show):
-        identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
-    elif isinstance(item, Season):
-        identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
-    elif isinstance(item, Episode):
-        identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
-    elif isinstance(item, Movie):
-        identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
-    else:
-        return None, None, None
-    return identifier, scrape_type, imdb_id
-
-def _get_infohash_from_torrent_url(url: str) -> str:
-    """Extract the infohash from a torrent URL."""
-    session = SmartSession()
-    with session.get(url, stream=True) as r:
-        r.raise_for_status()
-        torrent_data = r.content
-        torrent_dict = decode(torrent_data)
-        info = torrent_dict[b"info"]
-        infohash = hashlib.sha1(encode(info)).hexdigest()
-    return infohash
