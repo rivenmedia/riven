@@ -4,13 +4,16 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
-class Orionoid:
+class Orionoid(ScraperService):
+    requires_imdb_id = True
+
     """Scraper for `Orionoid`"""
 
     def __init__(self):
@@ -28,14 +31,14 @@ class Orionoid:
             }
         else:
             rate_limits = {}
-        
+
         self.session = SmartSession(
             base_url=self.base_url,
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
         )
-        
+
         if self.validate():
             self.is_premium = self.check_premium()
             self.initialized = True

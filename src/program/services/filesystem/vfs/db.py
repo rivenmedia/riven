@@ -1,15 +1,14 @@
 from __future__ import annotations
+
 import os
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+from loguru import logger as log
+from sqlalchemy.orm.exc import StaleDataError
 
 from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
-
-
-from loguru import logger as log
-
-from sqlalchemy.orm.exc import StaleDataError
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader

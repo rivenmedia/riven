@@ -5,11 +5,12 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Season, Show
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Zilean:
+class Zilean(ScraperService):
     """Scraper for `Zilean`"""
 
     def __init__(self):

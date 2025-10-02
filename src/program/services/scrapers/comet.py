@@ -6,13 +6,16 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Comet:
+class Comet(ScraperService):
     """Scraper for `Comet`"""
+
+    # This service requires an IMDb id
+    requires_imdb_id = True
 
     def __init__(self):
         self.key = "comet"
@@ -40,14 +43,14 @@ class Comet:
             "resolutions": {},
             "options": {}
         }).encode("utf-8")).decode("utf-8")
-        
+
         if self.settings.ratelimit:
             rate_limits = {
                 get_hostname_from_url(self.settings.url): {"rate": 300/60, "capacity": 300}  # 300 calls per minute
             }
         else:
             rate_limits = None
-        
+
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
             rate_limits=rate_limits,
@@ -96,7 +99,7 @@ class Comet:
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Comet` scrape method"""
-        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
+        identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
         url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
         response = self.session.get(url, timeout=self.timeout)

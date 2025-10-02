@@ -5,13 +5,16 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_stremio_identifier
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Mediafusion:
+class Mediafusion(ScraperService):
+    # This service requires an IMDb id
+    requires_imdb_id = True
+
     """Scraper for `Mediafusion`"""
 
     def __init__(self):
@@ -22,14 +25,14 @@ class Mediafusion:
         self.settings = self.app_settings.scraping.mediafusion
         self.timeout = self.settings.timeout
         self.encrypted_string = None
-        
+
         if self.settings.ratelimit:
             rate_limits = {
                 get_hostname_from_url(self.settings.url): {"rate": 1000/60, "capacity": 1000}  # 1000 calls per minute
             }
         else:
             rate_limits = {}
-        
+
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
             rate_limits=rate_limits,
@@ -105,7 +108,7 @@ class Mediafusion:
 
     def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
         """Wrapper for `Mediafusion` scrape method"""
-        identifier, scrape_type, imdb_id = _get_stremio_identifier(item)
+        identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
 
         url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
 
 from program.media.item import MediaItem
-from program.services.scrapers.shared import _get_infohash_from_torrent_url
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 
@@ -42,7 +42,7 @@ ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
 INFOHASH_PATTERN = regex.compile(r"btih:([A-Fa-f0-9]{40})")
 
 
-class Prowlarr:
+class Prowlarr(ScraperService):
     """Scraper for `Prowlarr`"""
 
     def __init__(self):
@@ -339,7 +339,7 @@ class Prowlarr:
 
             if not infohash and guid and guid.endswith(".torrent"):
                 try:
-                    infohash = _get_infohash_from_torrent_url(url=guid)
+                    infohash = self.get_infohash_from_torrent_url(url=guid)
                     if not infohash or len(infohash) != 40:
                         continue
                     infohash = infohash.lower()

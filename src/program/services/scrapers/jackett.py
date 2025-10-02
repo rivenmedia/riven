@@ -1,7 +1,7 @@
 """ Jackett scraper module """
 
 from types import SimpleNamespace
-from typing import Dict, Generator, List, Optional
+from typing import Dict, List, Optional
 
 import regex
 from loguru import logger
@@ -9,10 +9,12 @@ from pydantic import BaseModel
 from requests import ReadTimeout
 
 from program.media.item import MediaItem
+from program.services.scrapers.scraper_base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 INFOHASH_PATTERN = regex.compile(r"[A-Fa-f0-9]{40}")
+
 
 class JackettIndexer(BaseModel):
     """Indexer model for Jackett"""
@@ -25,7 +27,7 @@ class JackettIndexer(BaseModel):
     movie_search_capabilities: Optional[List[str]] = None
 
 
-class Jackett:
+class Jackett(ScraperService):
     """Scraper for `Jackett`"""
 
     def __init__(self):
@@ -78,7 +80,7 @@ class Jackett:
         logger.warning("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Jackett site for the given media items
         and update the object with scraped streams"""
         try:
