@@ -9,11 +9,20 @@ from program.services.downloaders.models import ParsedFileData
 
 
 def _determine_target_filename(item: MediaItem, file_data: ParsedFileData) -> str:
-    """Determine the target filename using item attributes and optional parsed file data
-
-    Args:
-        item: The MediaItem to generate filename for
-        file_data: Optional pre-parsed file data for multi-episode detection
+    """
+    Builds the target filename for a media item using its attributes and optional parsed file data.
+    
+    Parameters:
+        item (MediaItem): The media item to generate a filename for. Expected types: Movie, Season, or Episode.
+        file_data (ParsedFileData): Optional parsed file data used to detect multi-episode files; may be None.
+    
+    Returns:
+        str or None: The generated filename string in one of the following formats:
+            - Movie: "Title (Year) {tmdb-<tmdb_id>}"
+            - Season: "Show (Year) - Season XX" (season number zero-padded to 2 digits)
+            - Episode (single): "Show (Year) - sYYeXX" (season and episode numbers zero-padded to 2 digits)
+            - Episode (multi): "Show (Year) - sYYeXX-eZZ" (episode range computed from parsed file data)
+        Returns None if the item's type is not handled.
     """
     if isinstance(item, Movie):
         return f"{item.title} ({item.aired_at.year}) " + "{tmdb-" + item.tmdb_id + "}"
@@ -53,7 +62,18 @@ def determine_base_path(item: MediaItem, settings, is_anime: bool = False) -> st
 
 
 def create_folder_structure(item: MediaItem, base_path: str) -> str:
-    """Create the folder structure path"""
+    """
+    Build the nested folder path for a media item under the given base directory.
+    
+    Constructs a folder name for Movie as "Title (Year) {tmdb-<tmdb_id>}". For Show, uses "Title (Year) {tvdb-<tvdb_id>}". For Season and Episode, nests a "Season XX" folder (season number zero-padded to two digits) under the show's folder derived from the parent Show. Any forward slashes in titles are replaced with '-' to avoid creating subdirectories. Returns the base_path unchanged for unrecognized item types.
+    
+    Parameters:
+        item: The media item (Movie, Show, Season, or Episode) whose folder structure to build.
+        base_path (str): The root directory under which item-specific folders are appended.
+    
+    Returns:
+        str: The full folder path under base_path for the provided item.
+    """
     if isinstance(item, Movie):
         movie_folder = f"{item.title.replace('/', '-')} ({item.aired_at.year}) {{tmdb-{item.tmdb_id}}}"
         return f"{base_path}/{movie_folder}"
@@ -76,13 +96,19 @@ def create_folder_structure(item: MediaItem, base_path: str) -> str:
 
 
 def generate_target_path(item: MediaItem, settings, original_filename: str = None, file_data: ParsedFileData = None) -> str:
-    """Generate a complete target path for an item
-
-    Args:
-        item: The MediaItem to generate path for
-        settings: Filesystem settings
-        original_filename: Optional original filename to extract extension from
-        file_data: Optional pre-parsed file data for multi-episode detection (avoids re-parsing)
+    """
+    Builds the complete VFS target path for a media item, including folder structure and filename.
+    
+    The path is constructed using the appropriate base directory (movies/shows or anime variants), a folder hierarchy derived from the item's type and parents, and a filename produced from the item's metadata. The file extension is taken from `original_filename` when provided, otherwise from the item's filesystem entry if available, and defaults to "mkv" if neither provides an extension. If a filename cannot be determined for the item, a fallback movie-style path is returned. Any forward slashes in the final filename are replaced with hyphens to avoid creating subdirectories.
+    
+    Parameters:
+        item: The media item to generate a path for (movie, show, season, or episode).
+        settings: Filesystem settings that control base directories (e.g., whether anime directories are separated).
+        original_filename (str, optional): Source filename to derive the file extension from; takes precedence over the item's filesystem entry.
+        file_data (ParsedFileData, optional): Pre-parsed file metadata used to detect multi-episode files (prevents re-parsing).
+    
+    Returns:
+        str: The full VFS path for the item, including folders and filename with extension.
     """
     # Determine if this is anime content
     is_anime = hasattr(item, "is_anime") and item.is_anime
