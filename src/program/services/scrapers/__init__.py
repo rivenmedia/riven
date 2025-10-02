@@ -1,7 +1,3 @@
-import importlib
-import inspect
-import os
-import pkgutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -16,6 +12,16 @@ from program.services.scrapers.scraper_base import ScraperService
 from program.services.scrapers.shared import _parse_results
 from program.settings.manager import settings_manager
 
+# Explicit scraper imports (no dynamic discovery)
+from program.services.scrapers.comet import Comet
+from program.services.scrapers.jackett import Jackett
+from program.services.scrapers.mediafusion import Mediafusion
+from program.services.scrapers.orionoid import Orionoid
+from program.services.scrapers.prowlarr import Prowlarr
+from program.services.scrapers.rarbg import Rarbg
+from program.services.scrapers.torrentio import Torrentio
+from program.services.scrapers.zilean import Zilean
+
 
 class Scraping:
     def __init__(self):
@@ -23,53 +29,36 @@ class Scraping:
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.max_failed_attempts = settings_manager.settings.scraping.max_failed_attempts
-        self.services: Dict[str, ScraperService] = self._discover_services()
+        self.services: Dict[str, ScraperService] = self._build_services()
         self.initialized = self.validate()
         if not self.initialized:
             return
 
-    def _discover_services(self) -> Dict[str, ScraperService]:
-        """Discover and validate scraper services.
+    def _build_services(self) -> Dict[str, ScraperService]:
+        """Explicitly construct and initialize scraper services.
 
-        - Only consider proper subclasses of ScraperService
-        - Instantiate each class and call validate()
-        - Keep only instances where validate() returns True
+        - Import classes directly (module-level imports above)
+        - Instantiate each class
+        - Call _initialize() only if not already initialized
+        - Keep only instances where initialized == True
         """
+        instances: list[ScraperService] = [
+            Comet(), Jackett(), Mediafusion(), Orionoid(), Prowlarr(), Rarbg(), Torrentio(), Zilean()
+        ]
+
         services: Dict[str, ScraperService] = {}
-        package_path = os.path.dirname(__file__)
-        package_name = __package__ or "program.services.scrapers"
-
-        skip_modules = {"__init__", "shared", "scraper_base", "__pycache__"}
-        for module_info in pkgutil.iter_modules([package_path]):
-            name = module_info.name
-            if name in skip_modules or name.startswith("_"):
-                continue
+        for instance in instances:
             try:
-                module = importlib.import_module(f"{package_name}.{name}")
+                if not getattr(instance, "initialized", False):
+                    instance._initialize()
             except Exception as e:
-                logger.error(f"Failed to import scraper module '{name}': {e}")
+                logger.error(f"Failed to initialize scraper '{instance.__class__.__name__}': {e}")
                 continue
 
-            for _, cls in inspect.getmembers(module, inspect.isclass):
-                if cls.__module__ != module.__name__:
-                    continue
-                if cls is ScraperService or not issubclass(cls, ScraperService):
-                    continue
-                try:
-                    instance: ScraperService = cls()  # type: ignore[call-arg]
-                except Exception as e:
-                    logger.error(f"Failed to instantiate scraper '{cls.__name__}': {e}")
-                    continue
-                try:
-                    if not instance.validate():
-                        continue
-                    # Mark as initialized to satisfy existing checks
-                    # setattr(instance, "initialized", True)
-                except Exception as e:
-                    logger.error(f"Validation failed for scraper '{cls.__name__}': {e}")
-                    continue
-                key: str = getattr(instance, "key", cls.__name__.lower())
+            if getattr(instance, "initialized", False):
+                key: str = getattr(instance, "key", instance.__class__.__name__.lower())
                 services[key] = instance
+
         return services
 
     def validate(self) -> bool:
@@ -87,15 +76,6 @@ class Scraping:
         ]
 
         if new_streams:
-            # Ensure streams don't carry stale backrefs to detached parents
-            for s in new_streams:
-                try:
-                    if hasattr(s, "parents") and isinstance(s.parents, list):
-                        s.parents.clear()
-                    if hasattr(s, "blacklisted_parents") and isinstance(s.blacklisted_parents, list):
-                        s.blacklisted_parents.clear()
-                except Exception:
-                    pass
             item.streams.extend(new_streams)
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
