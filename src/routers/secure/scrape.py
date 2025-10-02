@@ -418,7 +418,6 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                 fs_entry = item.filesystem_entry
                 # Update source metadata on existing entry
                 fs_entry.original_filename = data.filename
-                fs_entry.original_folder = session.torrent_info.alternative_filename or session.torrent_info.name
                 if not fs_entry.path:
                     fs_entry.path = staging_path
             else:
@@ -440,14 +439,15 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                         provider_download_id=None,
                         file_size=(data.filesize or 0),
                         original_filename=data.filename,
-                        original_folder=(session.torrent_info.alternative_filename or session.torrent_info.name),
                     )
                     db_session.add(fs_entry)
                     db_session.commit()
                     db_session.refresh(fs_entry)
 
                 # Link MediaItem to FilesystemEntry
-                item.filesystem_entry_id = fs_entry.id
+                # Clear existing entries and add the new one
+                item.filesystem_entries.clear()
+                item.filesystem_entries.append(fs_entry)
                 item = db_session.merge(item)
 
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}

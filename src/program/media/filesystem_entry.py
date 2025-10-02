@@ -38,7 +38,6 @@ class FilesystemEntry(db.Model):
     )
 
     original_filename: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)  # Original filename from source
-    original_folder: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)  # Original folder name from source
 
     # Restricted URL provided by the debrid service (e.g., RD /d/<id>)
     download_url: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -51,10 +50,17 @@ class FilesystemEntry(db.Model):
     # Availability flag: set to True once added to the VFS
     available_in_vfs: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False, nullable=False)
 
-    # Relationship to MediaItem
-    media_items: Mapped[list["MediaItem"]] = relationship(
+    # Foreign key to MediaItem (many FilesystemEntries can belong to one MediaItem)
+    media_item_id: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer,
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"),
+        nullable=True
+    )
+
+    # Many-to-one relationship: many FilesystemEntries belong to one MediaItem
+    media_item: Mapped[Optional["MediaItem"]] = relationship(
         "MediaItem",
-        back_populates="filesystem_entry",
+        back_populates="filesystem_entries",
         lazy="selectin"
     )
 
@@ -78,20 +84,12 @@ class FilesystemEntry(db.Model):
         import os
         return os.path.basename(self.path)
 
-    def get_original_folder(self) -> str:
-        """Get the original folder name, falling back to path parent if not set"""
-        if self.original_folder:
-            return self.original_folder
-        # Fallback to extracting from path
-        import os
-        return os.path.basename(os.path.dirname(self.path))
-
 
 
     @classmethod
     def create_virtual_entry(cls, path: str, download_url: str, provider: str,
                            provider_download_id: str, file_size: int = 0,
-                           original_filename: str = None, original_folder: str = None) -> "FilesystemEntry":
+                           original_filename: str = None) -> "FilesystemEntry":
         """Create a virtual file filesystem entry"""
         return cls(
             path=path,
@@ -99,8 +97,7 @@ class FilesystemEntry(db.Model):
             provider=provider,
             provider_download_id=provider_download_id,
             file_size=file_size,
-            original_filename=original_filename,
-            original_folder=original_folder
+            original_filename=original_filename
         )
 
     def to_dict(self) -> dict:
@@ -111,9 +108,46 @@ class FilesystemEntry(db.Model):
             "file_size": self.file_size,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "original_filename": self.original_filename,
             "download_url": self.download_url,
             "unrestricted_url": self.unrestricted_url,
             "provider": self.provider,
             "provider_download_id": self.provider_download_id,
             "available_in_vfs": self.available_in_vfs,
         }
+
+
+# ============================================================================
+# SQLAlchemy Event Listener for Automatic VFS Cleanup
+# ============================================================================
+
+from sqlalchemy import event
+from loguru import logger
+
+def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: FilesystemEntry):
+    """Automatically invalidate VFS caches when FilesystemEntry is deleted"""
+    try:
+        from program.program import riven
+        from program.services.filesystem import FilesystemService
+
+        filesystem_service: FilesystemService = riven.services.get(FilesystemService)
+        if filesystem_service and filesystem_service.riven_vfs and target.path:
+            vfs = filesystem_service.riven_vfs
+            path = vfs._normalize_path(target.path)
+
+            # Get inode before removal for cache invalidation
+            ino = vfs._path_to_inode.pop(path, None)
+            if ino is not None:
+                vfs._inode_to_path.pop(ino, None)
+
+            # Invalidate FUSE cache for the removed entry
+            vfs._entry_cache_invalidate_path(path)
+            vfs._invalidate_removed_entry_cache(path, ino)
+            # Also attempt to invalidate parent directories that may have been pruned
+            vfs._invalidate_potentially_removed_dirs(path)
+    except Exception as e:
+        logger.warning(f"Error invalidating VFS caches for {target.path}: {e}")
+
+
+# Register event listener
+event.listen(FilesystemEntry, "before_delete", cleanup_vfs_on_filesystem_entry_delete)

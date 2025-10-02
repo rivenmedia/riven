@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 
 from loguru import logger
-from sqlalchemy.orm import object_session
 
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
@@ -276,7 +275,7 @@ class Downloader:
 
         if item.type == "movie" and file_data.item_type == "movie":
             logger.debug("match_file_to_item: movie match -> updating attributes")
-            self._update_attributes(item, file, download_result, service)
+            self._update_attributes(item, file, download_result, service, file_data)
             return True
 
         if item.type in ("show", "season", "episode"):
@@ -300,7 +299,7 @@ class Downloader:
                     if processed_episode_ids is not None and str(episode.id) in processed_episode_ids:
                         continue
                     logger.debug(f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'")
-                    self._update_attributes(episode, file, download_result, service)
+                    self._update_attributes(episode, file, download_result, service, file_data)
                     if processed_episode_ids is not None:
                         processed_episode_ids.add(str(episode.id))
                     logger.debug(f"Matched episode {episode.log_string} to file {file.filename}")
@@ -344,8 +343,16 @@ class Downloader:
 
         return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
 
-    def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None) -> None:
-        """Update the item attributes"""
+    def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None, file_data: ParsedFileData = None) -> None:
+        """Update the item attributes
+
+        Args:
+            item: The MediaItem to update
+            debrid_file: The debrid file information
+            download_result: The download result
+            service: The debrid service
+            file_data: Optional pre-parsed file data to avoid re-parsing
+        """
         if service is None:
             service = self.service
 
@@ -353,27 +360,30 @@ class Downloader:
 
         # Create FilesystemEntry for virtual file if download URL is available
         if debrid_file.download_url:
-            path = f"/__incoming__/{item.id}/{debrid_file.filename}"
+            from program.services.filesystem.path_utils import generate_target_path
+            from program.settings.manager import settings_manager
 
-            # Check if filesystem entry already exists
-            session = object_session(item)
-            if session:
-                existing_entry = session.query(FilesystemEntry).filter_by(path=path).first()
-                if existing_entry:
-                    item.filesystem_entry = existing_entry
-                    return
+            vfs_path = generate_target_path(
+                item,
+                settings_manager.settings.filesystem,
+                original_filename=debrid_file.filename,
+                file_data=file_data
+            )
 
-            filesystem_entry = FilesystemEntry.create_virtual_entry(
-                path=path,
+            entry = FilesystemEntry.create_virtual_entry(
+                path=vfs_path,
                 download_url=debrid_file.download_url,
                 provider=service.key,
                 provider_download_id=str(download_result.info.id),
                 file_size=debrid_file.filesize or 0,
                 original_filename=debrid_file.filename,
-                original_folder=download_result.info.alternative_filename or download_result.info.name
             )
 
-            item.filesystem_entry = filesystem_entry
+            # Clear existing entries and add the new one
+            item.filesystem_entries.clear()
+            item.filesystem_entries.append(entry)
+
+            logger.debug(f"Created FilesystemEntry for {item.log_string} at {vfs_path}")
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """Check if the torrent is cached"""

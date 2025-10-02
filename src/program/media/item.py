@@ -51,11 +51,23 @@ class MediaItem(db.Model):
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    subtitles: Mapped[list[Subtitle]] = relationship(Subtitle, back_populates="parent", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
+    subtitles: Mapped[list[Subtitle]] = relationship(
+        Subtitle,
+        back_populates="parent",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
     failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
-    filesystem_entry_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, sqlalchemy.ForeignKey("FilesystemEntry.id"), nullable=True)
-    filesystem_entry: Mapped[Optional["FilesystemEntry"]] = relationship("FilesystemEntry", back_populates="media_items", lazy="selectin")
+    # One-to-many relationship: one MediaItem can have multiple FilesystemEntries
+    # (e.g., same content in different locations/profiles in the future)
+    # For now, we typically only have one entry, but the collection allows future expansion
+    filesystem_entries: Mapped[list["FilesystemEntry"]] = relationship(
+        "FilesystemEntry",
+        back_populates="media_item",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -340,14 +352,19 @@ class MediaItem(db.Model):
 
     # Filesystem entry properties
     @property
+    def filesystem_entry(self) -> Optional["FilesystemEntry"]:
+        """Get the first filesystem entry (for backward compatibility)"""
+        return self.filesystem_entries[0] if self.filesystem_entries else None
+
+    @property
     def filesystem_path(self) -> Optional[str]:
-        """Get the filesystem path"""
-        return self.filesystem_entry.path if self.filesystem_entry else None
+        """Get the filesystem path (returns first entry if multiple exist)"""
+        return self.filesystem_entries[0].path if self.filesystem_entries else None
 
     @property
     def available_in_vfs(self) -> bool:
-        """Whether this item is available in the mounted VFS (safe, handles None)."""
-        return self.filesystem_entry and self.filesystem_entry.available_in_vfs
+        """Whether this item is available in the mounted VFS (checks if any entry is available)."""
+        return any(fe.available_in_vfs for fe in self.filesystem_entries) if self.filesystem_entries else False
 
     def get_top_imdb_id(self) -> str:
         """Get the imdb_id of the item at the top of the hierarchy."""
@@ -383,29 +400,26 @@ class MediaItem(db.Model):
         self.store_state()
 
     def _reset(self):
-        """Reset item attributes for rescraping."""
-        # Remove filesystem entry if it exists (service handles DB + VFS); then clear local attributes
-        if self.filesystem_entry or self.filesystem_entry_id:
-            try:
-                from program.services.filesystem.filesystem_service import FilesystemService
-                from program.program import riven
-                filesystem_service: FilesystemService = riven.services.get(FilesystemService)
-                if filesystem_service:
-                    filesystem_service.delete_item_files_by_id(self.id)
-            except Exception as e:
-                logger.warning(f"Failed to remove filesystem entry for {self.log_string}: {str(e)}")
-            finally:
-                self.filesystem_entry = None
-                self.filesystem_entry_id = None
-        try:
-            for subtitle in self.subtitles:
-                subtitle.remove()
-        except Exception as e:
-            logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
+        """Reset item attributes for rescraping.
 
+        Clears filesystem entries, subtitles, and streams. ORM CASCADE handles:
+        - FilesystemEntry deletion (cascade='all, delete-orphan')
+        - VFS cache invalidation (FilesystemEntry before_delete event listener)
+        - Subtitle file deletion from disk (Subtitle before_delete event listener)
+        - Orphaned stream cleanup (database CASCADE)
+        """
+        # Clear filesystem entries - ORM automatically deletes orphaned entries
+        self.filesystem_entries.clear()
+
+        # Clear subtitles (event listener deletes files from disk on commit)
+        self.subtitles.clear()
+
+        # Clear streams using ORM relationship operations (database CASCADE handles orphans)
         self.streams.clear()
         self.blacklisted_streams.clear()
         self.active_stream = {}
+
+        # Reset scraping metadata
         self.updated = False
         self.scraped_at = None
         self.scraped_times = 0
@@ -474,7 +488,6 @@ class Show(MediaItem):
         lazy="joined",
         cascade="all, delete-orphan",
         order_by="Season.number",
-        passive_deletes=True, # don't pre-load children on delete
     )
     release_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
 
@@ -596,7 +609,6 @@ class Season(MediaItem):
         lazy=False,
         back_populates="seasons",
         foreign_keys="Season.parent_id",
-        passive_deletes=True, # avoid ORM deletes doing SELECTs
     )
     episodes: Mapped[List["Episode"]] = relationship(
         back_populates="parent",
@@ -604,7 +616,6 @@ class Season(MediaItem):
         lazy="joined",
         cascade="all, delete-orphan",
         order_by="Episode.number",
-        passive_deletes=True, # avoid ORM deletes doing SELECTs
     )
     __mapper_args__ = {
         "polymorphic_identity": "season",
@@ -707,7 +718,6 @@ class Episode(MediaItem):
         back_populates="episodes",
         foreign_keys="Episode.parent_id",
         lazy="joined",
-        passive_deletes=True, # avoid ORM deletes doing SELECTs
     )
     absolute_number: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=True)
 
@@ -779,3 +789,14 @@ def copy_item(item):
         return MediaItem(item={}).copy(item)
     else:
         raise ValueError(f"Cannot copy item of type {type(item)}")
+
+
+# ============================================================================
+# SQLAlchemy Event Listeners for Automatic Cleanup
+# ============================================================================
+
+# No event listeners needed for FilesystemEntry cleanup!
+# The cascade="all, delete-orphan" on MediaItem.filesystem_entries handles everything:
+# - When MediaItem is deleted, all FilesystemEntries are automatically deleted (CASCADE)
+# - When filesystem_entries.clear() is called, orphaned entries are automatically deleted (delete-orphan)
+# - The FilesystemEntry's before_delete event listener still handles VFS cache invalidation

@@ -44,3 +44,24 @@ class Subtitle(db.Model):
             "file": self.file,
             "parent_id": self.parent_id
         }
+
+
+# ============================================================================
+# SQLAlchemy Event Listener for Automatic File Cleanup
+# ============================================================================
+
+from sqlalchemy import event
+from loguru import logger
+
+def cleanup_subtitle_file(mapper, connection, target: Subtitle):
+    """Automatically delete subtitle file from disk when Subtitle is deleted"""
+    try:
+        if target.file and Path(target.file).exists():
+            Path(target.file).unlink()
+            logger.debug(f"Deleted subtitle file {target.file}")
+    except Exception as e:
+        logger.warning(f"Failed to delete subtitle file {target.file}: {e}")
+
+
+# Register event listener explicitly
+event.listen(Subtitle, "before_delete", cleanup_subtitle_file)

@@ -1,15 +1,20 @@
 """
 Shared path generation utilities for filesystem operations in VFS-only mode.
-Used by FilesystemService to ensure consistent naming.
+Used by Downloader to generate target paths for items.
 """
 
 import os
-from typing import Union
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.services.downloaders.models import ParsedFileData
 
 
-def determine_target_filename(item: MediaItem) -> str:
-    """Determine the target filename using consistent logic across filesystem implementations"""  
+def _determine_target_filename(item: MediaItem, file_data: ParsedFileData) -> str:
+    """Determine the target filename using item attributes and optional parsed file data
+
+    Args:
+        item: The MediaItem to generate filename for
+        file_data: Optional pre-parsed file data for multi-episode detection
+    """
     if isinstance(item, Movie):
         return f"{item.title} ({item.aired_at.year}) " + "{tmdb-" + item.tmdb_id + "}"
     elif isinstance(item, Season):
@@ -17,18 +22,19 @@ def determine_target_filename(item: MediaItem) -> str:
         showyear = item.parent.aired_at.year
         return f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
     elif isinstance(item, Episode):
-        episodes_from_file = item.get_file_episodes()
-        if len(episodes_from_file) > 1:
+        # Check if this is a multi-episode file using parsed file data
+        if file_data and file_data.episodes and len(file_data.episodes) > 1:
+            # Multi-episode file
             first_episode_number = item.number
-            last_episode_number = first_episode_number + len(episodes_from_file) - 1
+            last_episode_number = first_episode_number + len(file_data.episodes) - 1
             episode_string = f"e{str(first_episode_number).zfill(2)}-e{str(last_episode_number).zfill(2)}"
         else:
+            # Single episode
             episode_string = f"e{str(item.number).zfill(2)}"
 
-        if episode_string:
-            showname = item.parent.parent.title
-            showyear = item.parent.parent.aired_at.year
-            return f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
+        showname = item.parent.parent.title
+        showyear = item.parent.parent.aired_at.year
+        return f"{showname} ({showyear}) - s{str(item.parent.number).zfill(2)}{episode_string}"
 
     return None
 
@@ -69,31 +75,39 @@ def create_folder_structure(item: MediaItem, base_path: str) -> str:
         return base_path  # Fallback
 
 
-def generate_target_path(item: MediaItem, settings) -> str:
-    """Generate a complete target path for an item"""
+def generate_target_path(item: MediaItem, settings, original_filename: str = None, file_data: ParsedFileData = None) -> str:
+    """Generate a complete target path for an item
+
+    Args:
+        item: The MediaItem to generate path for
+        settings: Filesystem settings
+        original_filename: Optional original filename to extract extension from
+        file_data: Optional pre-parsed file data for multi-episode detection (avoids re-parsing)
+    """
     # Determine if this is anime content
     is_anime = hasattr(item, "is_anime") and item.is_anime
-    
-    # Get the original filename and extension from FilesystemEntry
-    if item.filesystem_entry and item.filesystem_entry.original_filename:
-        original_filename = item.filesystem_entry.original_filename
+
+    # Get the extension
+    if original_filename:
         extension = os.path.splitext(original_filename)[1][1:]  # Remove the dot
+    elif item.filesystem_entry and item.filesystem_entry.original_filename:
+        extension = os.path.splitext(item.filesystem_entry.original_filename)[1][1:]
     else:
         # Default extension if no filesystem entry
         extension = "mkv"
-    
-    # Generate filename using shared logic
-    filename = determine_target_filename(item)
+
+    # Generate filename using item attributes and optional parsed file data
+    filename = _determine_target_filename(item, file_data=file_data)
     if not filename:
         # Fallback
         return f"/movies/{item.title}.{extension}"
-    
+
     vfs_filename = f"{filename}.{extension}"
 
     # Generate folder structure using shared logic
     base_path = determine_base_path(item, settings, is_anime)
     folder_path = create_folder_structure(item, base_path)
-    
+
     # Combine folder path and filename, ensuring proper path separators
     full_path = f"{folder_path}/{vfs_filename.replace('/', '-')}"
 

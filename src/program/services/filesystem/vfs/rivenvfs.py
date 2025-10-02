@@ -676,39 +676,6 @@ class RivenVFS(pyfuse3.Operations):
         log.debug(f"Renamed file: {old_path} -> {new_path}")
         return True
 
-    def remove_file(self, path: str) -> bool:
-        """
-        Remove a virtual file from the filesystem.
-
-        Args:
-            path: Virtual path of the file to remove
-
-        Returns:
-            True if file was removed successfully
-        """
-        path = self._normalize_path(path)
-        if path == "/":
-            return False
-
-        # Get inode before removal for cache invalidation
-        ino = self._path_to_inode.pop(path, None)
-        if ino is not None:
-            self._inode_to_path.pop(ino, None)
-
-        result = self.db.remove(path)
-
-        # Invalidate FUSE cache for the removed entry
-        if result:
-            # Invalidate entry cache for removed path
-            self._entry_cache_invalidate_path(path)
-
-            self._invalidate_removed_entry_cache(path, ino)
-            # Also attempt to invalidate parent directories that may have been pruned
-            self._invalidate_potentially_removed_dirs(path)
-            log.info(f"Removed virtual file: {path}")
-
-        return result
-
     def file_exists(self, path: str) -> bool:
         """Check if a virtual file exists."""
         return self.db.exists(self._normalize_path(path))

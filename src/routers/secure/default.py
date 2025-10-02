@@ -173,8 +173,18 @@ async def get_stats(_: Request) -> StatsResponse:
     with db.Session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
-            movies_symlinks = conn.execute(select(func.count(Movie.id)).where(Movie.filesystem_entry_id.isnot(None))).scalar_one()
-            episodes_symlinks = conn.execute(select(func.count(Episode.id)).where(Episode.filesystem_entry_id.isnot(None))).scalar_one()
+            from sqlalchemy import exists
+            from program.media.filesystem_entry import FilesystemEntry
+            movies_symlinks = conn.execute(
+                select(func.count(Movie.id)).where(
+                    exists().where(FilesystemEntry.media_item_id == Movie.id)
+                )
+            ).scalar_one()
+            episodes_symlinks = conn.execute(
+                select(func.count(Episode.id)).where(
+                    exists().where(FilesystemEntry.media_item_id == Episode.id)
+                )
+            ).scalar_one()
             total_symlinks = movies_symlinks + episodes_symlinks
 
             total_movies = conn.execute(select(func.count(Movie.id))).scalar_one()
