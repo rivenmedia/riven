@@ -50,32 +50,29 @@ class Updater:
         Yields:
             MediaItem: The item after processing
         """
-        if not self.initialized:
-            logger.debug("Updater is not initialized, skipping")
-            yield item
-            return
+        items = self.get_items_to_update(item)
+        last_path = None
 
-        # Get the filesystem path from the item
-        fe_path = item.filesystem_entry.path if item.filesystem_entry else None
-        if not fe_path:
-            logger.debug(f"No filesystem path for {item.log_string}, skipping update")
-            yield item
-            return
+        for _item in items:
+            # Get the filesystem path from the item
+            fe_path = _item.filesystem_entry.path
 
-        # Build absolute path to the file
-        abs_path = os.path.join(self.library_path, fe_path.lstrip("/"))
+            # Build absolute path to the file
+            abs_path = os.path.join(self.library_path, fe_path.lstrip("/"))
 
-        # For movies: parent directory (movie folder)
-        # For shows: parent's parent directory (show folder, not season folder)
-        if item.type == "movie":
-            refresh_path = os.path.dirname(abs_path)
-        else:  # show, season, episode
-            refresh_path = os.path.dirname(os.path.dirname(abs_path))
+            # For movies: parent directory (movie folder)
+            # For shows: parent's parent directory (show folder, not season folder)
+            if _item.type == "movie":
+                refresh_path = os.path.dirname(abs_path)
+            else:  # show, season, episode
+                refresh_path = os.path.dirname(os.path.dirname(abs_path))
 
-        # Refresh the path in all services
-        self.refresh_path(refresh_path)
+            # Refresh the path in all services
+            if refresh_path != last_path:
+                self.refresh_path(refresh_path)
+            last_path = refresh_path
 
-        item.updated = True
+            _item.updated = True
 
         yield item
 
@@ -106,3 +103,20 @@ class Updater:
             logger.debug(f"No updater service successfully refreshed path {path}")
 
         return success
+    
+    def get_items_to_update(self, item: MediaItem) -> list[MediaItem]:
+        """Get the list of files to update for the given item."""
+        if item.type in ["movie", "episode"]:
+            return [item]
+        if item.type == "show":
+            return [
+                e for season in item.seasons
+                for e in season.episodes
+                if e.available_in_vfs
+            ]
+        if item.type == "season":
+            return [
+                e for e in item.episodes
+                if e.available_in_vfs
+            ]
+        return []
