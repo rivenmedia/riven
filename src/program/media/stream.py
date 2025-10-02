@@ -71,3 +71,15 @@ class Stream(db.Model):
 
     def __eq__(self, other):
         return isinstance(other, Stream) and self.infohash == other.infohash
+
+    def to_dict(self):
+        """Convert stream to dictionary for API serialization"""
+        return {
+            "id": self.id,
+            "infohash": self.infohash,
+            "raw_title": self.raw_title,
+            "parsed_title": self.parsed_title,
+            "rank": self.rank,
+            "lev_ratio": self.lev_ratio,
+            "resolution": self.resolution,
+        }
