@@ -77,7 +77,12 @@ class FilesystemEntry(db.Model):
 
 
     def get_original_filename(self) -> str:
-        """Get the original filename, falling back to path basename if not set"""
+        """
+        Return the original filename for the entry.
+        
+        Returns:
+            str: The stored `original_filename` if present, otherwise the basename of `path`.
+        """
         if self.original_filename:
             return self.original_filename
         # Fallback to extracting from path
@@ -90,7 +95,20 @@ class FilesystemEntry(db.Model):
     def create_virtual_entry(cls, path: str, download_url: str, provider: str,
                            provider_download_id: str, file_size: int = 0,
                            original_filename: str = None) -> "FilesystemEntry":
-        """Create a virtual file filesystem entry"""
+        """
+                           Create a FilesystemEntry representing a virtual (RivenVFS) file.
+                           
+                           Parameters:
+                               path (str): Virtual VFS path for the entry.
+                               download_url (str): Provider-restricted URL used to fetch the file.
+                               provider (str): Identifier of the provider that supplies the file.
+                               provider_download_id (str): Provider-specific download identifier.
+                               file_size (int): Size of the file in bytes; defaults to 0.
+                               original_filename (str | None): Original source filename, used as a fallback display name.
+                           
+                           Returns:
+                               FilesystemEntry: A new FilesystemEntry instance populated with the provided values.
+                           """
         return cls(
             path=path,
             download_url=download_url,
@@ -101,7 +119,26 @@ class FilesystemEntry(db.Model):
         )
 
     def to_dict(self) -> dict:
-        """Convert to dictionary representation"""
+        """
+        Provide a dictionary representation of the FilesystemEntry.
+        
+        The dictionary includes primary fields and metadata. `created_at` and `updated_at` are ISO 8601 formatted strings when present, otherwise `None`. Other keys map directly to the model's attributes.
+        
+        Returns:
+            dict: {
+                "id": entry id,
+                "path": virtual VFS path,
+                "file_size": size in bytes,
+                "created_at": ISO 8601 timestamp or None,
+                "updated_at": ISO 8601 timestamp or None,
+                "original_filename": original filename or None,
+                "download_url": restricted download URL or None,
+                "unrestricted_url": persisted direct URL or None,
+                "provider": provider identifier or None,
+                "provider_download_id": provider download id or None,
+                "available_in_vfs": `true` if available in VFS, `false` otherwise
+            }
+        """
         return {
             "id": self.id,
             "path": self.path,
@@ -125,7 +162,14 @@ from sqlalchemy import event
 from loguru import logger
 
 def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: FilesystemEntry):
-    """Automatically invalidate VFS caches when FilesystemEntry is deleted"""
+    """
+    Invalidate Riven VFS caches for a FilesystemEntry that is being deleted.
+    
+    When invoked as a SQLAlchemy before_delete listener, removes any cached path/inode mappings and invalidates entry and parent-directory caches in the riven virtual filesystem for the entry identified by target.path. Any exceptions raised during cleanup are caught and logged as warnings, and do not propagate.
+    
+    Parameters:
+        target (FilesystemEntry): The FilesystemEntry instance being deleted; its path is used to locate and invalidate VFS caches.
+    """
     try:
         from program.program import riven
         from program.services.filesystem import FilesystemService

@@ -44,7 +44,17 @@ class FilesystemService:
             logger.warning("RivenVFS initialization failed")
     
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Process a MediaItem using RivenVFS"""
+        """
+        Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
+        
+        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via _process_single_item, and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
+        
+        Parameters:
+            item (MediaItem): The media item (episode, movie, season, or show) to process.
+        
+        Returns:
+            Generator[MediaItem, None, None]: Yields the original `item` once processing completes (or immediately if processing cannot proceed).
+        """
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
             yield item
@@ -65,7 +75,15 @@ class FilesystemService:
         yield item
 
     def _process_single_item(self, item: MediaItem) -> None:
-        """Process a single episode or movie item by registering it with FUSE"""
+        """
+        Register a single media item's existing file with the RivenVFS so it becomes available in the VFS.
+        
+        If the item has no filesystem entry, the function does nothing. On successful registration the function sets
+        `filesystem_entry.available_in_vfs = True`; on failure it leaves the entry unchanged and logs an error. Any
+        exceptions raised during processing are caught and logged.
+        Parameters:
+            item (MediaItem): The media item whose filesystem_entry.path will be registered with RivenVFS.
+        """
         try:
             # Check if item has filesystem entry
             if not item.filesystem_entry:
@@ -90,7 +108,11 @@ class FilesystemService:
             logger.error(f"Failed to process {item.log_string} with RivenVFS: {e}")
 
     def close(self):
-        """Clean up filesystem resources"""
+        """
+        Close the underlying RivenVFS and release associated resources.
+        
+        If a RivenVFS instance is present, attempts to close it and always sets self.riven_vfs to None. Exceptions raised while closing are logged and not propagated.
+        """
         try:
             if self.riven_vfs:
                 self.riven_vfs.close()

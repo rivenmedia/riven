@@ -362,6 +362,21 @@ def manual_select_files(request: Request, session_id: str, files: Container) -> 
     operation_id="manual_update_attributes"
 )
 async def manual_update_attributes(request: Request, session_id, data: Union[DebridFile, ShowFileData]) -> UpdateAttributesResponse:
+    """
+    Apply selected file attributes from a scraping session to the referenced media item(s).
+    
+    Locate the media item referenced by the given scraping session, create or reuse a staging FilesystemEntry for the provided file data, attach the file as the item's active stream (or attach to matching episodes for TV items), persist the changes to the database, and enqueue post-processing events for affected items.
+    
+    Parameters:
+        session_id (str): Identifier of the scraping session containing item and torrent context.
+        data (DebridFile | ShowFileData): File metadata for a single movie (`DebridFile`) or a mapping of seasons/episodes to file metadata (`ShowFileData`) for TV content.
+    
+    Returns:
+        dict: A message indicating which item(s) were updated, including the item's log string.
+    
+    Raises:
+        HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
+    """
     session = session_manager.get_session(session_id)
     log_string = None
     if not session:
@@ -404,6 +419,16 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
         item_ids_to_submit = set()
 
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
+            """
+            Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
+            
+            Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
+            
+            Parameters:
+                item (MediaItem): The media item to update; will be merged into the active DB session as needed.
+                data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
+                session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
+            """
             request.app.program.em.cancel_job(item.id)
             item.reset()
 

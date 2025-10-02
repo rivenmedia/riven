@@ -169,6 +169,14 @@ class StatsResponse(BaseModel):
 
 @router.get("/stats", operation_id="stats")
 async def get_stats(_: Request) -> StatsResponse:
+    """
+    Produce aggregated statistics for the media library and its items.
+    
+    The response includes total counts for media items, movies, shows, seasons, and episodes; the total number of filesystem symlinks (determined by existence of FilesystemEntry records linked to movie or episode items); a mapping of each state to its item count; the number of incomplete items; and a mapping of incomplete item IDs to their scraped attempt counts.
+    
+    Returns:
+        StatsResponse: Aggregated statistics with keys `total_items`, `total_movies`, `total_shows`, `total_seasons`, `total_episodes`, `total_symlinks`, `incomplete_items`, `incomplete_retries`, and `states`.
+    """
     payload = {}
     with db.Session() as session:
         # Ensure the connection is open for the entire duration of the session

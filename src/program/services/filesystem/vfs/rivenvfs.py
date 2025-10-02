@@ -628,16 +628,16 @@ class RivenVFS(pyfuse3.Operations):
 
     def rename_file(self, old_path: str, new_path: str) -> bool:
         """
-        Rename/move a file from old_path to new_path and update FUSE layer.
-
-        This is useful for moving files from incoming paths to their final VFS paths.
-
-        Args:
-            old_path: Current path of the file in database
-            new_path: New path where the file should appear in VFS
-
+        Rename a file from old_path to new_path and update VFS caches and inode mappings.
+        
+        Performs a database rename and ensures FUSE entry caches, path↔inode mappings, and parent directory cache entries are updated or invalidated to reflect the move.
+        
+        Parameters:
+            old_path (str): Current filesystem path of the file.
+            new_path (str): Target filesystem path for the file.
+        
         Returns:
-            True if file was renamed successfully
+            bool: `True` if the file was renamed successfully, `False` otherwise.
         """
         old_path = self._normalize_path(old_path)
         new_path = self._normalize_path(new_path)
@@ -677,7 +677,12 @@ class RivenVFS(pyfuse3.Operations):
         return True
 
     def file_exists(self, path: str) -> bool:
-        """Check if a virtual file exists."""
+        """
+        Check whether a virtual file exists at the given path.
+        
+        Returns:
+            true if the file exists, false otherwise.
+        """
         return self.db.exists(self._normalize_path(path))
 
     def get_file_info(self, path: str) -> Optional[Dict]:

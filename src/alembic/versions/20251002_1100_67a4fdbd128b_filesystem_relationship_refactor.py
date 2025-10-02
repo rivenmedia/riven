@@ -20,14 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """
-    Flip the relationship between MediaItem and FilesystemEntry.
-
-    Before: MediaItem.filesystem_entry_id -> FilesystemEntry.id (many-to-one, FK on MediaItem)
-    After: FilesystemEntry.media_item_id -> MediaItem.id (many-to-one, FK on FilesystemEntry)
-
-    This makes MediaItem the parent and FilesystemEntry the child, allowing:
-    - Proper use of cascade="all, delete-orphan" for automatic cleanup
-    - Future expansion: one MediaItem can have multiple FilesystemEntries (different locations/profiles)
+    Flip the parent/child relationship so FilesystemEntry references MediaItem.
+    
+    Before: MediaItem.filesystem_entry_id -> FilesystemEntry.id. After: FilesystemEntry.media_item_id -> MediaItem.id.
+    
+    Migrates existing linkage data, creates a foreign key on FilesystemEntry.media_item_id with ON DELETE CASCADE, adds an index on that column, drops the old MediaItem.filesystem_entry_id constraint and column, and removes FilesystemEntry.original_folder.
     """
     from alembic import context
     conn = context.get_bind()
@@ -90,10 +87,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """
-    Revert the relationship flip.
+    Revert the relationship flip so MediaItem references FilesystemEntry again via filesystem_entry_id.
     
-    WARNING: This downgrade will fail if any MediaItem has multiple FilesystemEntries,
-    as the old schema only supports one FilesystemEntry per MediaItem.
+    Restores FilesystemEntry.original_folder if missing, adds MediaItem.filesystem_entry_id if missing, copies filesystem_entry_id from the first matching FilesystemEntry for each MediaItem, removes FilesystemEntry.media_item_id along with its index and foreign key, and re-creates the foreign key on MediaItem.filesystem_entry_id referencing FilesystemEntry.id with ON DELETE SET NULL.
+    
+    Warning: this operation will fail or lose data if a MediaItem has multiple FilesystemEntry rows—only the first matching FilesystemEntry id is copied back for each MediaItem.
     """
     from alembic import context
     conn = context.get_bind()

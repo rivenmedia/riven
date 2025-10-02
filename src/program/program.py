@@ -131,6 +131,11 @@ class Program(threading.Thread):
             return False
 
     def start(self):
+        """
+        Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
+        
+        This method prepares runtime state and external integrations by registering settings observers, creating the data directory and default settings if missing, initializing APIs and services after database migrations, computing and logging item counts (including filesystem-backed items), configuring executors and the background scheduler, scheduling periodic service and maintenance tasks, starting the thread and scheduler, and marking the program as initialized.
+        """
         latest_version = get_version()
         logger.log("PROGRAM", f"Riven v{latest_version} starting!")
 

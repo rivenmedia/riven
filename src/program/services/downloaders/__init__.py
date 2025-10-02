@@ -266,7 +266,24 @@ class Downloader:
             processed_episode_ids: Optional[set[str]] = None,
             service = None
         ) -> bool:
-        """Check if the file matches the item and update attributes."""
+        """
+            Determine whether a parsed file corresponds to the given media item (movie, show, season, or episode) and update the item's attributes when matches are found.
+            
+            Checks movie matches for movie items and episode-level matches for shows/seasons/episodes. For each matched episode or movie file, calls _update_attributes to attach filesystem metadata and marks the item.active_stream when appropriate.
+            
+            Parameters:
+                item (MediaItem): The target media item to match against.
+                file_data (ParsedFileData): Parsed metadata from the filename (item type, season, episode list, etc.).
+                file (DebridFile): The debrid file candidate containing filename, download URL, and size.
+                download_result (DownloadedTorrent): The download context containing infohash and torrent id.
+                show (Optional[Show]): The show object used to resolve absolute episode numbers when matching episodes.
+                episode_cap (int, optional): Maximum episode number allowed for matching; episodes greater than this are skipped.
+                processed_episode_ids (Optional[set[str]]): Set of episode IDs already processed in this container to avoid duplicate updates.
+                service (optional): Service instance used for attribute updates; defaults to the Downloader's primary service.
+            
+            Returns:
+                bool: `true` if at least one file-to-item match was found and attributes were updated, `false` otherwise.
+            """
         if service is None:
             service = self.service
 
@@ -316,7 +333,12 @@ class Downloader:
 
     def download_cached_stream_on_service(self, stream: Stream, container: TorrentContainer, service) -> DownloadedTorrent:
         """
-        Download a cached stream using a specific service.
+        Prepare and return a DownloadedTorrent for a stream using the given service.
+        
+        Uses values already present on `container` when available (e.g., `torrent_id`, `torrent_info`); otherwise adds the torrent and/or fetches its info from the service. For services with key "torbox" it populates each container file's `download_url`. If `container.file_ids` is set the service will be asked to select those files.
+        
+        Returns:
+            DownloadedTorrent: An object containing the torrent id, torrent info, the stream's infohash, and the (possibly updated) container.
         """
         # Check if we already have a torrent_id from validation (Real-Debrid optimization)
         if container.torrent_id:
@@ -344,14 +366,17 @@ class Downloader:
         return DownloadedTorrent(id=torrent_id, info=info, infohash=stream.infohash, container=container)
 
     def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None, file_data: ParsedFileData = None) -> None:
-        """Update the item attributes
-
-        Args:
-            item: The MediaItem to update
-            debrid_file: The debrid file information
-            download_result: The download result
-            service: The debrid service
-            file_data: Optional pre-parsed file data to avoid re-parsing
+        """
+        Update the media item's active stream and filesystem entries using a debrid file from a completed download.
+        
+        Sets item.active_stream from the download_result and, if the debrid file exposes a download URL, computes a virtual filesystem path (using the item, current filesystem settings, original filename, and optional parsed file data), creates a virtual FilesystemEntry containing provider, provider download id, file size, and original filename, and replaces the item's filesystem_entries with that single entry.
+        
+        Parameters:
+            item (Movie|Episode): The media item to update.
+            debrid_file (DebridFile): Debrid file metadata (must include filename and optionally download_url and filesize).
+            download_result (DownloadedTorrent): Result of the download containing id and infohash.
+            service: Optional debrid service instance; defaults to the downloader's configured service.
+            file_data (ParsedFileData, optional): Parsed filename metadata to influence path generation; may be omitted.
         """
         if service is None:
             service = self.service
@@ -386,7 +411,14 @@ class Downloader:
             logger.debug(f"Created FilesystemEntry for {item.log_string} at {vfs_path}")
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
-        """Check if the torrent is cached"""
+        """
+        Retrieve cached availability information for a torrent identified by its infohash and item type.
+        
+        Queries the active downloader service for instant availability and returns any matching cached torrent containers.
+        
+        Returns:
+            List[TorrentContainer]: A list of TorrentContainer objects representing available cached torrents; empty list if none are found.
+        """
         return self.service.get_instant_availability(infohash, item_type)
 
     def add_torrent(self, infohash: str) -> int:

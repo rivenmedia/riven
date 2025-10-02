@@ -38,6 +38,16 @@ class Subtitle(db.Model):
         return self
 
     def to_dict(self):
+        """
+        Serialize the Subtitle ORM instance into a plain dictionary.
+        
+        Returns:
+            dict: A mapping with keys:
+                - "id": string representation of the subtitle primary key.
+                - "language": the subtitle language value.
+                - "file": the stored file path or None if not set.
+                - "parent_id": the associated MediaItem primary key or None.
+        """
         return {
             "id": str(self.id),
             "language": self.language,
@@ -54,7 +64,15 @@ from sqlalchemy import event
 from loguru import logger
 
 def cleanup_subtitle_file(mapper, connection, target: Subtitle):
-    """Automatically delete subtitle file from disk when Subtitle is deleted"""
+    """
+    Delete the subtitle file on disk for the Subtitle instance being deleted.
+    
+    If the Subtitle has a non-empty `file` path, attempts to remove that file from disk.
+    On failure, the error is logged as a warning; successful deletions are logged at debug level.
+    
+    Parameters:
+        target (Subtitle): The Subtitle instance being deleted whose associated file should be removed.
+    """
     try:
         if target.file and Path(target.file).exists():
             Path(target.file).unlink()
