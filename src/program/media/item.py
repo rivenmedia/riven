@@ -13,7 +13,6 @@ from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle import Subtitle
 
-from ..db.db_functions import clear_streams, set_stream_blacklisted
 from .stream import Stream
 
 if TYPE_CHECKING:
@@ -127,15 +126,6 @@ class MediaItem(db.Model):
         self.last_state = new_state
         return (previous_state, new_state)
 
-    def is_stream_blacklisted(self, stream: Stream):
-        """Check if a stream is blacklisted for this item."""
-        session = object_session(self)
-        if session:
-            # Avoid triggering autoflush while refreshing relationships
-            with session.no_autoflush:
-                session.refresh(self, attribute_names=["blacklisted_streams"])
-        return stream in self.blacklisted_streams
-
     def blacklist_active_stream(self) -> bool:
         if not self.active_stream:
             logger.debug(f"No active stream for {self.log_string}, will not blacklist")
@@ -162,10 +152,24 @@ class MediaItem(db.Model):
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
-        value = set_stream_blacklisted(self, stream, blacklisted=True)
-        if value:
+        """Blacklist a stream by moving it from streams to blacklisted_streams."""
+        if stream in self.streams:
+            self.streams.remove(stream)
+            if stream not in self.blacklisted_streams:
+                self.blacklisted_streams.append(stream)
             logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
-        return value
+            return True
+        return False
+
+    def unblacklist_stream(self, stream: Stream) -> bool:
+        """Unblacklist a stream by moving it from blacklisted_streams to streams."""
+        if stream in self.blacklisted_streams:
+            self.blacklisted_streams.remove(stream)
+            if stream not in self.streams:
+                self.streams.append(stream)
+            logger.debug(f"Unblacklisted stream {stream.infohash} for {self.log_string}")
+            return True
+        return False
 
     @property
     def is_released(self) -> bool:
@@ -201,19 +205,6 @@ class MediaItem(db.Model):
             return States.Requested
         return States.Unknown
 
-    def copy_other_media_attr(self, other) -> None:
-        """Copy attributes from another media item."""
-        self.title = getattr(other, "title", None)
-        self.tvdb_id = getattr(other, "tvdb_id", None)
-        self.tmdb_id = getattr(other, "tmdb_id", None)
-        self.network = getattr(other, "network", None)
-        self.country = getattr(other, "country", None)
-        self.language = getattr(other, "language", None)
-        self.aired_at = getattr(other, "aired_at", None)
-        self.genres = getattr(other, "genres", [])
-        self.is_anime = getattr(other, "is_anime", False)
-        self.overseerr_id = getattr(other, "overseerr_id", None)
-
     def is_scraped(self) -> bool:
         """Check if the item has been scraped."""
         session = object_session(self)
@@ -222,7 +213,7 @@ class MediaItem(db.Model):
                 session.refresh(self, attribute_names=["blacklisted_streams"])
                 return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
             except:
-                ...
+                pass
         return False
 
     def to_dict(self) -> dict[str, Any]:
@@ -301,8 +292,8 @@ class MediaItem(db.Model):
         dict["country"] = self.country if hasattr(self, "country") else None
         dict["network"] = self.network if hasattr(self, "network") else None
         if with_streams:
-            dict["streams"] = getattr(self, "streams", [])
-            dict["blacklisted_streams"] = getattr(self, "blacklisted_streams", [])
+            dict["streams"] = [stream.to_dict() for stream in getattr(self, "streams", [])]
+            dict["blacklisted_streams"] = [stream.to_dict() for stream in getattr(self, "blacklisted_streams", [])]
             dict["active_stream"] = (
                 self.active_stream if hasattr(self, "active_stream") else None
             )
@@ -389,49 +380,38 @@ class MediaItem(db.Model):
             for episode in self.episodes:
                 episode._reset()
         self._reset()
-        if self.title:
-            self.store_state(States.Indexed)
-        else:
-            self.store_state(States.Requested)
+        self.store_state()
 
     def _reset(self):
         """Reset item attributes for rescraping."""
-        # Remove filesystem entry if it exists
-        if self.filesystem_entry:
-            from program.services.filesystem.filesystem_service import FilesystemService
-            from program.program import riven
-            filesystem_service = riven.services.get(FilesystemService)
-            if filesystem_service:
-                filesystem_service.delete_item_files_by_id(self.id)
-
+        # Remove filesystem entry if it exists (service handles DB + VFS); then clear local attributes
+        if self.filesystem_entry or self.filesystem_entry_id:
+            try:
+                from program.services.filesystem.filesystem_service import FilesystemService
+                from program.program import riven
+                filesystem_service: FilesystemService = riven.services.get(FilesystemService)
+                if filesystem_service:
+                    filesystem_service.delete_item_files_by_id(self.id)
+            except Exception as e:
+                logger.warning(f"Failed to remove filesystem entry for {self.log_string}: {str(e)}")
+            finally:
+                self.filesystem_entry = None
+                self.filesystem_entry_id = None
         try:
             for subtitle in self.subtitles:
                 subtitle.remove()
         except Exception as e:
             logger.warning(f"Failed to remove subtitles for {self.log_string}: {str(e)}")
 
-        clear_streams(media_item_id=self.id)
+        self.streams.clear()
+        self.blacklisted_streams.clear()
         self.active_stream = {}
-
-        self.set("active_stream", {})
-
-        self.set("scraped_at", None)
-        self.set("scraped_times", 0)
-        self.set("failed_attempts", 0)
+        self.updated = False
+        self.scraped_at = None
+        self.scraped_times = 0
+        self.failed_attempts = 0
 
         logger.debug(f"Item {self.log_string} has been reset")
-
-    def soft_reset(self):
-        """Soft reset item attributes."""
-        self.blacklist_active_stream()
-        self.set("active_stream", {})
-        # Remove filesystem entry if it exists
-        if self.filesystem_entry:
-            from program.services.filesystem.filesystem_service import FilesystemService
-            from program.program import riven
-            filesystem_service = riven.services.get(FilesystemService)
-            if filesystem_service:
-                filesystem_service.delete_item_files_by_id(self.id)
 
     @property
     def log_string(self):
@@ -459,18 +439,6 @@ class MediaItem(db.Model):
             if self.parent:
                 return self.parent.is_parent_blocked()
         return False
-
-    def get_blocking_parent(self) -> Optional["MediaItem"]:
-        """Return the nearest paused ancestor (self, parent season, or parent show), or None."""
-        if self.last_state == States.Paused:
-            return self
-
-        session = object_session(self)
-        if session and hasattr(self, "parent"):
-            session.refresh(self, ["parent"])
-            if self.parent:
-                return self.parent.get_blocking_parent()
-        return None
 
 
 class Movie(MediaItem):
@@ -523,13 +491,6 @@ class Show(MediaItem):
         self.propagate_attributes_to_childs()
         super().__init__(item)
 
-    def get_season_index_by_id(self, item_id):
-        """Find the index of an season by its _id."""
-        for i, season in enumerate(self.seasons):
-            if season.id == item_id:
-                return i
-        return None
-
     def _determine_state(self):
         if all(season.state == States.Paused for season in self.seasons):
             return States.Paused
@@ -577,17 +538,6 @@ class Show(MediaItem):
             new_season.parent = self
             self.seasons.append(new_season)
         return self
-
-    def fill_in_missing_children(self, other: Self):
-        existing_seasons = [s.number for s in self.seasons]
-        for s in other.seasons:
-            if s.number not in existing_seasons:
-                self.add_season(s)
-            else:
-                existing_season = next(
-                    es for es in self.seasons if s.number == es.number
-                )
-                existing_season.fill_in_missing_children(s)
 
     def add_season(self, season):
         """Add season to show"""
@@ -723,19 +673,6 @@ class Season(MediaItem):
             self.parent = Show(item={}).copy(other.parent)
         return self
 
-    def fill_in_missing_children(self, other: Self):
-        existing_episodes = [s.number for s in self.episodes]
-        for e in other.episodes:
-            if e.number not in existing_episodes:
-                self.add_episode(e)
-
-    def get_episode_index_by_id(self, item_id: int):
-        """Find the index of an episode by its _id."""
-        for i, episode in enumerate(self.episodes):
-            if episode.id == item_id:
-                return i
-        return None
-
     def represent_children(self):
         return [e.log_string for e in self.episodes]
 
@@ -810,12 +747,6 @@ class Episode(MediaItem):
 
     def get_top_title(self) -> str:
         return self.parent.parent.title
-
-    def get_top_year(self) -> Optional[int]:
-        return self.parent.parent.year
-
-    def get_season_year(self) -> Optional[int]:
-        return self.parent.year
 
 
 def _set_nested_attr(obj, key, value):

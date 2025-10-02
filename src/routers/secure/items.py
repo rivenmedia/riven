@@ -1,7 +1,6 @@
-import asyncio
 import os
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Callable
 
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,11 +8,11 @@ from loguru import logger
 from pydantic import BaseModel
 from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
 from program.db.db import db, get_db
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show, Season
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem import FilesystemService
@@ -34,6 +33,52 @@ def handle_ids(ids: str) -> list[int]:
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided")
     return ids
+
+
+# Convenience helper to mutate an item and update states consistently
+
+
+def apply_item_mutation(program, session: Session, item: MediaItem, mutation_fn: "Callable[[MediaItem, Session], None]", bubble_parents: bool = True) -> None:
+    """Cancel jobs, apply mutation, then update item and ancestor states.
+    - Uses base MediaItem.store_state to avoid recursive child updates for seasons/shows.
+    - Caller is responsible for session.commit().
+    """
+    try:
+        program.em.cancel_job(item.id)
+    except Exception:
+        logger.debug(f"No active job to cancel for item {getattr(item, 'id', None)}")
+
+    # Ensure attached instance
+    if object_session(item) is not session:
+        item = session.merge(item)
+
+    # Apply mutation
+    mutation_fn(item, session)
+
+    # Update self state (non-recursive)
+    try:
+        MediaItem.store_state(item)
+    except Exception as e:
+        logger.warning(f"Failed to store state for {item.id}: {e}")
+
+    if not bubble_parents:
+        return
+
+    # Update parent states (non-recursive)
+    try:
+        if item.type == "episode":
+            season = session.get(Season, getattr(item, "parent_id", None))
+            if season:
+                MediaItem.store_state(season)
+                show = session.get(Show, getattr(season, "parent_id", None))
+                if show:
+                    MediaItem.store_state(show)
+        elif item.type == "season":
+            show = session.get(Show, getattr(item, "parent_id", None))
+            if show:
+                MediaItem.store_state(show)
+    except Exception as e:
+        logger.warning(f"Failed to update parent state(s) for item {item.id}: {e}")
 
 
 class StateResponse(BaseModel):
@@ -206,10 +251,15 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
     added_count = 0
     items = []
 
-    with db.Session():
+    with db.Session() as session:
         if media_type == "movie" and tmdb_ids:
             for id in all_tmdb_ids:
-                if not db_functions.item_exists_by_any_id(tmdb_id=id):
+                # Check if item exists using ORM
+                existing = session.execute(
+                    select(MediaItem).where(MediaItem.tmdb_id == id)
+                ).scalar_one_or_none()
+
+                if not existing:
                     item = MediaItem({"tmdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
                     if item:
                         items.append(item)
@@ -218,7 +268,12 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
 
         if media_type == "tv" and tvdb_ids:
             for id in all_tvdb_ids:
-                if not db_functions.item_exists_by_any_id(tvdb_id=id):
+                # Check if item exists using ORM
+                existing = session.execute(
+                    select(MediaItem).where(MediaItem.tvdb_id == id)
+                ).scalar_one_or_none()
+
+                if not existing:
                     item = MediaItem({"tvdb_id": id, "requested_by": "riven", "requested_at": datetime.now()})
                     if item:
                         items.append(item)
@@ -263,7 +318,7 @@ async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"
             raise HTTPException(status_code=400, detail="Invalid media type")
 
         try:
-            item = session.execute(query).unique().scalar_one_or_none()
+            item: MediaItem = session.execute(query).unique().scalar_one_or_none()
             if item:
                 return item.to_extended_dict(with_streams=with_streams)
             else:
@@ -297,18 +352,18 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
-            for media_item in db_functions.get_items_by_ids(ids, session=session):
+            # Load items using ORM
+            items = session.execute(
+                select(MediaItem).where(MediaItem.id.in_(ids))
+            ).scalars().all()
+
+            for media_item in items:
                 try:
-                    request.app.program.em.cancel_job(media_item.id)
-                    active_hash = media_item.active_stream.get("infohash", None)
-                    active_stream = next((stream for stream in media_item.streams if stream.infohash == active_hash), None)
-                    db_functions.clear_streams(media_item_id=media_item.id)
-                    media_item.reset()
-                    if active_stream:
-                        # lets blacklist the active stream so it doesnt get used again
-                        db_functions.blacklist_stream(media_item, active_stream)
-                        logger.debug(f"Blacklisted stream {active_hash} for item {media_item.log_string}")
-                    session.merge(media_item)
+                    def mutation(i: MediaItem, s: Session):
+                        i.blacklist_active_stream()
+                        i.reset()
+
+                    apply_item_mutation(request.app.program, session, media_item, mutation, bubble_parents=True)
                     session.commit()
                 except ValueError as e:
                     logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
@@ -335,18 +390,22 @@ class RetryResponse(BaseModel):
 async def retry_items(request: Request, ids: str) -> RetryResponse:
     """Re-add items to the queue"""
     ids: list[int] = handle_ids(ids)
-    for id in ids:
-        try:
-            item = db_functions.get_item_by_id(id)
-            if item:
-                with db.Session() as session:
-                    item.scraped_at = None
-                    item.scraped_times = 1
-                    session.merge(item)
+
+    with db.Session() as session:
+        for id in ids:
+            try:
+                # Load item using ORM
+                item = session.get(MediaItem, id)
+                if item:
+                    def mutation(i: MediaItem, s: Session):
+                        i.scraped_at = None
+                        i.scraped_times = 1
+
+                    apply_item_mutation(request.app.program, session, item, mutation, bubble_parents=True)
                     session.commit()
-                request.app.program.em.add_event(Event("RetryItem", id))
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+                    request.app.program.em.add_event(Event("RetryItem", id))
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     return {"message": f"Retried items with ids {ids}", "ids": ids}
 
@@ -438,63 +497,67 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
-    # Load items
-    items: List[MediaItem] = db_functions.get_items_by_ids(ids)
-    if not items:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item(s) not found")
-
     # Get services
     filesystem_service: FilesystemService = request.app.program.services.get(FilesystemService)
     overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
     updater: Updater | None = request.app.program.services.get(Updater)
 
-    # Process all items in a single loop
-    for item in items:
-        logger.debug(f"Removing item with ID {item.id}")
+    removed_ids = []
 
-        # 1. Cancel active jobs (EventManager cancels children too)
-        request.app.program.em.cancel_job(item.id)
+    with db.Session() as session:
+        for item_id in ids:
+            # Load item using ORM
+            item: MediaItem = session.get(MediaItem, item_id)
+            if not item:
+                logger.warning(f"Item {item_id} not found, skipping")
+                continue
 
-        # 2. Get filesystem path before deletion for media server refresh
-        refresh_path = None
-        if item.filesystem_entry and item.filesystem_entry.path:
-            abs_path = os.path.join(updater.library_path, item.filesystem_entry.path.lstrip("/"))
-            if item.type == "movie":
-                refresh_path = os.path.dirname(os.path.dirname(abs_path))
-            else:  # show, season, episode
-                refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
+            # Only allow movies and shows to be removed
+            if item.type not in ("movie", "show"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
+                )
 
-        # 3. Remove VFS entries
-        if filesystem_service:
-            filesystem_service.delete_item_files_by_id(item.id)
+            logger.debug(f"Removing item with ID {item.id}")
 
-        # 4. Clear streams
-        db_functions.clear_streams(media_item_id=item.id)
+            # 1. Cancel active jobs (EventManager cancels children too)
+            request.app.program.em.cancel_job(item.id)
 
-        # 5. Delete from Overseerr
-        if item.overseerr_id and overseerr:
-            try:
-                overseerr.delete_request(item.overseerr_id)
-                logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete Overseerr request {item.overseerr_id}: {e}")
+            # 2. Gather refresh_path before deletion
+            refresh_path = None
+            if updater and item.filesystem_entry and item.filesystem_entry.path:
+                abs_path = os.path.join(updater.library_path, item.filesystem_entry.path.lstrip("/"))
+                if item.type == "movie":
+                    refresh_path = os.path.dirname(os.path.dirname(abs_path))
+                else:  # show
+                    refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
 
-        # 6. Delete from database (CASCADE handles children)
-        ok = db_functions.delete_media_item_by_id(item.id)
-        if not ok:
-            logger.error(f"Failed to delete item {item.id}")
-            continue
+            # 3. Remove VFS entries
+            if filesystem_service:
+                filesystem_service.delete_item_files_by_id(item.id)
 
-        # 7. Trigger media server refresh to remove from library
-        if updater and updater.initialized and refresh_path:
-            updater.refresh_path(refresh_path)
-            logger.debug(f"Triggered media server refresh for {refresh_path}")
+            # 4. Delete from Overseerr
+            if item.overseerr_id and overseerr:
+                try:
+                    overseerr.delete_request(item.overseerr_id)
+                    logger.debug(f"Deleted Overseerr request {item.overseerr_id} for {item.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete Overseerr request {item.overseerr_id}: {e}")
 
-    # Give the scheduler a moment to process cancellations
-    await asyncio.sleep(0.2)
+            # 5. Delete from database using ORM (CASCADE handles children)
+            session.delete(item)
+            session.commit()
+            removed_ids.append(item_id)
+            logger.debug(f"Deleted item {item_id} from database")
 
-    logger.info(f"Successfully removed items: {ids}")
-    return {"message": f"Removed items with ids {ids}", "ids": ids}
+            # 6. Trigger media server refresh to remove from library
+            if updater and updater.initialized and refresh_path:
+                updater.refresh_path(refresh_path)
+                logger.debug(f"Triggered media server refresh for {refresh_path}")
+
+    logger.info(f"Successfully removed items: {removed_ids}")
+    return {"message": f"Removed items with ids {removed_ids}", "ids": removed_ids}
 
 @router.get(
     "/{item_id}/streams"
@@ -514,14 +577,14 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_d
 
     return {
         "message": f"Retrieved streams for item {item_id}",
-        "streams": item.streams,
-        "blacklisted_streams": item.blacklisted_streams
+        "streams": [stream.to_dict() for stream in item.streams],
+        "blacklisted_streams": [stream.to_dict() for stream in item.blacklisted_streams]
     }
 
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist"
 )
-async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def blacklist_stream(request: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -535,7 +598,11 @@ async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.set_stream_blacklisted(item, stream, blacklisted=True, session=db)
+    def mutation(i: MediaItem, s: Session):
+        i.blacklist_stream(stream)
+
+    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    db.commit()
 
     return {
         "message": f"Blacklisted stream {stream_id} for item {item_id}",
@@ -544,7 +611,7 @@ async def blacklist_stream(_: Request, item_id: int, stream_id: int, db: Session
 @router.post(
     "/{item_id}/streams/{stream_id}/unblacklist"
 )
-async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
+async def unblacklist_stream(request: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -559,7 +626,11 @@ async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Sessi
     if not item or not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item or stream not found")
 
-    db_functions.set_stream_blacklisted(item, stream, blacklisted=False, session=db)
+    def mutation(i: MediaItem, s: Session):
+        i.unblacklist_stream(stream)
+
+    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    db.commit()
 
     return {
         "message": f"Unblacklisted stream {stream_id} for item {item_id}",
@@ -571,7 +642,7 @@ async def unblacklist_stream(_: Request, item_id: int, stream_id: int, db: Sessi
     description="Reset all streams for a media item",
     operation_id="reset_item_streams",
 )
-async def reset_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
+async def reset_item_streams(request: Request, item_id: int, db: Session = Depends(get_db)):
     item: MediaItem = (
         db.execute(
             select(MediaItem)
@@ -584,7 +655,13 @@ async def reset_item_streams(_: Request, item_id: int, db: Session = Depends(get
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    db_functions.clear_streams(media_item_id=item.id)
+    def mutation(i: MediaItem, s: Session):
+        i.streams.clear()
+        i.blacklisted_streams.clear()
+        i.active_stream = {}
+
+    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    db.commit()
 
     return {
         "message": f"Successfully reset streams for item {item_id}",
@@ -605,18 +682,26 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
     ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
-            for media_item in db_functions.get_items_by_ids(ids):
+            # Load items using ORM
+            items = session.execute(
+                select(MediaItem).where(MediaItem.id.in_(ids))
+            ).scalars().all()
+
+            for media_item in items:
                 try:
                     item_id, related_ids = db_functions.get_item_ids(session, media_item.id)
                     all_ids = [item_id] + related_ids
 
+                    # Cancel all related jobs
                     for id in all_ids:
                         request.app.program.em.cancel_job(id)
                         request.app.program.em.remove_id_from_queues(id)
 
                     if media_item.last_state not in [States.Paused, States.Failed, States.Completed]:
-                        media_item.store_state(States.Paused)
-                        session.merge(media_item)
+                        def mutation(i: MediaItem, s: Session):
+                            i.store_state(States.Paused)
+
+                        apply_item_mutation(request.app.program, session, media_item, mutation, bubble_parents=False)
                         session.commit()
 
                     logger.info("Successfully paused items.")
@@ -639,11 +724,18 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
     ids: list[int] = handle_ids(ids)
     try:
         with db.Session() as session:
-            for media_item in db_functions.get_items_by_ids(ids):
+            # Load items using ORM
+            items = session.execute(
+                select(MediaItem).where(MediaItem.id.in_(ids))
+            ).scalars().all()
+
+            for media_item in items:
                 try:
                     if media_item.last_state == States.Paused:
-                        media_item.store_state(States.Requested)
-                        session.merge(media_item)
+                        def mutation(i: MediaItem, s: Session):
+                            i.store_state(States.Requested)
+
+                        apply_item_mutation(request.app.program, session, media_item, mutation, bubble_parents=True)
                         session.commit()
                         request.app.program.em.add_event(Event("RetryItem", media_item.id))
                         logger.info(f"Successfully unpaused {media_item.log_string}")
@@ -668,45 +760,56 @@ class ReindexResponse(BaseModel):
 )
 async def reindex_item(request: Request, item_id: Optional[int] = None, tvdb_id: Optional[str] = None, tmdb_id: Optional[str] = None, imdb_id: Optional[str] = None) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
-    if item_id:
-        item: MediaItem = db_functions.get_item_by_id(item_id)
-    elif tvdb_id:
-        item: MediaItem = db_functions.get_item_by_external_id(tvdb_id=tvdb_id)
-    elif tmdb_id:
-        item: MediaItem = db_functions.get_item_by_external_id(tmdb_id=tmdb_id)
-    elif imdb_id:
-        item: MediaItem = db_functions.get_item_by_external_id(imdb_id=imdb_id)
-    elif any([item_id, tvdb_id, tmdb_id, imdb_id]):
-        item: MediaItem = db_functions.get_item_by_external_id(tvdb_id=tvdb_id, tmdb_id=tmdb_id, imdb_id=imdb_id)
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or imdb id is required")
 
-    if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    with db.Session() as session:
+        # Load item using ORM based on provided ID
+        item: MediaItem = None
+        if item_id:
+            item = session.get(MediaItem, item_id)
+        elif tvdb_id:
+            item = session.execute(
+                select(MediaItem).where(MediaItem.tvdb_id == tvdb_id)
+            ).scalar_one_or_none()
+        elif tmdb_id:
+            item = session.execute(
+                select(MediaItem).where(MediaItem.tmdb_id == tmdb_id)
+            ).scalar_one_or_none()
+        elif imdb_id:
+            item = session.execute(
+                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+            ).scalar_one_or_none()
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item id or external id is required")
 
-    if item.type not in ("movie", "show"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    try:
-        from program.services.indexers.composite import CompositeIndexer
-        c_indexer = request.app.program.all_services[CompositeIndexer]
-        item.indexed_at = None
-        reindexed_item = next(c_indexer.run(item, log_msg=True))
-        
-        if reindexed_item:
-            with db.Session() as session:
+        if item.type not in ("movie", "show"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
+
+        try:
+            from program.services.indexers.composite import CompositeIndexer
+            c_indexer = request.app.program.all_services[CompositeIndexer]
+
+            def mutation(i: MediaItem, s: Session):
+                i.indexed_at = None
+
+            apply_item_mutation(request.app.program, session, item, mutation, bubble_parents=True)
+
+            # Run indexer on the updated item
+            reindexed_item = next(c_indexer.run(item, log_msg=True))
+
+            if reindexed_item:
                 session.merge(reindexed_item)
                 session.commit()
-            
-            logger.info(f"Successfully reindexed {item.log_string}")
-            request.app.program.em.add_event(Event("RetryItem", item.id))
-            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
-        else:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
-
-    except Exception as e:
-        logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
+                logger.info(f"Successfully reindexed {item.log_string}")
+                request.app.program.em.add_event(Event("RetryItem", item.id))
+                return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
+            else:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
+        except Exception as e:
+            logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")
 
 class FfprobeResponse(BaseModel):
     message: str
