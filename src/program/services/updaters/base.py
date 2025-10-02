@@ -21,16 +21,14 @@ class BaseUpdater(ABC):
         Args:
             service_name: Name of the service (e.g., "Plex", "Emby", "Jellyfin")
         """
-        self.service_name = service_name
+        self.key = service_name
         self.initialized = False
 
     def _initialize(self):
         """Initialize the updater by validating configuration."""
         if self.validate():
             self.initialized = True
-            logger.success(f"{self.service_name} updater initialized")
-        else:
-            logger.warning(f"{self.service_name} updater not initialized")
+            logger.success(f"{self.__class__.__name__} updater initialized")
 
     @abstractmethod
     def validate(self) -> bool:

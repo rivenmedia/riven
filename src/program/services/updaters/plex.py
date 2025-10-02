@@ -15,7 +15,7 @@ from program.settings.manager import settings_manager
 
 class PlexUpdater(BaseUpdater):
     def __init__(self):
-        super().__init__("Plex")
+        super().__init__("plexupdater")
         self.library_path = settings_manager.settings.updaters.library_path
         self.settings = settings_manager.settings.updaters.plex
         self.api = None
