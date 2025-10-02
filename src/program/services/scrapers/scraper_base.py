@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from base64 import decode, encode
 from typing import Dict, Tuple
 
+from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
 
@@ -19,6 +20,18 @@ class ScraperService(ABC):
     - requires_imdb_id: whether the scraper needs an IMDb id to function
     """
     requires_imdb_id: bool = False
+
+    @property
+    def service_name(self) -> str:
+        return getattr(self, "key", self.__class__.__name__)
+
+    def _initialize(self) -> None:
+        try:
+            if self.validate():
+                setattr(self, "initialized", True)
+                logger.success(f"{self.service_name} scraper initialized")
+        except Exception:
+            pass
 
     @abstractmethod
     def validate(self) -> bool: ...
