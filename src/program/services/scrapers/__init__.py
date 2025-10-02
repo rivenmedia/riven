@@ -12,7 +12,6 @@ from program.services.scrapers.scraper_base import ScraperService
 from program.services.scrapers.shared import _parse_results
 from program.settings.manager import settings_manager
 
-# Explicit scraper imports (no dynamic discovery)
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
