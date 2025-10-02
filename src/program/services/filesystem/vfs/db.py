@@ -72,48 +72,65 @@ class VFSDatabase:
             fe = s.query(FilesystemEntry).filter_by(
                 path=path
             ).one_or_none()
-            if not fe:
-                if path == '/':
-                    return {'virtual_path': '/', 'name': '/', 'size': 0, 'is_directory': True, 'created': None, 'modified': None}
-                return None
-            return {
-                'virtual_path': fe.path,
-                'name': os.path.basename(fe.path) or '/',
-                'size': int(fe.file_size or 0),
-                'is_directory': bool(fe.is_directory),
-                'created': fe.created_at.isoformat() if fe.created_at else None,
-                'modified': fe.updated_at.isoformat() if fe.updated_at else None,
-            }
+            if fe:
+                return {
+                    'virtual_path': fe.path,
+                    'name': os.path.basename(fe.path) or '/',
+                    'size': int(fe.file_size or 0),
+                    'is_directory': bool(fe.is_directory),
+                    'created': fe.created_at.isoformat() if fe.created_at else None,
+                    'modified': fe.updated_at.isoformat() if fe.updated_at else None,
+                }
+
+            # Not in database - check if it's a virtual directory (parent of any files)
+            if path == '/':
+                return {'virtual_path': '/', 'name': '/', 'size': 0, 'is_directory': True, 'created': None, 'modified': None}
+
+            # Check if any files exist under this path (making it a virtual directory)
+            prefix = path + '/'
+            has_children = s.query(FilesystemEntry.id).filter(
+                FilesystemEntry.path.like(prefix + '%')
+            ).first() is not None
+
+            if has_children:
+                return {
+                    'virtual_path': path,
+                    'name': os.path.basename(path),
+                    'size': 0,
+                    'is_directory': True,
+                    'created': None,
+                    'modified': None
+                }
+
+            return None
 
     def list_directory(self, path: str) -> List[Dict]:
         path = self._norm(path)
         prefix = '/' if path == '/' else path + '/'
         out: List[Dict] = []
+        seen_names = set()
+
         with self.SessionLocal() as s:
-            # Query FilesystemEntry for virtual files only
+            # Query all FilesystemEntry records under this path
             q = s.query(FilesystemEntry.path, FilesystemEntry.file_size, FilesystemEntry.is_directory, FilesystemEntry.created_at, FilesystemEntry.updated_at)
+
             if path == '/':
                 rows = q.all()
-                for vp, size, is_dir, created, modified in rows:
-                    if vp == '/':
-                        continue
-                    parent = os.path.dirname(vp.rstrip('/')) or '/'
-                    if parent == '/':
-                        name = os.path.basename(vp.rstrip('/'))
-                        out.append({
-                            'virtual_path': vp,
-                            'name': name,
-                            'size': size,
-                            'is_directory': bool(is_dir),
-                            'created': created.isoformat() if created else None,
-                            'modified': modified.isoformat() if modified else None
-                        })
             else:
                 rows = q.filter(FilesystemEntry.path.like(prefix + '%')).all()
-                for vp, size, is_dir, created, modified in rows:
-                    parent = os.path.dirname(vp.rstrip('/')) or '/'
-                    if parent == path:
-                        name = os.path.basename(vp.rstrip('/'))
+
+            for vp, size, is_dir, created, modified in rows:
+                if vp == '/':
+                    continue
+
+                # Get the parent directory of this entry
+                parent = os.path.dirname(vp.rstrip('/')) or '/'
+
+                # If this entry is a direct child of the requested path
+                if parent == path:
+                    name = os.path.basename(vp.rstrip('/'))
+                    if name not in seen_names:
+                        seen_names.add(name)
                         out.append({
                             'virtual_path': vp,
                             'name': name,
@@ -122,6 +139,23 @@ class VFSDatabase:
                             'created': created.isoformat() if created else None,
                             'modified': modified.isoformat() if modified else None
                         })
+                # If this entry is deeper, create virtual directory entries for intermediate dirs
+                elif vp.startswith(prefix):
+                    # Extract the immediate child directory name
+                    relative = vp[len(prefix):]
+                    first_component = relative.split('/')[0]
+                    if first_component and first_component not in seen_names:
+                        seen_names.add(first_component)
+                        virtual_dir_path = f"{path}/{first_component}" if path != '/' else f"/{first_component}"
+                        out.append({
+                            'virtual_path': virtual_dir_path,
+                            'name': first_component,
+                            'size': 0,
+                            'is_directory': True,
+                            'created': None,
+                            'modified': None
+                        })
+
         out.sort(key=lambda d: d['name'])
         return out
 
@@ -245,32 +279,10 @@ class VFSDatabase:
                 ))
         return path
 
-    def _ensure_dir_chain(self, s, path: str) -> None:
-        if path in ('', '/'):
-            return
-        parts = [p for p in path.strip('/').split('/') if p]
-        acc = ''
-        for p in parts:
-            acc = f"{acc}/{p}" if acc else f"/{p}"
-            if not s.query(FilesystemEntry.id).filter_by(
-                path=acc
-            ).first():
-                # Create directory entry manually since factory method doesn't support is_directory
-                dir_entry = FilesystemEntry(
-                    path=acc,
-                    download_url=None,
-                    provider=None,
-                    provider_download_id=None,
-                    file_size=0,
-                    is_directory=True
-                )
-                s.add(dir_entry)
-
     def add_file(self, path: str, url: Optional[str], size: int = 0, provider: Optional[str] = None, provider_download_id: Optional[str] = None) -> str:
+        """Add a file to the VFS database. Directories are created virtually on-the-fly."""
         path = self._norm(path)
-        parent = os.path.dirname(path.rstrip('/')) or '/'
         with self.SessionLocal.begin() as s:
-            self._ensure_dir_chain(s, parent)
             fe = s.query(FilesystemEntry).filter_by(
                 path=path
             ).one_or_none()
@@ -334,10 +346,7 @@ class VFSDatabase:
             if not fe:
                 return False
 
-            # Ensure parent directories exist for the new path
-            new_parent = os.path.dirname(new_path.rstrip('/')) or '/'
-            self._ensure_dir_chain(s, new_parent)
-
+            # Update the path (directories are virtual, no need to create them)
             fe.path = new_path
             if provider is not None:
                 fe.provider = provider
@@ -353,9 +362,7 @@ class VFSDatabase:
             for c in children:
                 suffix = c.path[len(old_path):]
                 new_child_path = new_path + suffix
-                # Ensure parent directories exist for each child's new path
-                child_parent = os.path.dirname(new_child_path.rstrip('/')) or '/'
-                self._ensure_dir_chain(s, child_parent)
+                # Update child path (directories are virtual, no need to create them)
                 c.path = new_child_path
             return True
 

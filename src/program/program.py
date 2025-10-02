@@ -12,6 +12,7 @@ from rich.live import Live
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.filesystem_entry import FilesystemEntry
 from program.services.content import (
     Listrr,
     Mdblist,
@@ -166,8 +167,18 @@ class Program(threading.Thread):
 
         with db.Session() as session:
             # Count items with filesystem entries
-            movies_with_fs = session.execute(select(func.count(Movie.id)).where(Movie.filesystem_entry_id.is_not(None))).scalar_one()
-            episodes_with_fs = session.execute(select(func.count(Episode.id)).where(Episode.filesystem_entry_id.is_not(None))).scalar_one()
+            # Use exists() to check if any filesystem_entries exist for the item
+            from sqlalchemy import exists
+            movies_with_fs = session.execute(
+                select(func.count(Movie.id)).where(
+                    exists().where(FilesystemEntry.media_item_id == Movie.id)
+                )
+            ).scalar_one()
+            episodes_with_fs = session.execute(
+                select(func.count(Episode.id)).where(
+                    exists().where(FilesystemEntry.media_item_id == Episode.id)
+                )
+            ).scalar_one()
             total_with_fs = movies_with_fs + episodes_with_fs
             total_movies = session.execute(select(func.count(Movie.id))).scalar_one()
             total_shows = session.execute(select(func.count(Show.id))).scalar_one()

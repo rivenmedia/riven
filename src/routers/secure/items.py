@@ -15,7 +15,6 @@ from program.db.db import db, get_db
 from program.media.item import MediaItem, Show, Season
 from program.media.state import States
 from program.services.content import Overseerr
-from program.services.filesystem import FilesystemService
 from program.services.updaters import Updater
 from program.types import Event
 
@@ -350,6 +349,10 @@ class ResetResponse(BaseModel):
 )
 async def reset_items(request: Request, ids: str) -> ResetResponse:
     ids: list[int] = handle_ids(ids)
+
+    # Get updater service for media server refresh
+    updater: Updater | None = request.app.program.services.get(Updater)
+
     try:
         with db.Session() as session:
             # Load items using ORM
@@ -359,12 +362,27 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
 
             for media_item in items:
                 try:
+                    # Gather refresh_path before reset (similar to remove endpoint)
+                    refresh_path = None
+                    if updater and media_item.filesystem_entry and media_item.filesystem_entry.path:
+                        abs_path = os.path.join(updater.library_path, media_item.filesystem_entry.path.lstrip("/"))
+                        if media_item.type == "movie":
+                            refresh_path = os.path.dirname(os.path.dirname(abs_path))
+                        else:  # show
+                            refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
+
                     def mutation(i: MediaItem, s: Session):
                         i.blacklist_active_stream()
                         i.reset()
 
                     apply_item_mutation(request.app.program, session, media_item, mutation, bubble_parents=True)
                     session.commit()
+
+                    # Trigger media server refresh to remove from library (if item was actually removed)
+                    if updater and updater.initialized and refresh_path:
+                        updater.refresh_path(refresh_path)
+                        logger.debug(f"Triggered media server refresh for {refresh_path}")
+
                 except ValueError as e:
                     logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
                     continue
@@ -498,7 +516,6 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No IDs provided")
 
     # Get services
-    filesystem_service: FilesystemService = request.app.program.services.get(FilesystemService)
     overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
     updater: Updater | None = request.app.program.services.get(Updater)
 
@@ -533,11 +550,7 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
                 else:  # show
                     refresh_path = os.path.dirname(os.path.dirname(os.path.dirname(abs_path)))
 
-            # 3. Remove VFS entries
-            if filesystem_service:
-                filesystem_service.delete_item_files_by_id(item.id)
-
-            # 4. Delete from Overseerr
+            # 3. Delete from Overseerr
             if item.overseerr_id and overseerr:
                 try:
                     overseerr.delete_request(item.overseerr_id)
@@ -545,13 +558,18 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
                 except Exception as e:
                     logger.warning(f"Failed to delete Overseerr request {item.overseerr_id}: {e}")
 
-            # 5. Delete from database using ORM (CASCADE handles children)
+            # 4. Delete from database using ORM
+            # Event listeners automatically handle:
+            # - VFS file removal (FilesystemEntry cleanup via before_delete)
+            # - Subtitle file deletion from disk (via Subtitle before_delete)
+            # - Orphaned stream cleanup (via after_delete)
+            # - CASCADE deletion of children (Seasons/Episodes via ORM)
             session.delete(item)
             session.commit()
             removed_ids.append(item_id)
             logger.debug(f"Deleted item {item_id} from database")
 
-            # 6. Trigger media server refresh to remove from library
+            # 5. Trigger media server refresh to remove from library
             if updater and updater.initialized and refresh_path:
                 updater.refresh_path(refresh_path)
                 logger.debug(f"Triggered media server refresh for {refresh_path}")
