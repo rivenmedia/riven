@@ -305,13 +305,24 @@ class VFSDatabase:
         return path
 
     def remove(self, path: str) -> bool:
+        """
+        Remove a path and all its descendants from the VFS database.
+        Uses ORM deletes to ensure before_delete event listeners fire for VFS cache invalidation.
+        """
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
             if path != '/':
-                s.query(FilesystemEntry).filter(
+                # Fetch all entries to be deleted (path and descendants)
+                # Use ORM delete instead of bulk delete so event listeners fire
+                entries = s.query(FilesystemEntry).filter(
                     (FilesystemEntry.path == path) |
                     (FilesystemEntry.path.like(path + '/%'))
-                ).delete(synchronize_session=False)
+                ).all()
+
+                # Delete each entry using ORM so before_delete listener fires
+                for entry in entries:
+                    s.delete(entry)
+
                 # Prune empty parent directories up the chain (but keep default roots)
                 parent_dir = os.path.dirname(path.rstrip('/')) or '/'
                 self._prune_empty_dirs(s, parent_dir)
@@ -319,7 +330,10 @@ class VFSDatabase:
         return False
 
     def _prune_empty_dirs(self, s, start_dir: str) -> None:
-        """Remove empty directory entries up the chain, stopping at defaults or root."""
+        """
+        Remove empty directory entries up the chain, stopping at defaults or root.
+        Uses ORM deletes to ensure before_delete event listeners fire for VFS cache invalidation.
+        """
         default_dirs = {'/movies', '/shows', '/anime_movies', '/anime_shows'}
         cur = self._norm(start_dir)
         while cur not in ('/', '') and cur not in default_dirs:
@@ -330,7 +344,10 @@ class VFSDatabase:
             if has_children:
                 break
             # Remove the directory entry itself if present
-            s.query(FilesystemEntry).filter_by(path=cur, is_directory=True).delete(synchronize_session=False)
+            # Use ORM delete instead of bulk delete so event listeners fire
+            dir_entry = s.query(FilesystemEntry).filter_by(path=cur, is_directory=True).first()
+            if dir_entry:
+                s.delete(dir_entry)
             # Move to parent
             cur = os.path.dirname(cur.rstrip('/')) or '/'
 

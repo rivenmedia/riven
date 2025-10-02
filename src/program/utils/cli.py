@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 from pathlib import Path
 from datetime import datetime
@@ -74,8 +75,11 @@ def snapshot_database(snapshot_dir: Path = None):
 
             if container_name:
                 # Use docker exec to run pg_dump inside the container
+                # Pass PGPASSWORD into the container via -e flag
                 cmd = [
-                    "docker", "exec", container_name,
+                    "docker", "exec",
+                    "-e", f"PGPASSWORD={password}",
+                    container_name,
                     "pg_dump",
                     "-U", user,
                     "-d", dbname,
@@ -84,7 +88,9 @@ def snapshot_database(snapshot_dir: Path = None):
                 ]
 
                 logger.info(f"Creating database snapshot at {snapshot_file} using docker exec...")
-                env = {"PGPASSWORD": password} if password else {}
+                # Use os.environ.copy() to preserve PATH and other env vars
+                env = os.environ.copy()
+                # Don't set PGPASSWORD in local env since we pass it via docker exec -e
                 result = subprocess.run(cmd, env=env, capture_output=True, text=True)
 
                 if result.returncode == 0:
@@ -98,7 +104,13 @@ def snapshot_database(snapshot_dir: Path = None):
                 return False
         else:
             # Use pg_dump directly (assumes it's in PATH)
-            env = {"PGPASSWORD": password} if password else {}
+            # Preserve PATH and other env vars by copying os.environ
+            env = os.environ.copy()
+            if password:
+                env["PGPASSWORD"] = password
+            else:
+                env.pop("PGPASSWORD", None)
+
             cmd = [
                 "pg_dump",
                 "-h", host,
@@ -207,14 +219,19 @@ def restore_database(snapshot_file: Path = None):
                 with open(snapshot_file, "r") as f:
                     snapshot_content = f.read()
 
+                # Pass PGPASSWORD into the container via -e flag
                 cmd = [
-                    "docker", "exec", "-i", container_name,
+                    "docker", "exec", "-i",
+                    "-e", f"PGPASSWORD={password}",
+                    container_name,
                     "psql",
                     "-U", user,
                     "-d", dbname,
                 ]
 
-                env = {"PGPASSWORD": password} if password else {}
+                # Use os.environ.copy() to preserve PATH and other env vars
+                env = os.environ.copy()
+                # Don't set PGPASSWORD in local env since we pass it via docker exec -e
                 result = subprocess.run(cmd, env=env, input=snapshot_content, capture_output=True, text=True)
 
                 if result.returncode == 0:
@@ -228,7 +245,13 @@ def restore_database(snapshot_file: Path = None):
                 return False
         else:
             # Use psql directly (assumes it's in PATH)
-            env = {"PGPASSWORD": password} if password else {}
+            # Preserve PATH and other env vars by copying os.environ
+            env = os.environ.copy()
+            if password:
+                env["PGPASSWORD"] = password
+            else:
+                env.pop("PGPASSWORD", None)
+
             cmd = [
                 "psql",
                 "-h", host,
