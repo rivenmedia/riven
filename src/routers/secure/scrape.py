@@ -432,9 +432,9 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
             request.app.program.em.cancel_job(item.id)
             item.reset()
 
-            # Ensure a staging FilesystemEntry exists and is linked
+            # Ensure a staging MediaEntry exists and is linked
             from sqlalchemy import select
-            from program.media.filesystem_entry import FilesystemEntry
+            from program.media.media_entry import MediaEntry
 
             staging_path = f"/__incoming__/{item.id}/{data.filename}"
             fs_entry = None
@@ -448,8 +448,8 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
             else:
                 # Try to reuse an existing staging entry for this item+filename
                 existing = db_session.execute(
-                    select(FilesystemEntry).where(
-                        FilesystemEntry.path == staging_path,
+                    select(MediaEntry).where(
+                        MediaEntry.path == staging_path,
                     )
                 ).scalar_one_or_none()
 
@@ -457,7 +457,7 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                     fs_entry = existing
                 else:
                     # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                    fs_entry = FilesystemEntry(
+                    fs_entry = MediaEntry.create_virtual_entry(
                         path=staging_path,
                         download_url=getattr(data, "download_url", None),
                         provider=None,

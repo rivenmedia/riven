@@ -4,10 +4,8 @@ from program.media import MediaItem, States
 from program.services.downloaders import Downloader
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing, notify
-from program.services.post_processing.subliminal import Subliminal
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
-from program.settings.manager import settings_manager
 from program.services.filesystem import FilesystemService
 from program.types import ProcessedEvent, Service
 
@@ -70,24 +68,9 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         if emitted_by not in ["RetryItem", PostProcessing]:
             notify(existing_item)
         # Avoid multiple post-processing runs
-        # if emitted_by != PostProcessing:
-        if True == False:
-            if settings_manager.settings.post_processing.subliminal.enabled:
-                next_service = PostProcessing
-                if existing_item.type in ["movie", "episode"] and Subliminal.should_submit(existing_item):
-                    items_to_submit = [existing_item]
-                    logger.debug(f"Next service: {next_service.__name__} for {existing_item.id}")
-                elif existing_item.type == "show":
-                    items_to_submit = [e for s in existing_item.seasons for e in s.episodes if e.last_state == States.Completed and Subliminal.should_submit(e)]
-                    if items_to_submit:
-                        logger.debug(f"Next service: {next_service.__name__} for {len(items_to_submit)} episodes from {existing_item.id}")
-                elif existing_item.type == "season":
-                    items_to_submit = [e for e in existing_item.episodes if e.last_state == States.Completed and Subliminal.should_submit(e)]
-                    if items_to_submit:
-                        logger.debug(f"Next service: {next_service.__name__} for {len(items_to_submit)} episodes from {existing_item.id}")
-                if not items_to_submit:
-                    logger.debug(f"No post-processing needed for {existing_item.id}")
-                    return no_further_processing
+        if emitted_by != PostProcessing:
+            next_service = PostProcessing
+            items_to_submit = [existing_item]
         else:
             return no_further_processing
 

@@ -50,10 +50,12 @@ class Updater:
         Yields:
             MediaItem: The item after processing
         """
+        logger.debug(f"Starting update process for {item.log_string}")
         items = self.get_items_to_update(item)
         last_path = None
 
         for _item in items:
+            logger.debug(f"Updating {_item.log_string} at {_item.filesystem_entry.path}")
             # Get the filesystem path from the item
             fe_path = _item.filesystem_entry.path
 
@@ -67,7 +69,9 @@ class Updater:
             last_path = refresh_path
 
             _item.updated = True
+            logger.debug(f"Updated {_item.log_string}")
 
+        logger.info(f"Updated {item.log_string}")
         yield item
 
     def refresh_path(self, path: str) -> bool:

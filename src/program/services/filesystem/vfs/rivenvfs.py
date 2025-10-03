@@ -46,7 +46,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import urllib.parse
 import threading
 
-from src.program.services.downloaders import Downloader
+from program.services.downloaders import Downloader
 
 class ProviderHTTP:
     """
@@ -1102,6 +1102,36 @@ class RivenVFS(pyfuse3.Operations):
 
             if size == 0:
                 return b""
+
+            # Check if this is a subtitle entry - if so, read from database instead of HTTP
+            entry_type = file_info.get("entry_type")
+            if entry_type == "subtitle":
+                # Subtitles are stored in the database, not fetched via HTTP
+                # Check if we've already cached the subtitle content in the handle
+                subtitle_content = handle_info.get("subtitle_content")
+                if subtitle_content is None:
+                    # Fetch subtitle content from database (blocking call, but subtitles are small)
+                    subtitle_content = await trio.to_thread.run_sync(
+                        lambda: self.db.get_subtitle_content(path)
+                    )
+                    if subtitle_content is None:
+                        log.error(f"Subtitle content not found for {path}")
+                        raise pyfuse3.FUSEError(errno.ENOENT)
+                    # Cache in handle for subsequent reads
+                    handle_info["subtitle_content"] = subtitle_content
+
+                # Return the requested slice of subtitle content
+                end_offset = min(off + size, len(subtitle_content))
+                returned_data = subtitle_content[off:end_offset]
+
+                # Update opener stats
+                opener = handle_info.get("opener_name")
+                if opener and returned_data:
+                    self._opener_stats[opener]["bytes_read"] += len(returned_data)
+
+                return returned_data
+
+            # For media entries, continue with normal HTTP streaming logic
 
             import time
             now = time.time()

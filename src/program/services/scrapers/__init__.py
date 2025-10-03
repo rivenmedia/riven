@@ -115,7 +115,7 @@ class Scraping:
             return {}
 
         sorted_streams: Dict[str, Stream] = _parse_results(item, results, verbose_logging)
-        if sorted_streams and (verbose_logging and settings_manager.settings.debug):
+        if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results: List[Stream] = list(sorted_streams.values())[:10]
             logger.debug(f"Displaying top {len(top_results)} results for {item.log_string}")
             for stream in top_results:
