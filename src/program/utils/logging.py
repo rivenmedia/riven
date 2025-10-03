@@ -5,14 +5,6 @@ import sys
 from datetime import datetime
 
 from loguru import logger
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
 
 from program.settings.manager import settings_manager
 from program.utils import data_dir_path
@@ -128,21 +120,5 @@ def log_cleaner():
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
 
-def create_progress_bar(total_items: int) -> tuple[Progress, Console]:
-    console = Console()
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeRemainingColumn(),
-        TextColumn("[progress.completed]{task.completed}/{task.total}", justify="right"),
-        TextColumn("[progress.log]{task.fields[log]}", justify="right"),
-        console=console,
-        transient=True
-    )
-    return progress, console
 
-
-console = Console()
 setup_logger(settings_manager.settings.debug)

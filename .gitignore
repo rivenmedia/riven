@@ -23,6 +23,8 @@ CLAUDE.md
 .cursor/
 release_manager.py
 container_data
+AGENTS.md
+docs/
 
 # Python bytecode / Byte-compiled / optimized / DLL files
 __pycache__/

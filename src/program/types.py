@@ -14,20 +14,12 @@ from program.services.downloaders import (
     RealDebridDownloader,
     TorBoxDownloader,
 )
-from program.services.scrapers import (
-    Comet,
-    Jackett,
-    Mediafusion,
-    Orionoid,
-    Scraping,
-    Torrentio,
-    Zilean,
-)
+from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
 
 # Typehint classes
-Scraper = Union[Scraping, Torrentio, Mediafusion, Orionoid, Jackett, Zilean, Comet]
+Scraper = Union[Scraping]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
 Downloader = Union[
     RealDebridDownloader,

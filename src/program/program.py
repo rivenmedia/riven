@@ -7,7 +7,6 @@ from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from kink import di
-from rich.live import Live
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -28,7 +27,7 @@ from program.services.updaters import Updater
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
-from program.utils.logging import create_progress_bar, log_cleaner, logger
+from program.utils.logging import log_cleaner, logger
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -38,7 +37,6 @@ if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
 
 from program.db import db_functions
 from program.db.db import (

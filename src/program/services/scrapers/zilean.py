@@ -5,15 +5,16 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Season, Show
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Zilean:
+class Zilean(ScraperService):
     """Scraper for `Zilean`"""
 
     def __init__(self):
-        self.key = "zilean"
+        super().__init__("zilean")
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
         if self.settings.ratelimit:
@@ -21,10 +22,7 @@ class Zilean:
         else:
             rate_limits = None
         self.session = SmartSession(rate_limits=rate_limits, retries=3, backoff_factor=0.3)
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Zilean initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the Zilean settings."""

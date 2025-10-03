@@ -5,20 +5,18 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from threading import Event
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
-from kink import di, inject
+from kink import di
 from loguru import logger
-from sqlalchemy import case, delete, func, insert, inspect, or_, select, text
+from sqlalchemy import delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, object_session, selectinload
-from sqlalchemy.sql import bindparam
+from sqlalchemy.orm import Session, selectinload
 
 import alembic
 from program.apis.tvdb_api import TVDBApi
 from program.media.state import States
-from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
-from program.settings.manager import settings_manager
+from program.media.stream import StreamBlacklistRelation, StreamRelation
 
 from .db import db
 
@@ -281,7 +279,6 @@ def update_ongoing(session: Optional[Session] = None) -> List[int]:
         return changed
 
 
-@inject
 def update_new_releases(session: Optional[Session] = None, update_type: str = "episodes", hours: int = 24) -> List[int]:
     """
     Get new releases for a given type and since timestamp.
@@ -394,6 +391,10 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
             "tmdb_id": item.tmdb_id,
             "aired_at": item.aired_at,
         }
+
+        if item.type == "show":
+            calendar[item.id]["release_data"] = item.release_data
+
         if item.type == "episode":
             calendar[item.id]["title"] = item.parent.parent.title
             calendar[item.id]["season"] = item.parent.number

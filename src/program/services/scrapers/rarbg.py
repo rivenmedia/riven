@@ -4,16 +4,17 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Rarbg:
+class Rarbg(ScraperService):
     """Scraper for `TheRARBG`"""
 
     def __init__(self):
-        self.key = "therarbg"
+        super().__init__("therarbg")
         self.settings: RarbgConfig = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
@@ -23,17 +24,14 @@ class Rarbg:
             }
         else:
             rate_limits = {}
-        
+
         self.session = SmartSession(
             base_url=self.settings.url,
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
         )
-        self.initialized: bool = self.validate()
-        if not self.initialized:
-            return
-        logger.success("TheRARBG initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the TheRARBG settings."""
@@ -70,11 +68,11 @@ class Rarbg:
         """Wrapper for `TheRARBG` scrape method"""
         search_string = item.log_string if item.type != "movie" else f"{item.log_string} ({item.aired_at.year})"
         url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
-        
+
         torrents: Dict[str, str] = {}
         current_url = url
         page = 1
-        
+
         while current_url:
             response = self.session.get(current_url, timeout=self.timeout)
             if not response.ok or not hasattr(response, "data"):

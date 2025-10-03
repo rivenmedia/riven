@@ -4,17 +4,20 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
-class Orionoid:
+class Orionoid(ScraperService):
+    requires_imdb_id = True
+
     """Scraper for `Orionoid`"""
 
     def __init__(self):
-        self.key = "orionoid"
+        super().__init__("orionoid")
         self.base_url = "https://api.orionoid.com"
         self.settings = settings_manager.settings.scraping.orionoid
         self.timeout = self.settings.timeout
@@ -28,20 +31,14 @@ class Orionoid:
             }
         else:
             rate_limits = {}
-        
+
         self.session = SmartSession(
             base_url=self.base_url,
             rate_limits=rate_limits,
             retries=3,
             backoff_factor=0.3
         )
-        
-        if self.validate():
-            self.is_premium = self.check_premium()
-            self.initialized = True
-        else:
-            return
-        logger.success("Orionoid initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the Orionoid class_settings."""
@@ -69,6 +66,7 @@ class Orionoid:
                     return False
                 if response.data.data.subscription.package.type == "unlimited":
                     self.is_unlimited = True
+            self.is_premium = self.check_premium()
             return True
         except Exception as e:
             logger.exception(f"Orionoid failed to initialize: {e}")
