@@ -59,14 +59,12 @@ class Mdblist:
 
                     if item.mediatype == "movie" and not item_exists_by_any_id(imdb_id=item.imdb_id, tmdb_id=str(item.id)):
                         items_to_yield.append(MediaItem({
-                            "imdb_id": item.imdb_id,
                             "tmdb_id": item.id,
                             "requested_by": self.key,
                         }))
 
                     elif item.mediatype == "show" and not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=str(item.tvdbid)):
                         items_to_yield.append(MediaItem({
-                            "imdb_id": item.imdb_id,
                             "tvdb_id": item.tvdbid,
                             "requested_by": self.key,
                         }))

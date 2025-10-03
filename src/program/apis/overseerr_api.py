@@ -67,7 +67,6 @@ class OverseerrAPI:
         media_items: list[MediaItem] = []
         for item in pending_items:
             media_type = item.type
-            imdb_id = item.media.imdbId
             tmdb_id = item.media.tmdbId
             tvdb_id = item.media.tvdbId
 
@@ -75,10 +74,10 @@ class OverseerrAPI:
                 media_type = "show"
 
             if media_type == "movie":
-                new_item = MediaItem({"imdb_id": imdb_id, "tmdb_id": tmdb_id, "requested_by": service_key})
+                new_item = MediaItem({"tmdb_id": tmdb_id, "requested_by": service_key})
                 media_items.append(new_item)
             elif media_type == "show":
-                new_item = MediaItem({"imdb_id": imdb_id, "tvdb_id": tvdb_id, "requested_by": service_key})
+                new_item = MediaItem({"tvdb_id": tvdb_id, "requested_by": service_key})
                 media_items.append(new_item)
             else:
                 logger.error(f"Unknown media type: {media_type}")

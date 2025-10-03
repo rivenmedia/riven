@@ -60,7 +60,6 @@ class Overseerr:
             overseerr_items = [
                 item for item in overseerr_items
                 if not item_exists_by_any_id(
-                    imdb_id=item.imdb_id,
                     tvdb_id=item.tvdb_id,
                     tmdb_id=item.tmdb_id
                 )]

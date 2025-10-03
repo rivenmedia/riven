@@ -69,17 +69,15 @@ class Listrr:
 
         listrr_items = []
         for item in movie_items:
-            imdb_id, tmdb_id = item
+            _, tmdb_id = item
             listrr_items.append(MediaItem({
-                "imdb_id": imdb_id, 
                 "tmdb_id": tmdb_id,
                 "requested_by": self.key,
             }))
 
         for item in show_items:
-            imdb_id, tvdb_id = item
+            _, tvdb_id = item
             listrr_items.append(MediaItem({
-                "imdb_id": imdb_id, 
                 "tvdb_id": tvdb_id,
                 "requested_by": self.key,
             }))
