@@ -298,23 +298,22 @@ class NotificationsModel(Observable):
     service_urls: List[str] = []
 
 
-class SubliminalConfig(Observable):
+class SubtitleConfig(Observable):
     enabled: bool = False
     languages: List[str] = ["eng"]
     providers: dict = {
-        "opensubtitles": {"enabled": False, "username": "", "password": ""},
-        "opensubtitlescom": {"enabled": False, "username": "", "password": ""},
+        "opensubtitles": {"enabled": False},
     }
 
 
 class PostProcessing(Observable):
-    subliminal: SubliminalConfig = SubliminalConfig()
+    subtitle: SubtitleConfig = SubtitleConfig()
 
 
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
-    debug: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_level: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     tracemalloc: bool = False
     filesystem: FilesystemModel = FilesystemModel()
     updaters: UpdatersModel = UpdatersModel()
@@ -327,7 +326,7 @@ class AppModel(Observable):
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
 
-    @field_validator("debug", mode="before")
+    @field_validator("log_level", mode="before")
     def check_debug(cls, v):
         if v == True:
             return "DEBUG"

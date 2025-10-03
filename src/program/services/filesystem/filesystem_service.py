@@ -70,6 +70,8 @@ class FilesystemService:
         # Process each episode/movie
         for episode_or_movie in items_to_process:
             self._process_single_item(episode_or_movie)
+        
+        logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
         yield item
@@ -100,7 +102,7 @@ class FilesystemService:
             # Register the file with FUSE
             if self.riven_vfs.register_existing_file(filesystem_entry.path):
                 filesystem_entry.available_in_vfs = True
-                logger.info(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
+                logger.debug(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
             else:
                 logger.error(f"Failed to register {item.log_string} with FUSE")
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
-from program.media.subtitle import Subtitle
+from program.media.subtitle_entry import SubtitleEntry
 
 from .stream import Stream
 
@@ -51,23 +51,21 @@ class MediaItem(db.Model):
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    subtitles: Mapped[list[Subtitle]] = relationship(
-        Subtitle,
-        back_populates="parent",
-        lazy="selectin",
-        cascade="all, delete-orphan"
-    )
-    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-
-    # One-to-many relationship: one MediaItem can have multiple FilesystemEntries
-    # (e.g., same content in different locations/profiles in the future)
-    # For now, we typically only have one entry, but the collection allows future expansion
+    parsed_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
     filesystem_entries: Mapped[list["FilesystemEntry"]] = relationship(
         "FilesystemEntry",
         back_populates="media_item",
         lazy="selectin",
         cascade="all, delete-orphan"
     )
+    subtitles: Mapped[list[SubtitleEntry]] = relationship(
+        SubtitleEntry,
+        back_populates="media_item",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        overlaps="filesystem_entries"
+    )
+    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -313,7 +311,12 @@ class MediaItem(db.Model):
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
 
         dict["filesystem_entry"] = self.filesystem_entry.to_dict() if self.filesystem_entry else None
+        dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
         dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
+        if self.parsed_data:
+            probe_data = self.parsed_data.get("ffprobe_data", {})
+            if probe_data:
+                dict["subtitles"].append(probe_data.get("subtitles", []))
         return dict
 
     def __iter__(self):
@@ -442,11 +445,11 @@ class MediaItem(db.Model):
 
         # Clear streams using ORM relationship operations (database CASCADE handles orphans)
         self.streams.clear()
-        self.blacklisted_streams.clear()
         self.active_stream = {}
 
         # Reset scraping metadata
         self.updated = False
+        self.parsed_data = {}
         self.scraped_at = None
         self.scraped_times = 0
         self.failed_attempts = 0

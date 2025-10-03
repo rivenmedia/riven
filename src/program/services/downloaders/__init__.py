@@ -6,7 +6,7 @@ from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.media.stream import Stream
-from program.media.filesystem_entry import FilesystemEntry
+from program.media.media_entry import MediaEntry
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
@@ -395,7 +395,7 @@ class Downloader:
                 file_data=file_data
             )
 
-            entry = FilesystemEntry.create_virtual_entry(
+            entry = MediaEntry.create_virtual_entry(
                 path=vfs_path,
                 download_url=debrid_file.download_url,
                 provider=service.key,

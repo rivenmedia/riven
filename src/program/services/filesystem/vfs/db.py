@@ -9,6 +9,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
+from program.media.media_entry import MediaEntry
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader
@@ -53,30 +54,32 @@ class VFSDatabase:
 
                 if not existing:
                     # Create directory entry
-                    dir_entry = FilesystemEntry(
+                    dir_entry = MediaEntry.create_virtual_entry(
                         path=dir_path,
                         download_url=None,
                         provider=None,
                         provider_download_id=None,
                         file_size=0,
-                        is_directory=True
+                        original_filename=None
                     )
+                    dir_entry.is_directory = True
                     s.add(dir_entry)
 
     # --- Queries ---
     def get_entry(self, path: str) -> Optional[Dict]:
         """
         Retrieve metadata for a virtual filesystem entry or for a virtual directory inferred from stored entries.
-        
+
         Parameters:
             path (str): Path to look up; the path will be normalized before lookup.
-        
+
         Returns:
             dict: If an entry exists or the path represents a virtual directory, a dictionary with keys:
                 - `virtual_path`: the normalized virtual path.
                 - `name`: the basename of the path or `'/'` for root.
                 - `size`: file size in bytes (0 for directories or unknown sizes).
                 - `is_directory`: `True` for directories, `False` for files.
+                - `entry_type`: type of entry ('media', 'subtitle', or None for virtual directories).
                 - `created`: ISO 8601 creation timestamp or `None` if not available.
                 - `modified`: ISO 8601 modification timestamp or `None` if not available.
             None: If no entry exists and the path does not correspond to any virtual directory.
@@ -93,6 +96,7 @@ class VFSDatabase:
                     'name': os.path.basename(fe.path) or '/',
                     'size': int(fe.file_size or 0),
                     'is_directory': bool(fe.is_directory),
+                    'entry_type': fe.entry_type,
                     'created': fe.created_at.isoformat() if fe.created_at else None,
                     'modified': fe.updated_at.isoformat() if fe.updated_at else None,
                 }
@@ -188,6 +192,30 @@ class VFSDatabase:
 
         out.sort(key=lambda d: d['name'])
         return out
+
+    def get_subtitle_content(self, path: str) -> Optional[bytes]:
+        """
+        Get the subtitle content for a SubtitleEntry.
+
+        Parameters:
+            path (str): Virtual path to the subtitle file.
+
+        Returns:
+            bytes: Subtitle content encoded as UTF-8, or None if not found or not a subtitle.
+        """
+        path = self._norm(path)
+        with self.SessionLocal() as s:
+            from program.media.subtitle_entry import SubtitleEntry
+
+            # Query specifically for SubtitleEntry
+            subtitle = s.query(SubtitleEntry).filter_by(
+                path=path
+            ).one_or_none()
+
+            if subtitle and subtitle.content:
+                return subtitle.content.encode('utf-8')
+
+            return None
 
     def get_download_url(self, path: str, for_http: bool = False, force_resolve: bool = False) -> Optional[str]:
         """
@@ -308,14 +336,16 @@ class VFSDatabase:
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
             if not self.exists(path):
-                s.add(FilesystemEntry.create_virtual_entry(
+                dir_entry = MediaEntry.create_virtual_entry(
                     path=path,
                     download_url=None,
                     provider=None,
                     provider_download_id=None,
                     file_size=0,
-                    is_directory=True
-                ))
+                    original_filename=None
+                )
+                dir_entry.is_directory = True
+                s.add(dir_entry)
         return path
 
     def add_file(self, path: str, url: Optional[str], size: int = 0, provider: Optional[str] = None, provider_download_id: Optional[str] = None) -> str:
@@ -329,16 +359,17 @@ class VFSDatabase:
         """
         path = self._norm(path)
         with self.SessionLocal.begin() as s:
-            fe = s.query(FilesystemEntry).filter_by(
+            fe = s.query(MediaEntry).filter_by(
                 path=path
             ).one_or_none()
             if not fe:
-                fe = FilesystemEntry.create_virtual_entry(
+                fe = MediaEntry.create_virtual_entry(
                     path=path,
                     download_url=url,
                     provider=provider,
                     provider_download_id=provider_download_id,
-                    file_size=int(size or 0)
+                    file_size=int(size or 0),
+                    original_filename=None
                 )
                 # is_directory defaults to False, so no need to set it
                 s.add(fe)

@@ -121,4 +121,5 @@ def log_cleaner():
         logger.error(f"Failed to clean old logs: {e}")
 
 
-setup_logger(settings_manager.settings.debug)
+
+setup_logger(settings_manager.settings.log_level)
