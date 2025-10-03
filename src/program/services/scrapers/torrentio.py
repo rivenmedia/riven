@@ -4,7 +4,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.scraper_base import ScraperService
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import TorrentioConfig
 from program.utils.request import SmartSession
@@ -16,7 +16,7 @@ class Torrentio(ScraperService):
     requires_imdb_id = True
 
     def __init__(self):
-        self.key = "torrentio"
+        super().__init__("torrentio")
         self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
         self.timeout: int = self.settings.timeout or 15
 
@@ -34,10 +34,7 @@ class Torrentio(ScraperService):
         )
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None
-        self.initialized: bool = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Torrentio initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the Torrentio settings."""

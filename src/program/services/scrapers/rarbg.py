@@ -4,7 +4,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.scraper_base import ScraperService
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
@@ -14,7 +14,7 @@ class Rarbg(ScraperService):
     """Scraper for `TheRARBG`"""
 
     def __init__(self):
-        self.key = "therarbg"
+        super().__init__("therarbg")
         self.settings: RarbgConfig = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
@@ -31,10 +31,7 @@ class Rarbg(ScraperService):
             retries=3,
             backoff_factor=0.3
         )
-        self.initialized: bool = self.validate()
-        if not self.initialized:
-            return
-        logger.success("TheRARBG initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the TheRARBG settings."""
