@@ -391,6 +391,18 @@ class RivenVFS(pyfuse3.Operations):
         # Will be wired to FilesystemModel configuration separately
         self.fetch_ahead_chunks = fs.fetch_ahead_chunks
 
+        # Validate cache size vs chunk size + prefetch
+        # Cache needs to hold: current chunk + prefetch chunks + buffer for concurrent reads
+        # Minimum: chunk_size * (fetch_ahead_chunks + 4 for concurrent reads)
+        min_cache_mb = (fs.chunk_size_mb * (self.fetch_ahead_chunks + 4))
+        if size_mb < min_cache_mb:
+            logger.bind(component="RivenVFS").warning(
+                f"Cache size ({size_mb}MB) is too small for chunk_size ({fs.chunk_size_mb}MB) "
+                f"and fetch_ahead_chunks ({self.fetch_ahead_chunks}). "
+                f"Minimum recommended: {min_cache_mb}MB. "
+                f"Cache thrashing may occur with concurrent reads, causing poor performance."
+            )
+
         # Open file handles: fh -> handle info
         self._file_handles: Dict[int, Dict] = {}
         self._next_fh = 1
@@ -1033,22 +1045,7 @@ class RivenVFS(pyfuse3.Operations):
             path = self._get_path_from_inode(inode)
             file_info = self._get_entry_cached(path)
 
-            opener_pid = ctx.pid if ctx and hasattr(ctx, 'pid') else 0
-            opener_name = None
-            opener_cmdline = None
-            if opener_pid > 0:
-                try:
-                    with open(f"/proc/{opener_pid}/comm", "r") as f:
-                        opener_name = f.read().strip()
-                    with open(f"/proc/{opener_pid}/cmdline", "r") as f:
-                        opener_cmdline = f.read().replace('\0', ' ').strip()
-                except Exception:
-                    pass
-
-            opener_name = opener_name or "unknown"
-            log.trace(f"Opening file {path} (inode={inode}) with flags {flags} by PID {opener_pid} ({opener_name})")
-
-            self._opener_stats.setdefault(opener_name, {"bytes_read": 0, "files_opened": 0})["files_opened"] += 1
+            log.trace(f"Opening file {path} (inode={inode}) with flags {flags})")
 
             if file_info is None or file_info["is_directory"]:
                 raise pyfuse3.FUSEError(errno.ENOENT)
@@ -1064,11 +1061,11 @@ class RivenVFS(pyfuse3.Operations):
             self._file_handles[fh] = {
                 "path": path,
                 "file_info": file_info,
-                "opener_name": opener_name,
-                "is_scanner": opener_name in MEDIA_SCANNERS,
+                "is_scanner": False,  # Will be detected based on read pattern (large jumps)
                 "buffers": [],
                 "sequential_reads": 0,
                 "last_read_end": 0,
+                "last_read_offset": -1,  # Track last read offset for jump detection
             }
 
             # Initialize per-file-handle prefetch state
@@ -1106,22 +1103,57 @@ class RivenVFS(pyfuse3.Operations):
             if size == 0:
                 return b""
 
-            # Resolve URL with caching (async database operation)
             import time
             now = time.time()
             cached_url_info = self._url_cache.get(path)
             if not cached_url_info or (now - float(cached_url_info.get("timestamp", 0))) > self.url_cache_ttl:
-                # Move database query to thread pool to avoid blocking
-                url = await trio.to_thread.run_sync(
-                    lambda: self.db.get_download_url(path, for_http=True, force_resolve=False)
-                )
+                url = self.db.get_download_url(path, for_http=True, force_resolve=False)
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 self._url_cache[path] = {"url": url, "timestamp": now}
             else:
                 url = str(cached_url_info.get("url"))
 
+            # Detect scanner behavior based on large offset jumps
+            # Scanners typically read header (offset 0), then jump to footer (near EOF)
+            last_read_offset = handle_info.get("last_read_offset", -1)
             is_scanner = handle_info.get("is_scanner", False)
+
+            if not is_scanner and last_read_offset >= 0 and file_size:
+                # Detect large jump (e.g., from start to near end of file)
+                offset_jump = abs(off - last_read_offset)
+                # Consider it a scanner if jump is > 10% of file size and > 100MB
+                if offset_jump > file_size * 0.1 and offset_jump > 100 * 1024 * 1024:
+                    is_scanner = True
+                    handle_info["is_scanner"] = True
+                    log.debug(f"Detected scanner pattern for {path}: jump from {last_read_offset} to {off} ({offset_jump/(1024*1024):.1f}MB)")
+
+                    # Prefetch footer chunk in background to satisfy scanner's next read
+                    if file_size and file_size > self.chunk_size:
+                        footer_chunk_start = ((file_size - 1) // self.chunk_size) * self.chunk_size
+                        footer_chunk_end = file_size - 1
+
+                        async def _prefetch_footer(fpath: str, furl: str, fstart: int, fend: int):
+                            try:
+                                # Check if already cached
+                                cached = await trio.to_thread.run_sync(
+                                    lambda: self.cache.get(fpath, fstart, fend)
+                                )
+                                if cached is None:
+                                    # Fetch and cache footer
+                                    data = await self._fetch_data_block(fpath, furl, fstart, fend)
+                                    if data:
+                                        await trio.to_thread.run_sync(
+                                            lambda: self.cache.put(fpath, fstart, data)
+                                        )
+                                        log.trace(f"Prefetched footer chunk for scanner: {fpath} [{fstart}-{fend}]")
+                            except Exception as e:
+                                log.trace(f"Footer prefetch failed: {e}")
+
+                        trio.lowlevel.spawn_system_task(_prefetch_footer, path, url, footer_chunk_start, footer_chunk_end)
+
+            # Update last read offset for next jump detection
+            handle_info["last_read_offset"] = off
             if is_scanner:
                 # Check if scanner has been promoted to larger reads after 3 sequential reads
                 sequential_reads = handle_info.get("sequential_reads", 0)
@@ -1143,7 +1175,7 @@ class RivenVFS(pyfuse3.Operations):
                 if fetch_end < fetch_start:
                     return b""
 
-                # Try cache first for exactly what kernel asked (async cache operation)
+                # Try cache first for exactly what kernel asked (async to avoid blocking event loop)
                 cached_bytes = await trio.to_thread.run_sync(
                     lambda: self.cache.get(path, off, off + size - 1)
                 )
@@ -1153,9 +1185,9 @@ class RivenVFS(pyfuse3.Operations):
                     # Fetch the determined range (exact for non-promoted, larger for promoted)
                     data = await self._fetch_data_block(path, url, fetch_start, fetch_end)
                     if data:
-                        # Cache the fetched data in background to avoid blocking
-                        trio.lowlevel.spawn_system_task(
-                            self._cache_put_async, path, fetch_start, data
+                        # Cache immediately (async to avoid blocking event loop)
+                        await trio.to_thread.run_sync(
+                            lambda: self.cache.put(path, fetch_start, data)
                         )
 
                         # Always slice to return exactly what was requested
@@ -1208,15 +1240,17 @@ class RivenVFS(pyfuse3.Operations):
                 next_aligned_start = last_chunk_start + self.chunk_size
                 next_aligned_end = next_aligned_start + self.chunk_size - 1
 
-                # Try cache first for exactly what kernel asked (async cache operation)
+                # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 cached_bytes = await trio.to_thread.run_sync(
                     lambda: self.cache.get(path, request_start, request_end)
                 )
+
                 if cached_bytes is not None:
+                    # Cache hit - data already sliced to exact request
                     returned_data = cached_bytes
-                    log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={request_end - request_start} source=cache-hit")
+                    log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={len(cached_bytes)} source=cache-hit")
                 else:
-                    # Fetch all chunks needed to satisfy the request
+                    # Cache miss - fetch all chunks needed
                     all_data = b""
                     current_chunk_start = first_chunk_start
 
@@ -1225,17 +1259,17 @@ class RivenVFS(pyfuse3.Operations):
                         if file_size is not None:
                             chunk_end = min(chunk_end, file_size - 1)
 
-                        # Try cache first for this chunk (async cache operation)
+                        # Check if this chunk is cached (full chunk)
                         chunk_data = await trio.to_thread.run_sync(
-                            lambda: self.cache.get(path, current_chunk_start, chunk_end)
+                            lambda cs=current_chunk_start, ce=chunk_end: self.cache.get(path, cs, ce)
                         )
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(path, url, current_chunk_start, chunk_end)
                             if chunk_data:
-                                # Cache in background to avoid blocking
-                                trio.lowlevel.spawn_system_task(
-                                    self._cache_put_async, path, current_chunk_start, chunk_data
+                                # Cache immediately (async to avoid blocking event loop)
+                                await trio.to_thread.run_sync(
+                                    lambda: self.cache.put(path, current_chunk_start, chunk_data)
                                 )
 
                         if chunk_data:
@@ -1243,18 +1277,14 @@ class RivenVFS(pyfuse3.Operations):
 
                         current_chunk_start += self.chunk_size
 
-                    data = all_data
-
-                    if data:
-                        log.trace(f"fh={fh} path={path} off={request_start} end={request_end} bytes={request_end - request_start} source=fetch")
-
-                    if not data:
+                    if not all_data:
                         returned_data = b""
                     else:
                         # Return only the requested subrange from the fetched data
                         start_idx = request_start - first_chunk_start
                         need_len = request_end - request_start + 1
-                        returned_data = data[start_idx:start_idx + need_len]
+                        returned_data = all_data[start_idx:start_idx + need_len]
+                        log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={need_len} source=fetch")
 
                 # Data integrity check: ensure we return exactly the requested size
                 # The expected_size is already correctly calculated as request_end - request_start + 1
@@ -1419,13 +1449,6 @@ class RivenVFS(pyfuse3.Operations):
             except Exception as e:
                 log.trace(f"Prefetch coordination failed for {path}: {e}")
                 # Best-effort: ignore prefetch errors
-
-    async def _cache_put_async(self, path: str, start: int, data: bytes) -> None:
-        """Async wrapper for cache.put() to avoid blocking the read path."""
-        try:
-            await trio.to_thread.run_sync(lambda: self.cache.put(path, start, data))
-        except Exception as e:
-            log.trace(f"Background cache put failed for {path} [{start}]: {e}")
 
     async def _fetch_data_block_with_cleanup(self, path: str, url: str, start: int, end: int) -> bytes:
         """Wrapper for _fetch_data_block that handles prefetch state cleanup."""

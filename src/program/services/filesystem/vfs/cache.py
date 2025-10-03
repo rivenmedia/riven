@@ -189,13 +189,88 @@ class Cache:
         if needed_len == 0:
             return b""
 
+        get_start_time = time.time()
+
+        # Fast path: Try to find a single chunk that contains the entire request
+        # This avoids holding the lock during file I/O for the common case
+        chunk_key = None
+        chunk_file = None
+        chunk_start_offset = None
+
         with self._lock:
-            # Try multi-chunk stitching for cross-chunk boundary requests
             s_list = self._by_path.get(path)
             if s_list:
-                result_data = bytearray()
+                # Find chunk that might contain start position
+                idx = bisect_right(s_list, start) - 1
+                if idx >= 0:
+                    chunk_start = s_list[idx]
+                    chunk_entry = self._index.get(self._key(path, chunk_start))
+                    if chunk_entry:
+                        chunk_size, _, _, _ = chunk_entry
+                        chunk_end = chunk_start + chunk_size - 1
+
+                        # Check if this single chunk covers the entire request
+                        if start >= chunk_start and end <= chunk_end:
+                            # Fast path: single chunk covers entire request
+                            chunk_key = self._key(path, chunk_start)
+                            chunk_file = self._file_for(chunk_key)
+                            chunk_start_offset = chunk_start
+                            # Don't update timestamps yet - do it after successful read
+
+        # Fast path: read single chunk outside the lock
+        if chunk_key and chunk_file:
+            try:
+                read_start = time.time()
+
+                # Calculate slice within chunk
+                copy_start = start - chunk_start_offset
+                copy_end = end - chunk_start_offset
+                bytes_to_read = copy_end - copy_start + 1
+
+                # Optimization: Only read the slice we need, not the entire chunk!
+                # This is much faster for large chunks (128MB) when we only need 131KB
+                with chunk_file.open("rb") as f:
+                    f.seek(copy_start)
+                    result = f.read(bytes_to_read)
+
+                read_time = time.time() - read_start
+
+                if read_time > 0.01:  # Log slow reads (>10ms)
+                    logger.warning(f"Slow cache read: {len(result)/(1024*1024):.2f}MB in {read_time*1000:.1f}ms from {chunk_file}")
+
+                if len(result) == needed_len:
+                        # Update LRU (move to end) but only update timestamp periodically
+                        # to reduce lock contention and index modifications
+                        with self._lock:
+                            if chunk_key in self._index:
+                                chunk_entry = self._index[chunk_key]
+                                self._index.move_to_end(chunk_key, last=True)
+                                # Only update timestamp if it's been more than 10 seconds
+                                # This reduces write pressure on the index
+                                now = time.time()
+                                if now - chunk_entry[1] > 10.0:
+                                    self._index[chunk_key] = (chunk_entry[0], now, chunk_entry[2], chunk_entry[3])
+
+                        self._metrics.hits += 1
+                        self._metrics.bytes_from_cache += needed_len
+
+                        total_time = time.time() - get_start_time
+                        if total_time > 0.05:  # Log if cache.get() takes >50ms
+                            logger.warning(f"Slow cache.get(): {total_time*1000:.1f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.1f}ms)")
+
+                        return result
+            except FileNotFoundError:
+                # Chunk file missing, fall through to slow path
+                pass
+
+        # Slow path: multi-chunk stitching for cross-chunk boundary requests
+        # Plan the read operations while holding the lock, then release it for I/O
+        chunks_to_read = []
+
+        with self._lock:
+            s_list = self._by_path.get(path)
+            if s_list:
                 current_pos = start
-                chunks_used = []
 
                 while current_pos <= end:
                     # Find chunk that contains current_pos
@@ -217,33 +292,57 @@ class Cache:
                     if current_pos < chunk_start or current_pos > chunk_end:
                         break  # Gap in coverage
 
-                    # Read chunk data from disk
-                    chunk_file = self._file_for(chunk_key)
-                    try:
-                        with chunk_file.open("rb") as f:
-                            chunk_data = f.read()
-                    except FileNotFoundError:
-                        break  # Chunk file missing
-
                     # Calculate what portion of this chunk we need
                     copy_start = max(current_pos, chunk_start) - chunk_start
                     copy_end = min(end, chunk_end) - chunk_start
+                    bytes_to_read = copy_end - copy_start + 1
 
-                    if copy_start <= copy_end and copy_end < len(chunk_data):
-                        result_data.extend(chunk_data[copy_start:copy_end + 1])
-                        chunks_used.append((chunk_key, chunk_ts))
-                        current_pos = chunk_end + 1
-                    else:
-                        break
+                    # Plan this read operation
+                    chunk_file = self._file_for(chunk_key)
+                    chunks_to_read.append({
+                        'chunk_key': chunk_key,
+                        'chunk_ts': chunk_ts,
+                        'chunk_file': chunk_file,
+                        'copy_start': copy_start,
+                        'bytes_to_read': bytes_to_read,
+                        'chunk_end': chunk_end
+                    })
 
-                # Check if we got complete coverage
+                    current_pos = chunk_end + 1
+
+        # Execute reads outside the lock to reduce contention
+        if chunks_to_read:
+            result_data = bytearray()
+            chunks_used = []
+
+            for chunk_info in chunks_to_read:
+                try:
+                    with chunk_info['chunk_file'].open("rb") as f:
+                        f.seek(chunk_info['copy_start'])
+                        chunk_slice = f.read(chunk_info['bytes_to_read'])
+                except FileNotFoundError:
+                    # Chunk file missing, abort slow path
+                    break
+
+                if len(chunk_slice) == chunk_info['bytes_to_read']:
+                    result_data.extend(chunk_slice)
+                    chunks_used.append((chunk_info['chunk_key'], chunk_info['chunk_ts']))
+                else:
+                    # Incomplete read, abort slow path
+                    break
+            else:
+                # All chunks read successfully (no break occurred)
                 if len(result_data) == needed_len:
-                    # Promote all used chunks to MRU
-                    for chunk_key, _ in chunks_used:
-                        self._index.move_to_end(chunk_key, last=True)
-                        # Update timestamp for the chunks we accessed
-                        chunk_entry = self._index[chunk_key]
-                        self._index[chunk_key] = (chunk_entry[0], time.time(), chunk_entry[2], chunk_entry[3])
+                    # Update LRU and timestamps while holding the lock
+                    with self._lock:
+                        now = time.time()
+                        for chunk_key, chunk_ts in chunks_used:
+                            if chunk_key in self._index:  # Verify chunk still exists
+                                self._index.move_to_end(chunk_key, last=True)
+                                # Only update timestamp if it's been more than 10 seconds
+                                if now - chunk_ts > 10.0:
+                                    chunk_entry = self._index[chunk_key]
+                                    self._index[chunk_key] = (chunk_entry[0], now, chunk_entry[2], chunk_entry[3])
 
                     self._metrics.hits += 1
                     self._metrics.bytes_from_cache += needed_len
@@ -262,6 +361,7 @@ class Cache:
             with self._lock:
                 self._index.pop(k, None)
             self._metrics.misses += 1
+            logger.trace(f"Cache MISS: {path} [{start}-{end}] ({needed_len} bytes)")
             return None
         # If we got here but entry was missing in index, rebuild it
         with self._lock:
