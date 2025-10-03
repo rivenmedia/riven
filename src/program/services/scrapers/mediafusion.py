@@ -5,7 +5,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.scraper_base import ScraperService
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel
 from program.utils.request import SmartSession, get_hostname_from_url
@@ -18,7 +18,7 @@ class Mediafusion(ScraperService):
     """Scraper for `Mediafusion`"""
 
     def __init__(self):
-        self.key = "mediafusion"
+        super().__init__("mediafusion")
         self.api_key = None
         self.downloader = None
         self.app_settings: AppModel = settings_manager.settings
@@ -39,10 +39,7 @@ class Mediafusion(ScraperService):
             retries=3,
             backoff_factor=0.3
         )
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Mediafusion initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the Mediafusion settings."""

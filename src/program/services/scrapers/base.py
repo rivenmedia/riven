@@ -20,16 +20,16 @@ class ScraperService(ABC):
     - requires_imdb_id: whether the scraper needs an IMDb id to function
     """
     requires_imdb_id: bool = False
-
-    @property
-    def service_name(self) -> str:
-        return getattr(self, "key", self.__class__.__name__)
+    
+    def __init__(self, service_name):
+        self.key = service_name
+        self.initialized = False
 
     def _initialize(self) -> None:
         try:
             if self.validate():
-                setattr(self, "initialized", True)
-                logger.success(f"{self.service_name} scraper initialized")
+                self.initialized = True
+                logger.success(f"{self.__class__.__name__} scraper initialized")
         except Exception:
             pass
 

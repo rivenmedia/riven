@@ -8,7 +8,6 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.scraper_base import ScraperService
 from program.services.scrapers.shared import _parse_results
 from program.settings.manager import settings_manager
 
@@ -28,41 +27,25 @@ class Scraping:
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.max_failed_attempts = settings_manager.settings.scraping.max_failed_attempts
-        self.services: Dict[str, ScraperService] = self._build_services()
+        self.services = [
+            Comet(),
+            Jackett(),
+            Mediafusion(),
+            Orionoid(),
+            Prowlarr(),
+            Rarbg(),
+            Torrentio(),
+            Zilean(),
+        ]
+        self.initialized_services = [service for service in self.services if service.initialized]
+        self.imdb_services = [service for service in self.initialized_services if not service.requires_imdb_id]
         self.initialized = self.validate()
         if not self.initialized:
             return
 
-    def _build_services(self) -> Dict[str, ScraperService]:
-        """Explicitly construct and initialize scraper services.
-
-        - Import classes directly (module-level imports above)
-        - Instantiate each class
-        - Call _initialize() only if not already initialized
-        - Keep only instances where initialized == True
-        """
-        instances: list[ScraperService] = [
-            Comet(), Jackett(), Mediafusion(), Orionoid(), Prowlarr(), Rarbg(), Torrentio(), Zilean()
-        ]
-
-        services: Dict[str, ScraperService] = {}
-        for instance in instances:
-            try:
-                if not getattr(instance, "initialized", False):
-                    instance._initialize()
-            except Exception as e:
-                logger.error(f"Failed to initialize scraper '{instance.__class__.__name__}': {e}")
-                continue
-
-            if getattr(instance, "initialized", False):
-                key: str = getattr(instance, "key", instance.__class__.__name__.lower())
-                services[key] = instance
-
-        return services
-
     def validate(self) -> bool:
         """Validate that at least one scraper service is initialized."""
-        return bool(self.services)
+        return len(self.initialized_services) > 0
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape an item."""
@@ -102,9 +85,9 @@ class Scraping:
 
         imdb_id = item.get_top_imdb_id()
         if imdb_id:
-            available_services = self.services
+            available_services = self.imdb_services
         else:
-            available_services = {k: svc for k, svc in self.services.items() if not getattr(svc, "requires_imdb_id", False)}
+            available_services = self.services
 
         def run_service(svc, it) -> None:
             """Run a single service and update the results."""
@@ -120,7 +103,7 @@ class Scraping:
                     logger.exception(f"Error updating results for {svc.__class__.__name__}: {e}")
 
         with ThreadPoolExecutor(thread_name_prefix="ScraperService_", max_workers=max(1, len(available_services))) as executor:
-            futures = {executor.submit(run_service, service, item): key for key, service in available_services.items() if service.initialized}
+            futures = {executor.submit(run_service, service, item): service.key for service in available_services}
             for future in as_completed(futures):
                 try:
                     future.result()

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from requests import ReadTimeout
 
 from program.media.item import MediaItem
-from program.services.scrapers.scraper_base import ScraperService
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
@@ -31,15 +31,12 @@ class Jackett(ScraperService):
     """Scraper for `Jackett`"""
 
     def __init__(self):
-        self.key = "jackett"
+        super().__init__("jackett")
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
         self.request_handler = None
-        self.initialized = self.validate()
-        if not self.initialized and not self.api_key:
-            return
-        logger.success("Jackett initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate Jackett settings."""

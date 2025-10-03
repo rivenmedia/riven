@@ -6,7 +6,7 @@ from typing import Dict
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.services.scrapers.scraper_base import ScraperService
+from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
@@ -18,7 +18,7 @@ class Comet(ScraperService):
     requires_imdb_id = True
 
     def __init__(self):
-        self.key = "comet"
+        super().__init__("comet")
         self.settings = settings_manager.settings.scraping.comet
         self.timeout = self.settings.timeout or 15
         self.encoded_string = base64.b64encode(json.dumps({
@@ -57,10 +57,7 @@ class Comet(ScraperService):
             retries=3,
             backoff_factor=0.3
         )
-        self.initialized = self.validate()
-        if not self.initialized:
-            return
-        logger.success("Comet initialized!")
+        self._initialize()
 
     def validate(self) -> bool:
         """Validate the Comet settings."""
