@@ -310,6 +310,13 @@ class PostProcessing(Observable):
     subtitle: SubtitleConfig = SubtitleConfig()
 
 
+class LoggingModel(Observable):
+    enabled: bool = True
+    retention_hours: int = 24  # 1 day
+    rotation_mb: int = 10  # per-file rotation size
+    compression: Literal["zip", "gz", "bz2", "xz"] | None = None
+
+
 class AppModel(Observable):
     version: str = get_version()
     api_key: str = ""
@@ -325,6 +332,7 @@ class AppModel(Observable):
     database: DatabaseModel = DatabaseModel()
     notifications: NotificationsModel = NotificationsModel()
     post_processing: PostProcessing = PostProcessing()
+    logging: LoggingModel = LoggingModel()
 
     @field_validator("log_level", mode="before")
     def check_debug(cls, v):
@@ -332,7 +340,7 @@ class AppModel(Observable):
             return "DEBUG"
         elif v == False:
             return "INFO"
-        return v
+        return v.upper()
 
     def __init__(self, **data: Any):
         current_version = get_version()
