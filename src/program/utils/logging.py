@@ -9,7 +9,7 @@ from loguru import logger
 from program.settings.manager import settings_manager
 from program.utils import data_dir_path
 
-LAST_LOGS_CLEANED: datetime = None
+LAST_LOGS_CLEANED: datetime | None = None
 
 
 def setup_logger(level):
