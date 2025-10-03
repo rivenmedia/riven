@@ -14,9 +14,6 @@ LAST_LOGS_CLEANED: datetime = None
 
 def setup_logger(level):
     """Setup the logger"""
-    # File logging filename will be created only if file logging is enabled
-    log_filename = None
-
     # Helper function to get log settings from environment or use default
     def get_log_settings(name, default_color, default_icon):
         color = os.getenv(f"RIVEN_LOGGER_{name}_FG", default_color)
@@ -127,15 +124,14 @@ def log_cleaner():
     global LAST_LOGS_CLEANED
     if LAST_LOGS_CLEANED and (datetime.now() - LAST_LOGS_CLEANED).total_seconds() < 3600:
         return
-    LAST_LOGS_CLEANED = datetime.now()
-
 
     try:
         logs_dir_path = data_dir_path / "logs"
         if not logs_dir_path.exists():
             return
 
-        log_files = sorted(logs_dir_path.glob("riven-*.log"), key=lambda x: x.stat().st_mtime)
+        # Include compressed rotated files too (e.g., .log.gz/.zip)
+        log_files = sorted(logs_dir_path.glob("riven-*.log*"), key=lambda x: x.stat().st_mtime)
         cleaned = False
         retention_hours = max(0, int(log_settings.retention_hours))
 
