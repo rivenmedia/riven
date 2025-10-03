@@ -59,13 +59,7 @@ class Updater:
 
             # Build absolute path to the file
             abs_path = os.path.join(self.library_path, fe_path.lstrip("/"))
-
-            # For movies: parent directory (movie folder)
-            # For shows: parent's parent directory (show folder, not season folder)
-            if _item.type == "movie":
-                refresh_path = os.path.dirname(abs_path)
-            else:  # show, season, episode
-                refresh_path = os.path.dirname(os.path.dirname(abs_path))
+            refresh_path = os.path.dirname(abs_path)
 
             # Refresh the path in all services
             if refresh_path != last_path:
