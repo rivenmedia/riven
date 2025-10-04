@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.0.0](https://github.com/rivenmedia/riven/compare/v0.23.6...v1.0.0) (2025-10-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** Database schema change requires migration or fresh database
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks
+* seperate from trakt to tvdb and tmdb indexers
+
+### Features
+
+* implement proper ratelimiting for services ([0b8b3e7](https://github.com/rivenmedia/riven/commit/0b8b3e72eaef37b00f7208c80158d5e63a9ebebd))
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks ([722c7c4](https://github.com/rivenmedia/riven/commit/722c7c475380e57b7dc8f2bc5961cff4f61ab394))
+* **logs:** expose log settings for users ([#1182](https://github.com/rivenmedia/riven/issues/1182)) ([2001362](https://github.com/rivenmedia/riven/commit/20013620153276d910333e7bd736c65672ffee9e))
+* **notifications:** add SSE event publishing for completed media items ([#1183](https://github.com/rivenmedia/riven/issues/1183)) ([582778e](https://github.com/rivenmedia/riven/commit/582778ed507419314bafb8daa543acc48b273161))
+* **post-processing:** implement media analysis and enhance subtitle services ([a0a459e](https://github.com/rivenmedia/riven/commit/a0a459e631926c2cba81e4630b6a1608980e0ba7))
+* seperate from trakt to tvdb and tmdb indexers ([7e7dcc5](https://github.com/rivenmedia/riven/commit/7e7dcc59aabc90567b6135ce15827b483293bcd8))
+
+
+### Bug Fixes
+
+* **cli,vfs:** fix environment variable handling and event listener invocation ([d28ae78](https://github.com/rivenmedia/riven/commit/d28ae7850b9fdb0554c0b827eeacfd0acee1dbda))
+* fixed incompleted items from reinit db ([add17ed](https://github.com/rivenmedia/riven/commit/add17ed5f219c2cd338501be00e7f64b71c3f7bd))
+* make requests explicit. no guessing when trying to index ([0c0bf64](https://github.com/rivenmedia/riven/commit/0c0bf64d060c60c2d18e2fba1eb82d129acd0d21))
+* **updater:** after refactor updater keys went missing ([27cacf4](https://github.com/rivenmedia/riven/commit/27cacf43c5b232ac12a65662d9cb0448fbb47d9a))
+* **updater:** incorrect logic in updater after refactor ([fe832aa](https://github.com/rivenmedia/riven/commit/fe832aa2f5d0695b660fef9a43fce6c5f5dba796))
+
+
+### Code Refactoring
+
+* **db:** flip MediaItem-FilesystemEntry relationship and add automatic cleanup ([a94785b](https://github.com/rivenmedia/riven/commit/a94785be1cf5b21646caab8e8f46856bcfc648a6))
+
 ## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
 
 
