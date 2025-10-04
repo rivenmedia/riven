@@ -1,9 +1,11 @@
+import json
 from datetime import datetime
 
 from loguru import logger
 
 from program.db.db import db
 from program.db.db_functions import clear_streams
+from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.media.state import States
 from program.services.post_processing.media_analysis import MediaAnalysisService
@@ -102,5 +104,18 @@ def notify(item: MediaItem):
 def _notify(item: MediaItem):
     duration = round((datetime.now() - item.requested_at).total_seconds())
     logger.success(f"{item.log_string} has been completed in {duration} seconds.")
+
+    # Publish SSE notification event
+    notification_data = {
+        "title": item.title or "Unknown",
+        "type": item.type,
+        "year": item.aired_at.year if item.aired_at else None,
+        "duration": duration,
+        "timestamp": datetime.now().isoformat(),
+        "log_string": item.log_string,
+        "imdb_id": item.imdb_id
+    }
+    sse_manager.publish_event("notifications", json.dumps(notification_data))
+
     if settings_manager.settings.notifications.enabled:
         notify_on_complete(item)
