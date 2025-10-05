@@ -19,7 +19,7 @@ def validate_empty_or_url(v: Any) -> str:
     if isinstance(v, str):
         if v == "":
             return v
-        if not v.startswith(("http://", "https://", "socks5://", "socks5h://")):
+        if not v.lower().startswith(("http://", "https://", "socks5://", "socks5h://")):
             raise ValueError("Must be a valid URL or empty string")
         return v
     raise ValueError("Must be a string")
