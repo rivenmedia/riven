@@ -544,10 +544,15 @@ class LoggingModel(Observable):
         default=24, description="Log retention period in hours"
     )
     rotation_mb: int = Field(default=10, description="Log file rotation size in MB")
-    compression: Literal["zip", "gz", "bz2", "xz", ""] = Field(
-        default="", description="Log compression format (empty for no compression)"
+    compression: Literal["zip", "gz", "bz2", "xz", "disabled"] = Field(
+        default="disabled", description="Log compression format (empty for no compression)"
     )
 
+    @field_validator("compression", mode="before")
+    def check_compression(cls, v):
+        if v == "" or v == None:
+            return "disabled"
+        return v
 
 class AppModel(Observable):
     version: str = Field(default_factory=get_version, description="Application version")

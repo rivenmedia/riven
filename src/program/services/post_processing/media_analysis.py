@@ -13,11 +13,12 @@ upgrade decisions.
 
 import os
 from datetime import datetime
+import traceback
 from typing import Optional, Dict, Any
 
 from loguru import logger
 from PTT import parse_title
-from RTN import parse_media_file
+from program.utils.ffprobe import parse_media_file
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -110,7 +111,6 @@ class MediaAnalysisService:
                 parsed_data = self._parse_filename(original_filename, item)
                 if parsed_data:
                     analysis_results['parsed_filename'] = parsed_data
-                    logger.debug(f"Parsed filename for {item.log_string}: {parsed_data}")
 
             # 3. Store results in MediaItem
             if ffprobe_data and parsed_data:
@@ -123,7 +123,7 @@ class MediaAnalysisService:
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
 
-    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> Optional[Dict[str, Any]]:
+    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> Dict[str, Any]:
         """
         Analyze media file with ffprobe.
         
@@ -139,23 +139,19 @@ class MediaAnalysisService:
                 logger.debug(f"File not found for ffprobe: {file_path}")
                 return None
 
-            # Use RTN's parse_media_file which wraps ffprobe
-            # Returns a MediaMetadata Pydantic model
             media_metadata = parse_media_file(file_path)
-
             if media_metadata:
-                ffprobe_dict = media_metadata.model_dump()
+                ffprobe_dict = media_metadata.model_dump_json()
                 logger.debug(f"FFprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
-            else:
-                logger.warning(f"FFprobe returned no data for {item.log_string}")
-                return None
 
-        except Exception as e:
-            logger.error(f"FFprobe analysis failed for {item.log_string}: {e}")
-            return None
+            logger.warning(f"FFprobe returned no data for {item.log_string}")
+            return {}
+        except Exception:
+            logger.error(f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}")
+            return {}
 
-    def _parse_filename(self, filename: str, item: MediaItem) -> Optional[Dict[str, Any]]:
+    def _parse_filename(self, filename: str, item: MediaItem) -> Dict[str, Any]:
         """
         Parse filename with PTT to extract metadata.
         
@@ -168,36 +164,12 @@ class MediaAnalysisService:
         """
         try:
             parsed_data = parse_title(filename)
-            
             if parsed_data:
-                # Extract relevant fields for storage
-                relevant_fields = {
-                    'resolution': parsed_data.get('resolution'),
-                    'quality': parsed_data.get('quality'),
-                    'codec': parsed_data.get('codec'),
-                    'audio': parsed_data.get('audio'),
-                    'channels': parsed_data.get('channels'),
-                    'hdr': parsed_data.get('hdr'),
-                    'release_group': parsed_data.get('group'),
-                    'proper': parsed_data.get('proper'),
-                    'repack': parsed_data.get('repack'),
-                    'remux': parsed_data.get('remux'),
-                    'upscaled': parsed_data.get('upscaled'),
-                    'remastered': parsed_data.get('remastered'),
-                    'edition': parsed_data.get('edition'),
-                    'language': parsed_data.get('language'),
-                    'subtitles': parsed_data.get('subtitles'),
-                }
-                
-                # Remove None values
-                relevant_fields = {k: v for k, v in relevant_fields.items() if v is not None}
-                
-                logger.debug(f"PTT parsed {len(relevant_fields)} fields from filename for {item.log_string}")
+                logger.debug(f"PTT parsed {len(parsed_data)} fields from filename for {item.log_string}")
                 return parsed_data
-            else:
-                logger.warning(f"PTT returned no data for filename: {filename}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"PTT parsing failed for {item.log_string}: {e}")
-            return None
+
+            logger.warning(f"PTT returned no data for filename: {filename}")
+            return {}
+        except Exception:
+            logger.error(f"PTT parsing failed for {item.log_string}: {traceback.format_exc()}")
+            return {}
