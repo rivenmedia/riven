@@ -30,7 +30,7 @@ def snapshot_database(snapshot_dir: Path = None):
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse database connection string
-    db_url = settings_manager.settings.database.host
+    db_url = str(settings_manager.settings.database.host)
     # Format: postgresql+psycopg2://user:password@host:port/dbname
 
     try:
@@ -183,7 +183,7 @@ def restore_database(snapshot_file: Path = None):
         return False
 
     # Parse database connection string
-    db_url = settings_manager.settings.database.host
+    db_url = str(settings_manager.settings.database.host)
 
     try:
         # Extract connection details (same as snapshot_database)

@@ -28,7 +28,7 @@ class LoguruHandler(logging.Handler):
 
 # Alembic configuration
 config = context.config
-config.set_main_option("sqlalchemy.url", settings_manager.settings.database.host)
+config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
 target_metadata = db.Model.metadata
