@@ -52,7 +52,7 @@ class SubtitleService:
         provider_configs = self.settings.providers
 
         # Initialize OpenSubtitles provider
-        if provider_configs.get("opensubtitles", {}).get("enabled"):
+        if provider_configs.opensubtitles.enabled:
             try:
                 provider = OpenSubtitlesProvider()
                 self.providers.append(provider)
