@@ -22,7 +22,7 @@ engine_options = {
 #     cursor.execute("SET statement_timeout = 300000")
 #     cursor.close()
 
-db_host = settings_manager.settings.database.host
+db_host = str(settings_manager.settings.database.host)
 db = SQLAlchemy(db_host, engine_options=engine_options)
 
 def get_db():

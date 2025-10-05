@@ -1,9 +1,10 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List, Literal
+from typing import Any, Callable, List, Literal, Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, BeforeValidator, TypeAdapter
+from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
 
 from program.settings.migratable import MigratableBaseModel
@@ -12,6 +13,19 @@ from program.utils import generate_api_key, get_version
 deprecation_warning = (
     "This has been deprecated and will be removed in a future version."
 )
+
+
+def validate_empty_or_url(v: Any) -> str:
+    if isinstance(v, str):
+        if v == "":
+            return v
+        if not v.startswith(("http://", "https://", "socks5://", "socks5h://")):
+            raise ValueError("Must be a valid URL or empty string")
+        return v
+    raise ValueError("Must be a string")
+
+
+EmptyOrUrl = Annotated[str, BeforeValidator(validate_empty_or_url)]
 
 
 class Observable(MigratableBaseModel):
@@ -57,22 +71,26 @@ class TorBoxModel(Observable):
 
 class DownloadersModel(Observable):
     video_extensions: List[str] = Field(
-        default=["mp4", "mkv", "avi"],
+        default_factory=lambda: ["mp4", "mkv", "avi"],
         description="List of video file extensions to consider for downloads",
     )
     movie_filesize_mb_min: int = Field(
-        default=700, description="Minimum file size in MB for movies"
+        default=700, ge=1, description="Minimum file size in MB for movies"
     )
     movie_filesize_mb_max: int = Field(
-        default=-1, description="Maximum file size in MB for movies (-1 for no limit)"
+        default=-1,
+        ge=-1,
+        description="Maximum file size in MB for movies (-1 for no limit)",
     )
     episode_filesize_mb_min: int = Field(
-        default=100, description="Minimum file size in MB for episodes"
+        default=100, ge=1, description="Minimum file size in MB for episodes"
     )
     episode_filesize_mb_max: int = Field(
-        default=-1, description="Maximum file size in MB for episodes (-1 for no limit)"
+        default=-1,
+        ge=-1,
+        description="Maximum file size in MB for episodes (-1 for no limit)",
     )
-    proxy_url: str = Field(
+    proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for downloaders (optional)"
     )
     real_debrid: RealDebridModel = Field(
@@ -101,7 +119,7 @@ class FilesystemModel(Observable):
         description="Directory for caching downloaded chunks",
     )
     cache_max_size_mb: int = Field(
-        default=10240, description="Maximum cache size in MB (10 GiB default)"
+        default=10240, ge=0, description="Maximum cache size in MB (10 GiB default)"
     )
     cache_ttl_seconds: int = Field(
         default=2 * 60 * 60,
@@ -114,10 +132,10 @@ class FilesystemModel(Observable):
         default=True, description="Enable cache metrics logging"
     )
     chunk_size_mb: int = Field(
-        default=8, description="Size of a single fetch chunk in MB"
+        default=8, ge=1, description="Size of a single fetch chunk in MB"
     )
     fetch_ahead_chunks: int = Field(
-        default=4, description="Number of chunks to fetch ahead when streaming"
+        default=4, ge=0, description="Number of chunks to fetch ahead when streaming"
     )
 
 
@@ -140,24 +158,30 @@ class Updatable(Observable):
 class PlexLibraryModel(Observable):
     enabled: bool = Field(default=False, description="Enable Plex library updates")
     token: str = Field(default="", description="Plex authentication token")
-    url: str = Field(default="http://localhost:32400", description="Plex server URL")
+    url: EmptyOrUrl = Field(
+        default="http://localhost:32400", description="Plex server URL"
+    )
 
 
 class JellyfinLibraryModel(Observable):
     enabled: bool = Field(default=False, description="Enable Jellyfin library updates")
     api_key: str = Field(default="", description="Jellyfin API key")
-    url: str = Field(default="http://localhost:8096", description="Jellyfin server URL")
+    url: EmptyOrUrl = Field(
+        default="http://localhost:8096", description="Jellyfin server URL"
+    )
 
 
 class EmbyLibraryModel(Observable):
     enabled: bool = Field(default=False, description="Enable Emby library updates")
     api_key: str = Field(default="", description="Emby API key")
-    url: str = Field(default="http://localhost:8096", description="Emby server URL")
+    url: EmptyOrUrl = Field(
+        default="http://localhost:8096", description="Emby server URL"
+    )
 
 
 class UpdatersModel(Observable):
     updater_interval: int = Field(
-        default=120, description="Interval in seconds between library updates"
+        default=120, ge=1, description="Interval in seconds between library updates"
     )
     library_path: Path = Field(
         default=Path("/path/to/library/mount"),
@@ -182,11 +206,15 @@ class UpdatersModel(Observable):
 
 class ListrrModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Listrr integration")
-    movie_lists: List[str] = Field(default=[], description="Listrr movie list IDs")
-    show_lists: List[str] = Field(default=[], description="Listrr TV show list IDs")
+    movie_lists: List[str] = Field(
+        default_factory=list, description="Listrr movie list IDs"
+    )
+    show_lists: List[str] = Field(
+        default_factory=list, description="Listrr TV show list IDs"
+    )
     api_key: str = Field(default="", description="Listrr API key")
     update_interval: int = Field(
-        default=86400, description="Update interval in seconds (24 hours default)"
+        default=86400, ge=1, description="Update interval in seconds (24 hours default)"
     )
 
 
@@ -194,29 +222,37 @@ class MdblistModel(Updatable):
     enabled: bool = Field(default=False, description="Enable MDBList integration")
     api_key: str = Field(default="", description="MDBList API key")
     lists: List[int | str] = Field(
-        default=[], description="MDBList list IDs to monitor"
+        default_factory=list, description="MDBList list IDs to monitor"
     )
     update_interval: int = Field(
-        default=86400, description="Update interval in seconds (24 hours default)"
+        default=86400, ge=1, description="Update interval in seconds (24 hours default)"
     )
 
 
 class OverseerrModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Overseerr integration")
-    url: str = Field(default="http://localhost:5055", description="Overseerr URL")
+    url: EmptyOrUrl = Field(
+        default="http://localhost:5055", description="Overseerr URL"
+    )
     api_key: str = Field(default="", description="Overseerr API key")
     use_webhook: bool = Field(
         default=False, description="Use webhook instead of polling"
     )
-    update_interval: int = Field(default=60, description="Update interval in seconds")
+    update_interval: int = Field(
+        default=60, ge=1, description="Update interval in seconds"
+    )
 
 
 class PlexWatchlistModel(Updatable):
     enabled: bool = Field(
         default=False, description="Enable Plex Watchlist integration"
     )
-    rss: List[str] = Field(default=[], description="Plex Watchlist RSS feed URLs")
-    update_interval: int = Field(default=60, description="Update interval in seconds")
+    rss: List[EmptyOrUrl] = Field(
+        default_factory=list, description="Plex Watchlist RSS feed URLs"
+    )
+    update_interval: int = Field(
+        default=60, ge=1, description="Update interval in seconds"
+    )
 
 
 class TraktOauthModel(BaseModel):
@@ -233,25 +269,25 @@ class TraktModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Trakt integration")
     api_key: str = Field(default="", description="Trakt API key")
     watchlist: List[str] = Field(
-        default=[], description="Trakt usernames for watchlist monitoring"
+        default_factory=list, description="Trakt usernames for watchlist monitoring"
     )
     user_lists: List[str] = Field(
-        default=[], description="Trakt user list URLs to monitor"
+        default_factory=list, description="Trakt user list URLs to monitor"
     )
     collection: List[str] = Field(
-        default=[], description="Trakt usernames for collection monitoring"
+        default_factory=list, description="Trakt usernames for collection monitoring"
     )
     fetch_trending: bool = Field(
         default=False, description="Fetch trending content from Trakt"
     )
     trending_count: int = Field(
-        default=10, description="Number of trending items to fetch"
+        default=10, ge=1, description="Number of trending items to fetch"
     )
     fetch_popular: bool = Field(
         default=False, description="Fetch popular content from Trakt"
     )
     popular_count: int = Field(
-        default=10, description="Number of popular items to fetch"
+        default=10, ge=1, description="Number of popular items to fetch"
     )
     fetch_most_watched: bool = Field(
         default=False, description="Fetch most watched content from Trakt"
@@ -261,16 +297,18 @@ class TraktModel(Updatable):
         description="Period for most watched (daily, weekly, monthly, yearly)",
     )
     most_watched_count: int = Field(
-        default=10, description="Number of most watched items to fetch"
+        default=10, ge=1, description="Number of most watched items to fetch"
     )
     update_interval: int = Field(
-        default=86400, description="Update interval in seconds (24 hours default)"
+        default=86400, ge=1, description="Update interval in seconds (24 hours default)"
     )
     oauth: TraktOauthModel = Field(
         default_factory=lambda: TraktOauthModel(),
         description="Trakt OAuth configuration",
     )
-    proxy_url: str = Field(default="", description="Proxy URL for Trakt API requests")
+    proxy_url: EmptyOrUrl = Field(
+        default="", description="Proxy URL for Trakt API requests"
+    )
 
 
 class ContentModel(Observable):
@@ -301,37 +339,43 @@ class TorrentioConfig(Observable):
         default="sort=qualitysize%7Cqualityfilter=480p,scr,cam",
         description="Torrentio filter parameters",
     )
-    url: str = Field(default="http://torrentio.strem.fun", description="Torrentio URL")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    url: EmptyOrUrl = Field(
+        default="http://torrentio.strem.fun", description="Torrentio URL"
+    )
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
-    proxy_url: str = Field(default="", description="Proxy URL for Torrentio requests")
+    proxy_url: EmptyOrUrl = Field(
+        default="", description="Proxy URL for Torrentio requests"
+    )
 
 
 class CometConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Comet scraper")
-    url: str = Field(default="http://localhost:8000", description="Comet URL")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    url: EmptyOrUrl = Field(default="http://localhost:8000", description="Comet URL")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
 class ZileanConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Zilean scraper")
-    url: str = Field(default="http://localhost:8181", description="Zilean URL")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    url: EmptyOrUrl = Field(default="http://localhost:8181", description="Zilean URL")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
 class MediafusionConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Mediafusion scraper")
-    url: str = Field(default="http://localhost:8000", description="Mediafusion URL")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    url: EmptyOrUrl = Field(
+        default="http://localhost:8000", description="Mediafusion URL"
+    )
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
 class OrionoidConfigParametersDict(Observable):
     video3d: bool = Field(default=False, description="Include 3D video results")
     videoquality: str = Field(default="sd_hd8k", description="Video quality filter")
-    limitcount: int = Field(default=5, description="Maximum number of results")
+    limitcount: int = Field(default=5, ge=1, description="Maximum number of results")
 
 
 class OrionoidConfig(Observable):
@@ -344,33 +388,33 @@ class OrionoidConfig(Observable):
         default_factory=lambda: OrionoidConfigParametersDict(),
         description="Additional Orionoid parameters",
     )
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
 class JackettConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Jackett scraper")
-    url: str = Field(default="http://localhost:9117", description="Jackett URL")
+    url: EmptyOrUrl = Field(default="http://localhost:9117", description="Jackett URL")
     api_key: str = Field(default="", description="Jackett API key")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
 class ProwlarrConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Prowlarr scraper")
-    url: str = Field(default="http://localhost:9696", description="Prowlarr URL")
+    url: EmptyOrUrl = Field(default="http://localhost:9696", description="Prowlarr URL")
     api_key: str = Field(default="", description="Prowlarr API key")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
     limiter_seconds: int = Field(
-        default=60, description="Rate limiter cooldown in seconds"
+        default=60, ge=1, description="Rate limiter cooldown in seconds"
     )
 
 
 class RarbgConfig(Observable):
     enabled: bool = Field(default=False, description="Enable RARBG scraper")
-    url: str = Field(default="https://therarbg.to", description="RARBG URL")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+    url: EmptyOrUrl = Field(default="https://therarbg.to", description="RARBG URL")
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -438,13 +482,16 @@ class RTNSettingsModel(SettingsModel, Observable): ...
 class IndexerModel(Observable):
     update_interval: int = Field(
         default=60 * 60,
+        ge=1,
         description="Indexer update interval in seconds (1 hour default)",
     )
 
 
 class DatabaseModel(Observable):
-    host: str = Field(
-        default="postgresql+psycopg2://postgres:postgres@localhost/riven",
+    host: PostgresDsn = Field(
+        default_factory=lambda: PostgresDsn(
+            "postgresql+psycopg2://postgres:postgres@localhost/riven"
+        ),
         description="Database connection string",
     )
 
@@ -452,11 +499,12 @@ class DatabaseModel(Observable):
 class NotificationsModel(Observable):
     enabled: bool = Field(default=False, description="Enable notifications")
     on_item_type: List[str] = Field(
-        default=["movie", "show", "season", "episode"],
+        default_factory=lambda: ["movie", "show", "season", "episode"],
         description="Item types to send notifications for",
     )
     service_urls: List[str] = Field(
-        default=[], description="Notification service URLs (e.g., Discord webhooks)"
+        default_factory=list,
+        description="Notification service URLs (e.g., Discord webhooks)",
     )
 
 
@@ -474,7 +522,8 @@ class SubtitleProvidersDict(Observable):
 class SubtitleConfig(Observable):
     enabled: bool = Field(default=False, description="Enable subtitle downloading")
     languages: List[str] = Field(
-        default=["eng"], description="Subtitle languages to download (ISO 639-2 codes)"
+        default_factory=lambda: ["eng"],
+        description="Subtitle languages to download (ISO 639-2 codes)",
     )
     providers: SubtitleProvidersDict = Field(
         default_factory=lambda: SubtitleProvidersDict(),
