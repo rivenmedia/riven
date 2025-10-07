@@ -141,7 +141,7 @@ class MediaAnalysisService:
 
             media_metadata = parse_media_file(file_path)
             if media_metadata:
-                ffprobe_dict = media_metadata.model_dump_json()
+                ffprobe_dict = media_metadata.model_dump(mode="json")
                 logger.debug(f"FFprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
 
