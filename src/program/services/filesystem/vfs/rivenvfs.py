@@ -115,6 +115,43 @@ class ProviderHTTP:
     def _release(self, host: str, c: pycurl.Curl) -> None:
         with self._lock:
             self._pool.setdefault(host, []).append(c)
+    
+    def range_preflight_check(self, target_url: str, start: int, end: int) -> int:
+        parsed = urllib.parse.urlparse(target_url)
+        host = parsed.netloc or ""
+        c = self._acquire(host)
+        header_buffer = io.BytesIO()
+
+        try:
+            self._configure_common(c)
+
+            c.setopt(pycurl.URL, target_url)
+            c.setopt(pycurl.HTTPHEADER, [
+                f'Range: bytes={start}-{end}',
+                'Accept-Encoding: identity',
+                'Connection: keep-alive',
+            ])
+            c.setopt(pycurl.NOBODY, True)
+            c.setopt(pycurl.WRITEHEADER, header_buffer)
+
+            c.perform()
+
+            status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
+
+            return status_code
+        finally:
+            try:
+                header_buffer.close()
+            except Exception:
+                pass
+
+            try:
+                c.setopt(pycurl.NOBODY, False)
+                c.setopt(pycurl.WRITEHEADER, None)
+            except Exception:
+                pass
+
+            self._release(host, c)
 
     def perform_range(self, target_url: str, start: int, end: int, http10: bool = False, ignore_content_length: bool = False) -> tuple[int, bytes, str]:
         parsed = urllib.parse.urlparse(target_url)
@@ -1600,15 +1637,107 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             raise
 
-    async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
-        max_attempts = 4
+    def _refresh_download_url(self, path: str, target_url: str) -> str | None:
         import time
+
+        self._url_cache.pop(path, None)
+        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
+
+        if fresh_url and fresh_url != target_url:
+            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
+            return fresh_url
+        
+    async def _attempt_range_preflight_checks(self, path: str, target_url: str, start: int, end: int) -> str:
+        """
+        Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
+
+        Sometimes, the request will return a 200 OK with the full content instead of a 206 Partial Content,
+        even when the server *does* support range requests.
+
+        This wastes bandwidth, and is undesirable for streaming large media files.
+
+        Returns:
+            The effective URL that was successfully used (may differ from input if refreshed).
+        """
+
+        max_preflight_attempts = 3 # Preflight checks generally pass the second time if the first response was 200 OK, add an extra 1 as a safeguard
         backoffs = [0.2, 0.5, 1.0]
+
+        for preflight_attempt in range(max_preflight_attempts):
+            is_max_attempt = preflight_attempt == (max_preflight_attempts - 1)
+
+            try:
+                preflight_status_code = await trio.to_thread.run_sync(
+                    self.http.range_preflight_check, target_url, start, end
+                )
+
+                if preflight_status_code == 206:
+                    # Preflight passed, proceed to actual request
+                    log.trace(f"Preflight checks passed for {path}: HTTP {preflight_status_code}")
+                    return target_url
+                elif preflight_status_code == 200:
+                    if not is_max_attempt:
+                        # Server refused range request. Serving this request would return the full media file,
+                        # which eats downloader bandwidth usage unnecessarily. Wait and retry.
+                        log.debug(f"Request would have returned full body for: {target_url}; waiting for range request to become available.")
+                        await trio.sleep(0.5)
+                        continue
+                    # Unable to get range support after retries
+                    raise pyfuse3.FUSEError(errno.EIO)
+                elif preflight_status_code == 404 or preflight_status_code == 410:
+                    # File can't be found at this URL; try refreshing the URL once
+                    if preflight_attempt == 0:
+                        fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+
+                        if fresh_url is not None:
+                            log.info(f"Retrying with fresh URL after {preflight_status_code} for {path}")
+                            target_url = fresh_url
+                            await trio.sleep(0.5)  # Brief pause before retry
+                            continue
+                    # No fresh URL or still erroring after refresh
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+                else:
+                    # Other unexpected status codes
+                    log.trace(f"Unexpected preflight HTTP status {preflight_status_code} for {path}")
+                    raise pyfuse3.FUSEError(errno.EIO)
+            except pycurl.error as e:
+                error_code = e.args[0] if e.args else 0
+                log.trace(f"HTTP preflight request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}) for {path}: {e}")
+
+                # Only refresh URL on connection-related errors, not rate limiting
+                if error_code in (6, 7, 28) and preflight_attempt == 0:  # Host resolution, connection, timeout
+                    fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+
+                    if fresh_url is not None:
+                        target_url = fresh_url
+                        log.info(f"Retrying with fresh URL after connection error for {path}")
+                        # Continue with refreshed URL
+                        continue
+
+                if not is_max_attempt:
+                    await trio.sleep(backoffs[min(preflight_attempt, len(backoffs) - 1)])
+                    continue
+
+                raise pyfuse3.FUSEError(errno.EIO) from e
+
+    async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
+        try:
+            target_url = await self._attempt_range_preflight_checks(path, target_url, start, end)
+        except Exception as e:
+            log.error(f"Preflight checks failed for {path}: {e}")
+            raise
+
+        max_attempts = 4
+        backoffs = [0.2, 0.5, 1.0]
+            
         for attempt in range(max_attempts):
+            is_max_attempt = attempt == (max_attempts - 1)
+
             try:
                 status, content = await trio.to_thread.run_sync(
                     self._http_range_request, target_url, start, end
                 )
+
                 if status == 206:
                     log.trace(f"path={path} start={start} end={end} bytes={end-start}")
                     return content
@@ -1616,22 +1745,11 @@ class RivenVFS(pyfuse3.Operations):
                     # Full body returned; slice to requested range length
                     log.trace(f"path={path} start={0} end={end + 1} bytes={end + 1}")
                     return content[:(end - start + 1)]
-                elif status == 416:
-                    # Requested range not satisfiable; treat as EOF
-                    return b''
-                elif status == 404:
-                    # File not found - URL likely expired, try refreshing once
-                    if attempt == 0:  # Only try refresh on first attempt
-                        self._url_cache.pop(path, None)
-                        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
-                        if fresh_url and fresh_url != target_url:
-                            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
-                            target_url = fresh_url
-                            log.info(f"Retrying with fresh URL after 404 for {path}")
-                            await trio.sleep(0.5)  # Brief pause before retry
-                            continue
-                    # No fresh URL or still 404 after refresh
-                    raise pyfuse3.FUSEError(errno.ENOENT)
+                elif status == 200 and start > 0:
+                    # Server doesn't support ranges but returned full content
+                    # This shouldn't happen due to preflight, treat as error
+                    log.trace(f"Server returned full content instead of range for {path}")
+                    raise pyfuse3.FUSEError(errno.EIO)
                 elif status == 403:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     log.trace(f"HTTP 403 Forbidden for {path} (attempt {attempt + 1})")
@@ -1639,30 +1757,21 @@ class RivenVFS(pyfuse3.Operations):
                         await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                         continue
                     raise pyfuse3.FUSEError(errno.EACCES)
-                elif status == 410:
-                    # Gone - URL expired, try refreshing once
-                    if attempt == 0:  # Only try refresh on first attempt
-                        self._url_cache.pop(path, None)
-                        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
-                        if fresh_url and fresh_url != target_url:
-                            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
-                            target_url = fresh_url
-                            log.info(f"Retrying with fresh URL after 404 for {path}")
-                            await trio.sleep(0.5)  # Brief pause before retry
-                            continue
+                elif status == 404 or status == 410:
+                    # Preflight catches initial not found errors and attempts to refresh the URL
+                    # if it still happens after a real request, don't refresh again and bail out
                     raise pyfuse3.FUSEError(errno.ENOENT)
+                elif status == 416:
+                    # Requested range not satisfiable; treat as EOF
+                    return b''
                 elif status == 429:
                     # Rate limited - back off exponentially, don't refresh URL
                     log.trace(f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})")
-                    if attempt < max_attempts - 1:
+                    if not is_max_attempt:
                         backoff_time = min(backoffs[min(attempt, len(backoffs) - 1)] * 2, 5.0)
                         await trio.sleep(backoff_time)
                         continue
                     raise pyfuse3.FUSEError(errno.EAGAIN)
-                elif status == 200 and start > 0:
-                    # Server doesn't support ranges but returned full content
-                    log.trace(f"Server returned full content instead of range for {path}")
-                    raise pyfuse3.FUSEError(errno.EIO)
                 else:
                     # Other unexpected status codes
                     log.trace(f"Unexpected HTTP status {status} for {path}")
@@ -1673,17 +1782,17 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Only refresh URL on connection-related errors, not rate limiting
                 if error_code in (6, 7, 28) and attempt == 0:  # Host resolution, connection, timeout
-                    self._url_cache.pop(path, None)
-                    fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
-                    if fresh_url and fresh_url != target_url:
-                        self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
+                    fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+
+                    if fresh_url is not None:
                         target_url = fresh_url
                         log.info(f"Retrying with fresh URL after connection error for {path}")
 
-                if attempt < max_attempts - 1:
+                if not is_max_attempt:
                     await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                     continue
-                raise pyfuse3.FUSEError(errno.EIO)
-        raise pyfuse3.FUSEError(errno.EIO)
 
+                raise pyfuse3.FUSEError(errno.EIO) from e
+
+        raise pyfuse3.FUSEError(errno.EIO)
 
