@@ -863,7 +863,7 @@ class FfprobeResponse(BaseModel):
 
 @router.post(
     "/ffprobe",
-    summary="Parse Media File",
+    summary="Parse Media Files using ffprobe",
     description="Parse a media file",
     operation_id="ffprobe_media_files",
 )

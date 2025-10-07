@@ -15,10 +15,9 @@ class BaseIndexer(ABC):
     
     def __init__(self):
         self.key = self.__class__.__name__.lower()
-        self.initialized = True
         self.settings = settings_manager.settings.indexer
-        self.failed_ids = set()
-        
+        self.initialized = True
+
     @staticmethod
     def copy_attributes(source, target):
         """Copy attributes from source to target."""

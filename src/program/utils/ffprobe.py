@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class VideoTrack(BaseModel):
     """Model representing video track metadata"""
-    codec: str = Field(default="", description="Codec of the video track")
+    codec: Optional[str] = Field(default="", description="Codec of the video track")
     width: int = Field(default=0, description="Width of the video track")
     height: int = Field(default=0, description="Height of the video track")
     frame_rate: float = Field(default=0.0, round=2, description="Frame rate of the video track")
@@ -16,10 +16,10 @@ class VideoTrack(BaseModel):
 
 class AudioTrack(BaseModel):
     """Model representing audio track metadata"""
-    codec: str = Field(default="", description="Codec of the audio track")
+    codec: Optional[str] = Field(default="", description="Codec of the audio track")
     channels: int = Field(default=0, description="Number of channels in the audio track")
     sample_rate: int = Field(default=0, description="Sample rate of the audio track")
-    language: str = Field(default="", description="Language of the audio track")
+    language: Optional[str] = Field(default="", description="Language of the audio track")
 
 
 class SubtitleTrack(BaseModel):
@@ -103,24 +103,25 @@ def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
                 fps = float(Fraction(frame_rate)) if "/" in frame_rate else float(frame_rate)
 
                 video_data = VideoTrack(
-                    codec=stream.get("codec_name", "unknown"),
-                    width=int(stream.get("width", 0)),
-                    height=int(stream.get("height", 0)),
-                    frame_rate=round(fps, 2),
+                    codec = stream.get("codec_name", "unknown"),
+                    width = stream.get("width", 0),
+                    height = stream.get("height", 0),
+                    frame_rate = round(fps, 2),
                 )
 
             elif codec_type == "audio":
                 audio_tracks.append(AudioTrack(
-                    codec=stream.get("codec_name", "unknown"),
-                    channels=int(stream.get("channels", 0)),
-                    sample_rate=int(stream.get("sample_rate", 0)),
-                    language=stream.get("tags", {}).get("language"),
+                    codec = stream.get("codec_name", None),
+                    channels = int(stream.get("channels", 0)),
+                    sample_rate = int(stream.get("sample_rate", 0)),
+                    language = stream.get("tags", {}).get("language", None),
                 ))
 
             elif codec_type == "subtitle":
                 subtitle_tracks.append(SubtitleTrack(
-                    codec=stream.get("codec_name", "unknown"),
-                    language=stream.get("tags", {}).get("language"),
+                    codec = stream.get("codec_name", "unknown"),
+                    title = stream.get("tags", {}).get("title", None),
+                    language = stream.get("tags", {}).get("language", None),
                 ))
 
         if video_data:
@@ -133,8 +134,8 @@ def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
         return MediaMetadata(**metadata_dict)
 
     except FileNotFoundError as e:
-        raise FileNotFoundError("Error: ffprobe not found. Ensure FFmpeg is installed.") from e
+        raise FileNotFoundError(f"ffprobe FileNotFound: {e}")
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"ffprobe error: {e}") from e
+        raise RuntimeError(f"ffprobe error: {e}")
     except Exception as e:
-        raise ValueError(f"Unexpected error while parsing {file_path}: {e}") from e
+        raise ValueError(f"Unexpected error during ffprobe of {file_path}: {e}")
