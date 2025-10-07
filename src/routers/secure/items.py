@@ -6,10 +6,10 @@ import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from loguru import logger
 from pydantic import BaseModel
-from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, object_session
 
+from program.utils.ffprobe import parse_media_file
 from program.db import db_functions
 from program.db.db import db, get_db
 from program.media.item import MediaItem, Show, Season
@@ -863,7 +863,7 @@ class FfprobeResponse(BaseModel):
 
 @router.post(
     "/ffprobe",
-    summary="Parse Media File",
+    summary="Parse Media Files using ffprobe",
     description="Parse a media file",
     operation_id="ffprobe_media_files",
 )

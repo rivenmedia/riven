@@ -82,7 +82,7 @@ def setup_logger(level):
     log_settings = settings_manager.settings.logging
     retention_value = f"{log_settings.retention_hours} hours" if log_settings.enabled else None
     rotation_value = f"{getattr(log_settings, 'rotation_mb', 10)} MB" if getattr(log_settings, 'rotation_mb', 10) > 0 else None
-    compression_value = getattr(log_settings, 'compression', None) or None
+    compression_value = getattr(log_settings, 'compression', "disabled")
 
     handlers = [
         {
@@ -107,7 +107,7 @@ def setup_logger(level):
             "format": log_format,
             "rotation": rotation_value,
             "retention": retention_value,
-            "compression": compression_value,
+            "compression": compression_value if compression_value != "disabled" else None,
             "backtrace": False,
             "diagnose": True,
             "enqueue": True,
