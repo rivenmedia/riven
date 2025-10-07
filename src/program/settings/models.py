@@ -550,7 +550,7 @@ class LoggingModel(Observable):
 
     @field_validator("compression", mode="before")
     def check_compression(cls, v):
-        if v == "" or v == None:
+        if v == "" or not v:
             return "disabled"
         return v
 
