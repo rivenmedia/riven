@@ -137,7 +137,7 @@ class MediaAnalysisService:
         try:
             if not os.path.exists(file_path):
                 logger.debug(f"File not found for ffprobe: {file_path}")
-                return None
+                return {}
 
             media_metadata = parse_media_file(file_path)
             if media_metadata:
