@@ -2542,20 +2542,20 @@ files = [
 
 [[package]]
 name = "rank-torrent-name"
-version = "1.9.0"
+version = "1.9.2"
 description = "Rank filenames based on user-defined rules!"
 optional = false
 python-versions = "<4.0,>=3.11"
 groups = ["main"]
 files = [
-    {file = "rank_torrent_name-1.9.0-py3-none-any.whl", hash = "sha256:bb84bfab336ec058ffdbdca9e2bcbd21d209dc2cbb5bc9bdb6fb27aa64766b87"},
-    {file = "rank_torrent_name-1.9.0.tar.gz", hash = "sha256:e2be2bf7cf05b410630ae8ec034ad5a1be73901e79b3da998965fa31b097911f"},
+    {file = "rank_torrent_name-1.9.2-py3-none-any.whl", hash = "sha256:cdd7befe5a1782456b341e458b4b783bdecba44ab6e558c38474c153b54d523f"},
+    {file = "rank_torrent_name-1.9.2.tar.gz", hash = "sha256:b0b33e5c5a996086d668394765aed29303bb5aad67392aec60d215a41f09b27c"},
 ]
 
 [package.dependencies]
 levenshtein = ">=0.27.1,<0.28.0"
 orjson = ">=3.10.15,<4.0.0"
-parsett = ">=1.6.5,<2.0.0"
+parsett = ">=1.7.0,<2.0.0"
 pydantic = ">=2.6.3,<3.0.0"
 pymediainfo = ">=7.0.1,<8.0.0"
 regex = ">=2023.12.25,<2024.0.0"
