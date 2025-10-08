@@ -1,21 +1,48 @@
-import json
-from datetime import datetime
+"""
+Post-Processing service for Riven.
 
+This module orchestrates post-processing services that run after download:
+1. MediaAnalysisService - Analyzes media files with ffprobe
+2. SubtitleService - Fetches subtitles from providers
+
+Services are executed in order, with later services able to use metadata
+from earlier services (e.g., SubtitleService uses ffprobe data from MediaAnalysisService).
+
+Processes MediaEntry objects (not MediaItem) since each profile can have
+different files requiring different post-processing.
+"""
 from loguru import logger
 
-from program.db.db import db
-from program.db.db_functions import clear_streams
-from program.managers.sse_manager import sse_manager
-from program.media.item import MediaItem
-from program.media.state import States
+from program.media.media_entry import MediaEntry
 from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
-from program.utils.notifications import notify_on_complete
 
 
 class PostProcessing:
+    """
+    Post-processing orchestrator service.
+
+    Coordinates multiple post-processing services in sequence:
+    1. MediaAnalysisService - FFprobe analysis (always runs)
+    2. SubtitleService - Subtitle fetching (optional)
+
+    Each service can use metadata from previous services.
+
+    Attributes:
+        key: Service identifier ("post_processing").
+        initialized: Always True (service always available).
+        settings: Post-processing settings from settings_manager.
+        services: Dict of post-processing service instances.
+    """
     def __init__(self):
+        """
+        Initialize the PostProcessing service.
+
+        Creates service instances in execution order:
+        1. MediaAnalysisService (always enabled)
+        2. SubtitleService (optional, based on settings)
+        """
         self.key = "post_processing"
         self.initialized = False
         self.settings = settings_manager.settings.post_processing
@@ -29,93 +56,24 @@ class PostProcessing:
         }
         self.initialized = True
 
-    def _get_items_to_process(self, item: MediaItem) -> list[MediaItem]:
+    def run(self, entry: MediaEntry):
         """
-        Get list of items to process based on item type.
-
-        Expands shows/seasons into episodes, returns movies/episodes as-is.
-
-        Args:
-            item: MediaItem to process
-
-        Returns:
-            List of movie/episode items to process
-        """
-        if item.type in ["movie", "episode"]:
-            return [item]
-        elif item.type == "show":
-            return [e for s in item.seasons for e in s.episodes if e.last_state == States.Completed]
-        elif item.type == "season":
-            return [e for e in item.episodes if e.last_state == States.Completed]
-        return []
-
-    def run(self, item: MediaItem):
-        """
-        Run post-processing services on an item.
+        Run post-processing services on a MediaEntry.
 
         Services are executed in order:
-        1. MediaAnalysisService - Analyzes media files (ffprobe + PTT parsing)
+        1. MediaAnalysisService - Analyzes media file (ffprobe)
         2. SubtitleService - Fetches subtitles using analysis metadata
 
         Args:
-            item: MediaItem to process (can be show, season, movie, or episode)
+            entry: MediaEntry to process (represents a single downloaded file)
         """
-        # Get items to process (expand shows/seasons to episodes)
-        items_to_process = self._get_items_to_process(item)
+        # Run media analysis first
+        self.services[MediaAnalysisService].run(entry)
 
-        if not items_to_process:
-            logger.debug(f"No items to process for {item.log_string}")
-            yield item
-            return
+        # Run subtitle service second (uses metadata from analysis)
+        if self.services[SubtitleService].initialized:
+                self.services[SubtitleService].run(entry)
 
-        # Process each item through the service pipeline
-        for process_item in items_to_process:
-            # Run media analysis first (runs once per item)
-            if MediaAnalysisService.should_submit(process_item):
-                self.services[MediaAnalysisService].run(process_item)
+        logger.info(f"Post-processing complete for {entry.log_string}")
 
-            # Run subtitle service second (uses metadata from analysis)
-            if SubtitleService.should_submit(process_item):
-                self.services[SubtitleService].run(process_item)
-
-            # Clean up streams when item is completed -- TODO: BLACKLISTING WONT WORK, WHY?
-            # if process_item.last_state == States.Completed:
-            #     process_item.streams.clear()
-
-        logger.info(f"Post-processing complete for {item.log_string}")
-        yield item
-
-def notify(item: MediaItem):
-    show = None
-    if item.type in ["show", "movie"]:
-        _notify(item)
-    elif item.type == "episode":
-        show = item.parent.parent
-    elif item.type == "season":
-        show = item.parent
-    if show:
-        with db.Session() as session:
-            show = session.merge(show)
-            show.store_state()
-            if show.last_state == States.Completed:
-                _notify(show)
-            session.commit()
-
-def _notify(item: MediaItem):
-    duration = round((datetime.now() - item.requested_at).total_seconds())
-    logger.success(f"{item.log_string} has been completed in {duration} seconds.")
-
-    # Publish SSE notification event
-    notification_data = {
-        "title": item.title or "Unknown",
-        "type": item.type,
-        "year": item.aired_at.year if item.aired_at else None,
-        "duration": duration,
-        "timestamp": datetime.now().isoformat(),
-        "log_string": item.log_string,
-        "imdb_id": item.imdb_id
-    }
-    sse_manager.publish_event("notifications", json.dumps(notification_data))
-
-    if settings_manager.settings.notifications.enabled:
-        notify_on_complete(item)
+        yield entry

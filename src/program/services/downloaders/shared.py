@@ -1,3 +1,12 @@
+"""
+Shared utilities and base classes for downloader services.
+
+This module provides:
+- DownloaderBase: Abstract base class for debrid service implementations
+- parse_filename: Parse filenames using RTN
+- premium_days_left: Calculate premium account expiration
+- Resolution enum and mapping for stream resolution handling
+"""
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
@@ -16,7 +25,21 @@ from program.settings.manager import settings_manager
 
 
 class DownloaderBase(ABC):
-    """The abstract base class for all Downloader implementations."""
+    """
+    Abstract base class for all debrid service implementations.
+
+    Defines the interface that all downloader services (Real-Debrid, TorBox, etc.)
+    must implement. Provides common functionality like proxy URL configuration.
+
+    Subclasses must implement:
+    - validate(): Check configuration and premium status
+    - get_instant_availability(): Check if torrent is cached
+    - add_torrent(): Add torrent to service
+    - select_files(): Select files to download
+    - get_torrent_info(): Get torrent status
+    - delete_torrent(): Remove torrent from service
+    - get_user_info(): Get user account information
+    """
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
 
     @abstractmethod
@@ -98,14 +121,30 @@ class DownloaderBase(ABC):
 
 
 def parse_filename(filename: str) -> ParsedFileData:
-    """Parse a filename into a ParsedFileData object"""
+    """
+    Parse a filename into a ParsedFileData object using RTN.
+
+    Args:
+        filename: The filename to parse.
+
+    Returns:
+        ParsedFileData: Parsed data containing item type, season, and episodes.
+    """
     parsed_data: ParsedData = parse(filename)
     season: int | None = parsed_data.seasons[0] if parsed_data.seasons else None
     return ParsedFileData(item_type=parsed_data.type, season=season, episodes=parsed_data.episodes)
 
 
 def premium_days_left(expiration: datetime) -> str:
-    """Convert an expiration date into a message showing days remaining on the user's premium account"""
+    """
+    Convert an expiration date into a message showing days remaining.
+
+    Args:
+        expiration: The expiration datetime (UTC).
+
+    Returns:
+        str: Human-readable message about account expiration.
+    """
     time_left = expiration - datetime.utcnow()
     days_left = time_left.days
     hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
@@ -121,7 +160,14 @@ def premium_days_left(expiration: datetime) -> str:
         expiration_message = "Your account expires soon."
     return expiration_message
 
+
 class Resolution(Enum):
+    """
+    Video resolution enum for stream quality comparison.
+
+    Values are ordered by quality (higher = better).
+    Used for resolution-based stream filtering and ranking.
+    """
     UHD_2160P = 9
     UHD_1440P = 7
     FHD_1080P = 6
@@ -146,14 +192,14 @@ RESOLUTION_MAP: dict[str, Resolution] = {
 
 
 def get_resolution(torrent: Stream) -> Resolution:
-    """Get the resolution of a torrent."""
+    """
+    Get the resolution enum for a torrent stream.
+
+    Args:
+        torrent: The stream to get resolution for.
+
+    Returns:
+        Resolution: The resolution enum value, or UNKNOWN if not recognized.
+    """
     resolution = torrent.resolution.lower() if torrent.resolution else "unknown"
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
-
-def _sort_streams_by_quality(streams: List[Stream]) -> List[Stream]:
-    """Sort streams by resolution (highest first) and then by rank (highest first)."""
-    return sorted(
-        streams,
-        key=lambda stream: (get_resolution(stream).value, stream.rank),
-        reverse=True
-    )   

@@ -1,3 +1,19 @@
+"""
+Scraping service for Riven.
+
+This module coordinates multiple torrent scraper services to find streams:
+- Comet, Jackett, Mediafusion, Orionoid, Prowlarr, Rarbg, Torrentio, Zilean
+
+Key features:
+- Multi-scraper support with concurrent execution
+- Stream validation and deduplication
+- Failed attempt tracking with automatic failure marking
+- Backoff logic (30min, 2h, 5h, 10h based on attempt count)
+- Profile-agnostic stream storage (ranking happens in Downloader)
+
+Scrapers discover ALL valid streams without ranking. The Downloader service
+handles profile-specific ranking and selection.
+"""
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -8,7 +24,7 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.shared import _parse_results
+from program.services.scrapers.shared import validate_and_store_streams
 from program.settings.manager import settings_manager
 
 from program.services.scrapers.comet import Comet
@@ -22,7 +38,36 @@ from program.services.scrapers.zilean import Zilean
 
 
 class Scraping:
+    """
+    Main scraping service that coordinates multiple torrent scrapers.
+
+    Manages multiple scraper implementations and discovers streams for MediaItems.
+    Streams are validated but NOT ranked - ranking happens per scraping profile
+    in the Downloader service.
+
+    Features:
+    - Concurrent scraping across all initialized scrapers
+    - Stream validation and deduplication
+    - Failed attempt tracking with configurable max attempts
+    - Backoff logic based on scrape count
+    - Profile-agnostic stream storage
+
+    Attributes:
+        key: Service identifier ("scraping").
+        initialized: True if at least one scraper is initialized.
+        settings: Scraping settings from settings_manager.
+        max_failed_attempts: Maximum scraping attempts before marking as failed.
+        services: List of all scraper service instances.
+        initialized_services: List of successfully initialized scrapers.
+        imdb_services: List of scrapers that don't require IMDB ID.
+    """
     def __init__(self):
+        """
+        Initialize the Scraping service.
+
+        Initializes all scraper services and filters to only use successfully
+        initialized ones.
+        """
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
@@ -44,15 +89,25 @@ class Scraping:
             return
 
     def validate(self) -> bool:
-        """Validate that at least one scraper service is initialized."""
+        """
+        Validate that at least one scraper service is initialized.
+
+        Returns:
+            bool: True if at least one scraper is available, False otherwise.
+        """
         return len(self.initialized_services) > 0
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Scrape an item."""
+        """
+        Scrape an item and store ALL discovered streams without ranking.
 
-        sorted_streams = self.scrape(item)
+        Streams are validated but not ranked - ranking happens per scraping profile
+        in the downloader service.
+        """
+
+        discovered_streams = self.scrape(item)
         new_streams = [
-            stream for stream in sorted_streams.values()
+            stream for stream in discovered_streams.values()
             if stream not in item.streams
             and stream not in item.blacklisted_streams
         ]
@@ -61,7 +116,7 @@ class Scraping:
             item.streams.extend(new_streams)
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
-            logger.log("SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}")
+            logger.log("SCRAPER", f"Added {len(new_streams)} new unranked streams to {item.log_string}")
         else:
             logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
@@ -78,7 +133,19 @@ class Scraping:
         yield item
 
     def scrape(self, item: MediaItem, verbose_logging = True) -> Dict[str, Stream]:
-        """Scrape an item."""
+        """
+        Scrape an item using all available scrapers concurrently.
+
+        Runs all initialized scrapers in parallel and aggregates results.
+        Results are validated and deduplicated but NOT ranked.
+
+        Args:
+            item: MediaItem to scrape for.
+            verbose_logging: Whether to log trace messages for validation.
+
+        Returns:
+            Dict[str, Stream]: Dictionary of infohash -> Stream (unranked).
+        """
 
         results: Dict[str, str] = {}
         results_lock = threading.RLock()
@@ -114,18 +181,25 @@ class Scraping:
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams: Dict[str, Stream] = _parse_results(item, results, verbose_logging)
-        if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
-            top_results: List[Stream] = list(sorted_streams.values())[:10]
-            logger.debug(f"Displaying top {len(top_results)} results for {item.log_string}")
-            for stream in top_results:
-                logger.debug(f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})")
-
-        return sorted_streams
+        return validate_and_store_streams(item, results, verbose_logging)
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
-        """Check if an item should be submitted for scraping."""
+        """
+        Check if an item should be submitted for scraping.
+
+        Implements backoff logic based on scrape count:
+        - 0-1 scrapes: 30 minutes
+        - 2-5 scrapes: after_2 hours (configurable)
+        - 6-10 scrapes: after_5 hours (configurable)
+        - 10+ scrapes: after_10 hours (configurable)
+
+        Args:
+            item: MediaItem to check.
+
+        Returns:
+            bool: True if item should be scraped, False otherwise.
+        """
         settings = settings_manager.settings.scraping
         scrape_time = 30 * 60  # 30 minutes by default
 

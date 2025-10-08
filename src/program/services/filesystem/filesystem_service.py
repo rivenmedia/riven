@@ -1,22 +1,49 @@
-"""Filesystem Service for Riven
-
-This service provides a interface for filesystem operations
-using the RivenVFS implementation.
 """
+Filesystem Service for Riven.
+
+This service provides the interface for filesystem operations using RivenVFS.
+
+Key features:
+- Registers downloaded MediaEntry files in RivenVFS
+- Manages FUSE mount lifecycle
+- Handles VFS path registration and invalidation
+- Transitions MediaEntry state to Available when registered
+
+The FilesystemService processes MediaEntry objects (not MediaItem) since each
+profile can have different files/paths.
+"""
+from pathlib import Path
 from typing import Generator
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.media_entry import MediaEntry
 from program.settings.manager import settings_manager
-from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
+from .vfs import RivenVFS
 
 
 
 class FilesystemService:
-    """Filesystem service for VFS-only mode"""
+    """
+    Filesystem service for VFS-only mode.
+
+    Manages RivenVFS initialization and file registration. Processes MediaEntry
+    objects by registering their files in the FUSE filesystem, making them
+    available to media servers.
+
+    Attributes:
+        key: Service identifier ("filesystem").
+        settings: Filesystem settings from settings_manager.
+        riven_vfs: RivenVFS instance for FUSE operations.
+    """
 
     def __init__(self, downloader: Downloader):
+        """
+        Initialize the FilesystemService.
+
+        Args:
+            downloader: Downloader instance for VFS to fetch files.
+        """
         # Service key matches settings category name for reinitialization logic
         self.key = "filesystem"
         # Use filesystem settings
@@ -25,10 +52,13 @@ class FilesystemService:
         self._initialize_rivenvfs(downloader)
 
     def _initialize_rivenvfs(self, downloader: Downloader):
-        """Initialize RivenVFS"""
-        try:
-            from .vfs import RivenVFS
+        """
+        Initialize RivenVFS with current settings.
 
+        Args:
+            downloader: Downloader instance for VFS to fetch files.
+        """
+        try:
             logger.info("Initializing RivenVFS")
 
             self.riven_vfs = RivenVFS(
@@ -43,71 +73,39 @@ class FilesystemService:
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
     
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, entry: MediaEntry) -> Generator[MediaEntry, None, None]:
         """
-        Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
-        
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via _process_single_item, and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
-        
+        Process a MediaEntry by registering it with the configured RivenVFS.
+
+        Registers the entry's file in the VFS and sets available_in_vfs = True,
+        which automatically transitions the entry state to Available.
+
         Parameters:
-            item (MediaItem): The media item (episode, movie, season, or show) to process.
-        
+            entry (MediaEntry): The media entry to register in VFS.
+
         Returns:
-            Generator[MediaItem, None, None]: Yields the original `item` once processing completes (or immediately if processing cannot proceed).
+            Generator[MediaEntry, None, None]: Yields the entry once processing completes.
         """
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
-            yield item
+            yield entry
             return
 
-        # Expand parent items (show/season) to leaf items (episodes/movies)
-        items_to_process = get_items_to_update(item)
-        if not items_to_process:
-            logger.debug(f"No items to process for {item.log_string}")
-            yield item
+        if not entry.media_item:
+            logger.error(f"MediaEntry {entry.id} has no associated MediaItem")
+            yield entry
             return
 
-        # Process each episode/movie
-        for episode_or_movie in items_to_process:
-            self._process_single_item(episode_or_movie)
-        
-        logger.info(f"Filesystem processing complete for {item.log_string}")
+        # Register the file with FUSE
+        if self.riven_vfs.register_existing_file(entry.path):
+            # Setting available_in_vfs = True automatically transitions state to Available
+            entry.available_in_vfs = True
+            logger.info(f"Registered {entry.log_string} in VFS at {entry.path} (state: {entry.state.value})")
+        else:
+            logger.error(f"Failed to register {entry.log_string} with FUSE")
 
-        # Yield the original item for state transition
-        yield item
-
-    def _process_single_item(self, item: MediaItem) -> None:
-        """
-        Register a single media item's existing file with the RivenVFS so it becomes available in the VFS.
-        
-        If the item has no filesystem entry, the function does nothing. On successful registration the function sets
-        `filesystem_entry.available_in_vfs = True`; on failure it leaves the entry unchanged and logs an error. Any
-        exceptions raised during processing are caught and logged.
-        Parameters:
-            item (MediaItem): The media item whose filesystem_entry.path will be registered with RivenVFS.
-        """
-        try:
-            # Check if item has filesystem entry
-            if not item.filesystem_entry:
-                logger.debug(f"No filesystem entry found for {item.log_string}")
-                return
-
-            filesystem_entry = item.filesystem_entry
-
-            # Check if already processed (available in VFS)
-            if getattr(filesystem_entry, 'available_in_vfs', False):
-                logger.debug(f"Item {item.log_string} already available in VFS")
-                return
-
-            # Register the file with FUSE
-            if self.riven_vfs.register_existing_file(filesystem_entry.path):
-                filesystem_entry.available_in_vfs = True
-                logger.debug(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
-            else:
-                logger.error(f"Failed to register {item.log_string} with FUSE")
-
-        except Exception as e:
-            logger.error(f"Failed to process {item.log_string} with RivenVFS: {e}")
+        # Yield the entry for state transition
+        yield entry
 
     def close(self):
         """
@@ -124,13 +122,17 @@ class FilesystemService:
             self.riven_vfs = None
 
     def validate(self) -> bool:
-        """Validate service state and configuration.
+        """
+        Validate service state and configuration.
+
         Checks that:
         - mount path is set and accessible
         - RivenVFS is initialized and mounted
+
+        Returns:
+            bool: True if service is valid, False otherwise.
         """
         try:
-            from pathlib import Path
             mount = Path(str(self.settings.mount_path))
             if not str(mount):
                 logger.error("FilesystemService: mount_path is empty")
@@ -153,7 +155,14 @@ class FilesystemService:
         return True
 
     def reinitialize(self) -> bool:
-        """Reinitialize the underlying RivenVFS with current settings."""
+        """
+        Reinitialize the underlying RivenVFS with current settings.
+
+        Closes existing VFS and creates a new one with updated settings.
+
+        Returns:
+            bool: True if reinitialization succeeded, False otherwise.
+        """
         try:
             self.close()
             self._initialize_rivenvfs()
@@ -164,5 +173,10 @@ class FilesystemService:
 
     @property
     def initialized(self) -> bool:
-        """Check if the filesystem service is properly initialized"""
+        """
+        Check if the filesystem service is properly initialized.
+
+        Returns:
+            bool: True if service is initialized and valid, False otherwise.
+        """
         return self.validate()

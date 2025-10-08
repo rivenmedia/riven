@@ -1,3 +1,23 @@
+"""
+CLI utilities for Riven.
+
+This module provides command-line interface utilities:
+- snapshot_database: Create timestamped PostgreSQL dumps
+- restore_database: Restore from SQL snapshots
+- handle_args: Parse and handle CLI arguments
+
+Database operations support both direct pg_dump/psql and Docker exec modes
+for containerized PostgreSQL instances.
+
+CLI flags:
+- --ignore_cache: Ignore cached metadata
+- --hard_reset_db: Hard reset database (drop all data)
+- --dev-reset-db: Drop tables and recreate from models (dev only)
+- --clean_logs: Clean old log files
+- --snapshot_db: Create database snapshot
+- --restore_db: Restore from snapshot
+- -p/--port: Server port (default: 8080)
+"""
 import argparse
 import os
 import subprocess
@@ -297,9 +317,9 @@ def restore_database(snapshot_file: Path = None):
 def handle_args():
     """
     Parse CLI arguments for database utilities and perform immediate actions for certain flags.
-    
+
     When invoked, parses flags for cache ignoring, hard database reset, log cleaning, creating a database snapshot, restoring a snapshot, and server port. If --hard_reset_db or --clean_logs are set, the corresponding operation is performed and the process exits. If --snapshot_db or --restore_db are set, the snapshot or restore operation is performed and the process exits with status 0 on success or 1 on failure. Otherwise, the parsed arguments are returned for further use.
-    
+
     Returns:
         argparse.Namespace: The parsed command-line arguments.
     """
@@ -313,6 +333,11 @@ def handle_args():
         "--hard_reset_db",
         action="store_true",
         help="Hard reset the database.",
+    )
+    parser.add_argument(
+        "--dev-reset-db",
+        action="store_true",
+        help="[DEV ONLY] Drop all tables and recreate from models without migrations. Use for development only!",
     )
     parser.add_argument(
         "--clean_logs",

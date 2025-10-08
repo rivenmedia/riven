@@ -1,4 +1,14 @@
-# program/services/db_functions.py
+"""
+Database utility functions for Riven.
+
+This module provides database operations including:
+- Item and entry retrieval by ID or external identifiers
+- Stream management (clearing, blacklisting)
+- State machine helpers (retry, update ongoing items, new releases)
+- Calendar generation for upcoming/ongoing items
+- Worker thread execution with database session management
+- Database reset functionality
+"""
 from __future__ import annotations
 
 import os
@@ -22,15 +32,23 @@ from .db import db
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
+    from program.media.media_entry import MediaEntry
 
 
 @contextmanager
 def _maybe_session(session: Optional[Session]) -> Iterator[Tuple[Session, bool]]:
     """
-    Yield a (session, owns_session) pair.
+    Context manager that provides a database session.
 
-    If `session` is None, create a new db.Session() and close it on exit.
-    Otherwise, yield the caller-provided session and do not close it.
+    If a session is provided, uses it without closing.
+    If no session is provided, creates a new one and closes it on exit.
+
+    Args:
+        session: Optional existing database session.
+
+    Yields:
+        Tuple[Session, bool]: (session, owns_session) where owns_session
+        indicates whether this context manager created the session.
     """
     if session is not None:
         yield session, False
@@ -50,13 +68,13 @@ def get_item_by_id(
 ) -> "MediaItem" | None:
     """
     Retrieve a MediaItem by its database ID.
-    
+
     Parameters:
     	item_id (int): The numeric primary key of the MediaItem to retrieve.
     	item_types (Optional[List[str]]): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
     	session (Optional[Session]): Database session to use; if omitted, a new session will be created for the query.
     	load_tree (bool): If True, include related seasons and episodes when the item is a show.
-    
+
     Returns:
     	MediaItem | None: The matching MediaItem detached from the session, or `None` if no matching item exists.
     """
@@ -65,7 +83,7 @@ def get_item_by_id(
 
     from program.media.item import MediaItem, Season, Show
 
-    with _maybe_session(session) as (_s, _owns):
+    with _maybe_session(session) as (_s, _):
         query = select(MediaItem).where(MediaItem.id == item_id)
         if load_tree:
             query = query.options(selectinload(Show.seasons).selectinload(Season.episodes))
@@ -76,6 +94,33 @@ def get_item_by_id(
         if item:
             _s.expunge(item)
         return item
+
+
+def get_entry_by_id(
+    entry_id: int,
+    session: Optional[Session] = None,
+) -> "MediaEntry" | None:
+    """
+    Retrieve a MediaEntry by its database ID.
+
+    Parameters:
+        entry_id (int): The numeric primary key of the MediaEntry to retrieve.
+        session (Optional[Session]): Database session to use; if omitted, a new session will be created for the query.
+
+    Returns:
+        MediaEntry | None: The matching MediaEntry detached from the session, or `None` if no matching entry exists.
+    """
+    if not entry_id:
+        return None
+
+    from program.media.media_entry import MediaEntry
+
+    with _maybe_session(session) as (_s, _):
+        query = select(MediaEntry).where(MediaEntry.id == entry_id)
+        entry = _s.execute(query).unique().scalar_one_or_none()
+        if entry:
+            _s.expunge(entry)
+        return entry
 
 def get_item_by_external_id(
     imdb_id: Optional[str] = None,
@@ -112,7 +157,7 @@ def get_item_by_external_id(
     if not conditions:
         raise ValueError("At least one external ID must be provided")
 
-    with _maybe_session(session) as (_s, _owns):
+    with _maybe_session(session) as (_s, _):
         query = (
             select(MediaItem)
             .options(selectinload(Show.seasons).selectinload(Season.episodes))
@@ -407,31 +452,105 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
 
 def run_thread_with_db_item(fn, service, program, event: Event, cancellation_event: Event) -> Optional[str]:
     """
-    Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
-    
-    Depending on the provided event, this function executes one of three flows:
+    Run a worker function against a database-backed MediaItem/MediaEntry or enqueue items produced by a content service.
+
+    Depending on the provided event, this function executes one of several flows:
     - event.item_id: load the existing MediaItem, pass it into `fn`, and if `fn` produces an item update related parent/item state and commit the session (unless cancelled).
     - event.content_item: index a new item produced by `fn` and perform an idempotent insert (skip if any known external ID already exists); handle race conditions that result in duplicate inserts.
+    - event.entry_id: load the existing MediaEntry, pass it into `fn`, and if `fn` produces an entry update parent item state and commit the session (unless cancelled).
+    - event.content_entry: process a new MediaEntry produced by `fn` and commit to database.
     - no event: iterate over values yielded by `fn()` and enqueue produced MediaItem instances into program.em for later processing.
-    
+
     Parameters:
-        fn: A callable or generator used to process or produce MediaItem objects.
+        fn: A callable or generator used to process or produce MediaItem/MediaEntry objects.
         service: The calling service (used for logging/queueing context).
         program: The program runtime which exposes the event manager/queue (program.em).
-        event: An Event object that may contain `item_id` or `content_item`, selecting the processing path.
+        event: An Event object that may contain `item_id`, `content_item`, `entry_id`, or `content_entry`, selecting the processing path.
         cancellation_event: An Event used to short-circuit commits/updates if set.
-    
+
     Returns:
-        The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
+        The produced item/entry identifier as a string, a tuple `(id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
     """
     from program.media.item import MediaItem
+    from program.media.media_entry import MediaEntry
 
     if event:
         with db.Session() as session:
+            # Handle MediaEntry events
+            if event.entry_id:
+                input_entry = get_entry_by_id(event.entry_id, session=session)
+                if input_entry:
+                    input_entry = session.merge(input_entry)
+                    res = next(fn(input_entry), None)
+                    if res:
+                        if isinstance(res, tuple):
+                            entry, run_at = res
+                            res = (entry.id, run_at)
+                        else:
+                            entry = res
+                            res = entry.id
+
+                        if not isinstance(entry, MediaEntry):
+                            logger.log(
+                                "PROGRAM",
+                                f"Service {service.__name__} emitted {entry} from input entry {input_entry} of type {type(entry).__name__}, backing off.",
+                            )
+                            return
+
+                        if not cancellation_event.is_set():
+                            media_item = entry.media_item
+
+                            # Update parent MediaItem state based on entry state
+                            if media_item:
+                                if media_item.type == "episode":
+                                    media_item.parent.parent.store_state()
+                                if media_item.type == "season":
+                                    media_item.parent.store_state()
+                                else:
+                                    media_item.store_state()
+                            session.commit()
+                        return res
+
+            # Handle MediaItem events
             if event.item_id:
                 input_item = get_item_by_id(event.item_id, session=session)
                 if input_item:
                     input_item = session.merge(input_item)
+
+                    # Special handling for EntryCreator - it yields multiple MediaEntry objects
+                    from program.services.entry_creator import EntryCreator
+                    from program.media.media_entry import MediaEntry
+                    if service == EntryCreator:
+                        # Collect all yielded MediaEntry objects
+                        created_entries = []
+                        for entry in fn(input_item):
+                            if isinstance(entry, MediaEntry):
+                                # Add entry to session explicitly
+                                # Even though it's created via media_item=input_item, it needs to be added
+                                session.add(entry)
+                                created_entries.append(entry)
+
+                        if not cancellation_event.is_set() and created_entries:
+                            # Flush to assign IDs to entries
+                            session.flush()
+                            # Update parent item state
+                            input_item.store_state()
+                            session.commit()
+
+                            # Enqueue all created entries for download
+                            from program.services.downloaders import Downloader
+                            from program.types import Event
+                            for entry in created_entries:
+                                program.em.submit_job(Downloader, program, Event(Downloader, entry_id=entry.id))
+
+                            logger.debug(f"EntryCreator created and enqueued {len(created_entries)} MediaEntries for {input_item.log_string}")
+
+                        # Return None so the MediaItem is NOT re-enqueued
+                        # EntryCreator is a "side effect" service - it creates entries but doesn't change item state
+                        # The item should not go through state transition again
+                        return None
+
+                    # Standard service handling (yields single item)
                     res = next(fn(input_item), None)
                     if res:
                         if isinstance(res, tuple):
@@ -444,7 +563,7 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                         if not isinstance(item, MediaItem):
                             logger.log(
                                 "PROGRAM",
-                                f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
+                                f"Service {service.__name__} emitted {item} from input item {input_item.log_string} of type {type(item).__name__}, backing off.",
                             )
                             program.em.remove_id_from_queues(input_item.id)
 
@@ -489,6 +608,44 @@ def run_thread_with_db_item(fn, service, program, event: Event, cancellation_eve
                             return None
                         raise
                 return indexed_item.id
+
+            if event.content_entry:
+                res = next(fn(event.content_entry), None)
+                if res is None:
+                    msg = event.content_entry.log_string if hasattr(event.content_entry, "log_string") else f"Entry {event.content_entry.id}"
+                    logger.debug(f"Unable to process {msg}")
+                    return None
+
+                # Handle tuple return (entry, run_at) for rescheduling
+                if isinstance(res, tuple):
+                    processed_entry, run_at = res
+                    result = (processed_entry.id, run_at)
+                else:
+                    processed_entry = res
+                    result = processed_entry.id
+
+                # Verify we got a MediaEntry object
+                if not isinstance(processed_entry, MediaEntry):
+                    logger.error(f"Service {service.__name__} returned {type(processed_entry).__name__} instead of MediaEntry")
+                    return None
+
+                # Add entry to session if not already present
+                if processed_entry not in session:
+                    session.add(processed_entry)
+
+                if not cancellation_event.is_set():
+                    # Update parent MediaItem state
+                    if processed_entry.media_item:
+                        processed_entry.media_item.store_state()
+                    try:
+                        session.commit()
+                    except IntegrityError as e:
+                        if "duplicate key value violates unique constraint" in str(e):
+                            logger.debug(f"Entry with ID {processed_entry.id} was added by another process, skipping")
+                            session.rollback()
+                            return None
+                        raise
+                return result
     else:
         # Content services dont pass events
         for i in fn():

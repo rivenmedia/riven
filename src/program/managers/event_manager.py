@@ -1,10 +1,24 @@
+"""
+Event Manager for Riven.
+
+Manages the execution of services and the handling of events in a thread-safe manner.
+Supports both MediaItem events (movies, shows, seasons, episodes) and MediaEntry events
+(individual downloaded files per scraping profile).
+
+Key features:
+- Thread pool management per service
+- Event queue with priority-based scheduling
+- Deduplication of events (prevents duplicate processing)
+- Job cancellation support
+- WebSocket notifications for real-time updates
+"""
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import sqlalchemy.orm
 from loguru import logger
@@ -14,11 +28,15 @@ from program.db import db_functions
 from program.db.db import db
 from program.managers.websocket_manager import manager as websocket_manager
 from program.media.item import MediaItem
+from program.media.media_entry import MediaEntry
+from program.media.entry_state import EntryState
 from program.types import Event
 
 
 class EventUpdate(BaseModel):
-    item_id: int
+    """Model for event updates sent via WebSocket."""
+    item_id: Optional[int] = None
+    entry_id: Optional[int] = None
     emitted_by: str
     run_at: str
 
@@ -26,8 +44,12 @@ class EventUpdate(BaseModel):
 class EventManager:
     """
     Manages the execution of services and the handling of events.
+
+    Coordinates service execution through thread pools, maintains event queues,
+    and ensures thread-safe access to shared state.
     """
     def __init__(self):
+        """Initialize the event manager with empty queues and thread pools."""
         self._executors: list[ThreadPoolExecutor] = []
         self._futures: list[Future] = []
         self._queued_events: list[Event] = []
@@ -56,19 +78,21 @@ class EventManager:
 
     def _process_future(self, future, service):
         """
-        Processes the result of a future once it is completed.
+        Process the result of a completed future.
+
+        Handles both MediaItem and MediaEntry events. If the service returns
+        an ID, creates a new event for the next service in the pipeline.
 
         Args:
-            future (concurrent.futures.Future): The future to process.
-            service (type): The service class associated with the future.
+            future: The completed future to process.
+            service: The service class associated with the future.
         """
-
         if future.cancelled():
             if hasattr(future, "event") and future.event:
                 logger.debug(f"Future for {future.event.log_message} was cancelled.")
             else:
                 logger.debug(f"Future for {future} was cancelled.")
-            return  # Skip processing if the future was cancelled
+            return
 
         try:
             result = future.result()
@@ -76,21 +100,28 @@ class EventManager:
                 self._futures.remove(future)
             websocket_manager.publish("event_update", self.get_event_updates())
             if isinstance(result, tuple):
-                item_id, timestamp = result
+                returned_id, timestamp = result
             else:
-                item_id, timestamp = result, datetime.now()
-            if item_id:
+                returned_id, timestamp = result, datetime.now()
+
+            if returned_id:
                 self.remove_event_from_running(future.event)
                 logger.debug(f"Removed {future.event.log_message} from running events.")
                 if future.cancellation_event.is_set():
-                    logger.debug(f"Future with Item ID: {item_id} was cancelled discarding results...")
+                    logger.debug(f"Future with ID: {returned_id} was cancelled discarding results...")
                     return
-                self.add_event(Event(emitted_by=service, item_id=item_id, run_at=timestamp))
+
+                # Determine if this was a MediaEntry or MediaItem event
+                if hasattr(future, "event") and future.event.is_entry_event:
+                    # MediaEntry event - create new MediaEntry event
+                    self.add_event(Event(emitted_by=service, entry_id=returned_id, run_at=timestamp))
+                else:
+                    # MediaItem event - create new MediaItem event
+                    self.add_event(Event(emitted_by=service, item_id=returned_id, run_at=timestamp))
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
-            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
-            # self.remove_event_from_queue(future.event)
+            # TODO: Should we remove from running events to allow retry?
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"
@@ -98,13 +129,50 @@ class EventManager:
 
     def add_event_to_queue(self, event: Event, log_message=True):
         """
-        Adds an event to the queue.
+        Add an event to the queue after validation.
+
+        Validates the event by checking database state and caches state
+        information in the event for efficient priority sorting.
 
         Args:
-            event (Event): The event to add to the queue.
+            event: The event to add to the queue.
+            log_message: Whether to log the addition (default: True).
         """
         with self.mutex:
-            if event.item_id:
+            # Handle MediaEntry events
+            if event.entry_id:
+                with db.Session() as session:
+                    try:
+                        # Query just the columns we need for MediaEntry
+                        entry = session.query(MediaEntry).filter_by(id=event.entry_id).options(
+                            sqlalchemy.orm.load_only(
+                                MediaEntry.id,
+                                MediaEntry.failed,
+                                MediaEntry.download_url,
+                                MediaEntry.file_size,
+                                MediaEntry.available_in_vfs,
+                                MediaEntry.active_stream
+                            )
+                        ).one_or_none()
+                    except Exception as e:
+                        logger.error(f"Error getting entry from database: {e}")
+                        return
+
+                    if not entry and not event.content_entry:
+                        logger.error(f"No entry found from event: {event.log_message}")
+                        return
+
+                    # Check if entry is failed (requires manual intervention)
+                    if entry and entry.failed:
+                        logger.debug(f"Not queuing {event.log_message}: Entry is marked as failed")
+                        return
+
+                    # Cache the entry state in the event for efficient priority sorting
+                    if entry:
+                        event.item_state = entry.state.value  # Store EntryState as string
+
+            # Handle MediaItem events
+            elif event.item_id:
                 with db.Session() as session:
                     try:
                         # Query just the columns we need, avoiding relationship loading entirely
@@ -154,15 +222,19 @@ class EventManager:
                 self._running_events.remove(event)
                 logger.debug(f"Removed {event.log_message} from running events.")
 
-    def remove_id_from_queue(self, item_id: str):
+    def remove_id_from_queue(self, _id: Union[str, int], is_entry: bool = False):
         """
-        Removes an item from the queue.
+        Removes an item or entry from the queue by ID.
 
         Args:
-            item (MediaItem): The event item to remove from the queue.
+            _id (Union[str, int]): The ID to remove (MediaItem ID as str, MediaEntry ID as int)
+            is_entry (bool): If True, remove by entry_id; if False, remove by item_id
         """
-        for event in self._queued_events:
-            if event.item_id == item_id:
+        # Create a copy to avoid modification during iteration
+        for event in self._queued_events[:]:
+            if is_entry and event.entry_id == _id:
+                self.remove_event_from_queue(event)
+            elif not is_entry and event.item_id == _id:
                 self.remove_event_from_queue(event)
 
     def add_event_to_running(self, event: Event):
@@ -176,26 +248,31 @@ class EventManager:
             self._running_events.append(event)
             logger.debug(f"Added {event.log_message} to running events.")
 
-    def remove_id_from_running(self, item_id: str):
+    def remove_id_from_running(self, _id: Union[str, int], is_entry: bool = False):
         """
-        Removes an item from the running events.
+        Removes an item or entry from the running events by ID.
 
         Args:
-            item (MediaItem): The event item to remove from the running events.
+            _id (Union[str, int]): The ID to remove (MediaItem ID as str, MediaEntry ID as int)
+            is_entry (bool): If True, remove by entry_id; if False, remove by item_id
         """
-        for event in self._running_events:
-            if event.item_id == item_id:
+        # Create a copy to avoid modification during iteration
+        for event in self._running_events[:]:
+            if is_entry and event.entry_id == _id:
+                self.remove_event_from_running(event)
+            elif not is_entry and event.item_id == _id:
                 self.remove_event_from_running(event)
 
-    def remove_id_from_queues(self, item_id: str):
+    def remove_id_from_queues(self, _id: Union[str, int], is_entry: bool = False):
         """
-        Removes an item from both the queue and the running events.
+        Removes an item or entry from both the queue and the running events.
 
         Args:
-            item_id: The event item to remove from both the queue and the running events.
+            _id (Union[str, int]): The ID to remove (MediaItem ID as str, MediaEntry ID as int)
+            is_entry (bool): If True, remove by entry_id; if False, remove by item_id
         """
-        self.remove_id_from_queue(item_id)
-        self.remove_id_from_running(item_id)
+        self.remove_id_from_queue(_id, is_entry)
+        self.remove_id_from_running(_id, is_entry)
 
     def submit_job(self, service, program, event=None):
         """
@@ -222,51 +299,90 @@ class EventManager:
         websocket_manager.publish("event_update", self.get_event_updates())
         future.add_done_callback(lambda f:self._process_future(f, service))
 
-    def cancel_job(self, item_id: str, suppress_logs=False):
+    def cancel_job(self, _id: Union[str, int], is_entry: bool = False, suppress_logs: bool = False):
         """
-        Cancels a job associated with the given item.
+        Cancels a job associated with the given item or entry.
+
+        For MediaItems: Cancels the item and all related items (parent/child relationships)
+        For MediaEntries: Simple ID-based cancellation (no parent/child relationships)
 
         Args:
-            item_id (int): The event item whose job needs to be canceled.
+            _id (Union[str, int]): The ID whose job needs to be canceled
+            is_entry (bool): If True, cancel MediaEntry job; if False, cancel MediaItem job
             suppress_logs (bool): If True, suppresses debug logging for this operation.
         """
-        with db.Session() as session:
-            item_id, related_ids = db_functions.get_item_ids(session, item_id)
-            ids_to_cancel = set([item_id] + related_ids)
+        if is_entry:
+            # MediaEntry cancellation - simple ID-based
+            ids_to_cancel = {_id}
 
+            # Build future map for MediaEntry events
             future_map = {}
             for future in self._futures:
-                if hasattr(future, "event") and hasattr(future.event, "item_id"):
-                    future_item_id = future.event.item_id
-                    future_map.setdefault(future_item_id, []).append(future)
+                if hasattr(future, "event") and hasattr(future.event, "entry_id") and future.event.entry_id:
+                    future_entry_id = future.event.entry_id
+                    future_map.setdefault(future_entry_id, []).append(future)
 
-            for fid in ids_to_cancel:
-                if fid in future_map:
-                    for future in future_map[fid]:
-                        self.remove_id_from_queues(fid)
+            for eid in ids_to_cancel:
+                if eid in future_map:
+                    for future in future_map[eid]:
+                        self.remove_id_from_queues(eid, is_entry=True)
                         if not future.done() and not future.cancelled():
                             try:
                                 future.cancellation_event.set()
                                 future.cancel()
-                                logger.debug(f"Canceled job for Item ID {fid}")
+                                logger.debug(f"Canceled job for Entry ID {eid}")
                             except Exception as e:
                                 if not suppress_logs:
-                                    logger.error(f"Error cancelling future for {fid}: {str(e)}")
-            
-            for fid in ids_to_cancel:
-                self.remove_id_from_queues(fid)
+                                    logger.error(f"Error cancelling future for Entry ID {eid}: {str(e)}")
+
+            for eid in ids_to_cancel:
+                self.remove_id_from_queues(eid, is_entry=True)
+        else:
+            # MediaItem cancellation - includes parent/child relationships
+            with db.Session() as session:
+                item_id, related_ids = db_functions.get_item_ids(session, _id)
+                ids_to_cancel = set([item_id] + related_ids)
+
+                future_map = {}
+                for future in self._futures:
+                    if hasattr(future, "event") and hasattr(future.event, "item_id") and future.event.item_id:
+                        future_item_id = future.event.item_id
+                        future_map.setdefault(future_item_id, []).append(future)
+
+                for fid in ids_to_cancel:
+                    if fid in future_map:
+                        for future in future_map[fid]:
+                            self.remove_id_from_queues(fid, is_entry=False)
+                            if not future.done() and not future.cancelled():
+                                try:
+                                    future.cancellation_event.set()
+                                    future.cancel()
+                                    logger.debug(f"Canceled job for Item ID {fid}")
+                                except Exception as e:
+                                    if not suppress_logs:
+                                        logger.error(f"Error cancelling future for Item ID {fid}: {str(e)}")
+
+                for fid in ids_to_cancel:
+                    self.remove_id_from_queues(fid, is_entry=False)
 
     def next(self) -> Event:
         """
         Get the next event in the queue, prioritizing items closest to completion.
 
-        Priority order (highest to lowest):
+        Priority order for MediaItems (highest to lowest):
         0. Items in Completed state (closest to completion)
         1. Items in Symlinked state
         2. Items in Downloaded state
         3. Items in Scraped state
         4. Items in Indexed state
         5. All other states
+
+        Priority order for MediaEntries (highest to lowest):
+        0. Entries in Completed state
+        1. Entries in Available state
+        2. Entries in Downloaded state
+        3. Entries in Downloading state
+        4. Entries in Pending state
 
         Within each priority level, events are sorted by run_at timestamp.
 
@@ -290,13 +406,24 @@ class EventManager:
                         raise Empty
 
                     # Define state priority (lower number = higher priority)
-                    state_priority = {
+                    # MediaItem states
+                    item_state_priority = {
                         "Completed": 0,
-                        "PartiallyCompleted": 1,
-                        "Symlinked": 2,
-                        "Downloaded": 3,
-                        "Scraped": 4,
-                        "Indexed": 5,
+                        "Symlinked": 1,
+                        "Downloaded": 2,
+                        "Scraped": 3,
+                        "Indexed": 4,
+                        "Ongoing": 5,
+                    }
+
+                    # MediaEntry states (EntryState enum values)
+                    entry_state_priority = {
+                        "Completed": 0,
+                        "Available": 1,
+                        "Downloaded": 2,
+                        "Downloading": 3,
+                        "Pending": 4,
+                        "Failed": 999,  # Failed entries should not be processed
                     }
 
                     def get_event_priority(event: Event) -> tuple:
@@ -306,7 +433,11 @@ class EventManager:
                         Uses cached item_state to avoid database queries.
                         """
                         if event.item_state:
-                            priority = state_priority.get(event.item_state, 999)
+                            # Check if this is a MediaEntry event
+                            if event.is_entry_event:
+                                priority = entry_state_priority.get(event.item_state, 999)
+                            else:
+                                priority = item_state_priority.get(event.item_state, 999)
                             return (priority, event.run_at)
 
                         # Default priority for items without state or content-only events
@@ -321,42 +452,73 @@ class EventManager:
                     return event
             raise Empty
 
-    def _id_in_queue(self, _id: str) -> bool:
+    def _id_in_queue(self, _id: Union[str, int], is_entry: bool = False) -> bool:
         """
-        Checks if an item with the given ID is in the queue.
+        Checks if an item or entry with the given ID is in the queue.
 
         Args:
-            _id (str): The ID of the item to check.
+            _id (Union[str, int]): The ID to check (MediaItem ID as str, MediaEntry ID as int)
+            is_entry (bool): If True, check for entry_id; if False, check for item_id
 
         Returns:
-            bool: True if the item is in the queue, False otherwise.
+            bool: True if the ID is in the queue, False otherwise.
         """
-        return any(event.item_id == _id for event in self._queued_events)
+        if is_entry:
+            return any(event.entry_id == _id for event in self._queued_events)
+        else:
+            return any(event.item_id == _id for event in self._queued_events)
 
-    def _id_in_running_events(self, _id: str) -> bool:
+    def _id_in_running_events(self, _id: Union[str, int], is_entry: bool = False) -> bool:
         """
-        Checks if an item with the given ID is in the running events.
+        Checks if an item or entry with the given ID is in the running events.
 
         Args:
-            _id (str): The ID of the item to check.
+            _id (Union[str, int]): The ID to check (MediaItem ID as str, MediaEntry ID as int)
+            is_entry (bool): If True, check for entry_id; if False, check for item_id
 
         Returns:
-            bool: True if the item is in the running events, False otherwise.
+            bool: True if the ID is in the running events, False otherwise.
         """
-        return any(event.item_id == _id for event in self._running_events)
+        if is_entry:
+            return any(event.entry_id == _id for event in self._running_events)
+        else:
+            return any(event.item_id == _id for event in self._running_events)
 
     def add_event(self, event: Event) -> bool:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
-        - If the event has a DB-backed item_id, we keep your existing parent/child
-        dedupe logic based on item_id + related ids.
-        - If the event is content-only (no item_id), we now dedupe using *all* known ids
-        (tmdb/tvdb/imdb) against both queued and running events with a single-pass check.
+        Handles both MediaItem and MediaEntry events:
+        - MediaItem events: Uses parent/child dedupe logic based on item_id + related ids
+        - MediaEntry events: Simple ID-based deduplication (no parent/child relationships)
+        - Content-only events: Dedupes using all known ids (tmdb/tvdb/imdb)
 
         Returns:
             True if queued; False if deduped away.
         """
+        # Handle MediaEntry events
+        if event.is_entry_event:
+            # MediaEntry deduplication - simple ID-based check
+            if event.entry_id:
+                # Check if this entry_id is already queued or running
+                if self._id_in_queue(event.entry_id, is_entry=True):
+                    logger.debug(f"Entry ID {event.entry_id} is already in the queue, skipping.")
+                    return False
+                if self._id_in_running_events(event.entry_id, is_entry=True):
+                    logger.debug(f"Entry ID {event.entry_id} is already running, skipping.")
+                    return False
+            elif event.content_entry:
+                # Content-only MediaEntry - check if it exists in queue/running
+                # For now, allow content-only entries (they'll get an ID when saved)
+                pass
+            else:
+                logger.debug("MediaEntry event has neither entry_id nor content_entry; skipping.")
+                return False
+
+            self.add_event_to_queue(event)
+            return True
+
+        # Handle MediaItem events (existing logic)
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
             item_id, related_ids = db_functions.get_item_ids(session, event.item_id)
@@ -399,21 +561,64 @@ class EventManager:
                 return True
         return False
 
-    def get_event_updates(self) -> Dict[str, List[str]]:
+    def add_entry(self, entry: MediaEntry, service: str = "Downloader") -> bool:
+        """
+        Adds a MediaEntry to the queue as an event.
+
+        Args:
+            entry (MediaEntry): The entry to add to the queue as an event.
+            service (str): The service that is adding the entry (default: Downloader)
+
+        Returns:
+            bool: True if the entry was added, False if it was skipped
+        """
+        # Check if entry already exists in queue or running events
+        if entry.id:
+            # Check if this entry_id is already queued or running
+            for event in self._queued_events:
+                if event.entry_id == entry.id:
+                    logger.debug(f"Entry ID {entry.id} is already in the queue, skipping.")
+                    return False
+
+            for event in self._running_events:
+                if event.entry_id == entry.id:
+                    logger.debug(f"Entry ID {entry.id} is already running, skipping.")
+                    return False
+
+        # Add the entry event
+        if self.add_event(Event(service, entry_id=entry.id)):
+            logger.debug(f"Added entry {entry.log_string} to the queue.")
+            return True
+        return False
+
+    def get_event_updates(self) -> Dict[str, List[Union[str, int]]]:
         """
         Get the event updates for the SSE manager.
 
+        Includes both MediaItem IDs (str) and MediaEntry IDs (int).
+
         Returns:
-            Dict[str, List[str]]: A dictionary with the event types as keys and a list of item IDs as values.
+            Dict[str, List[Union[str, int]]]: A dictionary with the event types as keys
+            and a list of item/entry IDs as values.
         """
         events = [future.event for future in self._futures if hasattr(future, "event")]
-        event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
+        event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing", "FilesystemService"]
 
         updates = {event_type: [] for event_type in event_types}
         for event in events:
-            table = updates.get(event.emitted_by.__name__, None)
+            # Handle both string and class emitted_by
+            if isinstance(event.emitted_by, str):
+                emitted_by_name = event.emitted_by
+            else:
+                emitted_by_name = event.emitted_by.__name__ if event.emitted_by else None
+
+            table = updates.get(emitted_by_name, None)
             if table is not None:
-                table.append(event.item_id)
+                # Include both item_id and entry_id
+                if event.item_id:
+                    table.append(event.item_id)
+                elif event.entry_id:
+                    table.append(event.entry_id)
 
         return updates
 

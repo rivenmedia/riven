@@ -1,3 +1,4 @@
+"""Main entry point for the Riven application."""
 import contextlib
 import signal
 import sys
@@ -8,7 +9,7 @@ import traceback
 import uvicorn
 from dotenv import load_dotenv
 
-load_dotenv() # import required here to support SETTINGS_FILENAME
+load_dotenv()  # Import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +25,10 @@ from routers import app_router
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
+    """Middleware to log all HTTP requests with timing information."""
+
     async def dispatch(self, request: Request, call_next):
+        """Process request and log timing information."""
         start_time = time.time()
         try:
             response = await call_next(request)
@@ -54,6 +58,7 @@ app = FastAPI(
 
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
+    """Serve Scalar API documentation."""
     return get_scalar_api_reference(
         openapi_url=app.openapi_url,
         title=app.title,
@@ -72,11 +77,15 @@ app.add_middleware(
 app.include_router(app_router)
 
 class Server(uvicorn.Server):
+    """Custom Uvicorn server that runs in a separate thread."""
+
     def install_signal_handlers(self):
+        """Override to prevent Uvicorn from installing its own signal handlers."""
         pass
 
     @contextlib.contextmanager
     def run_in_thread(self):
+        """Run the server in a background thread."""
         thread = threading.Thread(target=self.run, name="Riven")
         thread.start()
         try:
@@ -92,7 +101,8 @@ class Server(uvicorn.Server):
             sys.exit(0)
 
 def signal_handler(signum, frame):
-    logger.log("PROGRAM","Exiting Gracefully.")
+    """Handle SIGINT and SIGTERM signals for graceful shutdown."""
+    logger.log("PROGRAM", "Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)
 
@@ -104,7 +114,7 @@ server = Server(config=config)
 
 with server.run_in_thread():
     try:
-        app.program.start()
+        app.program.start(dev_reset_db=getattr(args, 'dev_reset_db', False))
         app.program.run()
     except Exception as e:
         logger.error(f"Error in main thread: {e}")

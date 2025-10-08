@@ -1,3 +1,21 @@
+"""
+VFS Database layer for RivenVFS.
+
+This module provides the database interface for RivenVFS operations:
+- Query filesystem entries and virtual directories
+- List directory contents with virtual directory synthesis
+- Get download URLs with provider-based resolution
+- Add/remove/rename filesystem entries
+- Manage subtitle content
+- Handle URL unrestriction and caching
+
+Key features:
+- Virtual directory synthesis (directories inferred from file paths)
+- Provider-based URL resolution (Real-Debrid, TorBox)
+- Unrestricted URL caching (persisted for future reads)
+- Automatic empty directory pruning
+- Multi-profile support (profile-based root directories)
+"""
 from __future__ import annotations
 
 import os
@@ -15,6 +33,20 @@ if TYPE_CHECKING:
     from program.services.downloaders import Downloader
 
 class VFSDatabase:
+    """
+    Database interface for RivenVFS operations.
+
+    Provides CRUD operations for virtual filesystem entries and handles:
+    - Virtual directory synthesis (directories inferred from paths)
+    - Download URL resolution via debrid providers
+    - Unrestricted URL caching for performance
+    - Subtitle content storage and retrieval
+    - Automatic empty directory cleanup
+
+    Attributes:
+        downloader: Downloader instance for URL resolution.
+        SessionLocal: SQLAlchemy session factory.
+    """
     def __init__(self, downloader: Optional["Downloader"] = None) -> None:
         """
         Initialize VFS Database.
@@ -24,9 +56,23 @@ class VFSDatabase:
         """
         self.downloader = downloader
         self.SessionLocal = db.Session
-        self._ensure_default_directories()
 
     def _norm(self, path: str) -> str:
+        """
+        Normalize a virtual filesystem path.
+
+        Ensures paths:
+        - Start with /
+        - Have no double slashes
+        - Have no trailing slashes (except root)
+        - Are canonicalized (no . or .. components)
+
+        Args:
+            path: Path to normalize.
+
+        Returns:
+            str: Normalized path.
+        """
         import os
         path = (path or "/").strip()
         if not path.startswith('/'):
@@ -41,29 +87,6 @@ class VFSDatabase:
             path = path.rstrip('/')
         return path
 
-    def _ensure_default_directories(self) -> None:
-        """Ensure default directories exist in the VFS for library structure"""
-        default_dirs = ['/movies', '/shows', '/anime_movies', '/anime_shows']
-
-        with self.SessionLocal.begin() as s:
-            for dir_path in default_dirs:
-                # Check if directory already exists
-                existing = s.query(FilesystemEntry.id).filter_by(
-                    path=dir_path
-                ).first()
-
-                if not existing:
-                    # Create directory entry
-                    dir_entry = MediaEntry.create_virtual_entry(
-                        path=dir_path,
-                        download_url=None,
-                        provider=None,
-                        provider_download_id=None,
-                        file_size=0,
-                        original_filename=None
-                    )
-                    dir_entry.is_directory = True
-                    s.add(dir_entry)
 
     # --- Queries ---
     def get_entry(self, path: str) -> Optional[Dict]:
@@ -415,17 +438,18 @@ class VFSDatabase:
 
     def _prune_empty_dirs(self, s, start_dir: str) -> None:
         """
-        Prune empty directory entries upward from a starting directory until reaching a default directory or root.
-        
-        Deletes any directory row that has no descendants using ORM deletes so SQLAlchemy `before_delete` listeners run (used for VFS cache invalidation). Traversal stops when the current directory is `'/'`, empty, or one of the preserved default directories (`/movies`, `/shows`, `/anime_movies`, `/anime_shows`).
-        
+        Prune empty directory entries upward from a starting directory until reaching root.
+
+        Deletes any directory row that has no descendants using ORM deletes so SQLAlchemy `before_delete` listeners run (used for VFS cache invalidation). Traversal stops when the current directory is `'/'` or empty.
+
+        With multi-profile support, all empty directories are pruned (no preserved default directories).
+
         Parameters:
             s: Database session used for ORM queries and deletes.
             start_dir (str): Virtual path at which to begin pruning; the path will be normalized.
         """
-        default_dirs = {'/movies', '/shows', '/anime_movies', '/anime_shows'}
         cur = self._norm(start_dir)
-        while cur not in ('/', '') and cur not in default_dirs:
+        while cur not in ('/', ''):
             # Does this directory have any descendants left?
             has_children = s.query(FilesystemEntry.id).filter(
                 FilesystemEntry.path.like(cur + '/%')
@@ -466,7 +490,7 @@ class VFSDatabase:
             if not fe:
                 return False
 
-            # Update the path (directories are virtual, no need to create them)
+            # Update the path (directories are virtual, no need to create them
             fe.path = new_path
             if provider is not None:
                 fe.provider = provider

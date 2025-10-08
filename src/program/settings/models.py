@@ -1,4 +1,20 @@
-"""Riven settings models"""
+"""
+Riven settings models.
+
+This module defines Pydantic models for all Riven settings:
+- Observable: Base class with observer pattern for settings changes
+- Service-specific models: Downloaders, Scrapers, Content, Updaters, etc.
+- Profile models: ScrapingProfile, LibraryProfile
+- Main AppModel: Root settings container
+
+Key features:
+- Pydantic validation and serialization
+- Observer pattern for settings changes (triggers service reinitialization)
+- Migration support via MigratableBaseModel
+- Type-safe settings with validation
+
+Settings are stored in settings.json and loaded/saved by SettingsManager.
+"""
 
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Annotated
@@ -16,6 +32,18 @@ deprecation_warning = (
 
 
 def validate_empty_or_url(v: Any) -> str:
+    """
+    Validate that a value is either an empty string or a valid URL.
+
+    Args:
+        v: Value to validate.
+
+    Returns:
+        str: Validated URL or empty string.
+
+    Raises:
+        ValueError: If value is not a string or not a valid URL/empty.
+    """
     if isinstance(v, str):
         if v == "":
             return v
@@ -29,6 +57,16 @@ EmptyOrUrl = Annotated[str, BeforeValidator(validate_empty_or_url)]
 
 
 class Observable(MigratableBaseModel):
+    """
+    Base class for observable settings models.
+
+    Implements the observer pattern to notify listeners when settings change.
+    Used by SettingsManager to trigger service reinitialization when settings
+    are modified.
+
+    Attributes:
+        _notify_observers: Callable to notify observers of changes.
+    """
     class Config:
         arbitrary_types_allowed = True
 
@@ -36,9 +74,22 @@ class Observable(MigratableBaseModel):
 
     @classmethod
     def set_notify_observers(cls, notify_observers_callable):
+        """
+        Set the observer callback for settings changes.
+
+        Args:
+            notify_observers_callable: Callable to invoke when settings change.
+        """
         cls._notify_observers = notify_observers_callable
 
     def __setattr__(self, name, value):
+        """
+        Override setattr to notify observers when settings change.
+
+        Args:
+            name: Attribute name.
+            value: New value.
+        """
         super().__setattr__(name, value)
         if self.__class__._notify_observers:
             with self._notify_observers_context():
@@ -46,6 +97,12 @@ class Observable(MigratableBaseModel):
 
     @staticmethod
     def _notify_observers_context():
+        """
+        Create a context manager for observer notifications.
+
+        Returns:
+            NotifyContextManager: Context manager instance.
+        """
         class NotifyContextManager:
             def __enter__(self_):
                 pass
@@ -475,7 +532,6 @@ class ScraperModel(Observable):
 
 class RTNSettingsModel(SettingsModel, Observable): ...
 
-
 # Application Settings
 
 
@@ -577,9 +633,9 @@ class AppModel(Observable):
     scraping: ScraperModel = Field(
         default_factory=lambda: ScraperModel(), description="Scraper configuration"
     )
-    ranking: RTNSettingsModel = Field(
-        default_factory=lambda: RTNSettingsModel(),
-        description="Result ranking configuration",
+    scraping_profiles: List[RTNSettingsModel] = Field(
+        default_factory=lambda: [RTNSettingsModel(name="default")],
+        description="Scraping profiles - each profile creates a separate download for the same item"
     )
     indexer: IndexerModel = Field(
         default_factory=lambda: IndexerModel(), description="Indexer configuration"

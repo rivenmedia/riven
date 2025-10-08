@@ -1,18 +1,53 @@
-"""Model for subtitle entries"""
+"""
+Subtitle Entry model for Riven.
 
+This module defines SubtitleEntry, which represents subtitle files in RivenVFS.
+Subtitles are associated with specific MediaEntry instances (not MediaItem directly)
+since different downloaded versions may need different subtitles.
+
+Key features:
+- ISO 639-3 language codes
+- Subtitle content stored in database (SRT format)
+- OpenSubtitles integration (hash, ID tracking)
+- Automatic cleanup via FilesystemEntry event listener
+"""
 from typing import Optional, TYPE_CHECKING
 
 import sqlalchemy
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from program.media.filesystem_entry import FilesystemEntry
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
+    from program.media.media_entry import MediaEntry
 
 
 class SubtitleEntry(FilesystemEntry):
-    """Model for subtitle entries in RivenVFS"""
+    """
+    Model for subtitle entries in RivenVFS.
+
+    Subtitles are associated with a specific MediaEntry (downloaded version),
+    not directly with MediaItem, since different versions may need different subtitles.
+
+    Attributes:
+        id: Primary key (inherits from FilesystemEntry).
+        media_entry_id: Foreign key to parent MediaEntry.
+        media_entry: Relationship to parent MediaEntry.
+        language: ISO 639-3 language code (e.g., 'eng', 'spa', 'fra').
+        content: Subtitle content in SRT format (stored in database).
+        file_hash: OpenSubtitles hash of the video file.
+        video_file_size: Size of the VIDEO file (for OpenSubtitles API).
+        opensubtitles_id: OpenSubtitles subtitle ID for tracking.
+
+    Inherited from FilesystemEntry:
+        path: Virtual path in VFS (e.g., "/Movies/Movie.2024/Movie.2024.eng.srt").
+        file_size: Size of subtitle file in bytes.
+        is_directory: Always False for subtitles.
+        created_at: Creation timestamp.
+        updated_at: Last update timestamp.
+        available_in_vfs: Whether available in RivenVFS.
+        media_item_id: Foreign key to MediaItem (via FilesystemEntry).
+    """
 
     __tablename__ = "SubtitleEntry"
 
@@ -20,6 +55,23 @@ class SubtitleEntry(FilesystemEntry):
         sqlalchemy.Integer,
         sqlalchemy.ForeignKey("FilesystemEntry.id", ondelete="CASCADE"),
         primary_key=True,
+    )
+
+    # Foreign key to MediaEntry (many SubtitleEntries can belong to one MediaEntry)
+    media_entry_id: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer,
+        sqlalchemy.ForeignKey("MediaEntry.id", ondelete="CASCADE"),
+        nullable=True
+    )
+
+    # Relationship to MediaEntry
+    # Note: Must specify foreign_keys because SubtitleEntry inherits from FilesystemEntry
+    # which has media_item_id, creating ambiguity with MediaEntry's media_item_id
+    media_entry: Mapped[Optional["MediaEntry"]] = relationship(
+        "MediaEntry",
+        back_populates="subtitles",
+        foreign_keys=[media_entry_id],
+        lazy="selectin"
     )
 
     # Subtitle-specific fields
@@ -55,9 +107,11 @@ class SubtitleEntry(FilesystemEntry):
         sqlalchemy.Index("ix_subtitle_entry_language", "language"),
         sqlalchemy.Index("ix_subtitle_entry_file_hash", "file_hash"),
         sqlalchemy.Index("ix_subtitle_entry_opensubtitles_id", "opensubtitles_id"),
+        sqlalchemy.Index("ix_subtitle_entry_media_entry_id", "media_entry_id"),
     )
 
     def __repr__(self):
+        """String representation of the SubtitleEntry."""
         return f"<SubtitleEntry(id={self.id}, path='{self.path}', language='{self.language}')>"
 
     def to_dict(self) -> dict:
@@ -78,7 +132,8 @@ class SubtitleEntry(FilesystemEntry):
                 - "created_at": ISO 8601 timestamp or None.
                 - "updated_at": ISO 8601 timestamp or None.
                 - "available_in_vfs": true if available in VFS, false otherwise.
-                - "media_item_id": the associated MediaItem primary key or None.
+                - "media_entry_id": the associated MediaEntry primary key or None.
+                - "media_item_id": the associated MediaItem primary key or None (via FilesystemEntry).
         """
         base_dict = super().to_dict()
         base_dict.update(
@@ -87,6 +142,7 @@ class SubtitleEntry(FilesystemEntry):
                 "file_hash": self.file_hash,
                 "video_file_size": self.video_file_size,
                 "opensubtitles_id": self.opensubtitles_id,
+                "media_entry_id": self.media_entry_id,
             }
         )
         return base_dict

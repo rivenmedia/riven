@@ -3,6 +3,17 @@ Subtitle service for Riven.
 
 Handles subtitle fetching from various providers and stores them in the database
 for serving via RivenVFS.
+
+Key features:
+- Multi-provider support (OpenSubtitles, extensible for more)
+- Multi-language subtitle fetching
+- Embedded subtitle detection (skips already-embedded languages)
+- OpenSubtitles hash-based matching for accuracy
+- Subtitle content stored in database (served via VFS)
+- ISO 639-3 language codes
+
+Subtitles are stored as SubtitleEntry objects in the database and served
+through RivenVFS alongside video files.
 """
 
 from typing import List, Optional
@@ -13,15 +24,42 @@ from loguru import logger
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.subtitle_entry import SubtitleEntry
+from program.media.parsed_media_data import ParsedMediaData
 from program.settings.manager import settings_manager
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash, generate_subtitle_path
 
 
 class SubtitleService:
+    """
+    Service for fetching and managing subtitles.
+
+    Fetches subtitles from configured providers (OpenSubtitles, etc.) and stores
+    them in the database for serving via RivenVFS.
+
+    Features:
+    - Multi-provider support with score-based ranking
+    - Multi-language fetching (ISO 639-3 codes)
+    - Embedded subtitle detection (skips redundant downloads)
+    - OpenSubtitles hash matching for accuracy
+    - Metadata-based search (IMDB ID, season/episode, release group)
+
+    Attributes:
+        key: Service identifier ("subtitle").
+        settings: Subtitle settings from settings_manager.
+        initialized: True if service is properly configured.
+        providers: List of initialized subtitle provider instances.
+        languages: List of ISO 639-3 language codes to fetch.
+    """
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
+        """
+        Initialize the SubtitleService.
+
+        Initializes providers and parses language configuration.
+        Service is only initialized if enabled and properly configured.
+        """
         self.key = "subtitle"
         self.settings = settings_manager.settings.post_processing.subtitle
         self.initialized = False
@@ -48,11 +86,18 @@ class SubtitleService:
         logger.info(f"Subtitle service initialized with {len(self.providers)} provider(s) and {len(self.languages)} language(s)")
 
     def _initialize_providers(self):
-        """Initialize configured subtitle providers."""
+        """
+        Initialize configured subtitle providers.
+
+        Currently supports:
+        - OpenSubtitles (legacy API)
+
+        Future providers can be added here.
+        """
         provider_configs = self.settings.providers
 
         # Initialize OpenSubtitles provider
-        if provider_configs.get("opensubtitles", {}).get("enabled"):
+        if provider_configs.opensubtitles.enabled:
             try:
                 provider = OpenSubtitlesProvider()
                 self.providers.append(provider)
@@ -94,44 +139,46 @@ class SubtitleService:
 
     @property
     def enabled(self) -> bool:
-        """Check if the subtitle service is enabled."""
+        """
+        Check if the subtitle service is enabled.
+
+        Returns:
+            bool: True if enabled in settings and properly initialized.
+        """
         return self.settings.enabled and self.initialized
 
-    def run(self, item: MediaItem):
+    def run(self, entry):
         """
-        Fetch and store subtitles for a media item.
-
-        Note: Caller (PostProcessing) is responsible for checking should_submit()
-        and ensuring item type is movie/episode.
+        Fetch and store subtitles for a specific MediaEntry.
 
         Args:
-            item: MediaItem to fetch subtitles for (must be movie or episode)
+            entry: MediaEntry to fetch subtitles for
         """
         if not self.enabled:
-            logger.debug(f"Subtitle service not enabled, skipping {item.log_string}")
+            logger.debug(f"Subtitle service not enabled, skipping {entry.log_string}")
             return
 
-        if not item.filesystem_entry:
-            logger.warning(f"No filesystem entry for {item.log_string}, cannot fetch subtitles")
+        if not entry.media_item:
+            logger.error(f"MediaEntry {entry.id} has no associated MediaItem")
             return
+
+        item = entry.media_item
 
         try:
-            logger.debug(f"Fetching subtitles for {item.log_string}")
+            logger.debug(f"Fetching subtitles for {entry.log_string}")
 
             # Get existing embedded subtitles from parsed_data
-            embedded_subtitle_languages = self._get_embedded_subtitle_languages(item)
+            embedded_subtitle_languages = self._get_embedded_subtitle_languages_from_entry(entry)
             if embedded_subtitle_languages:
-                logger.debug(f"Found {len(embedded_subtitle_languages)} embedded subtitle language(s) in {item.log_string}: {', '.join(embedded_subtitle_languages)}")
+                logger.debug(f"Found {len(embedded_subtitle_languages)} embedded subtitle language(s) in {entry.log_string}: {', '.join(embedded_subtitle_languages)}")
 
             # Get video file information
-            video_path = item.filesystem_entry.path
-            video_hash = self._calculate_video_hash(item)
-            original_filename = item.filesystem_entry.get_original_filename()
+            video_path = entry.path
+            video_hash = self._calculate_video_hash_from_entry(entry)
+            original_filename = entry.original_filename
 
-            # Build search tags from parsed_data for better OpenSubtitles matching
-            # Tags are release group names and format identifiers (BluRay, HDTV, etc.)
-            # NOT full filenames - see https://trac.opensubtitles.org/opensubtitles/wiki/XMLRPC#Supportedtags
-            search_tags = self._build_search_tags(item)
+            # Build search tags from parsed_data
+            search_tags = self._build_search_tags_from_entry(entry)
 
             # Get IMDB ID
             imdb_id = item.imdb_id
@@ -144,17 +191,18 @@ class SubtitleService:
                 episode = item.number
 
             # Get file size
-            file_size = item.filesystem_entry.file_size if item.filesystem_entry else None
+            file_size = entry.file_size
 
             # Search for subtitles in each language
             for language in self.languages:
                 # Skip if language already exists as embedded subtitle
                 if language in embedded_subtitle_languages:
-                    logger.debug(f"Skipping {language} subtitle for {item.log_string} - already embedded in video")
+                    logger.debug(f"Skipping {language} subtitle for {entry.log_string} - already embedded in video")
                     continue
 
                 try:
                     self._fetch_subtitle_for_language(
+                        entry=entry,
                         item=item,
                         language=language,
                         video_path=video_path,
@@ -167,148 +215,16 @@ class SubtitleService:
                         episode=episode
                     )
                 except Exception as e:
-                    logger.error(f"Failed to fetch {language} subtitle for {item.log_string}: {e}")
+                    logger.error(f"Failed to fetch {language} subtitle for {entry.log_string}: {e}")
 
-            logger.debug(f"Finished fetching subtitles for {item.log_string}")
-
-        except Exception as e:
-            logger.error(f"Failed to fetch subtitles for {item.log_string}: {e}")
-
-    def _get_embedded_subtitle_languages(self, item: MediaItem) -> set[str]:
-        """
-        Extract embedded subtitle languages from parsed_data.
-
-        Checks the ffprobe_data.subtitles array from MediaAnalysisService
-        and returns a set of ISO 639-3 language codes.
-
-        Args:
-            item: MediaItem with parsed_data
-
-        Returns:
-            Set of ISO 639-3 language codes (e.g., {'eng', 'spa', 'fre'})
-        """
-        embedded_languages = set()
-
-        try:
-            if not item.parsed_data:
-                return embedded_languages
-
-            ffprobe_data = item.parsed_data.get('ffprobe_data', {})
-            subtitle_tracks = ffprobe_data.get('subtitles', [])
-
-            for track in subtitle_tracks:
-                lang = track.get('language')
-                if lang and lang != 'unknown':
-                    # Convert to ISO 639-3 if needed
-                    # FFprobe typically returns ISO 639-2 (3-letter codes)
-                    # which are compatible with our language list
-                    embedded_languages.add(lang)
+            logger.debug(f"Finished fetching subtitles for {entry.log_string}")
 
         except Exception as e:
-            logger.warning(f"Failed to extract embedded subtitle languages for {item.log_string}: {e}")
-
-        return embedded_languages
-
-    def _build_search_tags(self, item: MediaItem) -> Optional[str]:
-        """
-        Build comma-separated search tags from parsed_data for OpenSubtitles.
-
-        Tags are specific identifiers like release groups (AXXO, KILLERS) and
-        format tags (BluRay, HDTV, DVD, etc.), NOT full filenames.
-
-        See: https://trac.opensubtitles.org/opensubtitles/wiki/XMLRPC#Supportedtags
-
-        Args:
-            item: MediaItem with parsed_data
-
-        Returns:
-            Comma-separated tags string (e.g., "BluRay,ETRG") or None
-        """
-        tags = []
-
-        try:
-            if not item.parsed_data:
-                return None
-
-            parsed_filename = item.parsed_data.get('parsed_filename', {})
-
-            # Add release group if available
-            release_group = parsed_filename.get('group')
-            if release_group:
-                tags.append(release_group)
-
-            # Add quality/format tag (BluRay, HDTV, DVD, etc.)
-            quality = parsed_filename.get('quality')
-            tags.append(quality)
-
-            # Add other relevant tags
-            if parsed_filename.get('proper'):
-                tags.append('Proper')
-            if parsed_filename.get('repack'):
-                tags.append('Repack')
-            if parsed_filename.get('remux'):
-                tags.append('Remux')
-            if parsed_filename.get('extended'):
-                tags.append('Extended')
-            if parsed_filename.get('unrated'):
-                tags.append('Unrated')
-
-            if tags:
-                tags_str = ','.join([t.lower() for t in tags])
-                logger.debug(f"Built search tags for {item.log_string}: {tags_str}")
-                return tags_str
-
-        except Exception as e:
-            logger.warning(f"Failed to build search tags for {item.log_string}: {e}")
-
-        return None
-
-    def _calculate_video_hash(self, item: MediaItem) -> Optional[str]:
-        """
-        Calculate OpenSubtitles hash for the video file.
-
-        Args:
-            item: MediaItem with filesystem entry
-
-        Returns:
-            OpenSubtitles hash or None if calculation fails
-        """
-        try:
-            # Get file size from filesystem entry
-            file_size = item.filesystem_entry.file_size
-            if not file_size or file_size < 128 * 1024:  # 128KB minimum
-                logger.debug(f"File too small ({file_size} bytes) to calculate hash for {item.log_string}")
-                return None
-
-            # Get the mounted VFS path
-            from program.settings.manager import settings_manager
-            mount_path = settings_manager.settings.filesystem.mount_path
-            vfs_path = item.filesystem_entry.path
-
-            # Construct the full path on the host filesystem
-            import os
-            full_path = os.path.join(mount_path, vfs_path.lstrip('/'))
-
-            # Check if file exists and is accessible
-            if not os.path.exists(full_path):
-                logger.debug(f"VFS file not accessible at {full_path} for {item.log_string}")
-                return None
-
-            # Calculate hash using the mounted VFS file
-            with open(full_path, 'rb') as f:
-                video_hash = calculate_opensubtitles_hash(f, file_size)
-                logger.debug(f"Calculated OpenSubtitles hash for {item.log_string}: {video_hash}")
-                return video_hash
-
-        except FileNotFoundError:
-            logger.debug(f"VFS file not found for {item.log_string}, cannot calculate hash")
-            return None
-        except Exception as e:
-            logger.error(f"Failed to calculate video hash for {item.log_string}: {e}")
-            return None
+            logger.error(f"Failed to fetch subtitles for {entry.log_string}: {e}")
 
     def _fetch_subtitle_for_language(
         self,
+        entry,
         item: MediaItem,
         language: str,
         video_path: str,
@@ -324,7 +240,8 @@ class SubtitleService:
         Fetch subtitle for a specific language.
 
         Args:
-            item: MediaItem to fetch subtitle for
+            entry: MediaEntry to fetch subtitle for
+            item: MediaItem (for metadata like imdb_id)
             language: ISO 639-3 language code
             video_path: Virtual VFS path of the video
             video_hash: OpenSubtitles hash of the video
@@ -432,25 +349,119 @@ class SubtitleService:
             logger.error(f"Failed to check for existing subtitle: {e}")
             return None
 
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
+    def _get_embedded_subtitle_languages_from_entry(self, entry) -> set[str]:
         """
-        Check if subtitles should be fetched for an item.
+        Extract embedded subtitle languages from MediaEntry's parsed_data.
 
         Args:
-            item: MediaItem to check
+            entry: MediaEntry with parsed_data
 
         Returns:
-            True if subtitles should be fetched
+            Set of ISO 639-3 language codes
         """
-        # Only fetch subtitles for movies and episodes
-        if item.type not in ["movie", "episode"]:
-            return False
+        embedded_languages = set()
 
-        # Check if item has a filesystem entry
-        if not item.filesystem_entry:
-            return False
+        try:
+            if not entry.parsed_data:
+                return embedded_languages
 
-        # Check if subtitles already exist
-        # For now, always try to fetch (service will check for existing subtitles)
-        return True
+            # Parse the dict into typed data
+            parsed_data = ParsedMediaData.from_dict(entry.parsed_data)
+            if not parsed_data or not parsed_data.ffprobe_data:
+                return embedded_languages
+
+            subtitle_tracks = parsed_data.ffprobe_data.subtitles or []
+
+            for track in subtitle_tracks:
+                # track is now a SubtitleTrack object
+                lang = track.language
+                if lang and lang != 'unknown':
+                    embedded_languages.add(lang)
+
+        except Exception as e:
+            logger.warning(f"Failed to extract embedded subtitle languages for {entry.log_string}: {e}")
+
+        return embedded_languages
+
+    def _build_search_tags_from_entry(self, entry) -> Optional[str]:
+        """
+        Build comma-separated search tags from MediaEntry's parsed_data.
+
+        Args:
+            entry: MediaEntry with parsed_data
+
+        Returns:
+            Comma-separated tags string or None
+        """
+        tags = []
+
+        try:
+            if not entry.parsed_data:
+                return None
+
+            # Parse the dict into typed data
+            parsed_data = ParsedMediaData.from_dict(entry.parsed_data)
+            if not parsed_data or not parsed_data.parsed_filename:
+                return None
+
+            parsed_filename = parsed_data.parsed_filename
+
+            # Add release group if available
+            release_group = parsed_filename.group
+            if release_group:
+                tags.append(release_group)
+
+            # Add quality/format tag
+            quality = parsed_filename.quality
+            if quality:
+                tags.append(quality)
+
+            # Note: ParsedFilenameData doesn't have 'proper' or 'repack' fields
+            # These would need to be added to the model if needed
+
+        except Exception as e:
+            logger.warning(f"Failed to build search tags for {entry.log_string}: {e}")
+
+        return ','.join(tags) if tags else None
+
+    def _calculate_video_hash_from_entry(self, entry) -> Optional[str]:
+        """
+        Calculate OpenSubtitles hash for a MediaEntry's video file.
+
+        Args:
+            entry: MediaEntry with path and file_size
+
+        Returns:
+            OpenSubtitles hash string or None
+        """
+        try:
+            file_size = entry.file_size
+            if not file_size:
+                logger.debug(f"No file size for {entry.log_string}, cannot calculate hash")
+                return None
+
+            # Get the mounted VFS path
+            from program.settings.manager import settings_manager
+            mount_path = settings_manager.settings.filesystem.mount_path
+            vfs_path = entry.path
+
+            # Construct the full path on the host filesystem
+            import os
+            full_path = os.path.join(mount_path, vfs_path.lstrip('/'))
+
+            # Check if file exists and is accessible
+            if not os.path.exists(full_path):
+                logger.debug(f"VFS file not accessible at {full_path} for {entry.log_string}")
+                return None
+
+            # Calculate hash using the mounted VFS file
+            with open(full_path, 'rb') as f:
+                video_hash = calculate_opensubtitles_hash(f, file_size)
+                logger.debug(f"Calculated OpenSubtitles hash for {entry.log_string}: {video_hash}")
+                return video_hash
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate video hash for {entry.log_string}: {e}")
+            return None
+
+

@@ -1,6 +1,18 @@
-"""MediaItem class"""
+"""
+MediaItem models for Riven.
+
+This module defines the MediaItem hierarchy:
+- MediaItem: Base class for all media (movies, shows, seasons, episodes)
+- Movie: Individual movie
+- Show: TV show (contains seasons)
+- Season: TV season (contains episodes)
+- Episode: Individual TV episode
+
+MediaItems contain profile-agnostic metadata from indexers (IMDb, TMDB, TVDB).
+Profile-specific downloads are stored in MediaEntry instances (one per scraping profile).
+"""
 from datetime import datetime
-from typing import Any, List, Optional, Self, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
@@ -9,9 +21,8 @@ from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
-from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
-from program.media.subtitle_entry import SubtitleEntry
+from program.media.entry_state import EntryState
 
 from .stream import Stream
 
@@ -20,7 +31,44 @@ if TYPE_CHECKING:
 
 
 class MediaItem(db.Model):
-    """MediaItem class"""
+    """
+    Base model for all media items (movies, shows, seasons, episodes).
+
+    MediaItem stores profile-agnostic metadata from indexers (IMDb, TMDB, TVDB).
+    Each MediaItem can have multiple MediaEntry instances (one per scraping profile)
+    representing different downloaded versions.
+
+    Attributes:
+        id: Primary key (integer).
+        imdb_id: IMDb identifier.
+        tvdb_id: TVDB identifier.
+        tmdb_id: TMDB identifier.
+        title: Media title.
+        number: Episode/season number (for episodes/seasons).
+        type: Discriminator for polymorphic identity (movie/show/season/episode).
+        requested_at: When the item was requested.
+        requested_by: Who requested the item (service name).
+        requested_id: External request ID (e.g., Overseerr request ID).
+        indexed_at: When metadata was fetched from indexer.
+        scraped_at: When streams were last scraped.
+        scraped_times: Number of times item has been scraped.
+        streams: All discovered streams (shared across profiles).
+        blacklisted_streams: Streams that failed and should be avoided.
+        aliases: Alternative titles for matching.
+        is_anime: Whether this is anime content.
+        network: TV network (for shows).
+        country: Country of origin.
+        language: Primary language.
+        aired_at: When the content first aired.
+        year: Release year.
+        genres: List of genre strings.
+        updated: Whether media server has processed this item.
+        guid: Media server GUID.
+        overseerr_id: Overseerr request ID.
+        last_state: Current state in the state machine.
+        failed_attempts: Number of failed processing attempts.
+        filesystem_entries: List of FilesystemEntry instances (MediaEntry, SubtitleEntry).
+    """
     __tablename__ = "MediaItem"
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -29,16 +77,19 @@ class MediaItem(db.Model):
     title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    # Request/Scraping tracking (item-level metadata)
     requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
     requested_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     requested_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
+
+    # Streams (all discovered streams for this item, shared across profiles)
     streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all")
     blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all")
 
+    # Indexer metadata
     aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -47,25 +98,26 @@ class MediaItem(db.Model):
     aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+
+    # Media server related
     updated: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+
+    # State tracking
     last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
-    parsed_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
+    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
+    # Relationships
     filesystem_entries: Mapped[list["FilesystemEntry"]] = relationship(
         "FilesystemEntry",
         back_populates="media_item",
         lazy="selectin",
         cascade="all, delete-orphan"
     )
-    subtitles: Mapped[list[SubtitleEntry]] = relationship(
-        SubtitleEntry,
-        back_populates="media_item",
-        lazy="selectin",
-        cascade="all, delete-orphan",
-        overlaps="filesystem_entries"
-    )
-    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
+    # Note: active_stream and parsed_data removed - these are now per-MediaEntry
+    # Note: subtitles relationship removed - subtitles now relate to MediaEntry
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
@@ -89,21 +141,31 @@ class MediaItem(db.Model):
     )
 
     def __init__(self, item: dict | None) -> None:
+        """
+        Initialize a MediaItem from a dictionary.
+
+        Args:
+            item: Dictionary containing item metadata from indexer or content service.
+                  Can be None for SQLAlchemy internal use.
+        """
         if item is None:
             return
+
+        # Request tracking
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
         self.requested_id = item.get("requested_id")
 
+        # Scraping tracking
         self.indexed_at = None
-
-        self.scraped_at  = None
+        self.scraped_at = None
         self.scraped_times = 0
-        self.active_stream = item.get("active_stream", {})
+
+        # Streams
         self.streams: List[Stream] = []
         self.blacklisted_streams: List[Stream] = []
 
-        # Media related
+        # Indexer metadata
         self.title = item.get("title")
         self.imdb_id = item.get("imdb_id")
         self.tvdb_id = item.get("tvdb_id")
@@ -118,113 +180,114 @@ class MediaItem(db.Model):
         self.is_anime = item.get("is_anime", False)
 
         # Media server related
-        self.updated = item.get("updated", False)
         self.guid = item.get("guid")
 
         # Overseerr related
         self.overseerr_id = item.get("overseerr_id")
 
-        # Post-processing
-        self.subtitles = item.get("subtitles", [])
-
     def store_state(self, given_state=None) -> tuple[States, States]:
-        """Store the state of the item."""
+        """
+        Store the current state and trigger notifications if state changed.
+
+        Args:
+            given_state: Optional state to set explicitly. If None, state is determined automatically.
+
+        Returns:
+            tuple[States, States]: (previous_state, new_state)
+        """
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
         if previous_state and previous_state != new_state:
-            websocket_manager.publish("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
+            from program.program import riven
+            from program.services.notifier import Notifier
+            riven.services[Notifier].run(self)
         self.last_state = new_state
         return (previous_state, new_state)
 
-    def blacklist_active_stream(self) -> bool:
-        if not self.active_stream:
-            logger.debug(f"No active stream for {self.log_string}, will not blacklist")
-            return False
-
-        def find_and_blacklist_stream(streams):
-            stream = next((s for s in streams if s.infohash == self.active_stream.get("infohash")), None)
-            if stream:
-                self.blacklist_stream(stream)
-                logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
-                return True
-            return False
-
-        if find_and_blacklist_stream(self.streams):
-            return True
-
-        if self.type == "episode":
-            if self.parent and find_and_blacklist_stream(self.parent.streams):
-                return True
-            if self.parent and self.parent.parent and find_and_blacklist_stream(self.parent.parent.streams):
-                return True
-
-        logger.debug(f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist")
-        return False
-
-    def blacklist_stream(self, stream: Stream) -> bool:
-        """Blacklist a stream by moving it from streams to blacklisted_streams."""
-        if stream in self.streams:
-            self.streams.remove(stream)
-            if stream not in self.blacklisted_streams:
-                self.blacklisted_streams.append(stream)
-            logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
-            return True
-        return False
-
-    def unblacklist_stream(self, stream: Stream) -> bool:
-        """Unblacklist a stream by moving it from blacklisted_streams to streams."""
-        if stream in self.blacklisted_streams:
-            self.blacklisted_streams.remove(stream)
-            if stream not in self.streams:
-                self.streams.append(stream)
-            logger.debug(f"Unblacklisted stream {stream.infohash} for {self.log_string}")
-            return True
-        return False
-
     @property
     def is_released(self) -> bool:
-        """Check if an item has been released."""
+        """
+        Check if an item has been released (aired).
+
+        Returns:
+            bool: True if aired_at is in the past, False otherwise.
+        """
         if self.aired_at and self.aired_at <= datetime.now():
             return True
         return False
 
     @property
     def state(self) -> States:
+        """
+        Get the current state of this MediaItem.
+
+        Returns:
+            States: The computed state based on current attributes.
+        """
         return self._determine_state()
 
     def _determine_state(self) -> States:
+        """
+        Determine the current state of this MediaItem based on its attributes
+        and the state of its MediaEntry instances across all scraping profiles.
+
+        State priority (for Movies/Episodes only):
+        1. Paused/Failed - explicit states that override everything
+        2. Completed - item processed by media server
+        3. Symlinked - at least one entry available in VFS
+        4. Downloaded - at least one entry downloaded
+        5. Scraped - streams available but no successful downloads
+        6. Indexed - item has metadata and is released
+        7. Unreleased - item has metadata but not yet aired
+        8. Requested - item requested but no metadata yet
+        9. Unknown - default state
+
+        Note: Shows/Seasons override this method with simpler logic.
+        """
+        # Explicit states override everything
         if self.last_state == States.Paused:
             return States.Paused
+        
         if self.last_state == States.Failed:
             return States.Failed
-        if self.updated:
-            return States.Completed
-        elif self.available_in_vfs:
-            # Consider Symlinked (available) when VFS has the entry mounted
-            return States.Symlinked
-        elif self.filesystem_entry:
-            # Downloaded if we have filesystem_entry (from downloader)
-            return States.Downloaded
-        elif self.is_scraped():
+        if self.filesystem_entries:
+            if all(entry.state == EntryState.Completed for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.Completed
+            
+            if any(entry.state == EntryState.Completed for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.PartiallyCompleted
+            
+            if all(entry.state == EntryState.Available for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.Available
+            
+            if any(entry.state == EntryState.Available for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.PartiallyAvailable
+            
+            if all(entry.state == EntryState.Downloaded for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.Downloaded
+            
+            if any(entry.state == EntryState.Downloaded for entry in self.filesystem_entries if entry.entry_type == "media"):
+                return States.PartiallyDownloaded
+
+        # No successful downloads, check if we have streams
+        if self.is_scraped():
             return States.Scraped
-        elif self.title and self.is_released:
+
+        # Item has metadata
+        if self.title and self.is_released:
             return States.Indexed
         elif self.title:
             return States.Unreleased
-        elif (self.imdb_id or self.tmdb_id or self.tvdb_id) and self.requested_by:
+
+        # Item was requested but no metadata yet
+        if (self.imdb_id or self.tmdb_id or self.tvdb_id) and self.requested_by:
             return States.Requested
+
         return States.Unknown
 
     def is_scraped(self) -> bool:
         """Check if the item has been scraped."""
-        session = object_session(self)
-        if session and session.is_active:
-            try:
-                session.refresh(self, attribute_names=["blacklisted_streams"])
-                return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
-            except:
-                pass
-        return False
+        return self.streams
 
     def to_dict(self) -> dict[str, Any]:
         """Convert item to dictionary (API response)"""
@@ -283,7 +346,12 @@ class MediaItem(db.Model):
         return data
 
     def to_extended_dict(self, abbreviated_children=False, with_streams=False) -> dict[str, Any]:
-        """Convert item to extended dictionary (API response)"""
+        """
+        Convert item to extended dictionary (API response).
+
+        Now includes all MediaEntry instances (one per scraping profile) instead
+        of a single filesystem_entry.
+        """
         dict = self.to_dict()
         match self:
             case Show():
@@ -304,31 +372,52 @@ class MediaItem(db.Model):
         if with_streams:
             dict["streams"] = [stream.to_dict() for stream in getattr(self, "streams", [])]
             dict["blacklisted_streams"] = [stream.to_dict() for stream in getattr(self, "blacklisted_streams", [])]
-            dict["active_stream"] = (
-                self.active_stream if hasattr(self, "active_stream") else None
-            )
         dict["number"] = self.number if hasattr(self, "number") else None
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
 
-        dict["filesystem_entry"] = self.filesystem_entry.to_dict() if self.filesystem_entry else None
-        dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
-        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
-        if self.parsed_data:
-            probe_data = self.parsed_data.get("ffprobe_data", {})
-            if probe_data:
-                dict["subtitles"].append(probe_data.get("subtitles", []))
+        # Include all MediaEntry instances (one per scraping profile)
+        from program.media.media_entry import MediaEntry
+        media_entries = [e for e in self.filesystem_entries if isinstance(e, MediaEntry)]
+        dict["media_entries"] = [entry.to_dict() for entry in media_entries]
+
+        # Subtitles are now per-MediaEntry, so collect from all entries
+        all_subtitles = []
+        for entry in media_entries:
+            if hasattr(entry, 'subtitles') and entry.subtitles:
+                all_subtitles.extend([sub.to_dict() for sub in entry.subtitles])
+        dict["subtitles"] = all_subtitles
+
         return dict
 
     def __iter__(self):
+        """Iterate over attribute names."""
         for attr, _ in vars(self).items():
             yield attr
 
     def __eq__(self, other):
+        """
+        Check equality based on ID.
+
+        Args:
+            other: Object to compare with.
+
+        Returns:
+            bool: True if same type and same ID, False otherwise.
+        """
         if type(other) == type(self):
             return self.id == other.id
         return False
 
     def copy(self, other):
+        """
+        Copy ID and number from another item.
+
+        Args:
+            other: Item to copy from.
+
+        Returns:
+            MediaItem: Self for chaining, or None if other is None.
+        """
         if other is None:
             return None
         self.id = getattr(other, "id", None)
@@ -337,11 +426,26 @@ class MediaItem(db.Model):
         return self
 
     def get(self, key, default=None):
-        """Get item attribute"""
+        """
+        Get item attribute by key.
+
+        Args:
+            key: Attribute name.
+            default: Default value if attribute doesn't exist.
+
+        Returns:
+            Any: Attribute value or default.
+        """
         return getattr(self, key, default)
 
     def set(self, key, value):
-        """Set item attribute"""
+        """
+        Set item attribute by key.
+
+        Args:
+            key: Attribute name (supports nested attributes with dots).
+            value: Value to set.
+        """
         _set_nested_attr(self, key, value)
 
     def get_top_title(self) -> str:
@@ -358,37 +462,6 @@ class MediaItem(db.Model):
         else:
             return self.title
 
-    # Filesystem entry properties
-    @property
-    def filesystem_entry(self) -> Optional["FilesystemEntry"]:
-        """
-        Return the first filesystem entry for this media item to preserve backward compatibility.
-        
-        Returns:
-            The first `FilesystemEntry` instance if any exist, otherwise `None`.
-        """
-        return self.filesystem_entries[0] if self.filesystem_entries else None
-
-    @property
-    def filesystem_path(self) -> Optional[str]:
-        """
-        Return the filesystem path of the first FilesystemEntry for this media item, if any.
-        
-        Returns:
-            The filesystem path string from the first entry, or None if no entries exist.
-        """
-        return self.filesystem_entries[0].path if self.filesystem_entries else None
-
-    @property
-    def available_in_vfs(self) -> bool:
-        """
-        Indicates whether any filesystem entry for this media item is available in the mounted VFS.
-        
-        Returns:
-            `true` if at least one associated filesystem entry is available in the mounted VFS, `false` otherwise.
-        """
-        return any(fe.available_in_vfs for fe in self.filesystem_entries) if self.filesystem_entries else False
-
     def get_top_imdb_id(self) -> str:
         """
         Return the IMDb identifier for the top-level item in the hierarchy.
@@ -403,7 +476,14 @@ class MediaItem(db.Model):
         return self.imdb_id
 
     def get_aliases(self) -> dict:
-        """Get the aliases of the item."""
+        """
+        Get the aliases for this item.
+
+        For seasons/episodes, returns the parent show's aliases.
+
+        Returns:
+            dict: Dictionary of alternative titles for matching.
+        """
         if self.type == "season":
             return self.parent.aliases
         elif self.type == "episode":
@@ -412,6 +492,7 @@ class MediaItem(db.Model):
             return self.aliases
 
     def __hash__(self):
+        """Hash based on ID for use in sets/dicts."""
         return hash(self.id)
 
     def reset(self):
@@ -440,9 +521,6 @@ class MediaItem(db.Model):
         # Clear filesystem entries - ORM automatically deletes orphaned entries
         self.filesystem_entries.clear()
 
-        # Clear subtitles (event listener deletes files from disk on commit)
-        self.subtitles.clear()
-
         # Clear streams using ORM relationship operations (database CASCADE handles orphans)
         self.streams.clear()
         self.active_stream = {}
@@ -458,6 +536,12 @@ class MediaItem(db.Model):
 
     @property
     def log_string(self):
+        """
+        Generate a human-readable log string for this item.
+
+        Returns:
+            str: Title if available, otherwise ID or external IDs, or "Unknown".
+        """
         if self.title:
             return self.title
         elif self.id:
@@ -472,10 +556,23 @@ class MediaItem(db.Model):
 
     @property
     def collection(self):
+        """
+        Get the collection ID for this item.
+
+        Returns:
+            int: Parent's collection if this has a parent, otherwise own ID.
+        """
         return self.parent.collection if self.parent else self.id
 
     def is_parent_blocked(self) -> bool:
-        """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
+        """
+        Check if this item or any parent is paused.
+
+        Recursively checks parent hierarchy for Paused state.
+
+        Returns:
+            bool: True if this item or any parent is paused, False otherwise.
+        """
         if self.last_state == States.Paused:
             return True
 
@@ -488,7 +585,12 @@ class MediaItem(db.Model):
 
 
 class Movie(MediaItem):
-    """Movie class"""
+    """
+    Movie model.
+
+    Represents a single movie. Movies go through the full download pipeline:
+    Requested → Indexed → Scraped → Downloaded → Available → Completed
+    """
     __tablename__ = "Movie"
     id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     __mapper_args__ = {
@@ -497,21 +599,30 @@ class Movie(MediaItem):
     }
 
     def copy(self, other):
+        """Copy ID from another movie."""
         super().copy(other)
         return self
 
     def __init__(self, item):
+        """Initialize a Movie from a dictionary."""
         self.type = "movie"
         super().__init__(item)
 
     def __repr__(self):
+        """String representation of the Movie."""
         return f"Movie:{self.log_string}:{self.state.name}"
 
     def __hash__(self):
+        """Hash based on ID."""
         return super().__hash__()
 
 class Show(MediaItem):
-    """Show class"""
+    """
+    TV Show model.
+
+    Represents a TV show containing seasons.
+    Individual episodes are enqueued for download after scraping.
+    """
     __tablename__ = "Show"
     id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     seasons: Mapped[List["Season"]] = relationship(
@@ -537,31 +648,52 @@ class Show(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
-        if all(season.state == States.Paused for season in self.seasons):
+        """
+        Determine Show state based on season/episode states.
+
+        Shows only go through: Requested → Indexed → Scraped → Ongoing/Completed/Failed
+        Shows never have Downloaded/Symlinked states (only episodes do).
+        """
+        # Explicit states override everything
+        if self.last_state == States.Paused:
             return States.Paused
-        if all(season.state == States.Failed for season in self.seasons):
+        if self.last_state == States.Failed:
             return States.Failed
-        if all(season.state == States.Completed for season in self.seasons):
-            return States.Completed
+        
+        # Any season has episodes in progress (some completed, some not)
         if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
             return States.Ongoing
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
+
+        # All seasons completed
+        if all(season.state == States.Completed for season in self.seasons):
+            return States.Completed
+        
+        # Some seasons completed
+        if any(season.state in [States.Completed, States.PartiallyCompleted] for season in self.seasons):
             return States.PartiallyCompleted
-        if any(season.state == States.Symlinked for season in self.seasons):
-            return States.Symlinked
-        if any(season.state == States.Downloaded for season in self.seasons):
-            return States.Downloaded
+        
+        if any(season.state in [States.Available, States.PartiallyAvailable] for season in self.seasons):
+            return States.PartiallyAvailable
+        
+        if any(season.state in [States.Downloaded, States.PartiallyDownloaded] for season in self.seasons):
+            return States.PartiallyDownloaded
+
+        # Show has been scraped
         if self.is_scraped():
             return States.Scraped
+
+        # Show has been indexed
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
+
+        # All seasons unreleased
         if all(not season.is_released for season in self.seasons):
             return States.Unreleased
+
+        # Show was requested
         if any(season.state == States.Requested for season in self.seasons):
             return States.Requested
+
         return States.Unknown
 
     def store_state(self, given_state: States = None) -> tuple[States, States]:
@@ -633,7 +765,12 @@ class Show(MediaItem):
         return None
 
 class Season(MediaItem):
-    """Season class"""
+    """
+    TV Season model.
+
+    Represents a TV season containing episodes.
+    Individual episodes are enqueued for download after scraping.
+    """
     __tablename__ = "Season"
     id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
     parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True)
@@ -668,33 +805,56 @@ class Season(MediaItem):
             self.is_anime = self.parent.is_anime
 
     def _determine_state(self):
-        if len(self.episodes) > 0:
-            if all(episode.state == States.Paused for episode in self.episodes):
-                return States.Paused
-            if all(episode.state == States.Failed for episode in self.episodes):
-                return States.Failed
-            if all(episode.state == States.Completed for episode in self.episodes):
-                return States.Completed
-            if any(episode.state == States.Unreleased for episode in self.episodes):
-                if any(episode.state != States.Unreleased for episode in self.episodes):
-                    return States.Ongoing
-            if any(episode.state == States.Completed for episode in self.episodes):
-                return States.PartiallyCompleted
-            if any(episode.state == States.Symlinked for episode in self.episodes):
-                return States.Symlinked
-            if any(episode.state == States.Downloaded for episode in self.episodes):
-                return States.Downloaded
-            if self.is_scraped():
-                return States.Scraped
-            if any(episode.state == States.Indexed for episode in self.episodes):
-                return States.Indexed
-            if any(episode.state == States.Unreleased for episode in self.episodes):
-                return States.Unreleased
-            if any(episode.state == States.Requested for episode in self.episodes):
-                return States.Requested
-            return States.Unknown
-        else:
+        """
+        Determine Season state based on episode states.
+
+        Seasons aggregate episode states: Requested → Indexed → Scraped → Ongoing/Completed/Failed
+        Uses Partially* states to indicate partial completion across episodes.
+        """
+        if len(self.episodes) == 0:
             return States.Unreleased
+
+        # Explicit states override everything
+        if self.last_state == States.Paused:
+            return States.Paused
+        if self.last_state == States.Failed:
+            return States.Failed
+
+        # Any episode has unreleased/ongoing status
+        if any(episode.state in [States.Ongoing, States.Unreleased] for episode in self.episodes):
+            return States.Ongoing
+
+        # All episodes completed
+        if all(episode.state == States.Completed for episode in self.episodes):
+            return States.Completed
+
+        # Some episodes completed
+        if any(episode.state in [States.Completed, States.PartiallyCompleted] for episode in self.episodes):
+            return States.PartiallyCompleted
+
+        if any(episode.state in [States.Available, States.PartiallyAvailable] for episode in self.episodes):
+            return States.PartiallyAvailable
+
+        if any(episode.state in [States.Downloaded, States.PartiallyDownloaded] for episode in self.episodes):
+            return States.PartiallyDownloaded
+
+        # Season has been scraped
+        if self.is_scraped():
+            return States.Scraped
+
+        # Season has been indexed
+        if any(episode.state == States.Indexed for episode in self.episodes):
+            return States.Indexed
+
+        # All episodes unreleased
+        if all(episode.state == States.Unreleased for episode in self.episodes):
+            return States.Unreleased
+
+        # Season was requested
+        if any(episode.state == States.Requested for episode in self.episodes):
+            return States.Requested
+
+        return States.Unknown
 
     @property
     def is_released(self) -> bool:

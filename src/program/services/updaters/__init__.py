@@ -1,10 +1,25 @@
-"""Updater module"""
+"""
+Updater service for Riven.
+
+This module coordinates media server updaters to refresh library content:
+- Plex, Jellyfin, Emby
+
+Key features:
+- Multi-server support (can update multiple servers simultaneously)
+- MediaEntry-based updates (profile-aware)
+- Path-based refresh (triggers server scan of specific directories)
+- Automatic marking of entries as updated
+
+The Updater service processes MediaEntry objects (not MediaItem) since each
+profile can have different files requiring different server updates.
+"""
 import os
 from typing import Generator
 
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.media.media_entry import MediaEntry
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -20,6 +35,12 @@ class Updater:
     """
 
     def __init__(self):
+        """
+        Initialize the Updater service.
+
+        Initializes all media server updater implementations and filters to
+        only use successfully initialized ones.
+        """
         self.key = "updater"
         self.library_path = settings_manager.settings.updaters.library_path
         self.services = {
@@ -30,49 +51,50 @@ class Updater:
         self.initialized = self.validate()
 
     def validate(self) -> bool:
-        """Validate that at least one updater service is initialized."""
+        """
+        Validate that at least one updater service is initialized.
+
+        Returns:
+            bool: True if at least one media server is configured, False otherwise.
+        """
         initialized_services = [service for service in self.services.values() if service.initialized]
         return len(initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, entry: MediaEntry) -> Generator[MediaEntry, None, None]:
         """
-        Update media servers for the given item.
+        Update media servers for a specific MediaEntry.
 
-        Extracts the filesystem path from the item and triggers a refresh
-        in all initialized media servers.
-
-        For movies: refreshes parent directory (e.g., /movies/Movie Name (2020)/)
-        For shows: refreshes parent's parent directory (e.g., /shows/Show Name/)
+        This is the main entry point for the Updater service in the new MediaEntry-based architecture.
+        Checks if the entry needs updating, triggers media server refresh, and marks the entry as updated.
 
         Args:
-            item: MediaItem to update
+            entry: MediaEntry to update
 
         Yields:
-            MediaItem: The item after processing
+            MediaEntry: The entry after processing
         """
-        logger.debug(f"Starting update process for {item.log_string}")
-        items = self.get_items_to_update(item)
-        last_path = None
+        if not entry.media_item:
+            logger.error(f"MediaEntry {entry.id} has no associated MediaItem")
+            yield entry
+            return
 
-        for _item in items:
-            logger.debug(f"Updating {_item.log_string} at {_item.filesystem_entry.path}")
-            # Get the filesystem path from the item
-            fe_path = _item.filesystem_entry.path
+        logger.debug(f"Updating {entry.log_string}")
 
-            # Build absolute path to the file
-            abs_path = os.path.join(self.library_path, fe_path.lstrip("/"))
-            refresh_path = os.path.dirname(abs_path)
+        # Build absolute path to the file
+        abs_path = os.path.join(self.library_path, entry.path.lstrip("/"))
+        refresh_path = os.path.dirname(abs_path)
 
-            # Refresh the path in all services
-            if refresh_path != last_path:
-                self.refresh_path(refresh_path)
-            last_path = refresh_path
+        # Refresh the path in all services
+        if self.refresh_path(refresh_path):
+            logger.info(f"Refreshed media servers for {entry.log_string}")
+        else:
+            logger.warning(f"Failed to refresh media servers for {entry.log_string}")
 
-            _item.updated = True
-            logger.debug(f"Updated {_item.log_string}")
+        # Mark entry as updated
+        entry.updated = True
+        logger.debug(f"Marked {entry.log_string} as updated")
 
-        logger.info(f"Updated {item.log_string}")
-        yield item
+        yield entry
 
     def refresh_path(self, path: str) -> bool:
         """
@@ -103,18 +125,39 @@ class Updater:
         return success
     
     def get_items_to_update(self, item: MediaItem) -> list[MediaItem]:
-        """Get the list of files to update for the given item."""
+        """
+        Get the list of leaf items (movies/episodes) to update for the given item.
+
+        Only includes items that have at least one MediaEntry in Available state.
+
+        Note: In the new architecture, only Movies/Episodes should reach Updater.
+        Shows/Seasons are handled here for backwards compatibility but shouldn't occur.
+        """
+        from program.media.media_entry import MediaEntry
+        from program.media.entry_state import EntryState
+
+        def has_available_entries(media_item: MediaItem) -> bool:
+            """Check if item has any MediaEntry in Available state."""
+            return any(
+                isinstance(e, MediaEntry) and e.state == EntryState.Available and e.available_in_vfs
+                for e in media_item.filesystem_entries
+            )
+
         if item.type in ["movie", "episode"]:
-            return [item]
+            return [item] if has_available_entries(item) else []
+
+        # Shows/Seasons should never reach Updater in new architecture, but handle gracefully
         if item.type == "show":
             return [
                 e for season in item.seasons
                 for e in season.episodes
-                if e.available_in_vfs
+                if has_available_entries(e)
             ]
+
         if item.type == "season":
             return [
                 e for e in item.episodes
-                if e.available_in_vfs
+                if has_available_entries(e)
             ]
+
         return []

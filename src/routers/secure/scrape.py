@@ -22,7 +22,6 @@ from program.services.downloaders.models import (
 )
 from program.services.indexers import IndexerService
 from program.services.scrapers import Scraping
-from program.services.scrapers.shared import rtn
 from program.types import Event
 
 
@@ -476,14 +475,14 @@ async def manual_update_attributes(request: Request, session_id, data: Union[Deb
                 item = db_session.merge(item)
 
             item.active_stream = {"infohash": session.magnet, "id": session.torrent_info.id}
-            torrent = rtn.rank(session.torrent_info.name, session.magnet)
+            # torrent = rtn.rank(session.torrent_info.name, session.magnet)
             
             # Ensure the item is properly attached to the session before adding streams
             # This prevents SQLAlchemy warnings about detached objects
             if object_session(item) is not db_session:
                 item = db_session.merge(item)
             
-            item.streams.append(ItemStream(torrent))
+            # item.streams.append(ItemStream(torrent))
             item_ids_to_submit.add(item.id)
 
         if item.type == "movie":

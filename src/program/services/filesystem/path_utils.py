@@ -1,6 +1,18 @@
 """
-Shared path generation utilities for filesystem operations in VFS-only mode.
-Used by Downloader to generate target paths for items.
+Path generation utilities for RivenVFS.
+
+This module provides utilities for generating virtual filesystem paths:
+- _determine_target_filename: Generate filenames for media items
+- determine_base_path: Determine base directory (movies/shows/anime)
+- create_folder_structure: Build nested folder paths
+- generate_target_path: Complete VFS path generation with profile support
+- _sanitize_profile_name: Sanitize profile names for filesystem use
+
+Used by Downloader to generate target paths for MediaEntry objects.
+
+Path structure with multi-profile support:
+- /{profile_name}/movies/Movie Title (2025) {tmdb-12345}/Movie Title (2025).mkv
+- /{profile_name}/shows/Show Title (2024) {tvdb-67890}/Season 01/Show Title S01E01.mkv
 """
 
 import os
@@ -49,7 +61,21 @@ def _determine_target_filename(item: MediaItem, file_data: ParsedFileData) -> st
 
 
 def determine_base_path(item: MediaItem, settings, is_anime: bool = False) -> str:
-    """Determine the base path (movies, shows, anime_movies, anime_shows)"""
+    """
+    Determine the base path for a media item.
+
+    Returns one of:
+    - /movies or /anime_movies (for movies)
+    - /shows or /anime_shows (for shows/seasons/episodes)
+
+    Args:
+        item: MediaItem to determine path for.
+        settings: Filesystem settings (for separate_anime_dirs).
+        is_anime: Whether the item is anime content.
+
+    Returns:
+        str: Base path string (e.g., "/movies", "/anime_shows").
+    """
     # Check by type attribute first (for compatibility with mock objects)
     item_type = getattr(item, 'type', None)
 
@@ -95,20 +121,23 @@ def create_folder_structure(item: MediaItem, base_path: str) -> str:
         return base_path  # Fallback
 
 
-def generate_target_path(item: MediaItem, settings, original_filename: str = None, file_data: ParsedFileData = None) -> str:
+def generate_target_path(item: MediaItem, settings, original_filename: str = None, file_data: ParsedFileData = None, profile_name: str = None) -> str:
     """
     Builds the complete VFS target path for a media item, including folder structure and filename.
-    
-    The path is constructed using the appropriate base directory (movies/shows or anime variants), a folder hierarchy derived from the item's type and parents, and a filename produced from the item's metadata. The file extension is taken from `original_filename` when provided, otherwise from the item's filesystem entry if available, and defaults to "mkv" if neither provides an extension. If a filename cannot be determined for the item, a fallback movie-style path is returned. Any forward slashes in the final filename are replaced with hyphens to avoid creating subdirectories.
-    
+
+    With multi-profile support, each scraping profile gets its own root directory in the VFS:
+    - /{profile_name}/movies/Movie Title (2025)/Movie Title (2025).mkv
+    - /{profile_name}/shows/Show Title (2024)/Season 01/Show Title S01E01.mkv
+
     Parameters:
         item: The media item to generate a path for (movie, show, season, or episode).
         settings: Filesystem settings that control base directories (e.g., whether anime directories are separated).
-        original_filename (str, optional): Source filename to derive the file extension from; takes precedence over the item's filesystem entry.
-        file_data (ParsedFileData, optional): Pre-parsed file metadata used to detect multi-episode files (prevents re-parsing).
-    
+        original_filename (str, optional): Source filename to derive the file extension from.
+        file_data (ParsedFileData, optional): Pre-parsed file metadata used to detect multi-episode files.
+        profile_name (str, optional): Scraping profile name to use as root directory. If None, uses "default".
+
     Returns:
-        str: The full VFS path for the item, including folders and filename with extension.
+        str: The full VFS path for the item, including profile root, folders and filename with extension.
     """
     # Determine if this is anime content
     is_anime = hasattr(item, "is_anime") and item.is_anime
@@ -126,7 +155,8 @@ def generate_target_path(item: MediaItem, settings, original_filename: str = Non
     filename = _determine_target_filename(item, file_data=file_data)
     if not filename:
         # Fallback
-        return f"/movies/{item.title}.{extension}"
+        profile_root = _sanitize_profile_name(profile_name or "default")
+        return f"/{profile_root}/movies/{item.title}.{extension}"
 
     vfs_filename = f"{filename}.{extension}"
 
@@ -134,7 +164,29 @@ def generate_target_path(item: MediaItem, settings, original_filename: str = Non
     base_path = determine_base_path(item, settings, is_anime)
     folder_path = create_folder_structure(item, base_path)
 
-    # Combine folder path and filename, ensuring proper path separators
-    full_path = f"{folder_path}/{vfs_filename.replace('/', '-')}"
+    # Prepend profile name as root directory
+    profile_root = _sanitize_profile_name(profile_name or "default")
+    full_path = f"/{profile_root}{folder_path}/{vfs_filename.replace('/', '-')}"
 
     return full_path
+
+
+def _sanitize_profile_name(profile_name: str) -> str:
+    """
+    Sanitize profile name for use in filesystem paths.
+
+    Converts to lowercase, replaces spaces with hyphens, removes special characters.
+    Only allows alphanumeric characters, hyphens, and underscores.
+
+    Args:
+        profile_name: Profile name to sanitize (e.g., "4K HDR", "1080p").
+
+    Returns:
+        str: Sanitized profile name (e.g., "4k-hdr", "1080p").
+    """
+    import re
+    # Convert to lowercase and replace spaces with hyphens
+    sanitized = profile_name.lower().replace(" ", "-")
+    # Remove any characters that aren't alphanumeric, hyphens, or underscores
+    sanitized = re.sub(r'[^a-z0-9\-_]', '', sanitized)
+    return sanitized

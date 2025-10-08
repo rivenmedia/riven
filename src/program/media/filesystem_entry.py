@@ -1,7 +1,15 @@
-"""Model for filesystem entries"""
+"""
+Filesystem Entry models for RivenVFS.
+
+This module defines the base FilesystemEntry model and its polymorphic children:
+- MediaEntry: Video files (movies, episodes)
+- SubtitleEntry: Subtitle files
+
+FilesystemEntry represents any file or directory in the virtual filesystem,
+with automatic VFS cache invalidation on deletion.
+"""
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
-
 
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,7 +21,25 @@ if TYPE_CHECKING:
 
 
 class FilesystemEntry(db.Model):
-    """Base model for all virtual filesystem entries in RivenVFS"""
+    """
+    Base model for all virtual filesystem entries in RivenVFS.
+
+    This is a polymorphic base class that uses single-table inheritance.
+    Child classes (MediaEntry, SubtitleEntry) share this table but have
+    different polymorphic_identity values.
+
+    Attributes:
+        id: Primary key.
+        entry_type: Discriminator for polymorphic identity.
+        path: Virtual path in the VFS (e.g., "/movies/Movie (2024)/Movie.mkv").
+        file_size: Size in bytes.
+        is_directory: Whether this entry is a directory (only for MediaEntry).
+        created_at: Timestamp when entry was created.
+        updated_at: Timestamp when entry was last updated.
+        available_in_vfs: Whether this entry is currently available in VFS.
+        media_item_id: Foreign key to parent MediaItem.
+        media_item: Relationship to parent MediaItem.
+    """
     __tablename__ = "FilesystemEntry"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
@@ -22,7 +48,7 @@ class FilesystemEntry(db.Model):
     entry_type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
 
     # Common fields for all VFS entries
-    path: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False, index=True)  # virtual path in VFS
+    path: Mapped[str] = mapped_column(sqlalchemy.String, nullable=True, index=True)  # virtual path in VFS
 
     # File size in bytes (for media files, this is the video size; for subtitles, this is the subtitle file size)
     file_size: Mapped[int] = mapped_column(sqlalchemy.BigInteger, nullable=False, default=0)
@@ -73,11 +99,12 @@ class FilesystemEntry(db.Model):
     )
 
     def __repr__(self):
+        """String representation of the FilesystemEntry."""
         return f"<FilesystemEntry(id={self.id}, type='{self.entry_type}', path='{self.path}')>"
 
     def to_dict(self) -> dict:
         """
-        Provide a dictionary representation of the FilesystemEntry.
+        Convert FilesystemEntry to dictionary representation.
 
         Returns:
             dict: Base fields common to all entry types.
@@ -101,12 +128,20 @@ from loguru import logger
 
 def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: FilesystemEntry):
     """
-    Invalidate Riven VFS caches for a FilesystemEntry that is being deleted.
-    
-    When invoked as a SQLAlchemy before_delete listener, removes any cached path/inode mappings and invalidates entry and parent-directory caches in the riven virtual filesystem for the entry identified by target.path. Any exceptions raised during cleanup are caught and logged as warnings, and do not propagate.
-    
-    Parameters:
-        target (FilesystemEntry): The FilesystemEntry instance being deleted; its path is used to locate and invalidate VFS caches.
+    Invalidate RivenVFS caches when a FilesystemEntry is deleted.
+
+    This SQLAlchemy event listener is triggered before a FilesystemEntry is deleted
+    from the database. It removes cached path/inode mappings and invalidates FUSE
+    caches to ensure the VFS reflects the deletion immediately.
+
+    Args:
+        mapper: SQLAlchemy mapper (unused).
+        connection: Database connection (unused).
+        target: The FilesystemEntry being deleted.
+
+    Note:
+        Exceptions are caught and logged as warnings to prevent database
+        transaction rollback if VFS cleanup fails.
     """
     try:
         from program.program import riven
@@ -117,19 +152,18 @@ def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: Filesyste
             vfs = filesystem_service.riven_vfs
             path = vfs._normalize_path(target.path)
 
-            # Get inode before removal for cache invalidation
+            # Remove path/inode mappings
             ino = vfs._path_to_inode.pop(path, None)
             if ino is not None:
                 vfs._inode_to_path.pop(ino, None)
 
-            # Invalidate FUSE cache for the removed entry
+            # Invalidate FUSE caches
             vfs._entry_cache_invalidate_path(path)
             vfs._invalidate_removed_entry_cache(path, ino)
-            # Also attempt to invalidate parent directories that may have been pruned
             vfs._invalidate_potentially_removed_dirs(path)
     except Exception as e:
         logger.warning(f"Error invalidating VFS caches for {target.path}: {e}")
 
 
-# Register event listener
+# Register the event listener
 event.listen(FilesystemEntry, "before_delete", cleanup_vfs_on_filesystem_entry_delete)
