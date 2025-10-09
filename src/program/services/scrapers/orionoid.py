@@ -101,9 +101,6 @@ class Orionoid(ScraperService):
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
-        if not item:
-            return {}
-
         if not self.is_unlimited:
             limit_hit = self.check_limit()
             if limit_hit:
