@@ -2,7 +2,7 @@ import json
 import random
 import ssl
 import time
-from collections import deque
+import threading
 from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
 from typing import Dict, Optional
@@ -17,77 +17,73 @@ from urllib3.util.retry import Retry
 
 class TokenBucket:
     """
-    Token bucket for rate limiting.
-
-    This implements a classic token bucket algorithm with a queue
-    for housekeeping of consumed tokens.
+    Token bucket for rate limiting (thread-safe).
 
     Attributes:
+        name (str|None): Optional identifier (e.g., host) for trace logging.
         rate (float): Tokens per second.
-        capacity (int): Maximum number of tokens in the bucket.
-        tokens (int): Current number of tokens.
-        last_refill (float): Timestamp of last refill.
-        queue (deque): Queue of timestamps for consumed tokens.
+        capacity (float): Maximum number of tokens in the bucket.
+        tokens (float): Current number of tokens (float for precision).
+        last_refill (float): Timestamp of last refill (monotonic seconds).
     """
 
-    def __init__(self, rate: float, capacity: int):
+    def __init__(self, rate: float, capacity: int, name: Optional[str] = None):
         """Initialize the token bucket."""
-        self.rate = rate
-        self.capacity = capacity
-        self.tokens = capacity
-        self.last_refill = time.monotonic()
-        self.queue = deque()
+        self.name = name
+        self.rate: float = float(rate)
+        self.capacity: float = float(capacity)
+        self.tokens: float = float(capacity)
+        self.last_refill: float = time.monotonic()
+        self._lock = threading.Lock()
+
+    def _refill(self, now: float | None = None) -> None:
+        """Refill tokens based on elapsed time. Caller must hold the lock."""
+        if now is None:
+            now = time.monotonic()
+        elapsed = now - self.last_refill
+        if elapsed <= 0:
+            return
+        self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+        self.last_refill = now
 
     def consume(self, tokens: int = 1) -> bool:
+        """Attempt to consume tokens atomically; returns True if successful."""
+        need = float(tokens)
+        with self._lock:
+            self._refill()
+            if self.tokens >= need:
+                self.tokens -= need
+                return True
+            return False
+
+    def wait(self, tokens: int = 1) -> None:
         """
-        Consume tokens from the bucket.
-
-        Args:
-            tokens (int): Number of tokens to consume.
-
-        Returns:
-            bool: True if tokens were successfully consumed, False otherwise.
+        Block until enough tokens are available. Uses precise sleep based on
+        deficit/rate, releasing the lock during sleep so other threads can progress.
         """
-        self._refill()
-        if self.tokens >= tokens:
-            self.tokens -= tokens
-            self.queue.append(time.monotonic())
-            return True
-        return False
-
-    def wait(self, tokens: int = 1):
-        """
-        Block until enough tokens are available.
-
-        Args:
-            tokens (int): Number of tokens to consume.
-        """
-        while not self.consume(tokens):
-            time.sleep(0.05)
-
-    def _refill(self):
-        """Refill tokens based on elapsed time."""
-        now = time.monotonic()
-        elapsed = now - self.last_refill
-        refill = elapsed * self.rate
-        if refill >= 1:
-            self.tokens = min(self.capacity, self.tokens + int(refill))
-            self.last_refill = now
-
-    def cleanup(self, ttl: float = 60):
-        """
-        Clean up expired token timestamps from the queue.
-
-        Args:
-            ttl (float): Time-to-live in seconds for old tokens.
-        """
-        now = time.monotonic()
-        expired = 0
-        while self.queue and (now - self.queue[0]) >= ttl:
-            self.queue.popleft()
-            expired += 1
-        if expired:
-            logger.debug(f"Cleaned up {expired} expired tokens")
+        need = float(tokens)
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._refill(now)
+                if self.tokens >= need:
+                    self.tokens -= need
+                    return
+                # Compute exact time to wait for next available tokens
+                deficit = max(0.0, need - self.tokens)
+                sleep_for = deficit / self.rate if self.rate > 0 else 0.05
+                if self.name:
+                    logger.trace(
+                        "Rate limit sleep: host={} sleep={:.3f}s deficit={:.3f} rate={:.3f} tokens={:.3f}/{:.0f}",
+                        self.name,
+                        sleep_for,
+                        deficit,
+                        self.rate,
+                        self.tokens,
+                        self.capacity,
+                    )
+            # Release lock while sleeping to allow other threads to make progress
+            time.sleep(sleep_for)
 
 
 class CircuitBreakerOpen(RuntimeError):
@@ -331,7 +327,7 @@ class SmartSession:
         if rate_limits:
             for domain, cfg in rate_limits.items():
                 self.limiters[domain] = TokenBucket(
-                    rate=cfg.get("rate", 1), capacity=cfg.get("capacity", 5)
+                    rate=cfg.get("rate", 1), capacity=cfg.get("capacity", 5), name=domain
                 )
                 self.breakers[domain] = CircuitBreaker(name=domain)
 
