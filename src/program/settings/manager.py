@@ -84,7 +84,7 @@ class SettingsManager:
     def save(self):
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
-            file.write(self.settings.model_dump_json(indent=4))
+            file.write(self.settings.model_dump_json(indent=4, exclude_none=True))
 
 
 def format_validation_error(e: ValidationError) -> str:

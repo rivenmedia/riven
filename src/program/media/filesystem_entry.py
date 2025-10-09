@@ -102,9 +102,10 @@ from loguru import logger
 def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: FilesystemEntry):
     """
     Invalidate Riven VFS caches for a FilesystemEntry that is being deleted.
-    
-    When invoked as a SQLAlchemy before_delete listener, removes any cached path/inode mappings and invalidates entry and parent-directory caches in the riven virtual filesystem for the entry identified by target.path. Any exceptions raised during cleanup are caught and logged as warnings, and do not propagate.
-    
+
+    When invoked as a SQLAlchemy before_delete listener, removes the node from the VFS tree
+    and invalidates FUSE caches for the entry and parent directories.
+
     Parameters:
         target (FilesystemEntry): The FilesystemEntry instance being deleted; its path is used to locate and invalidate VFS caches.
     """
@@ -117,13 +118,15 @@ def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: Filesyste
             vfs = filesystem_service.riven_vfs
             path = vfs._normalize_path(target.path)
 
-            # Get inode before removal for cache invalidation
-            ino = vfs._path_to_inode.pop(path, None)
-            if ino is not None:
-                vfs._inode_to_path.pop(ino, None)
+            # Get node from tree to get inode before removal
+            node = vfs._get_node_by_path(path)
+            ino = node.inode if node else None
+
+            # Remove node from VFS tree
+            if node:
+                vfs._remove_node(path)
 
             # Invalidate FUSE cache for the removed entry
-            vfs._entry_cache_invalidate_path(path)
             vfs._invalidate_removed_entry_cache(path, ino)
             # Also attempt to invalidate parent directories that may have been pruned
             vfs._invalidate_potentially_removed_dirs(path)

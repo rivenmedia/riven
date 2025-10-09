@@ -42,28 +42,19 @@ class VFSDatabase:
         return path
 
     def _ensure_default_directories(self) -> None:
-        """Ensure default directories exist in the VFS for library structure"""
-        default_dirs = ['/movies', '/shows', '/anime_movies', '/anime_shows']
+        """
+        Ensure default directories exist in the VFS for library structure.
 
-        with self.SessionLocal.begin() as s:
-            for dir_path in default_dirs:
-                # Check if directory already exists
-                existing = s.query(FilesystemEntry.id).filter_by(
-                    path=dir_path
-                ).first()
+        Note: Directories are created automatically by the VFS based on file paths.
+        This method is kept for backward compatibility with existing code that may
+        expect these directories to exist in the database.
 
-                if not existing:
-                    # Create directory entry
-                    dir_entry = MediaEntry.create_virtual_entry(
-                        path=dir_path,
-                        download_url=None,
-                        provider=None,
-                        provider_download_id=None,
-                        file_size=0,
-                        original_filename=None
-                    )
-                    dir_entry.is_directory = True
-                    s.add(dir_entry)
+        In practice, the VFS will create virtual directories on-the-fly when listing
+        parent directories of files, so explicit directory creation is not required.
+        """
+        # Legacy directories for backward compatibility with existing data
+        # These will be automatically created as virtual directories when files are added
+        pass
 
     # --- Queries ---
     def get_entry(self, path: str) -> Optional[Dict]:

@@ -55,7 +55,7 @@ class TMDBIndexer(BaseIndexer):
         try:
             # Direct lookup by TMDB ID
             if tmdb_id:
-                result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+                result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
                 movie_details = result.data if result and result.data else None
 
             # Lookup via IMDB ID
@@ -68,7 +68,7 @@ class TMDBIndexer(BaseIndexer):
                 movie_results = results.data.movie_results
                 if movie_results:
                     tmdb_id = str(movie_results[0].id)
-                    result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids")
+                    result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
                     movie_details = result.data if result and result.data else None
 
         except Exception as e:
@@ -99,6 +99,24 @@ class TMDBIndexer(BaseIndexer):
             if getattr(movie_details, "production_countries", None):
                 country = movie_details.production_countries[0].iso_3166_1
 
+            # Extract rating (vote_average from TMDB, 0-10 scale)
+            rating = None
+            if hasattr(movie_details, "vote_average") and movie_details.vote_average:
+                rating = float(movie_details.vote_average)
+
+            # Extract US content rating (certification)
+            content_rating = None
+            if hasattr(movie_details, "release_dates") and movie_details.release_dates:
+                # Look for US release dates
+                for release_country in movie_details.release_dates.results:
+                    if release_country.iso_3166_1 == "US":
+                        # Get the first certification available
+                        for release in release_country.release_dates:
+                            if hasattr(release, "certification") and release.certification:
+                                content_rating = release.certification
+                                break
+                        break
+
             movie_item = {
                 "title": getattr(movie_details, "title", None),
                 "year": (
@@ -121,11 +139,13 @@ class TMDBIndexer(BaseIndexer):
                     and getattr(movie_details, "original_language", None) != "en"
                 ),
                 "aliases": {},
+                "rating": rating,
+                "content_rating": content_rating,
             }
 
             return Movie(movie_item)
 
         except Exception as e:
             logger.error(f"Error mapping TMDB movie data: {e}")
-        
+
         return None

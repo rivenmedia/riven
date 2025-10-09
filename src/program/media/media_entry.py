@@ -34,6 +34,14 @@ class MediaEntry(FilesystemEntry):
         sqlalchemy.String, nullable=True
     )
 
+    # Library Profile References (list of profile keys from settings.json)
+    library_profiles: Mapped[Optional[list[str]]] = mapped_column(
+        sqlalchemy.JSON,
+        nullable=True,
+        default=list,
+        comment="List of library profile keys this entry matches (from settings.json)"
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "media",
     }
@@ -56,6 +64,78 @@ class MediaEntry(FilesystemEntry):
         import os
 
         return os.path.basename(self.path)
+
+    def get_library_paths(self) -> list[str]:
+        """
+        Get all VFS paths for this entry.
+
+        ALWAYS returns the base path (self.path), plus additional library profile paths
+        if any profiles matched.
+
+        Returns:
+            list[str]: List of VFS paths (base path + profile paths)
+
+        Example:
+            entry.path = "/movies/Toy Story (1995)/Toy Story.mkv"
+            entry.library_profiles = ["kids", "anime"]
+            entry.get_library_paths()
+            # Returns: [
+            #   "/movies/Toy Story (1995)/Toy Story.mkv",           # Base path (ALWAYS)
+            #   "/kids/movies/Toy Story (1995)/Toy Story.mkv",      # Kids profile
+            #   "/anime/movies/Toy Story (1995)/Toy Story.mkv"      # Anime profile
+            # ]
+
+            entry.path = "/movies/The Matrix (1999)/The Matrix.mkv"
+            entry.library_profiles = []
+            entry.get_library_paths()
+            # Returns: [
+            #   "/movies/The Matrix (1999)/The Matrix.mkv"          # Base path only
+            # ]
+        """
+        from program.settings.manager import settings_manager
+
+        paths = []
+
+        # ALWAYS include the base path first
+        if self.path:
+            paths.append(self.path)
+
+        # Add library profile paths if any profiles matched
+        if self.library_profiles:
+            profiles = settings_manager.settings.filesystem.library_profiles or {}
+
+            for profile_key in self.library_profiles:
+                profile = profiles.get(profile_key)
+                if profile and profile.enabled:
+                    library_path = profile.library_path
+                    entry_path = self._generate_path_with_prefix(library_path)
+                    paths.append(entry_path)
+
+        return paths
+
+    def _generate_path_with_prefix(self, prefix: str) -> str:
+        """
+        Generate VFS path with library profile prefix.
+
+        Prepends the profile's library_path to the base path.
+
+        Args:
+            prefix: Library path prefix (e.g., "/kids", "/anime")
+
+        Returns:
+            str: VFS path with profile prefix
+
+        Example:
+            self.path = "/movies/Title (2024)/file.mkv"
+            self._generate_path_with_prefix("/kids")
+            # Returns: "/kids/movies/Title (2024)/file.mkv"
+        """
+        if not self.path:
+            return prefix
+
+        # Prepend prefix to the base path
+        # e.g., "/movies/Title (2024)/file.mkv" -> "/kids/movies/Title (2024)/file.mkv"
+        return f"{prefix}{self.path}"
 
     @classmethod
     def create_virtual_entry(

@@ -49,6 +49,11 @@ class MediaItem(db.Model):
     aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
+
+    # Rating metadata (normalized for filtering)
+    rating: Mapped[Optional[float]] = mapped_column(sqlalchemy.Float, nullable=True)  # 0.0-10.0 scale (TMDB vote_average)
+    content_rating: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)  # US content rating (G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA, etc.)
+
     updated: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
@@ -86,6 +91,8 @@ class MediaItem(db.Model):
         Index("ix_mediaitem_language", "language"),
         Index("ix_mediaitem_aired_at", "aired_at"),
         Index("ix_mediaitem_year", "year"),
+        Index("ix_mediaitem_rating", "rating"),
+        Index("ix_mediaitem_content_rating", "content_rating"),
         Index("ix_mediaitem_overseerr_id", "overseerr_id"),
         Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
     )
@@ -118,6 +125,8 @@ class MediaItem(db.Model):
         self.genres = item.get("genres", [])
         self.aliases = item.get("aliases", {})
         self.is_anime = item.get("is_anime", False)
+        self.rating = item.get("rating")
+        self.content_rating = item.get("content_rating")
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -273,6 +282,8 @@ class MediaItem(db.Model):
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
+            "self.rating": self.rating,
+            "content_rating": self.content_rating,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,
             "scraped_at": str(self.scraped_at),
@@ -597,7 +608,8 @@ class Show(MediaItem):
     def propagate_attributes_to_childs(self):
         """Propagate show attributes to seasons and episodes if they are empty or do not match."""
         # Important attributes that need to be connected.
-        attributes = ["genres", "country", "network", "language", "is_anime"]
+        # These are used for library profile matching and should be inherited from the show
+        attributes = ["genres", "country", "network", "language", "is_anime", "rating", "content_rating"]
 
         def propagate(target, source):
             for attr in attributes:

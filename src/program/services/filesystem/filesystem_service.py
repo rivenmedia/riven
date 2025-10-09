@@ -22,15 +22,22 @@ class FilesystemService:
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
+        self.downloader = downloader  # Store for potential reinit
         self._initialize_rivenvfs(downloader)
 
     def _initialize_rivenvfs(self, downloader: Downloader):
-        """Initialize RivenVFS"""
+        """Initialize or synchronize RivenVFS"""
         try:
             from .vfs import RivenVFS
 
-            logger.info("Initializing RivenVFS")
+            # If VFS already exists and is mounted, synchronize it with current settings
+            if self.riven_vfs and getattr(self.riven_vfs, "_mounted", False):
+                logger.info("Synchronizing existing RivenVFS with library profiles")
+                self.riven_vfs.sync_library_profiles()
+                return
 
+            # Create new VFS instance
+            logger.info("Initializing RivenVFS")
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 downloader=downloader,
@@ -99,12 +106,22 @@ class FilesystemService:
                 logger.debug(f"Item {item.log_string} already available in VFS")
                 return
 
-            # Register the file with FUSE
-            if self.riven_vfs.register_existing_file(filesystem_entry.path):
+            # Get all VFS paths for this entry (base path + library profile paths)
+            all_paths = filesystem_entry.get_library_paths()
+
+            # Register all paths with FUSE
+            success = True
+            for path in all_paths:
+                if not self.riven_vfs.register_existing_file(path):
+                    logger.error(f"Failed to register {item.log_string} at {path}")
+                    success = False
+
+            if success:
                 filesystem_entry.available_in_vfs = True
-                logger.debug(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
-            else:
-                logger.error(f"Failed to register {item.log_string} with FUSE")
+                if len(all_paths) > 1:
+                    logger.debug(f"Added {item.log_string} to RivenVFS at {len(all_paths)} paths: {all_paths}")
+                else:
+                    logger.debug(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
 
         except Exception as e:
             logger.error(f"Failed to process {item.log_string} with RivenVFS: {e}")
@@ -126,41 +143,27 @@ class FilesystemService:
     def validate(self) -> bool:
         """Validate service state and configuration.
         Checks that:
-        - mount path is set and accessible
+        - mount path is set
         - RivenVFS is initialized and mounted
+
+        Note: Mount directory creation is handled by RivenVFS._prepare_mountpoint()
         """
-        try:
-            from pathlib import Path
-            mount = Path(str(self.settings.mount_path))
-            if not str(mount):
-                logger.error("FilesystemService: mount_path is empty")
-                return False
-            # Ensure mount path directory exists
-            mount.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            logger.error(f"FilesystemService: invalid mount_path '{self.settings.mount_path}': {e}")
+        # Check mount path is set
+        if not str(self.settings.mount_path):
+            logger.error("FilesystemService: mount_path is empty")
             return False
 
+        # Check RivenVFS is initialized
         if not self.riven_vfs:
             logger.error("FilesystemService: RivenVFS not initialized")
             return False
 
-        # RivenVFS maintains an internal mounted flag
+        # Check RivenVFS is mounted
         if not getattr(self.riven_vfs, "_mounted", False):
             logger.error("FilesystemService: RivenVFS not mounted")
             return False
 
         return True
-
-    def reinitialize(self) -> bool:
-        """Reinitialize the underlying RivenVFS with current settings."""
-        try:
-            self.close()
-            self._initialize_rivenvfs()
-            return self.validate()
-        except Exception as e:
-            logger.error(f"FilesystemService: reinitialize failed: {e}")
-            return False
 
     @property
     def initialized(self) -> bool:
