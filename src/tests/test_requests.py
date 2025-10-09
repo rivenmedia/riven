@@ -5,6 +5,76 @@ import pytest
 from program.utils.request import CircuitBreaker, SmartResponse, SmartSession
 
 
+import httpx
+from types import SimpleNamespace
+
+
+@pytest.fixture
+def requests_mock(monkeypatch):
+    """Lightweight httpx-based mock that shadows the requests_mock fixture name.
+    It intercepts SmartSession's internal httpx.Client via monkeypatching.
+    """
+    import program.utils.request as request_mod
+
+    # Each route stores either a sticky single cfg or a FIFO queue of cfgs
+    routes: dict[tuple[str, str], dict] = {}
+
+    def _add(method: str, url: str, cfg):
+        key = (method.upper(), url)
+        if isinstance(cfg, list):
+            routes[key] = {"queue": list(cfg), "sticky": None}
+        else:
+            routes[key] = {"queue": [], "sticky": cfg}
+
+    def get(url: str, cfg):
+        _add("GET", url, cfg)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = (request.method.upper(), str(request.url))
+        entry = routes.get(key)
+        if not entry:
+            return httpx.Response(404, json={"detail": "Not mocked"}, headers={"Content-Type": "application/json"})
+        if entry["queue"]:
+            cfg = entry["queue"].pop(0)
+        else:
+            cfg = entry["sticky"]
+        if cfg is None:
+            return httpx.Response(404, json={"detail": "Not mocked"}, headers={"Content-Type": "application/json"})
+        status_code = cfg.get("status_code", 200)
+        headers = dict(cfg.get("headers", {}))
+        if "json" in cfg:
+            headers.setdefault("Content-Type", "application/json")
+            return httpx.Response(status_code, headers=headers, json=cfg["json"])
+        content = cfg.get("content", b"")
+        return httpx.Response(status_code, headers=headers, content=content)
+
+    transport = httpx.MockTransport(handler)
+
+    RealClient = httpx.Client  # capture real client before patching
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            self._client = RealClient(transport=transport)
+            # provide a timeout attribute similar to httpx.Client
+            self.timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+
+        def request(self, *args, **kwargs):
+            return self._client.request(*args, **kwargs)
+
+        def close(self):
+            self._client.close()
+
+    monkeypatch.setattr(request_mod.httpx, "Client", _FakeClient, raising=True)
+
+    class _Mock:
+        def get(self, url: str, cfg=None, **kwargs):
+            # Support both list-of-configs and keyword style like json=..., headers=...
+            if cfg is None and kwargs:
+                cfg = kwargs
+            get(url, cfg)
+
+    return _Mock()
+
 class FakeClock:
     """A monotonic clock you can control; time.sleep() advances it instantly."""
     def __init__(self, start=0.0):
@@ -140,7 +210,7 @@ def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
     monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
     monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
 
-    session = SmartSession(rate_limits={"cb.local": {"rate": 100, "capacity": 100}})
+    session = SmartSession(rate_limits={"cb.local": {"rate": 100, "capacity": 100}}, retries=0)
     # Override breaker config for this test
     session.breakers["cb.local"] = CircuitBreaker(failure_threshold=2, recovery_time=5)
 
@@ -157,7 +227,7 @@ def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
     r1 = session.get(url)
     assert r1.status_code == 500
     assert r1.data.err == "a"
-    
+
     # Failure #2 - HTTP 500 doesn't raise exception, just returns response
     r2 = session.get(url)
     assert r2.status_code == 500
