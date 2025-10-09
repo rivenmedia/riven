@@ -39,176 +39,71 @@ import time
 from dataclasses import dataclass
 from loguru import logger
 import subprocess
-import io
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, TypedDict
 
-
-import urllib.parse
 import threading
 
 from program.services.downloaders import Downloader
+import httpx
+
+from src.program.settings.models import FilesystemModel
 
 class ProviderHTTP:
     """
-    Shared pycurl-based HTTP client with connection reuse via CurlShare and a simple
+    Shared httpx-based HTTP client with connection reuse via CurlShare and a simple
     per-host easy-handle pool. Uses HTTP/2 for multiplexing multiple range requests
     over a single connection, reducing handshake latency and improving performance.
     """
+
     def __init__(self) -> None:
-        self._share = pycurl.CurlShare()
-        try:
-            # Share connection cache, DNS, and SSL sessions across easy handles
-            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_CONNECT)
-            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_DNS)
-            self._share.setopt(pycurl.SH_SHARE, pycurl.LOCK_DATA_SSL_SESSION)
-        except Exception:
-            # Older libcurl may not support all; continue with best effort
-            pass
-        self._pool: dict[str, list[pycurl.Curl]] = {}
+        self._pool: dict[str, httpx.AsyncClient] = {}
         self._lock = threading.Lock()
 
-        # Check if HTTP/2 is available in this libcurl build
-        self._http2_available = hasattr(pycurl, 'CURL_HTTP_VERSION_2_0')
-        if self._http2_available:
-            log.bind(component="RivenVFS").debug("HTTP/2 support detected, will use HTTP/2 for video streaming")
-        else:
-            log.bind(component="RivenVFS").warning("HTTP/2 not available in libcurl, falling back to HTTP/1.1")
+    def _create_client(self, base_url: str) -> httpx.AsyncClient:
+        self._pool[base_url] = httpx.AsyncClient(
+            http2=True,
+            base_url=base_url,
+            headers={
+                'Accept-Encoding': 'identity',
+                'Connection': 'keep-alive',
+            }
+        )
 
-    def _configure_common(self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False) -> None:
-        c.setopt(pycurl.NOSIGNAL, 1)
-        c.setopt(pycurl.FOLLOWLOCATION, 1)
-        c.setopt(pycurl.MAXREDIRS, 5)
-        c.setopt(pycurl.CONNECTTIMEOUT, 5)
-        c.setopt(pycurl.TIMEOUT, 30)
-        c.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
-        c.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
-        c.setopt(pycurl.LOW_SPEED_TIME, 15)
+        return self._pool[base_url]
 
-        # Use HTTP/2 if available and not explicitly requesting HTTP/1.0
-        # HTTP/2 provides multiplexing for better performance with range requests
-        if http10:
-            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0)
-        elif self._http2_available:
-            # CURL_HTTP_VERSION_2_0 enables HTTP/2 with fallback to HTTP/1.1
-            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_2_0)
-        else:
-            c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_1)
-
-        c.setopt(pycurl.HTTP09_ALLOWED, 1)
+    def get_client(self, target_url: str) -> httpx.AsyncClient:
         try:
-            c.setshare(self._share)
-        except Exception:
-            pass
-        if ignore_content_length:
-            try:
-                c.setopt(pycurl.IGNORE_CONTENT_LENGTH, 1)
-            except Exception:
-                pass
+            parsed_url = httpx.URL(target_url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.host}"
 
-    def _acquire(self, host: str) -> pycurl.Curl:
-        with self._lock:
-            lst = self._pool.get(host)
-            if lst:
-                return lst.pop()
-        return pycurl.Curl()
+            with self._lock:
+                return self._pool.get(base_url) or self._create_client(base_url)
+        except Exception as e:
+            log.error(f"Failed to get client for {target_url}: {e}")
+            raise
 
-    def _release(self, host: str, c: pycurl.Curl) -> None:
-        with self._lock:
-            self._pool.setdefault(host, []).append(c)
-    
-    def range_preflight_check(self, target_url: str, start: int, end: int) -> int:
-        parsed = urllib.parse.urlparse(target_url)
-        host = parsed.netloc or ""
-        c = self._acquire(host)
-        header_buffer = io.BytesIO()
+    async def range_preflight_check(self, target_url: str, start: int, end: int) -> httpx.Response:
+        return await self.get_client(target_url).head(
+            url=httpx.URL(target_url).path,
+            headers={'Range': f'bytes={start}-{end}'}
+        )
 
-        try:
-            self._configure_common(c)
-
-            c.setopt(pycurl.URL, target_url)
-            c.setopt(pycurl.HTTPHEADER, [
-                f'Range: bytes={start}-{end}',
-                'Accept-Encoding: identity',
-                'Connection: keep-alive',
-            ])
-            c.setopt(pycurl.NOBODY, True)
-            c.setopt(pycurl.WRITEHEADER, header_buffer)
-
-            c.perform()
-
-            status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
-
-            return status_code
-        finally:
-            try:
-                header_buffer.close()
-            except Exception:
-                pass
-
-            try:
-                c.setopt(pycurl.NOBODY, False)
-                c.setopt(pycurl.WRITEHEADER, None)
-            except Exception:
-                pass
-
-            self._release(host, c)
-
-    def perform_range(self, target_url: str, start: int, end: int, http10: bool = False, ignore_content_length: bool = False) -> tuple[int, bytes, str]:
-        parsed = urllib.parse.urlparse(target_url)
-        host = parsed.netloc or ""
-        c = self._acquire(host)
-        response_buffer = io.BytesIO()
-        header_buffer = io.BytesIO()
-        try:
-            self._configure_common(c, http10=http10, ignore_content_length=ignore_content_length)
-            c.setopt(pycurl.URL, target_url)
-            c.setopt(pycurl.HTTPHEADER, [
-                f'Range: bytes={start}-{end}',
-                'Accept-Encoding: identity',
-                'Connection: keep-alive',
-            ])
-            c.setopt(pycurl.WRITEDATA, response_buffer)
-            c.setopt(pycurl.WRITEHEADER, header_buffer)
-            c.perform()
-            status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
-            # Extract data before closing buffers
-            response_data = response_buffer.getvalue()
-            header_data = header_buffer.getvalue().decode('utf-8', errors='replace')
-            return status_code, response_data, header_data
-        finally:
-            # Explicitly close buffers to free memory immediately
-            try:
-                response_buffer.close()
-                header_buffer.close()
-            except Exception:
-                pass
-            # Clear curl handle references to buffers
-            try:
-                c.setopt(pycurl.WRITEDATA, None)
-                c.setopt(pycurl.WRITEHEADER, None)
-            except Exception:
-                pass
-            self._release(host, c)
+    async def perform_range(self, target_url: str, start: int, end: int) -> httpx.Response:
+        return await self.get_client(target_url).get(
+            url=httpx.URL(target_url).path,
+            headers={'Range': f'bytes={start}-{end}'}
+        )
 
 import pyfuse3
 import trio
-import pycurl
-import io
 import os
 
-from .db import VFSDatabase
+from .db import VFSDatabase, VFSEntry
 
 from program.settings.manager import settings_manager
 from .cache import Cache, CacheConfig
 
 log = logger
-
-MEDIA_SCANNERS = [
-    "PMS ScannerPipe", # Plex
-    "Plex Media Scan", # Plex
-    "ffprobe" # Jellyfin
-]
-
 
 @dataclass
 class PrefetchChunk:
@@ -341,6 +236,25 @@ class PrefetchScheduler:
             async with self._lock:
                 self._active_chunks.pop(chunk_key, None)
 
+class URLCacheItem(TypedDict):
+    url: str
+    timestamp: float
+
+class FileHandle(TypedDict):
+    path: str
+    file_info: VFSEntry
+    is_scanner: bool
+    buffers: list
+    sequential_reads: int
+    last_read_end: int
+    last_read_offset: int
+    subtitle_content: bytes | None
+    request_client: httpx.AsyncClient | None
+
+class FileHandlePrefetchState(TypedDict):
+    last_prefetch_pos: int
+    prefetch_window_end: int
+
 class RivenVFS(pyfuse3.Operations):
     """
     Riven Virtual File System - A FUSE-based VFS for streaming media content.
@@ -374,7 +288,7 @@ class RivenVFS(pyfuse3.Operations):
         try:
             fs = settings_manager.settings.filesystem
         except Exception:
-            fs = None
+            fs = FilesystemModel()
         cache_dir = fs.cache_dir
         size_mb = fs.cache_max_size_mb
         try:
@@ -406,18 +320,18 @@ class RivenVFS(pyfuse3.Operations):
         self.db = VFSDatabase(downloader=downloader)
 
         # Core path <-> inode mapping for FUSE operations
-        self._path_to_inode: Dict[str, int] = {"/": pyfuse3.ROOT_INODE}
-        self._inode_to_path: Dict[int, str] = {pyfuse3.ROOT_INODE: "/"}
-        self._next_inode = pyfuse3.ROOT_INODE + 1
+        self._path_to_inode: Dict[str, pyfuse3.InodeT] = {"/": pyfuse3.ROOT_INODE}
+        self._inode_to_path: Dict[pyfuse3.InodeT, str] = {pyfuse3.ROOT_INODE: "/"}
+        self._next_inode = pyfuse3.InodeT(pyfuse3.ROOT_INODE + 1)
 
         # URL cache for provider links with automatic expiration
-        self._url_cache: Dict[str, Dict[str, object]] = {}
+        self._url_cache: Dict[str, URLCacheItem] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
         # Entry info cache to reduce redundant DB lookups in FUSE ops
-        self._entry_cache: Dict[str, tuple[Optional[Dict], float]] = {}
+        self._entry_cache: Dict[str, tuple[Optional[VFSEntry], float]] = {}
         self._entry_cache_ttl = 30.0  # seconds
 
-        # Shared HTTP client (pycurl + CurlShare) for connection reuse
+        # Shared HTTP client (httpx) for connection reuse
         self.http = ProviderHTTP()
 
         # Chunking
@@ -441,14 +355,14 @@ class RivenVFS(pyfuse3.Operations):
             )
 
         # Open file handles: fh -> handle info
-        self._file_handles: Dict[int, Dict] = {}
+        self._file_handles: Dict[int, FileHandle] = {}
         self._next_fh = 1
 
         # Opener statistics
         self._opener_stats: Dict[str, Dict] = {}
 
         # Per-file-handle prefetch tracking (for proper multi-user coordination)
-        self._fh_prefetch_state: Dict[int, Dict] = {}  # fh -> {last_prefetch_pos: int, prefetch_window_end: int}
+        self._fh_prefetch_state: Dict[int, FileHandlePrefetchState] = {}
         # Per-path coordination for avoiding duplicate chunk fetches across file handles
         self._path_chunks_in_progress: Dict[str, Set[int]] = {}  # path -> set of chunk_starts being fetched
         self._prefetch_locks: Dict[str, trio.Lock] = {}  # path -> lock for coordinating prefetch
@@ -734,11 +648,11 @@ class RivenVFS(pyfuse3.Operations):
         """
         return self.db.exists(self._normalize_path(path))
 
-    def get_file_info(self, path: str) -> Optional[Dict]:
+    def get_file_info(self, path: str) -> Optional[VFSEntry]:
         """Get information about a virtual file."""
         return self.db.get_entry(self._normalize_path(path))
 
-    def list_directory(self, path: str) -> list[Dict]:
+    def list_directory(self, path: str) -> list[VFSEntry]:
         """List contents of a virtual directory."""
         return self.db.list_directory(self._normalize_path(path))
     
@@ -771,7 +685,7 @@ class RivenVFS(pyfuse3.Operations):
             p = p / part
         return self._normalize_path(str(p))
 
-    def _get_entry_cached(self, path: str) -> Optional[Dict]:
+    def _get_entry_cached(self, path: str) -> Optional[VFSEntry]:
         """Cached wrapper around self.db.get_entry to reduce repeated queries."""
         import time
         path = self._normalize_path(path)
@@ -791,7 +705,7 @@ class RivenVFS(pyfuse3.Operations):
     def _exists_cached(self, path: str) -> bool:
         return self._get_entry_cached(path) is not None
 
-    def _list_directory_cached(self, path: str) -> list[Dict]:
+    def _list_directory_cached(self, path: str) -> list[VFSEntry]:
         # Keep listing uncached for simplicity and freshness; can be cached if needed later
         return self.db.list_directory(self._normalize_path(path))
 
@@ -805,17 +719,17 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             pass
 
-    def _assign_inode(self, path: str) -> int:
+    def _assign_inode(self, path: str) -> pyfuse3.InodeT:
         """Assign an inode number to a path."""
         if path in self._path_to_inode:
             return self._path_to_inode[path]
         ino = self._next_inode
-        self._next_inode += 1
+        self._next_inode = pyfuse3.InodeT(self._next_inode + 1)
         self._path_to_inode[path] = ino
         self._inode_to_path[ino] = path
         return ino
 
-    def _get_path_from_inode(self, inode: int) -> str:
+    def _get_path_from_inode(self, inode: pyfuse3.InodeT) -> str:
         """Get path from inode number."""
         try:
             return self._inode_to_path[inode]
@@ -828,15 +742,18 @@ class RivenVFS(pyfuse3.Operations):
         import time
         return int(time.time() * 1e9)
 
-    def _invalidate_directory_cache(self, file_path: str, parent_inodes: list[int]) -> None:
+    def _invalidate_directory_cache(self, file_path: str, parent_inodes: list[pyfuse3.InodeT]) -> None:
         """Invalidate FUSE cache when adding files."""
         try:
             # Invalidate the immediate parent directory where the file was added
             immediate_parent = self._normalize_path(self._get_parent_path(file_path))
             if immediate_parent in self._path_to_inode:
                 parent_ino = self._path_to_inode[immediate_parent]
-                pyfuse3.invalidate_entry_async(parent_ino, os.path.basename(file_path).encode('utf-8'),
-                                               ignore_enoent=True)
+                pyfuse3.invalidate_entry_async(
+                    parent_ino,
+                    pyfuse3.FileNameT(os.path.basename(file_path).encode('utf-8')),
+                    ignore_enoent=True
+                )
                 log.trace(f"Invalidated directory entry for {file_path} in parent {immediate_parent}")
 
             # Also invalidate any newly created parent directories
@@ -863,8 +780,12 @@ class RivenVFS(pyfuse3.Operations):
             parent_path = self._normalize_path(self._get_parent_path(file_path))
             if parent_path in self._path_to_inode:
                 parent_ino = self._path_to_inode[parent_path]
-                pyfuse3.invalidate_entry_async(parent_ino, os.path.basename(file_path).encode('utf-8'),
-                                               deleted=inode or 0, ignore_enoent=True)
+                pyfuse3.invalidate_entry_async(
+                    parent_ino,
+                    pyfuse3.FileNameT(os.path.basename(file_path).encode('utf-8')),
+                    deleted=pyfuse3.InodeT(inode or 0),
+                    ignore_enoent=True
+                )
                 log.trace(f"Invalidated directory entry for removed {file_path}")
         except OSError as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
@@ -882,22 +803,30 @@ class RivenVFS(pyfuse3.Operations):
             if grandparent in self._path_to_inode:
                 name = os.path.basename(parent.rstrip('/'))
                 if name:
-                    pyfuse3.invalidate_entry_async(self._path_to_inode[grandparent], name.encode('utf-8'), ignore_enoent=True)
+                    pyfuse3.invalidate_entry_async(
+                        self._path_to_inode[grandparent],
+                        pyfuse3.FileNameT(name.encode('utf-8')),
+                        ignore_enoent=True
+                    )
                     log.trace(f"Invalidated potential removed dir entry '{name}' under {grandparent}")
 
             # One more level up (e.g., title dir)
             ggparent = self._normalize_path(self._get_parent_path(grandparent))
             gname = os.path.basename(grandparent.rstrip('/'))
             if ggparent in self._path_to_inode and gname:
-                pyfuse3.invalidate_entry_async(self._path_to_inode[ggparent], gname.encode('utf-8'), ignore_enoent=True)
+                pyfuse3.invalidate_entry_async(
+                    self._path_to_inode[ggparent],
+                    pyfuse3.FileNameT(gname.encode('utf-8')),
+                    ignore_enoent=True
+                )
                 log.trace(f"Invalidated potential removed dir entry '{gname}' under {ggparent}")
+        except OSError as e:
+            log.warning(f"Failed to invalidate FUSE cache when removing {file_path}: {e}")
         except Exception as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
                 log.trace(f"Benign ENOENT while invalidating parent dirs for {file_path}: {e}")
             else:
                 log.warning(f"Failed to invalidate parent dir entries for {file_path}: {e}")
-        except OSError as e:
-            log.warning(f"Failed to invalidate FUSE cache when removing {file_path}: {e}")
 
     def _invalidate_rename_cache(self, old_path: str, new_path: str, inode: Optional[int]) -> None:
         """Invalidate FUSE cache when renaming files."""
@@ -906,22 +835,29 @@ class RivenVFS(pyfuse3.Operations):
             old_parent = self._normalize_path(self._get_parent_path(old_path))
             if old_parent in self._path_to_inode:
                 old_parent_ino = self._path_to_inode[old_parent]
-                pyfuse3.invalidate_entry_async(old_parent_ino, os.path.basename(old_path).encode('utf-8'),
-                                               deleted=inode or 0, ignore_enoent=True)
+                pyfuse3.invalidate_entry_async(
+                    old_parent_ino,
+                    pyfuse3.FileNameT(os.path.basename(old_path).encode('utf-8')),
+                    deleted=pyfuse3.InodeT(inode or 0),
+                    ignore_enoent=True
+                )
                 log.trace(f"Invalidated old directory entry for renamed {old_path}")
 
             # Invalidate new parent directory
             new_parent = self._normalize_path(self._get_parent_path(new_path))
             if new_parent in self._path_to_inode:
                 new_parent_ino = self._path_to_inode[new_parent]
-                pyfuse3.invalidate_entry_async(new_parent_ino, os.path.basename(new_path).encode('utf-8'),
-                                               ignore_enoent=True)
+                pyfuse3.invalidate_entry_async(
+                    new_parent_ino,
+                    pyfuse3.FileNameT(os.path.basename(new_path).encode('utf-8')),
+                    ignore_enoent=True
+                )
                 log.debug(f"Invalidated new directory entry for renamed {new_path}")
         except OSError as e:
             log.warning(f"Failed to invalidate FUSE cache when renaming {old_path} to {new_path}: {e}")
 
     # FUSE Operations
-    async def getattr(self, inode: int, ctx=None) -> pyfuse3.EntryAttributes:
+    async def getattr(self, inode: pyfuse3.InodeT, ctx=None) -> pyfuse3.EntryAttributes:
         """Get file/directory attributes."""
         try:
             path = self._get_path_from_inode(inode)
@@ -940,7 +876,7 @@ class RivenVFS(pyfuse3.Operations):
 
             # Special case for root directory
             if path == "/":
-                attrs.st_mode = stat.S_IFDIR | 0o755
+                attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
                 attrs.st_nlink = 2
                 attrs.st_size = 0
                 # Use current time for root directory
@@ -986,11 +922,11 @@ class RivenVFS(pyfuse3.Operations):
             attrs.st_atime_ns = modified_ns  # Use mtime for atime to avoid constant updates
 
             if entry_info["is_directory"]:
-                attrs.st_mode = stat.S_IFDIR | 0o755
+                attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
                 attrs.st_nlink = 2
                 attrs.st_size = 0
             else:
-                attrs.st_mode = stat.S_IFREG | 0o644
+                attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
                 attrs.st_nlink = 1
                 size = int(entry_info.get("size") or 0)
                 if size == 0:
@@ -1004,7 +940,7 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("getattr error for inode=%s: %s", inode, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def lookup(self, parent_inode: int, name: bytes, ctx=None) -> pyfuse3.EntryAttributes:
+    async def lookup(self, parent_inode: pyfuse3.InodeT, name: bytes, ctx=None) -> pyfuse3.EntryAttributes:
         """Look up a directory entry."""
         try:
             parent_path = self._get_path_from_inode(parent_inode)
@@ -1028,7 +964,7 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("lookup error: parent=%s name=%s: %s", parent_inode, name, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def opendir(self, inode: int, ctx):
+    async def opendir(self, inode: pyfuse3.InodeT, ctx):
         """Open a directory for reading."""
         try:
             path = self._get_path_from_inode(inode)
@@ -1047,7 +983,7 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("opendir error for inode=%s: %s", inode, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def readdir(self, inode: int, off: int, token: pyfuse3.ReaddirToken):
+    async def readdir(self, inode: pyfuse3.InodeT, off: int, token: pyfuse3.ReaddirToken):
         """Read directory entries."""
         try:
             path = self._get_path_from_inode(inode)
@@ -1068,7 +1004,7 @@ class RivenVFS(pyfuse3.Operations):
             for idx in range(off, len(items)):
                 name_bytes, child_ino = items[idx]
                 attrs = await self.getattr(child_ino)
-                if not pyfuse3.readdir_reply(token, name_bytes, attrs, idx + 1):
+                if not pyfuse3.readdir_reply(token, pyfuse3.FileNameT(name_bytes), attrs, idx + 1):
                     break
         except pyfuse3.FUSEError:
             raise
@@ -1076,7 +1012,7 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("readdir error for inode=%s: %s", inode, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def open(self, inode: int, flags: int, ctx):
+    async def open(self, inode: pyfuse3.InodeT, flags: int, ctx):
         """Open a file for reading."""
         try:
             path = self._get_path_from_inode(inode)
@@ -1103,6 +1039,8 @@ class RivenVFS(pyfuse3.Operations):
                 "sequential_reads": 0,
                 "last_read_end": 0,
                 "last_read_offset": -1,  # Track last read offset for jump detection
+                "subtitle_content": None,
+                "request_client": None, # This will be populated when we have a URL for the file and make a request
             }
 
             # Initialize per-file-handle prefetch state
@@ -1112,11 +1050,11 @@ class RivenVFS(pyfuse3.Operations):
             }
 
             log.trace(f"Opened file {path} with handle {fh}")
-            return pyfuse3.FileInfo(fh=fh)
+            return pyfuse3.FileInfo(fh=pyfuse3.FileHandleT(fh))
         except pyfuse3.FUSEError:
             raise
 
-    async def read(self, fh: int, off: int, size: int) -> bytes:
+    async def read(self, fh: pyfuse3.FileHandleT, off: int, size: int) -> bytes:
         """Simplified read path: fixed-size chunking and straightforward sequential prefetch."""
         try:
             try:
@@ -1124,7 +1062,7 @@ class RivenVFS(pyfuse3.Operations):
             except Exception:
                 pass
 
-            handle_info = self._file_handles.get(fh) or {}
+            handle_info = self._file_handles.get(fh)
             if not handle_info:
                 raise pyfuse3.FUSEError(errno.EBADF)
             path = handle_info.get("path") or ""
@@ -1177,7 +1115,7 @@ class RivenVFS(pyfuse3.Operations):
                 url = self.db.get_download_url(path, for_http=True, force_resolve=False)
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
-                self._url_cache[path] = {"url": url, "timestamp": now}
+                self._url_cache[path] = URLCacheItem(url=url, timestamp=now)
             else:
                 url = str(cached_url_info.get("url"))
 
@@ -1330,13 +1268,14 @@ class RivenVFS(pyfuse3.Operations):
                         chunk_data = await trio.to_thread.run_sync(
                             lambda cs=current_chunk_start, ce=chunk_end: self.cache.get(path, cs, ce)
                         )
+
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(path, url, current_chunk_start, chunk_end)
                             if chunk_data:
                                 # Cache immediately (async to avoid blocking event loop)
                                 await trio.to_thread.run_sync(
-                                    lambda: self.cache.put(path, current_chunk_start, chunk_data)
+                                    lambda chunk_to_cache=chunk_data: self.cache.put(path, current_chunk_start, chunk_to_cache)
                                 )
 
                         if chunk_data:
@@ -1534,6 +1473,12 @@ class RivenVFS(pyfuse3.Operations):
             if handle_info:
                 path = handle_info.get("path")
 
+                client = handle_info.get('request_client')
+
+                if client:
+                    # Close the HTTP client to the host when done with the file handle
+                    await client.aclose()
+
                 # Clean up per-file-handle prefetch state
                 self._fh_prefetch_state.pop(fh, None)
 
@@ -1557,7 +1502,7 @@ class RivenVFS(pyfuse3.Operations):
         """Sync file data (no-op for read-only filesystem)."""
         return None
 
-    async def access(self, inode: int, mode: int, ctx=None) -> None:
+    async def access(self, inode: pyfuse3.InodeT, mode: int, ctx=None) -> None:
         """Check file access permissions.
         Be permissive for write checks to avoid client false negatives; actual writes still fail with EROFS.
         """
@@ -1613,27 +1558,21 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("rename error: old_parent=%s new_parent=%s name_old=%s name_new=%s: %s",
                           parent_inode_old, parent_inode_new, name_old, name_new, ex)
             raise pyfuse3.FUSEError(errno.EIO)
-        except pyfuse3.FUSEError:
-            raise
-        except Exception as ex:
-            log.exception("rename error: old=%s/%s new=%s/%s: %s",
-                         parent_inode_old, name_old, parent_inode_new, name_new, ex)
-            raise pyfuse3.FUSEError(errno.EIO)
 
     # HTTP helpers
 
-    def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
+    async def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
         try:
-            status_code, body, _ = self.http.perform_range(target_url, start, end, http10=False, ignore_content_length=False)
-            return status_code, body
-        except pycurl.error as e:
-            log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
-            # Content-Length workaround (HTTP/1.0 + ignore length)
-            if e.args and e.args[0] == 8:
-                status_code, body, _ = self.http.perform_range(target_url, start, end, http10=True, ignore_content_length=True)
-                log.info(f"Content-Length workaround successful for {target_url}")
-                return status_code, body
-            raise
+            response = await self.http.perform_range(target_url, start, end)
+            return response.status_code, response.content
+        # except pycurl.error as e:
+        #     log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
+        #     # Content-Length workaround (HTTP/1.0 + ignore length)
+        #     if e.args and e.args[0] == 8:
+        #         response = await self.http.perform_range(target_url, start, end)
+        #         log.info(f"Content-Length workaround successful for {target_url}")
+        #         return response.status_code, response.content
+        #     raise
         except Exception:
             raise
 
@@ -1660,16 +1599,19 @@ class RivenVFS(pyfuse3.Operations):
             The effective URL that was successfully used (may differ from input if refreshed).
         """
 
-        max_preflight_attempts = 3 # Preflight checks generally pass the second time if the first response was 200 OK, add an extra 1 as a safeguard
+        max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
 
         for preflight_attempt in range(max_preflight_attempts):
             is_max_attempt = preflight_attempt == (max_preflight_attempts - 1)
 
             try:
-                preflight_status_code = await trio.to_thread.run_sync(
-                    self.http.range_preflight_check, target_url, start, end
-                )
+                preflight_response = await self.http.range_preflight_check(target_url, start, end)
+                preflight_response.raise_for_status()
+
+                preflight_status_code = preflight_response.status_code
+
+                log.trace(f"Preflight served with {preflight_response.http_version}!")
 
                 if preflight_status_code == 206:
                     # Preflight passed, proceed to actual request
@@ -1684,7 +1626,10 @@ class RivenVFS(pyfuse3.Operations):
                         continue
                     # Unable to get range support after retries
                     raise pyfuse3.FUSEError(errno.EIO)
-                elif preflight_status_code == 404 or preflight_status_code == 410:
+            except httpx.HTTPStatusError as e:
+                preflight_status_code = e.response.status_code
+
+                if preflight_status_code == 404 or preflight_status_code == 410:
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
                         fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
@@ -1700,27 +1645,35 @@ class RivenVFS(pyfuse3.Operations):
                     # Other unexpected status codes
                     log.trace(f"Unexpected preflight HTTP status {preflight_status_code} for {path}")
                     raise pyfuse3.FUSEError(errno.EIO)
-            except pycurl.error as e:
-                error_code = e.args[0] if e.args else 0
-                log.trace(f"HTTP preflight request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}) for {path}: {e}")
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
+                log.trace(f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}) for {path}: {e}")
 
-                # Only refresh URL on connection-related errors, not rate limiting
-                if error_code in (6, 7, 28) and preflight_attempt == 0:  # Host resolution, connection, timeout
+                if preflight_attempt == 0:
+                    # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.info(f"Retrying with fresh URL after connection error for {path}")
-                        # Continue with refreshed URL
-                        continue
-
+                        log.info(f"Retrying with fresh URL after timeout for {path}")
+                
                 if not is_max_attempt:
                     await trio.sleep(backoffs[min(preflight_attempt, len(backoffs) - 1)])
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except Exception as e:
+                log.exception(f"Unexpected error during preflight checks for {path}: {e}")
+                if not is_max_attempt:
+                    await trio.sleep(backoffs[min(preflight_attempt, len(backoffs) - 1)])
+                    continue
+                raise
+        raise pyfuse3.FUSEError(errno.EIO)
 
     async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
+        target_url = "https://43.download.real-debrid.cloud/d/HLSNVZLHLR436/All.I.Want.for.Christmas.2013.1080p.AMZN.WEB-DL.DDP.5.1.H.264.-EDGE2020.mkv"
+
+        parsed = httpx.URL(target_url)
+
         try:
             target_url = await self._attempt_range_preflight_checks(path, target_url, start, end)
         except Exception as e:
@@ -1729,14 +1682,16 @@ class RivenVFS(pyfuse3.Operations):
 
         max_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
-            
+    
         for attempt in range(max_attempts):
             is_max_attempt = attempt == (max_attempts - 1)
 
             try:
-                status, content = await trio.to_thread.run_sync(
-                    self._http_range_request, target_url, start, end
-                )
+                range_response = await self.http.perform_range(target_url, start, end)
+                range_response.raise_for_status()
+
+                content = range_response.content
+                status = range_response.status_code
 
                 if status == 206:
                     log.trace(f"path={path} start={start} end={end} bytes={end-start}")
@@ -1750,21 +1705,24 @@ class RivenVFS(pyfuse3.Operations):
                     # This shouldn't happen due to preflight, treat as error
                     log.trace(f"Server returned full content instead of range for {path}")
                     raise pyfuse3.FUSEError(errno.EIO)
-                elif status == 403:
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+
+                if status_code == 403:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     log.trace(f"HTTP 403 Forbidden for {path} (attempt {attempt + 1})")
                     if attempt < max_attempts - 1:
                         await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                         continue
                     raise pyfuse3.FUSEError(errno.EACCES)
-                elif status == 404 or status == 410:
+                elif status_code == 404 or status_code == 410:
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
                     raise pyfuse3.FUSEError(errno.ENOENT)
-                elif status == 416:
+                elif status_code == 416:
                     # Requested range not satisfiable; treat as EOF
                     return b''
-                elif status == 429:
+                elif status_code == 429:
                     # Rate limited - back off exponentially, don't refresh URL
                     log.trace(f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})")
                     if not is_max_attempt:
@@ -1774,25 +1732,34 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EAGAIN)
                 else:
                     # Other unexpected status codes
-                    log.trace(f"Unexpected HTTP status {status} for {path}")
+                    log.trace(f"Unexpected HTTP status {status_code} for {path}")
                     raise pyfuse3.FUSEError(errno.EIO)
-            except pycurl.error as e:
-                error_code = e.args[0] if e.args else 0
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.trace(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
 
-                # Only refresh URL on connection-related errors, not rate limiting
-                if error_code in (6, 7, 28) and attempt == 0:  # Host resolution, connection, timeout
+                if attempt == 0:
+                    # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.info(f"Retrying with fresh URL after connection error for {path}")
-
+                        log.info(f"Retrying with fresh URL after timeout for {path}")
+                
                 if not is_max_attempt:
                     await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except pyfuse3.FUSEError:
+                if not is_max_attempt:
+                    continue
+                raise
+            except Exception as e:
+                log.exception(f"Unexpected error fetching data block for {path}: {e}")
+                if not is_max_attempt:
+                    await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+                    continue
+                raise
 
         raise pyfuse3.FUSEError(errno.EIO)
 

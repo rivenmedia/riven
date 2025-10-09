@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 
 from loguru import logger as log
 from sqlalchemy.orm.exc import StaleDataError
@@ -13,6 +13,15 @@ from program.media.media_entry import MediaEntry
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader
+
+class VFSEntry(TypedDict):
+    virtual_path: str
+    name: str
+    size: int
+    is_directory: bool
+    entry_type: str | None
+    created: str | None
+    modified: str | None
 
 class VFSDatabase:
     def __init__(self, downloader: Optional["Downloader"] = None) -> None:
@@ -66,7 +75,7 @@ class VFSDatabase:
                     s.add(dir_entry)
 
     # --- Queries ---
-    def get_entry(self, path: str) -> Optional[Dict]:
+    def get_entry(self, path: str) -> Optional[VFSEntry]:
         """
         Retrieve metadata for a virtual filesystem entry or for a virtual directory inferred from stored entries.
 
@@ -103,7 +112,15 @@ class VFSDatabase:
 
             # Not in database - check if it's a virtual directory (parent of any files)
             if path == '/':
-                return {'virtual_path': '/', 'name': '/', 'size': 0, 'is_directory': True, 'created': None, 'modified': None}
+                return {
+                    'virtual_path': '/',
+                    'name': '/',
+                    'size': 0,
+                    'is_directory': True,
+                    'entry_type': None,
+                    'created': None,
+                    'modified': None
+                }
 
             # Check if any files exist under this path (making it a virtual directory)
             prefix = path + '/'
@@ -117,13 +134,14 @@ class VFSDatabase:
                     'name': os.path.basename(path),
                     'size': 0,
                     'is_directory': True,
+                    'entry_type': None,
                     'created': None,
                     'modified': None
                 }
 
             return None
 
-    def list_directory(self, path: str) -> List[Dict]:
+    def list_directory(self, path: str) -> List[VFSEntry]:
         """
         List entries directly under a virtual filesystem path, including synthesized virtual intermediate directories for deeper descendants.
         
@@ -141,7 +159,7 @@ class VFSDatabase:
         """
         path = self._norm(path)
         prefix = '/' if path == '/' else path + '/'
-        out: List[Dict] = []
+        out: List[VFSEntry] = []
         seen_names = set()
 
         with self.SessionLocal() as s:
@@ -171,7 +189,8 @@ class VFSDatabase:
                             'size': size,
                             'is_directory': bool(is_dir),
                             'created': created.isoformat() if created else None,
-                            'modified': modified.isoformat() if modified else None
+                            'modified': modified.isoformat() if modified else None,
+                            'entry_type': None
                         })
                 # If this entry is deeper, create virtual directory entries for intermediate dirs
                 elif vp.startswith(prefix):
@@ -187,7 +206,8 @@ class VFSDatabase:
                             'size': 0,
                             'is_directory': True,
                             'created': None,
-                            'modified': None
+                            'modified': None,
+                            'entry_type': None
                         })
 
         out.sort(key=lambda d: d['name'])
