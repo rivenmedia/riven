@@ -1,6 +1,8 @@
 """MediaItem class"""
 from datetime import datetime
 from typing import Any, List, Optional, Self, TYPE_CHECKING
+import json
+
 
 import sqlalchemy
 from loguru import logger
@@ -347,7 +349,7 @@ class MediaItem(db.Model):
     def get_top_title(self) -> str:
         """
         Return the top-level title for this media item.
-        
+
         Returns:
             str: The show's title for seasons and episodes (parent for season, grandparent for episode); otherwise the item's own title.
         """
@@ -363,7 +365,7 @@ class MediaItem(db.Model):
     def filesystem_entry(self) -> Optional["FilesystemEntry"]:
         """
         Return the first filesystem entry for this media item to preserve backward compatibility.
-        
+
         Returns:
             The first `FilesystemEntry` instance if any exist, otherwise `None`.
         """
@@ -373,7 +375,7 @@ class MediaItem(db.Model):
     def filesystem_path(self) -> Optional[str]:
         """
         Return the filesystem path of the first FilesystemEntry for this media item, if any.
-        
+
         Returns:
             The filesystem path string from the first entry, or None if no entries exist.
         """
@@ -383,7 +385,7 @@ class MediaItem(db.Model):
     def available_in_vfs(self) -> bool:
         """
         Indicates whether any filesystem entry for this media item is available in the mounted VFS.
-        
+
         Returns:
             `true` if at least one associated filesystem entry is available in the mounted VFS, `false` otherwise.
         """
@@ -392,7 +394,7 @@ class MediaItem(db.Model):
     def get_top_imdb_id(self) -> str:
         """
         Return the IMDb identifier for the top-level item in the hierarchy.
-        
+
         Returns:
             imdb_id (str | None): IMDb identifier string from the show (top-level) when this item is a season or episode; otherwise the item's own `imdb_id`. May be `None` if no identifier is set.
         """
@@ -417,7 +419,7 @@ class MediaItem(db.Model):
     def reset(self):
         """
         Reset this item's internal state and recursively reset child items when applicable.
-        
+
         For a show, resets all seasons and their episodes; for a season, resets its episodes. After child resets, resets this item and updates its stored state.
         """
         if self.type == "show":
@@ -434,7 +436,7 @@ class MediaItem(db.Model):
     def _reset(self):
         """
         Reset the media item and its related associations to prepare for rescraping.
-        
+
         Clears filesystem entries, subtitles, active and related streams, and resets scraping-related metadata (updated, scraped_at, scraped_times, failed_attempts). ORM cascade and configured event listeners are relied upon to delete associated records and perform filesystem/VFS cleanup where applicable.
         """
         # Clear filesystem entries - ORM automatically deletes orphaned entries
@@ -810,13 +812,13 @@ def _set_nested_attr(obj, key, value):
 def copy_item(item):
     """
     Create a copy of a MediaItem-derived object, preserving its concrete subclass and hierarchy.
-    
+
     Parameters:
         item (MediaItem): The media item (Movie, Show, Season, Episode, or MediaItem) to copy.
-    
+
     Returns:
         MediaItem: A new instance of the same concrete subclass containing copied data from `item`.
-    
+
     Raises:
         ValueError: If `item` is not an instance of a supported MediaItem subclass.
     """

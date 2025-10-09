@@ -14,6 +14,8 @@ upgrade decisions.
 import os
 from datetime import datetime
 import traceback
+import json
+
 from typing import Optional, Dict, Any
 
 from loguru import logger
@@ -41,28 +43,28 @@ class MediaAnalysisService:
     def should_submit(item: MediaItem) -> bool:
         """
         Determine if media analysis should run for this item.
-        
+
         Only runs once per item when:
         - Item has a filesystem entry
         - Item hasn't been analyzed yet (no parsed_data)
         - Item type is movie or episode
-        
+
         Args:
             item: MediaItem to check
-            
+
         Returns:
             True if analysis should run, False otherwise
         """
         if item.type not in ["movie", "episode"]:
             return False
-            
+
         if not item.filesystem_entry:
             return False
-        
+
         # Check if already analyzed by looking for parsed_data
         if hasattr(item, 'parsed_data') and item.parsed_data:
             return False
-            
+
         return True
 
     def run(self, item: MediaItem):
@@ -107,10 +109,11 @@ class MediaAnalysisService:
                 analysis_results['ffprobe_data'] = ffprobe_data
 
             # 2. Parse filename with PTT
+            parsed_data = None
             if original_filename:
                 parsed_data = self._parse_filename(original_filename, item)
                 if parsed_data:
-                    analysis_results['parsed_filename'] = parsed_data
+                    analysis_results["parsed_filename"] = parsed_data
 
             # 3. Store results in MediaItem
             if ffprobe_data and parsed_data:
@@ -126,11 +129,11 @@ class MediaAnalysisService:
     def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> Dict[str, Any]:
         """
         Analyze media file with ffprobe.
-        
+
         Args:
             file_path: Full path to the media file
             item: MediaItem being analyzed
-            
+
         Returns:
             Dictionary with ffprobe data or None if analysis fails
         """
@@ -142,7 +145,7 @@ class MediaAnalysisService:
             media_metadata = parse_media_file(file_path)
             if media_metadata:
                 ffprobe_dict = media_metadata.model_dump(mode="json")
-                logger.debug(f"FFprobe analysis successful for {item.log_string}")
+                logger.debug(f"ffprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
 
             logger.warning(f"FFprobe returned no data for {item.log_string}")
@@ -154,11 +157,11 @@ class MediaAnalysisService:
     def _parse_filename(self, filename: str, item: MediaItem) -> Dict[str, Any]:
         """
         Parse filename with PTT to extract metadata.
-        
+
         Args:
             filename: Original filename to parse
             item: MediaItem being analyzed
-            
+
         Returns:
             Dictionary with parsed metadata or None if parsing fails
         """
