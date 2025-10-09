@@ -111,7 +111,6 @@ async def generate_apikey() -> MessageResponse:
     settings_manager.save()
     return { "message": new_key}
 
-
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
     data = {}
@@ -121,7 +120,10 @@ async def get_services(request: Request) -> dict[str, bool]:
             if not hasattr(service, "services"):
                 continue
             for sub_service in service.services:
-                data[sub_service.key] = sub_service.initialized
+                if hasattr(sub_service, "initialized"):
+                    data[sub_service.key] = sub_service.initialized
+                elif hasattr(service, "initialized"):
+                    data[service.key] = service.initialized
     return data
 
 

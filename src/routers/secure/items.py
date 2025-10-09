@@ -6,10 +6,10 @@ import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from loguru import logger
 from pydantic import BaseModel
-from RTN import parse_media_file
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, object_session
 
+from program.utils.ffprobe import parse_media_file
 from program.db import db_functions
 from program.db.db import db, get_db
 from program.media.item import MediaItem, Show, Season
@@ -292,7 +292,7 @@ async def add_items(request: Request, tmdb_ids: Optional[str] = None, tvdb_ids: 
     description="Fetch a single media item by TMDB ID, TVDB ID or item ID. TMDB and TVDB IDs are strings, item ID is an integer.",
     operation_id="get_item",
 )
-async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv", "item"] = None, with_streams: Optional[bool] = False) -> dict:
+async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv", "item"] = None, extended: Optional[bool] = False) -> dict:
     if not id:
         raise HTTPException(status_code=400, detail="No ID or media type provided")
 
@@ -319,7 +319,9 @@ async def get_item(_: Request, id: str = None, media_type: Literal["movie", "tv"
         try:
             item: MediaItem = session.execute(query).unique().scalar_one_or_none()
             if item:
-                return item.to_extended_dict(with_streams=with_streams)
+                if extended:
+                    return item.to_extended_dict()
+                return item.to_dict()
             else:
                 raise HTTPException(status_code=404, detail="Item not found")
         except Exception as e:
@@ -863,7 +865,7 @@ class FfprobeResponse(BaseModel):
 
 @router.post(
     "/ffprobe",
-    summary="Parse Media File",
+    summary="Parse Media Files using ffprobe",
     description="Parse a media file",
     operation_id="ffprobe_media_files",
 )
