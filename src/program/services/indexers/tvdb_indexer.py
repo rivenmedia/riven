@@ -134,6 +134,19 @@ class TVDBIndexer(BaseIndexer):
             title = regex.sub(r"\s*\(.*\)\s*$", "", title)
             release_data = self.api.get_series_release_data(show_data) or {}
 
+            # Extract rating (TVDB doesn't provide ratings directly, set to None)
+            rating = None
+
+            # Extract US content rating
+            content_rating = None
+            if hasattr(show_data, "contentRatings") and show_data.contentRatings:
+                # Look for US content rating
+                for rating_obj in show_data.contentRatings:
+                    if hasattr(rating_obj, "country") and rating_obj.country == "usa":
+                        if hasattr(rating_obj, "name") and rating_obj.name:
+                            content_rating = rating_obj.name
+                            break
+
             show_item = {
                 "title": title,
                 "year": int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None,
@@ -151,6 +164,8 @@ class TVDBIndexer(BaseIndexer):
                 "is_anime": is_anime,
                 "aliases": aliases,
                 "release_data": release_data,
+                "rating": rating,
+                "content_rating": content_rating,
             }
 
             return Show(show_item)

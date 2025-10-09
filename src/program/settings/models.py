@@ -106,13 +106,200 @@ class DownloadersModel(Observable):
 # Filesystem Service
 
 
+class LibraryProfileFilterRules(BaseModel):
+    """Filter rules for library profile matching (metadata-only)"""
+
+    content_types: List[str] | None = Field(
+        default=None,
+        description="Media types to include (movie, show). None/omit = all types"
+    )
+    genres: List[str] | None = Field(
+        default=None,
+        description="Include if ANY genre matches (OR logic). None/omit = no genre filter"
+    )
+    exclude_genres: List[str] | None = Field(
+        default=None,
+        description="Exclude if ANY genre matches. None/omit = no exclusion"
+    )
+    min_year: int | None = Field(
+        default=None,
+        ge=1900,
+        description="Minimum release year. None/omit = no minimum"
+    )
+    max_year: int | None = Field(
+        default=None,
+        ge=1900,
+        description="Maximum release year. None/omit = no maximum"
+    )
+    is_anime: bool | None = Field(
+        default=None,
+        description="Filter by anime flag. None/omit = no anime filter"
+    )
+    networks: List[str] | None = Field(
+        default=None,
+        description="TV networks to include (OR logic). None/omit = no network filter"
+    )
+    countries: List[str] | None = Field(
+        default=None,
+        description="Countries of origin to include (OR logic). None/omit = no country filter"
+    )
+    languages: List[str] | None = Field(
+        default=None,
+        description="Original languages to include (OR logic). None/omit = no language filter"
+    )
+    min_rating: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="Minimum rating (0-10 scale). None/omit = no minimum"
+    )
+    max_rating: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="Maximum rating (0-10 scale). None/omit = no maximum"
+    )
+    content_ratings: List[str] | None = Field(
+        default=None,
+        description="Allowed content ratings (G, PG, PG-13, R, TV-MA, etc.). None/omit = no filter"
+    )
+
+
+class LibraryProfile(BaseModel):
+    """Library profile configuration for organizing media into different libraries"""
+
+    name: str = Field(
+        description="Human-readable profile name"
+    )
+    library_path: str = Field(
+        description="VFS path prefix for this profile (e.g., '/kids', '/anime')"
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Enable this profile"
+    )
+    filter_rules: LibraryProfileFilterRules = Field(
+        default_factory=lambda: LibraryProfileFilterRules(),
+        description="Metadata filter rules for matching items"
+    )
+
+    @field_validator("library_path")
+    def validate_library_path(cls, v):
+        """Validate library_path format"""
+        if not v:
+            raise ValueError("library_path cannot be empty")
+        if not v.startswith("/"):
+            raise ValueError("library_path must start with '/'")
+        if v == "/default":
+            raise ValueError("library_path cannot be '/default' (reserved for default path)")
+        # Check for valid characters (alphanumeric, dash, underscore, slash)
+        import re
+        if not re.match(r'^/[a-zA-Z0-9_\-/]+$', v):
+            raise ValueError(
+                "library_path must contain only alphanumeric characters, dashes, underscores, and slashes"
+            )
+        return v
+
+
 class FilesystemModel(Observable):
     mount_path: Path = Field(
         default=Path("/path/to/riven/mount"),
         description="Path where Riven will mount the virtual filesystem",
     )
-    separate_anime_dirs: bool = Field(
-        default=False, description="Create separate directories for anime content"
+    library_profiles: dict[str, LibraryProfile] = Field(
+        default_factory=lambda: {
+            # Example profiles (disabled by default) - enable or customize as needed
+            # These demonstrate all available filter options
+
+            "example_kids": LibraryProfile(
+                name="Kids & Family Content",
+                library_path="/kids",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    content_types=["movie", "show"],
+                    genres=["animation", "family"],
+                    # US Movie Ratings: G, PG, PG-13, R, NC-17, NR (Not Rated), Unrated
+                    # US TV Ratings: TV-Y, TV-Y7, TV-G, TV-PG, TV-14, TV-MA
+                    content_ratings=["G", "PG", "TV-Y", "TV-Y7", "TV-G", "TV-PG"],
+                    max_rating=7.5
+                )
+            ),
+
+            "example_anime": LibraryProfile(
+                name="Anime Content",
+                library_path="/anime",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    is_anime=True
+                )
+            ),
+
+            "example_recent": LibraryProfile(
+                name="Recent Releases (Last 3 Years)",
+                library_path="/recent",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    min_year=2022  # Adjust based on current year
+                )
+            ),
+
+            "example_highly_rated": LibraryProfile(
+                name="Highly Rated (8.0+)",
+                library_path="/top_rated",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    min_rating=8.0
+                )
+            ),
+
+            "example_action": LibraryProfile(
+                name="Action & Adventure",
+                library_path="/action",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    genres=["action", "adventure", "thriller"],
+                    exclude_genres=["horror"]  # Exclude horror from action library
+                )
+            ),
+
+            "example_hbo": LibraryProfile(
+                name="HBO Originals",
+                library_path="/hbo",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    content_types=["show"],
+                    networks=["HBO", "HBO Max"]
+                )
+            ),
+
+            "example_british": LibraryProfile(
+                name="British Content",
+                library_path="/british",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    countries=["GB", "UK"],  # ISO country codes
+                    languages=["en"]  # ISO 639-1 language codes
+                )
+            ),
+
+            "example_classic": LibraryProfile(
+                name="Classic Films (Pre-2000)",
+                library_path="/classics",
+                enabled=False,
+                filter_rules=LibraryProfileFilterRules(
+                    content_types=["movie"],
+                    max_year=1999,
+                    min_rating=7.0  # Only well-regarded classics
+                )
+            )
+        },
+        description=(
+            "Library profiles for organizing media into different libraries based on metadata. "
+            "Example profiles are provided (disabled by default) - enable them or create your own. "
+            "Each profile filters media by metadata (genres, ratings, etc.) and creates additional "
+            "VFS paths. Media always appears at the base path (/movies, /shows) plus any matching "
+            "profile paths (e.g., /kids/movies, /anime/movies)."
+        )
     )
     cache_dir: Path = Field(
         default=Path("/dev/shm/riven-cache"),
@@ -137,6 +324,20 @@ class FilesystemModel(Observable):
     fetch_ahead_chunks: int = Field(
         default=4, ge=0, description="Number of chunks to fetch ahead when streaming"
     )
+
+    @field_validator("library_profiles")
+    def validate_library_profiles(cls, v):
+        """Validate library profile keys"""
+        import re
+        for key in v.keys():
+            # Profile keys must be lowercase alphanumeric with underscores
+            if not re.match(r'^[a-z0-9_]+$', key):
+                raise ValueError(
+                    f"Profile key '{key}' must be lowercase alphanumeric with underscores only"
+                )
+            if key == "default":
+                raise ValueError("Profile key 'default' is reserved")
+        return v
 
 
 # Content Services

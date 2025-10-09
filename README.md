@@ -221,6 +221,66 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
   - LRU (default): Strictly enforces the configured size caps by evicting least‑recently‑used blocks when space is needed.
   - TTL: First removes entries that have been idle longer than `ttl_seconds` (sliding expiration). If the cache still exceeds the configured size cap after TTL pruning, it additionally trims oldest entries (LRU) until usage is within the limit.
 
+### Library Profiles
+
+Library profiles allow you to organize media into different virtual libraries based on metadata filters. Media matching a profile appears at both the base path (e.g., `/movies/Title/`) and the profile path (e.g., `/kids/movies/Title/`).
+
+**Configuration**: Edit `library_profiles` in `settings.json` under the `filesystem` section. Multiple example profiles are provided (disabled by default) - enable them or create your own.
+
+**Available Filters**:
+
+| Filter | Type | Description | Example |
+|--------|------|-------------|---------|
+| `content_types` | List[str] | Media types to include (`movie`, `show`) | `["movie", "show"]` |
+| `genres` | List[str] | Include if ANY genre matches (OR logic) | `["animation", "family"]` |
+| `exclude_genres` | List[str] | Exclude if ANY genre matches | `["horror"]` |
+| `min_year` | int | Minimum release year | `2020` |
+| `max_year` | int | Maximum release year | `1999` |
+| `min_rating` | float | Minimum rating (0-10 scale) | `7.5` |
+| `max_rating` | float | Maximum rating (0-10 scale) | `9.0` |
+| `is_anime` | bool | Filter by anime flag (true/false) | `true` |
+| `networks` | List[str] | TV networks (OR logic) | `["HBO", "HBO Max"]` |
+| `countries` | List[str] | Countries of origin (ISO codes, OR logic) | `["GB", "UK"]` |
+| `languages` | List[str] | Original languages (ISO 639-1 codes, OR logic) | `["en", "ja"]` |
+| `content_ratings` | List[str] | Allowed content ratings | `["G", "PG", "TV-Y"]` |
+
+**Content Ratings Reference**:
+- **US Movies**: `G`, `PG`, `PG-13`, `R`, `NC-17`, `NR` (Not Rated), `Unrated`
+- **US TV**: `TV-Y`, `TV-Y7`, `TV-G`, `TV-PG`, `TV-14`, `TV-MA`
+
+**Example Profile**:
+```json
+{
+  "filesystem": {
+    "library_profiles": {
+      "kids": {
+        "name": "Kids & Family Content",
+        "library_path": "/kids",
+        "enabled": true,
+        "filter_rules": {
+          "content_types": ["movie", "show"],
+          "genres": ["animation", "family"],
+          "content_ratings": ["G", "PG", "TV-Y", "TV-G"],
+          "max_rating": 7.5
+        }
+      }
+    }
+  }
+}
+```
+
+**How It Works**:
+1. Media is downloaded and metadata is evaluated against all enabled profiles
+2. Matching media appears at base path + all matching profile paths
+3. Media servers (Plex/Jellyfin/Emby) see the content in all applicable libraries
+4. Filters use AND logic between different filter types, OR logic within list filters
+
+**Notes**:
+- Remove any filter you don't want to use
+- All filters must match for a profile to apply (AND logic)
+- List filters (genres, networks, etc.) match if ANY value matches (OR logic)
+- Shows/Seasons inherit metadata from parent for filtering purposes
+
 ## Development
 
 Welcome to the development section! Here, you'll find all the necessary steps to set up your development environment and start contributing to the project.

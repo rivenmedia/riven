@@ -368,9 +368,9 @@ class Downloader:
     def _update_attributes(self, item: Union[Movie, Episode], debrid_file: DebridFile, download_result: DownloadedTorrent, service=None, file_data: ParsedFileData = None) -> None:
         """
         Update the media item's active stream and filesystem entries using a debrid file from a completed download.
-        
+
         Sets item.active_stream from the download_result and, if the debrid file exposes a download URL, computes a virtual filesystem path (using the item, current filesystem settings, original filename, and optional parsed file data), creates a virtual FilesystemEntry containing provider, provider download id, file size, and original filename, and replaces the item's filesystem_entries with that single entry.
-        
+
         Parameters:
             item (Movie|Episode): The media item to update.
             debrid_file (DebridFile): Debrid file metadata (must include filename and optionally download_url and filesize).
@@ -387,6 +387,7 @@ class Downloader:
         if debrid_file.download_url:
             from program.services.filesystem.path_utils import generate_target_path
             from program.settings.manager import settings_manager
+            from program.services.library_profile_matcher import LibraryProfileMatcher
 
             vfs_path = generate_target_path(
                 item,
@@ -394,6 +395,10 @@ class Downloader:
                 original_filename=debrid_file.filename,
                 file_data=file_data
             )
+
+            # Match library profiles for this item
+            matcher = LibraryProfileMatcher()
+            library_profiles = matcher.get_matching_profiles(item)
 
             entry = MediaEntry.create_virtual_entry(
                 path=vfs_path,
@@ -404,11 +409,16 @@ class Downloader:
                 original_filename=debrid_file.filename,
             )
 
+            # Populate library profiles
+            entry.library_profiles = library_profiles
+
             # Clear existing entries and add the new one
             item.filesystem_entries.clear()
             item.filesystem_entries.append(entry)
 
             logger.debug(f"Created FilesystemEntry for {item.log_string} at {vfs_path}")
+            if library_profiles:
+                logger.debug(f"Matched library profiles for {item.log_string}: {library_profiles}")
 
     def get_instant_availability(self, infohash: str, item_type: str) -> List[TorrentContainer]:
         """
