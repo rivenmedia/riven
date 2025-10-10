@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.0.0](https://github.com/rivenmedia/riven/compare/v0.23.6...v1.0.0) (2025-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** Database schema change requires migration or fresh database
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks
+* seperate from trakt to tvdb and tmdb indexers
+
+### Features
+
+* implement proper ratelimiting for services ([0b8b3e7](https://github.com/rivenmedia/riven/commit/0b8b3e72eaef37b00f7208c80158d5e63a9ebebd))
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks ([722c7c4](https://github.com/rivenmedia/riven/commit/722c7c475380e57b7dc8f2bc5961cff4f61ab394))
+* **logs:** expose log settings for users ([#1182](https://github.com/rivenmedia/riven/issues/1182)) ([2001362](https://github.com/rivenmedia/riven/commit/20013620153276d910333e7bd736c65672ffee9e))
+* metadata based libraries ([fc98477](https://github.com/rivenmedia/riven/commit/fc984773b4aa8006949e79e282beba3f889f6869))
+* **notifications:** add SSE event publishing for completed media items ([#1183](https://github.com/rivenmedia/riven/issues/1183)) ([582778e](https://github.com/rivenmedia/riven/commit/582778ed507419314bafb8daa543acc48b273161))
+* **post-processing:** implement media analysis and enhance subtitle services ([a0a459e](https://github.com/rivenmedia/riven/commit/a0a459e631926c2cba81e4630b6a1608980e0ba7))
+* seperate from trakt to tvdb and tmdb indexers ([7e7dcc5](https://github.com/rivenmedia/riven/commit/7e7dcc59aabc90567b6135ce15827b483293bcd8))
+
+
+### Bug Fixes
+
+* add description and minor fixes for setting models ([#1185](https://github.com/rivenmedia/riven/issues/1185)) ([888f1e5](https://github.com/rivenmedia/riven/commit/888f1e5b27a77477d4f4ef5f6e257891aa967f00))
+* address review comments ([d2fed52](https://github.com/rivenmedia/riven/commit/d2fed5209c22403d08de57a5b875ba78b1a9b67d))
+* **cli,vfs:** fix environment variable handling and event listener invocation ([d28ae78](https://github.com/rivenmedia/riven/commit/d28ae7850b9fdb0554c0b827eeacfd0acee1dbda))
+* fix fs dupes through alembic migration ([#1184](https://github.com/rivenmedia/riven/issues/1184)) ([39bc997](https://github.com/rivenmedia/riven/commit/39bc9974da3650e640036847f700cf3e5e1fd21e))
+* fix incorrect attribute networks -&gt; network ([fc98477](https://github.com/rivenmedia/riven/commit/fc984773b4aa8006949e79e282beba3f889f6869))
+* fixed incompleted items from reinit db ([add17ed](https://github.com/rivenmedia/riven/commit/add17ed5f219c2cd338501be00e7f64b71c3f7bd))
+* make requests explicit. no guessing when trying to index ([0c0bf64](https://github.com/rivenmedia/riven/commit/0c0bf64d060c60c2d18e2fba1eb82d129acd0d21))
+* prevent HTTP2 full body requests ([d2fed52](https://github.com/rivenmedia/riven/commit/d2fed5209c22403d08de57a5b875ba78b1a9b67d))
+* review comments ([d2fed52](https://github.com/rivenmedia/riven/commit/d2fed5209c22403d08de57a5b875ba78b1a9b67d))
+* review comments ([d2fed52](https://github.com/rivenmedia/riven/commit/d2fed5209c22403d08de57a5b875ba78b1a9b67d))
+* review comments ([d2fed52](https://github.com/rivenmedia/riven/commit/d2fed5209c22403d08de57a5b875ba78b1a9b67d))
+* simplify iteration over service sub-services ([aaad909](https://github.com/rivenmedia/riven/commit/aaad909b1c09d1aec52585323b5e5fe832d21eff))
+* subtitles not initializing ([78a512a](https://github.com/rivenmedia/riven/commit/78a512a079fca05daebf5f00b0aebfc975ec2fb9))
+* switch to tvdb/tmdb in orionoid scraping ([50329e1](https://github.com/rivenmedia/riven/commit/50329e175bcf9bae161c1cbdf95fe5015fb1dac9))
+* typo in mediaitem attr ([0a67c6b](https://github.com/rivenmedia/riven/commit/0a67c6b96fc18aac7080e36265a8022a15f4bb16))
+* update all library possibilites, omit defaults in settings and add types for rules, add readme section ([fc98477](https://github.com/rivenmedia/riven/commit/fc984773b4aa8006949e79e282beba3f889f6869))
+* **updater:** after refactor updater keys went missing ([27cacf4](https://github.com/rivenmedia/riven/commit/27cacf43c5b232ac12a65662d9cb0448fbb47d9a))
+* **updater:** incorrect logic in updater after refactor ([fe832aa](https://github.com/rivenmedia/riven/commit/fe832aa2f5d0695b660fef9a43fce6c5f5dba796))
+* various bug fixes ([#1193](https://github.com/rivenmedia/riven/issues/1193)) ([edb502e](https://github.com/rivenmedia/riven/commit/edb502ec5bf4304a908f3897d3e7b611d0a816f1))
+
+
+### Performance Improvements
+
+* **scraping:** no more pesky imdb-only service roundup on every scrape ([#1197](https://github.com/rivenmedia/riven/issues/1197)) ([3a0a9a7](https://github.com/rivenmedia/riven/commit/3a0a9a76e448ced989331cb371486ff5cd313d44))
+* **vfs:** implement in-memory tree architecture with cached metadata ([fc98477](https://github.com/rivenmedia/riven/commit/fc984773b4aa8006949e79e282beba3f889f6869))
+
+
+### Code Refactoring
+
+* **db:** flip MediaItem-FilesystemEntry relationship and add automatic cleanup ([a94785b](https://github.com/rivenmedia/riven/commit/a94785be1cf5b21646caab8e8f46856bcfc648a6))
+
 ## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
 
 
