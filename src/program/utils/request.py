@@ -358,9 +358,11 @@ class SmartSession:
         if limiter:
             limiter.wait()
 
-        headers = self.headers
-        if "headers" in kwargs and kwargs["headers"]:
-            headers.update(kwargs["headers"])
+        base_headers = dict(self.headers)
+        req_headers = kwargs.pop("headers", {})
+        if req_headers:
+            base_headers.update(req_headers)
+        headers = base_headers
         kwargs["headers"] = headers
 
         # Redirect behavior: requests follows redirects by default on GET; emulate broadly
