@@ -3,7 +3,7 @@ from loguru import logger
 from program.media import MediaItem, States
 from program.services.downloaders import Downloader
 from program.services.indexers import IndexerService
-from program.services.post_processing import PostProcessing, notify
+from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
@@ -64,9 +64,6 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         items_to_submit = [existing_item]
 
     elif existing_item is not None and existing_item.last_state == States.Completed:
-        # If a user manually retries an item, lets not notify them again
-        if emitted_by not in ["RetryItem", PostProcessing]:
-            notify(existing_item)
         # Avoid multiple post-processing runs
         if emitted_by != PostProcessing:
             next_service = PostProcessing

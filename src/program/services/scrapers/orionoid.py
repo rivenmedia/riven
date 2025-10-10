@@ -144,7 +144,7 @@ class Orionoid(ScraperService):
             params["access"] = "realdebridtorrent"
             params["debridlookup"] = "realdebrid"
 
-        for key, value in self.settings.parameters.items():
+        for key, value in self.settings.parameters:
             if key not in params:
                 params[key] = value
 

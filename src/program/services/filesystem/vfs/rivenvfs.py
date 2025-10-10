@@ -1105,7 +1105,7 @@ class RivenVFS(pyfuse3.Operations):
         Resolve a path to its base path using the VFS tree.
 
         If the path is a library profile path, returns the base path stored in the node.
-        Otherwise, returns the path as-is.
+        If the node doesn't exist yet, attempts to strip library profile prefixes.
 
         Args:
             path: NORMALIZED path to resolve (caller must normalize)
@@ -1118,7 +1118,37 @@ class RivenVFS(pyfuse3.Operations):
         if node and node.base_path:
             return node.base_path
 
-        # If not in tree, return as-is (shouldn't happen in normal operation)
+        # If not in tree, try to strip library profile prefix
+        # This handles the case where we're registering a library profile path
+        # before the node exists in the tree
+        base_path = self._strip_library_profile_prefix(path)
+        return base_path
+
+    def _strip_library_profile_prefix(self, path: str) -> str:
+        """
+        Strip library profile prefix from a path if present.
+
+        Args:
+            path: Path that may have a library profile prefix (e.g., /recent/movies/...)
+
+        Returns:
+            Base path without library profile prefix (e.g., /movies/...)
+        """
+        from program.settings.manager import settings_manager
+
+        profiles = settings_manager.settings.filesystem.library_profiles or {}
+
+        for profile in profiles.values():
+            if not profile.enabled:
+                continue
+
+            prefix = profile.library_path
+            if path.startswith(prefix + "/"):
+                # Strip the prefix and return the base path
+                # e.g., "/recent/movies/Title..." -> "/movies/Title..."
+                return path[len(prefix):]
+
+        # No profile prefix found, return as-is
         return path
 
     def rename_file(self, old_path: str, new_path: str) -> bool:
