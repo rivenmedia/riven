@@ -119,9 +119,6 @@ class Orionoid(ScraperService):
     def _build_query_params(self, item: MediaItem) -> dict:
         """Construct the query parameters for the Orionoid API based on the media item."""
         media_type = "movie" if item.type == "movie" else "show"
-        imdbid: str = item.get_top_imdb_id()
-        if not imdbid:
-            raise ValueError("IMDB ID is missing for the media item")
 
         params = {
             "keyapp": KEY_APP,
@@ -129,7 +126,6 @@ class Orionoid(ScraperService):
             "mode": "stream",
             "action": "retrieve",
             "type": media_type,
-            "idimdb": imdbid[2:],
             "streamtype": "torrent",
             "protocoltorrent": "magnet"
         }
@@ -143,6 +139,11 @@ class Orionoid(ScraperService):
         if self.settings.cached_results_only:
             params["access"] = "realdebridtorrent"
             params["debridlookup"] = "realdebrid"
+
+        if item.type in ["show", "season", "episode"]:
+            params["idtvdb"] = item.tvdb_id
+        elif item.type == "movie":
+            params["idtmdb"] = item.tmdb_id
 
         for key, value in self.settings.parameters:
             if key not in params:
