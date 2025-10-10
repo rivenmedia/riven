@@ -103,9 +103,11 @@ class Mediafusion(ScraperService):
                 logger.exception(f"Mediafusion exception thrown: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+        if not imdb_id:
+            return {}
 
         url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:
