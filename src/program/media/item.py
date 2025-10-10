@@ -1,8 +1,6 @@
 """MediaItem class"""
 from datetime import datetime
-from typing import Any, List, Optional, Self, TYPE_CHECKING
-import json
-
+from typing import Any, List, Optional, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
@@ -11,7 +9,6 @@ from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
-from program.managers.websocket_manager import manager as websocket_manager
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
 
@@ -139,12 +136,23 @@ class MediaItem(db.Model):
         self.subtitles = item.get("subtitles", [])
 
     def store_state(self, given_state=None) -> tuple[States, States]:
-        """Store the state of the item."""
+        """Store the state of the item and notify about state changes."""
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
-        if previous_state and previous_state != new_state:
-            websocket_manager.publish("item_update", {"last_state": previous_state, "new_state": new_state, "item_id": self.id})
         self.last_state = new_state
+
+        # Notify about state change via NotificationService
+        if previous_state and previous_state != new_state:
+            try:
+                from program.program import riven
+                from program.services.notifications import NotificationService
+                notification_service = riven.all_services.get(NotificationService)
+                if notification_service:
+                    notification_service.run(self, previous_state=previous_state, new_state=new_state)
+            except Exception as e:
+                # Fallback: log error but don't break state storage
+                logger.debug(f"Failed to send state change notification: {e}")
+
         return (previous_state, new_state)
 
     def blacklist_active_stream(self) -> bool:

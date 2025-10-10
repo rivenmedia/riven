@@ -21,6 +21,7 @@ from program.services.content import (
 )
 from program.services.downloaders import Downloader
 from program.services.indexers import IndexerService, TMDBIndexer, TVDBIndexer
+from program.services.notifications import NotificationService
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
@@ -67,6 +68,9 @@ class Program(threading.Thread):
 
     def initialize_services(self):
         """Initialize all services."""
+        # Initialize notification service first (used by other services)
+        notification_service = NotificationService()
+
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -97,6 +101,7 @@ class Program(threading.Thread):
             **self.services,
             TMDBIndexer: tmdb_indexer,
             TVDBIndexer: tvdb_indexer,
+            NotificationService: notification_service,
         }
 
         if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
