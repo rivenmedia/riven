@@ -38,7 +38,6 @@ class Scraping:
             Zilean(),
         ]
         self.initialized_services = [service for service in self.services if service.initialized]
-        self.imdb_services = [service for service in self.initialized_services if not service.requires_imdb_id]
         self.initialized = self.validate()
         if not self.initialized:
             return
@@ -83,12 +82,6 @@ class Scraping:
         results: Dict[str, str] = {}
         results_lock = threading.RLock()
 
-        imdb_id = item.get_top_imdb_id()
-        if imdb_id:
-            available_services = self.imdb_services
-        else:
-            available_services = self.services
-
         def run_service(svc, it) -> None:
             """Run a single service and update the results."""
             service_results = svc.run(it)
@@ -102,8 +95,8 @@ class Scraping:
                 except Exception as e:
                     logger.exception(f"Error updating results for {svc.__class__.__name__}: {e}")
 
-        with ThreadPoolExecutor(thread_name_prefix="ScraperService_", max_workers=max(1, len(available_services))) as executor:
-            futures = {executor.submit(run_service, service, item): service.key for service in available_services}
+        with ThreadPoolExecutor(thread_name_prefix="ScraperService_", max_workers=max(1, len(self.initialized_services))) as executor:
+            futures = {executor.submit(run_service, service, item): service.key for service in self.initialized_services}
             for future in as_completed(futures):
                 try:
                     future.result()
