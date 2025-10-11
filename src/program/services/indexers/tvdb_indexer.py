@@ -147,6 +147,12 @@ class TVDBIndexer(BaseIndexer):
                             content_rating = rating_obj.name
                             break
 
+            # Extract TVDB status (Continuing, Ended, Upcoming)
+            tvdb_status = None
+            if hasattr(show_data, "status") and show_data.status:
+                if hasattr(show_data.status, "name"):
+                    tvdb_status = show_data.status.name
+
             show_item = {
                 "title": title,
                 "year": int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None,
@@ -166,6 +172,7 @@ class TVDBIndexer(BaseIndexer):
                 "release_data": release_data,
                 "rating": rating,
                 "content_rating": content_rating,
+                "tvdb_status": tvdb_status,
             }
 
             return Show(show_item)

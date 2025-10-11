@@ -774,19 +774,6 @@ class RivenVFS(pyfuse3.Operations):
                     log.warning(f"MediaEntry {entry.id} has no associated MediaItem, skipping")
                     continue
 
-                # For episodes/seasons, ensure metadata is propagated from parent show
-                if item.type in ["episode", "season"]:
-                    from program.media.item import Show
-                    # Get the parent show and propagate attributes
-                    if item.type == "episode" and item.parent and item.parent.parent:
-                        show = item.parent.parent
-                        if isinstance(show, Show):
-                            show.propagate_attributes_to_childs()
-                    elif item.type == "season" and item.parent:
-                        show = item.parent
-                        if isinstance(show, Show):
-                            show.propagate_attributes_to_childs()
-
                 # Re-match library profiles based on current settings
                 new_profiles = matcher.get_matching_profiles(item)
                 old_profiles = entry.library_profiles or []
