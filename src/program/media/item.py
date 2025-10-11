@@ -290,7 +290,7 @@ class MediaItem(db.Model):
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
-            "rating": self.rating,
+            "self.rating": self.rating,
             "content_rating": self.content_rating,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,
@@ -543,6 +543,7 @@ class Show(MediaItem):
         order_by="Season.number",
     )
     release_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
+    tvdb_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -554,7 +555,7 @@ class Show(MediaItem):
         self.locations = item.get("locations", [])
         self.seasons: list[Season] = item.get("seasons", [])
         self.release_data = item.get("release_data", {})
-        self.propagate_attributes_to_childs()
+        self.tvdb_status = item.get("tvdb_status")
         super().__init__(item)
 
     def _determine_state(self):
@@ -563,6 +564,10 @@ class Show(MediaItem):
         if all(season.state == States.Failed for season in self.seasons):
             return States.Failed
         if all(season.state == States.Completed for season in self.seasons):
+            # Check TVDB status - only mark as Completed if the show has ended
+            # If status is "Continuing" or "Upcoming", the show is still ongoing
+            if self.tvdb_status and self.tvdb_status.lower() in ["continuing", "upcoming"]:
+                return States.Ongoing
             return States.Completed
         if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
             return States.Ongoing
@@ -608,30 +613,9 @@ class Show(MediaItem):
     def add_season(self, season):
         """Add season to show"""
         if season.number not in [s.number for s in self.seasons]:
-            season.is_anime = self.is_anime
             self.seasons.append(season)
             season.parent = self
             self.seasons = sorted(self.seasons, key=lambda s: s.number)
-
-    def propagate_attributes_to_childs(self):
-        """Propagate show attributes to seasons and episodes if they are empty or do not match."""
-        # Important attributes that need to be connected.
-        # These are used for library profile matching and should be inherited from the show
-        attributes = ["genres", "country", "network", "language", "is_anime", "rating", "content_rating"]
-
-        def propagate(target, source):
-            for attr in attributes:
-                source_value = getattr(source, attr, None)
-                target_value = getattr(target, attr, None)
-                # Check if the attribute source is not falsy (none, false, 0, [])
-                # and if the target is not None we set the source to the target
-                if (not target_value) and source_value is not None:
-                    setattr(target, attr, source_value)
-
-        for season in self.seasons:
-            propagate(season, self)
-            for episode in season.episodes:
-                propagate(episode, self)
 
     def get_absolute_episode(self, episode_number: int, season_number: int = None) -> Optional["Episode"]:
         """Get the absolute episode number based on season and episode."""
@@ -686,8 +670,6 @@ class Season(MediaItem):
         self.number = item.get("number", None)
         self.episodes: list[Episode] = item.get("episodes", [])
         super().__init__(item)
-        if self.parent and isinstance(self.parent, Show):
-            self.is_anime = self.parent.is_anime
 
     def _determine_state(self):
         if len(self.episodes) > 0:
@@ -722,6 +704,25 @@ class Season(MediaItem):
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
 
+    def __getattribute__(self, name):
+        """Override attribute access to inherit from parent show if not set"""
+        # List of attributes that should be inherited from parent
+        inherited_attrs = {'genres', 'country', 'network', 'language', 'is_anime', 'rating', 'content_rating'}
+
+        # Get the value normally first
+        value = object.__getattribute__(self, name)
+
+        # If it's an inherited attribute and the value is empty/None, try to get from parent
+        if name in inherited_attrs and not value:
+            try:
+                parent = object.__getattribute__(self, 'parent')
+                if parent:
+                    return getattr(parent, name, value)
+            except AttributeError:
+                pass
+
+        return value
+
     def __repr__(self):
         return f"Season:{self.number}:{self.state.name}"
 
@@ -746,7 +747,6 @@ class Season(MediaItem):
         if episode.number in [e.number for e in self.episodes]:
             return
 
-        episode.is_anime = self.is_anime
         self.episodes.append(episode)
         episode.parent = self
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
@@ -784,8 +784,6 @@ class Episode(MediaItem):
         self.type = "episode"
         self.number = item.get("number", None)
         super().__init__(item)
-        if self.parent and isinstance(self.parent, Season):
-            self.is_anime = self.parent.parent.is_anime
 
     def __repr__(self):
         return f"Episode:{self.number}:{self.state.name}"
@@ -804,6 +802,25 @@ class Episode(MediaItem):
             raise ValueError("The filesystem entry must have an original filename.")
         # return list of episodes
         return parse_title(self.filesystem_entry.original_filename)["episodes"]
+
+    def __getattribute__(self, name):
+        """Override attribute access to inherit from parent show (through season) if not set"""
+        # List of attributes that should be inherited from parent show
+        inherited_attrs = {'genres', 'country', 'network', 'language', 'is_anime', 'rating', 'content_rating'}
+
+        # Get the value normally first
+        value = object.__getattribute__(self, name)
+
+        # If it's an inherited attribute and the value is empty/None, try to get from parent show
+        if name in inherited_attrs and not value:
+            try:
+                parent = object.__getattribute__(self, 'parent')
+                if parent and hasattr(parent, 'parent'):
+                    return getattr(parent.parent, name, value)
+            except AttributeError:
+                pass
+
+        return value
 
     @property
     def log_string(self):
