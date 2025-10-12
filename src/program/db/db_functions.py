@@ -384,23 +384,24 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
 
     calendar: Dict[str, Dict[str, Any]] = {}
     for item in result.scalars().yield_per(500):
+        title = item.get_top_title()
         calendar[item.id] = {
-            "trakt_id": item.trakt_id,
-            "imdb_id": item.imdb_id,
+            "item_id": item.id,
             "tvdb_id": item.tvdb_id,
-            "tmdb_id": item.tmdb_id,
+            "show_title": title,
+            "item_type": item.type,
             "aired_at": item.aired_at,
         }
 
         if item.type == "show":
             calendar[item.id]["release_data"] = item.release_data
 
+        if item.type == "season":
+            calendar[item.id]["season"] = item.number
+
         if item.type == "episode":
-            calendar[item.id]["title"] = item.parent.parent.title
             calendar[item.id]["season"] = item.parent.number
             calendar[item.id]["episode"] = item.number
-        else:
-            calendar[item.id]["title"] = item.title
 
     return calendar
 
