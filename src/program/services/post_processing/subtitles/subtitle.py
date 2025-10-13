@@ -239,7 +239,8 @@ class SubtitleService:
 
             # Add quality/format tag (BluRay, HDTV, DVD, etc.)
             quality = parsed_filename.get('quality')
-            tags.append(quality)
+            if quality:
+                tags.append(quality)
 
             # Add other relevant tags
             if parsed_filename.get('proper'):

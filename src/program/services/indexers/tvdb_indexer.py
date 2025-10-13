@@ -41,7 +41,7 @@ class TVDBIndexer(BaseIndexer):
                 item = self.copy_items(in_item, item)
                 item.indexed_at = datetime.now()
                 if log_msg:
-                    logger.log("NEW", f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
+                    logger.debug(f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
                 yield item
                 return
 
@@ -171,7 +171,6 @@ class TVDBIndexer(BaseIndexer):
             show.imdb_id = imdb_id
             show.aired_at = aired_at
             show.genres = genres_lower
-            show.overview = show_data.overview
             show.network = network
             show.country = show_data.originalCountry
             show.language = show_data.originalLanguage
@@ -223,7 +222,7 @@ class TVDBIndexer(BaseIndexer):
                                 self._add_seasons_to_show(show_item, show_details)
                                 return show_item
                     else:
-                        logger.log("NOT_FOUND", f"IMDB ID {imdb_id} is not a show, skipping")
+                        logger.debug(f"IMDB ID {imdb_id} is not a show, skipping")
                         return None
 
         except Exception as e:
@@ -309,7 +308,6 @@ class TVDBIndexer(BaseIndexer):
                 "genres": genres_lower,
                 "type": "show",
                 "requested_at": datetime.now(),
-                "overview": show_data.overview,
                 "network": network,
                 "country": show_data.originalCountry,
                 "language": show_data.originalLanguage,

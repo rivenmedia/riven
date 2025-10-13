@@ -40,7 +40,7 @@ class TMDBIndexer(BaseIndexer):
                 item = self.copy_items(in_item, item)
                 item.indexed_at = datetime.now()
                 if log_msg:
-                    logger.debug("NEW", f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
+                    logger.debug(f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
                 yield item
                 return
 
@@ -130,7 +130,6 @@ class TMDBIndexer(BaseIndexer):
             movie.imdb_id = getattr(movie_details, "imdb_id", None)
             movie.aired_at = release_date
             movie.genres = genres
-            movie.overview = getattr(movie_details, "overview", None)
             movie.country = country
             movie.language = getattr(movie_details, "original_language", None)
             movie.is_anime = (
@@ -234,7 +233,6 @@ class TMDBIndexer(BaseIndexer):
                 "genres": genres,
                 "type": "movie",
                 "requested_at": datetime.now(),
-                "overview": getattr(movie_details, "overview", None),
                 "country": country,
                 "language": getattr(movie_details, "original_language", None),
                 "is_anime": (
