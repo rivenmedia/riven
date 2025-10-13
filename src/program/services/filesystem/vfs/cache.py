@@ -236,8 +236,8 @@ class Cache:
 
                 read_time = time.time() - read_start
 
-                if read_time > 0.01:  # Log slow reads (>10ms)
-                    logger.warning(f"Slow cache read: {len(result)/(1024*1024):.2f}MB in {read_time*1000:.1f}ms from {chunk_file}")
+                if read_time > 0.05:  # Log slow reads (>50ms)
+                    logger.warning(f"Slow cache read: {len(result)/(1024*1024):.2f}MB in {read_time*1000:.0f}ms from {chunk_file}")
 
                 if len(result) == needed_len:
                         # Update LRU (move to end) but only update timestamp periodically
@@ -256,8 +256,8 @@ class Cache:
                         self._metrics.bytes_from_cache += needed_len
 
                         total_time = time.time() - get_start_time
-                        if total_time > 0.05:  # Log if cache.get() takes >50ms
-                            logger.warning(f"Slow cache.get(): {total_time*1000:.1f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.1f}ms)")
+                        if total_time > 0.1:  # Log if cache.get() takes >100ms
+                            logger.warning(f"Slow cache.get(): {total_time*1000:.0f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.0f}ms)")
 
                         return result
             except FileNotFoundError:
@@ -362,7 +362,7 @@ class Cache:
             with self._lock:
                 self._index.pop(k, None)
             self._metrics.misses += 1
-            logger.trace(f"Cache MISS: {path} [{start}-{end}] ({needed_len} bytes)")
+            # No log for cache misses - reduces noise (misses are expected and normal)
             return None
         # If we got here but entry was missing in index, rebuild it
         with self._lock:
