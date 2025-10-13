@@ -92,7 +92,12 @@ class IndexerService(BaseIndexer):
                         logger.error(f"Failed reindexing {item.log_string}: {e}")
                         continue
 
-                session.commit()
+                try:
+                    session.commit()
+                except Exception as e:
+                    logger.debug(f"Commit failed during reindex (likely item was deleted): {e}")
+                    session.rollback()
+
                 return count
         except Exception as e:
             logger.error(f"Error during reindex_ongoing: {e}")
