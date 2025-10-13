@@ -211,39 +211,40 @@ class Program(threading.Thread):
             else:
                 logger.log("NOT_FOUND", "No items required retrying")
 
-    def _update_ongoing(self) -> None:
-        """Update state for ongoing and unreleased items."""
-        with db.Session() as session:
-            updated_items = db_functions.update_ongoing(session)
-            for item_id in updated_items:
-                self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+    def _reindex_ongoing(self) -> None:
+        """Reindex all ongoing items to fetch fresh metadata."""
+        indexer_service = self.services.get(IndexerService)
+        if not indexer_service:
+            logger.error("IndexerService not available")
+            return
 
-            if updated_items:
-                logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
-            else:
-                logger.log("NOT_FOUND", "No ongoing items required state updates")
-
-    def _update_new_releases(self) -> None:
-        """Update state for new releases."""
-        with db.Session() as session:
-            changed_items = db_functions.update_new_releases(session, update_type="episodes", hours=24)
-            for item_id in changed_items:
-                self.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
-            
-            if changed_items:
-                logger.log("PROGRAM", f"Successfully fetched {len(changed_items)} new releases")
-            else:
-                logger.log("NOT_FOUND", "No new releases found")
+        # Call the indexer's built-in reindex method; this will not enqueue events
+        count = indexer_service.reindex_ongoing()
+        if count:
+            logger.log("PROGRAM", f"Reindexed {count} ongoing items")
+        else:
+            logger.debug("No ongoing items reindexed")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._update_ongoing: {"interval": 60 * 60 * 4},
-            self._retry_library: {"interval": 60 * 60 * 24},
-            self._update_new_releases: {"interval": 60 * 60},
-            log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
+
+        # Add reindex_ongoing if enabled (interval > 0)
+        reindex_interval = settings_manager.settings.indexer.reindex_ongoing_interval
+        if reindex_interval > 0:
+            scheduled_functions[self._reindex_ongoing] = {"interval": reindex_interval}
+
+        # Add retry_library if enabled (interval > 0)
+        retry_interval = settings_manager.settings.retry_interval
+        if retry_interval > 0:
+            scheduled_functions[self._retry_library] = {"interval": retry_interval}
+
+        # Add log_cleaner if enabled (interval > 0)
+        clean_interval = settings_manager.settings.logging.clean_interval
+        if clean_interval > 0:
+            scheduled_functions[log_cleaner] = {"interval": clean_interval}
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -376,12 +377,5 @@ class Program(threading.Thread):
 
         self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")
-
-    def _enhance_item(self, item: MediaItem) -> MediaItem | None:
-        try:
-            enhanced_item = next(self.services[IndexerService].run(item, log_msg=False))
-            return enhanced_item
-        except StopIteration:
-            return None
 
 riven = Program()
