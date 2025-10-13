@@ -290,7 +290,7 @@ class MediaItem(db.Model):
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
             "guid": self.guid,
-            "self.rating": self.rating,
+            "rating": self.rating,
             "content_rating": self.content_rating,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,

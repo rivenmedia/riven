@@ -681,10 +681,10 @@ class RTNSettingsModel(SettingsModel, Observable): ...
 
 
 class IndexerModel(Observable):
-    update_interval: int = Field(
-        default=60 * 60,
-        ge=1,
-        description="Indexer update interval in seconds (1 hour default)",
+    reindex_ongoing_interval: int = Field(
+        default=60 * 60 * 24,
+        ge=0,
+        description="Interval in seconds to reindex all ongoing items (24 hours default, 0 to disable)",
     )
 
 
@@ -741,6 +741,9 @@ class PostProcessing(Observable):
 
 class LoggingModel(Observable):
     enabled: bool = Field(default=True, description="Enable file logging")
+    clean_interval: int = Field(
+        default=60 * 60, description="Log cleanup interval in seconds (1 hour default)"
+    )
     retention_hours: int = Field(
         default=24, description="Log retention period in hours"
     )
@@ -760,6 +763,11 @@ class AppModel(Observable):
     api_key: str = Field(default="", description="API key for Riven API access")
     log_level: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
         Field(default="INFO", description="Logging level")
+    )
+    retry_interval: int = Field(
+        default=60 * 60 * 24,
+        ge=0,
+        description="Interval in seconds to retry failed library items (24 hours default, 0 to disable)",
     )
     tracemalloc: bool = Field(
         default=False, description="Enable Python memory tracking (debug)"

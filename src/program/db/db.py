@@ -46,7 +46,6 @@ def create_database_if_not_exists():
         return False
 
 def vacuum_and_analyze_index_maintenance() -> None:
-    # PROM: Use the raw connection to execute VACUUM outside a transaction
     try:
         with db.engine.connect() as connection:
             connection = connection.execution_options(isolation_level="AUTOCOMMIT")
