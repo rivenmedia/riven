@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
 from typing import Dict, Optional
 from urllib.parse import urlparse
+from contextlib import closing
 
 import httpx
 import requests
@@ -392,6 +393,7 @@ class SmartSession:
 
         # Choose client: default to session client; build a temporary client if per-request proxies specified
         client = self._client
+        per_request_client_factory = None
         tmp_client = None
         if per_request_proxies:
             mounts = None
@@ -408,99 +410,137 @@ class SmartSession:
             except Exception:
                 mounts = None
 
-            tmp_client = httpx.Client(
-                http2=True,
-                limits=self._limits,
-                timeout=self._timeout,
-                verify=self._ssl_context,
-                cert=None,
-                mounts=mounts or None,
-            )
-
-            client = tmp_client
-
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                if stream:
-                    # For streaming, build request and send with stream=True to avoid pre-reading body
-                    # Ensure cookies are represented via header if provided
-                    if cookies:
-                        headers.setdefault("Cookie", "; ".join(f"{k}={v}" for k, v in cookies.items()))
-                    req_kwargs: dict = {}
-                    for key in ("params", "data", "json", "files", "content"):
-                        if key in kwargs:
-                            req_kwargs[key] = kwargs[key]
-                    req = client.build_request(
-                        method.upper(),
-                        url,
-                        headers=headers,
-                        **req_kwargs,
+            # Prefer context manager when not streaming; for streaming we will hand off client closure to resp.close
+            if not stream:
+                def _make_client():
+                    return httpx.Client(
+                        http2=True,
+                        limits=self._limits,
+                        timeout=self._timeout,
+                        verify=self._ssl_context,
+                        cert=None,
+                        mounts=mounts or None,
                     )
-                    hx_resp = client.send(
-                        req,
-                        stream=True,
-                        timeout=req_timeout,
-                        auth=auth,
-                        follow_redirects=follow_redirects,
-                    )
-                else:
-                    hx_resp = client.request(
-                        method.upper(),
-                        url,
-                        follow_redirects=follow_redirects,
-                        timeout=req_timeout,
-                        auth=auth,
-                        cookies=cookies,
-                        **{k: v for k, v in kwargs.items()},
-                    )
+                per_request_client_factory = _make_client
+            else:
+                tmp_client = httpx.Client(
+                    http2=True,
+                    limits=self._limits,
+                    timeout=self._timeout,
+                    verify=self._ssl_context,
+                    cert=None,
+                    mounts=mounts or None,
+                )
+                client = tmp_client
 
-                # Retry on status codes
-                if hx_resp.status_code == 429 or 500 <= hx_resp.status_code < 600:
-                    delay = self._compute_retry_delay(hx_resp, attempt)
-                    if attempt <= self.retries:
-                        time.sleep(delay)
-                        continue
-
-                resp = self._to_smart_response(hx_resp, url, stream=stream)
-                # If we used a temporary client for per-request proxies, ensure it closes appropriately
-                if tmp_client is not None:
+        # Helper to run the request attempt loop with a given client
+        def _run_with_client(active_client: httpx.Client) -> SmartResponse:
+            nonlocal tmp_client
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
                     if stream:
-                        orig_close = hx_resp.close
-                        def _close():
-                            try:
-                                orig_close()
-                            finally:
-                                try:
-                                    tmp_client.close()
-                                except Exception:
-                                    pass
-                        resp.close = _close  # type: ignore[assignment]
+                        # For streaming, build request and send with stream=True to avoid pre-reading body
+                        # Ensure cookies are represented via header if provided
+                        if cookies:
+                            headers.setdefault("Cookie", "; ".join(f"{k}={v}" for k, v in cookies.items()))
+                        req_kwargs: dict = {}
+                        for key in ("params", "data", "json", "files", "content"):
+                            if key in kwargs:
+                                req_kwargs[key] = kwargs[key]
+                        req = active_client.build_request(
+                            method.upper(),
+                            url,
+                            headers=headers,
+                            **req_kwargs,
+                        )
+                        hx_resp = active_client.send(
+                            req,
+                            stream=True,
+                            timeout=req_timeout,
+                            auth=auth,
+                            follow_redirects=follow_redirects,
+                        )
                     else:
+                        hx_resp = active_client.request(
+                            method.upper(),
+                            url,
+                            follow_redirects=follow_redirects,
+                            timeout=req_timeout,
+                            auth=auth,
+                            cookies=cookies,
+                            **{k: v for k, v in kwargs.items()},
+                        )
+
+                    # Retry on status codes
+                    if hx_resp.status_code == 429 or 500 <= hx_resp.status_code < 600:
+                        delay = self._compute_retry_delay(hx_resp, attempt)
+                        if attempt <= self.retries:
+                            time.sleep(delay)
+                            continue
+
+                    resp = self._to_smart_response(hx_resp, url, stream=stream)
+                    # If we used a temporary client for per-request proxies, ensure it closes appropriately
+                    if tmp_client is not None:
+                        if stream:
+                            orig_close = hx_resp.close
+                            def _close():
+                                try:
+                                    orig_close()
+                                finally:
+                                    try:
+                                        tmp_client.close()
+                                    except Exception:
+                                        pass
+                            resp.close = _close  # type: ignore[assignment]
+                            # Prevent outer finally from closing the client prematurely
+                            tmp_client = None
+                        else:
+                            # Non-streaming: active content is read; defer closing to outer finally or context manager
+                            pass
+                    success_for_breaker = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
+                    if breaker:
+                        breaker.after_request(success_for_breaker)
+                    return resp
+
+                except httpx.TimeoutException as e:
+                    if attempt <= self.retries:
+                        time.sleep(self._backoff(attempt))
+                        continue
+                    if breaker:
+                        breaker.after_request(False)
+                    self._raise_requests_timeout(e)
+                except httpx.RequestError as e:
+                    if attempt <= self.retries:
+                        time.sleep(self._backoff(attempt))
+                        continue
+                    if breaker:
+                        breaker.after_request(False)
+                    self._raise_requests_connection(e)
+                except Exception:
+                    if breaker:
+                        breaker.after_request(False)
+                    raise
+
+        if per_request_client_factory is not None:
+            # Use context manager so the client is always closed
+            with closing(per_request_client_factory()) as pr_client:
+                return _run_with_client(pr_client)
+        else:
+            if tmp_client is not None:
+                try:
+                    resp = _run_with_client(client)
+                    return resp
+                finally:
+                    # Close tmp_client if still owned here (not handed off for streaming)
+                    if tmp_client is not None:
                         try:
                             tmp_client.close()
                         except Exception:
                             pass
-                success_for_breaker = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
-                if breaker:
-                    breaker.after_request(success_for_breaker)
-                return resp
-
-            except httpx.TimeoutException as e:
-                if attempt <= self.retries:
-                    time.sleep(self._backoff(attempt))
-                    continue
-                self._raise_requests_timeout(e)
-            except httpx.RequestError as e:
-                if attempt <= self.retries:
-                    time.sleep(self._backoff(attempt))
-                    continue
-                self._raise_requests_connection(e)
-            except Exception:
-                if breaker:
-                    breaker.after_request(False)
-                raise
+            else:
+                return _run_with_client(client)
 
     def get(self, url: str, **kwargs) -> SmartResponse:
         return self.request("GET", url, **kwargs)
