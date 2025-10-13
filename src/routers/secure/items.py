@@ -836,25 +836,30 @@ async def reindex_item(request: Request, item_id: Optional[int] = None, tvdb_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item must be a movie or show")
 
         try:
-            from program.services.indexers.composite import CompositeIndexer
-            c_indexer = request.app.program.all_services[CompositeIndexer]
+            from program.services.indexers import IndexerService
+            c_indexer = request.app.program.all_services[IndexerService]
 
             def mutation(i: MediaItem, s: Session):
+                # Reset indexed_at to trigger reindexing
                 i.indexed_at = None
+
+                # Run the indexer within the session context
+                reindexed_item = next(c_indexer.run(i, log_msg=True))
+
+                if not reindexed_item:
+                    raise ValueError("Failed to reindex item - no data returned from indexer")
+
+                # Merge the reindexed item back into the session
+                # Use no_autoflush to prevent SQLAlchemy from trying to flush
+                # the new Season/Episode objects before the merge is complete
+                with s.no_autoflush:
+                    s.merge(reindexed_item)
 
             apply_item_mutation(request.app.program, session, item, mutation, bubble_parents=True)
 
-            # Run indexer on the updated item
-            reindexed_item = next(c_indexer.run(item, log_msg=True))
-
-            if reindexed_item:
-                session.merge(reindexed_item)
-                session.commit()
-                logger.info(f"Successfully reindexed {item.log_string}")
-                request.app.program.em.add_event(Event("RetryItem", item.id))
-                return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
-            else:
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reindex item - no data returned from Composite Indexer")
+            logger.info(f"Successfully reindexed {item.log_string}")
+            request.app.program.em.add_event(Event("RetryItem", item.id))
+            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
         except Exception as e:
             logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reindex item: {str(e)}")

@@ -95,6 +95,94 @@ log = logger
 
 
 @dataclass
+class VFSNode:
+    """
+    Represents a node (file or directory) in the VFS tree.
+
+    This is the core data structure for the in-memory VFS tree, providing
+    O(1) lookups and eliminating the need for path resolution.
+
+    Attributes:
+        name: Name of this node (e.g., "Frozen.mkv" or "movies")
+        is_directory: True if this is a directory, False if it's a file
+        base_path: Path in database for files (e.g., "/movies/Frozen.mkv")
+                   For profile paths, this points to the canonical base path.
+                   For directories, this is None.
+        inode: FUSE inode number assigned to this node
+        children: Dict of child name -> VFSNode (only for directories)
+        parent: Reference to parent VFSNode (None for root)
+
+        # Cached file metadata (for files only, eliminates DB queries in getattr)
+        file_size: File size in bytes (None for directories)
+        created_at: Creation timestamp as ISO string (None for directories)
+        updated_at: Modification timestamp as ISO string (None for directories)
+        entry_type: Entry type ("media" or "subtitle", None for directories)
+    """
+
+    name: str
+    is_directory: bool
+    base_path: Optional[str] = None
+    inode: Optional[pyfuse3.InodeT] = None
+    parent: Optional["VFSNode"] = None
+
+    # Cached metadata for files (eliminates database queries)
+    file_size: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    entry_type: Optional[str] = None
+
+    def __post_init__(self):
+        """Initialize children dict after dataclass init."""
+        if not hasattr(self, "_children"):
+            self._children: Dict[str, VFSNode] = {}
+
+    @property
+    def children(self) -> Dict[str, "VFSNode"]:
+        """Get children dict."""
+        if not hasattr(self, "_children"):
+            self._children = {}
+        return self._children
+
+    def get_full_path(self) -> str:
+        """Get the full VFS path for this node by walking up to root."""
+        if self.parent is None:
+            return "/"
+
+        parts = []
+        current = self
+        while current.parent is not None:
+            parts.append(current.name)
+            current = current.parent
+
+        if not parts:
+            return "/"
+
+        return "/" + "/".join(reversed(parts))
+
+    def add_child(self, child: "VFSNode") -> None:
+        """Add a child node to this directory."""
+        if not self.is_directory:
+            raise ValueError(f"Cannot add child to non-directory node: {self.name}")
+
+        child.parent = self
+        self.children[child.name] = child
+
+    def remove_child(self, name: str) -> Optional["VFSNode"]:
+        """Remove and return a child node by name."""
+        child = self.children.pop(name, None)
+        if child:
+            child.parent = None
+        return child
+
+    def get_child(self, name: str) -> Optional["VFSNode"]:
+        """Get a child node by name."""
+        return self.children.get(name)
+
+    def __repr__(self) -> str:
+        return f"VFSNode(name={self.name!r}, is_dir={self.is_directory}, inode={self.inode}, children={len(self.children)})"
+
+
+@dataclass
 class PrefetchChunk:
     """Represents a chunk to be prefetched with priority information."""
 
@@ -255,7 +343,8 @@ class URLCacheItem(TypedDict):
 
 class FileHandle(TypedDict):
     path: str
-    file_info: VFSEntry
+    file_size: int | None
+    entry_type: str | None
     is_scanner: bool
     buffers: list
     sequential_reads: int
@@ -335,17 +424,19 @@ class RivenVFS(pyfuse3.Operations):
         self.downloader = downloader
         self.db = VFSDatabase(downloader=downloader)
 
-        # Core path <-> inode mapping for FUSE operations
-        self._path_to_inode: Dict[str, pyfuse3.InodeT] = {"/": pyfuse3.ROOT_INODE}
-        self._inode_to_path: Dict[pyfuse3.InodeT, str] = {pyfuse3.ROOT_INODE: "/"}
+        # VFS Tree: In-memory tree structure for O(1) path lookups
+        # This replaces _path_to_inode, _path_aliases, and _dir_tree
+        self._root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
+        self._inode_to_node: Dict[int, VFSNode] = {pyfuse3.ROOT_INODE: self._root}
         self._next_inode = pyfuse3.InodeT(pyfuse3.ROOT_INODE + 1)
+
+        # Tree lock to prevent race conditions between FUSE operations and tree rebuilds
+        # pyfuse3 runs FUSE operations in threads, so we use threading.RLock()
+        self._tree_lock = threading.RLock()
 
         # URL cache for provider links with automatic expiration
         self._url_cache: Dict[str, URLCacheItem] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
-        # Entry info cache to reduce redundant DB lookups in FUSE ops
-        self._entry_cache: Dict[str, tuple[Optional[VFSEntry], float]] = {}
-        self._entry_cache_ttl = 30.0  # seconds
 
         # Shared HTTP client (httpx) for connection reuse
         self.http = ProviderHTTP()
@@ -410,8 +501,6 @@ class RivenVFS(pyfuse3.Operations):
         pyfuse3.init(self, self._mountpoint, fuse_options)
         self._mounted = True
 
-        import threading
-
         def _fuse_runner():
             async def _async_main():
                 # capture Trio token so we can call into the loop from other threads
@@ -432,6 +521,317 @@ class RivenVFS(pyfuse3.Operations):
         self._thread.start()
 
         log.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
+
+        # Synchronize library profiles with VFS structure
+        self.sync_library_profiles()
+
+    # ========== VFS Tree Helper Methods ==========
+
+    def _get_node_by_path(self, path: str) -> Optional[VFSNode]:
+        """
+        Get a VFSNode by walking the tree from root.
+
+        This is O(depth) instead of O(n) like the old path iteration approach.
+
+        Args:
+            path: NORMALIZED VFS path (e.g., "/movies/Frozen.mkv")
+                  Caller must normalize before calling this method.
+
+        Returns:
+            VFSNode if found, None otherwise
+        """
+        if path == "/":
+            return self._root
+
+        # Split path and walk tree
+        parts = [p for p in path.split("/") if p]
+        current = self._root
+
+        for part in parts:
+            current = current.get_child(part)
+            if current is None:
+                return None
+
+        return current
+
+    def _get_or_create_node(
+        self, path: str, is_directory: bool, base_path: Optional[str] = None
+    ) -> VFSNode:
+        """
+        Get or create a node at the given path, creating parent directories as needed.
+
+        Args:
+            path: NORMALIZED VFS path (caller must normalize)
+            is_directory: Whether this is a directory
+            base_path: Base path in database (for files)
+
+        Returns:
+            The VFSNode at the path
+        """
+        if path == "/":
+            return self._root
+
+        # Split path and walk/create tree
+        parts = [p for p in path.split("/") if p]
+        current = self._root
+
+        for i, part in enumerate(parts):
+            child = current.get_child(part)
+
+            if child is None:
+                # Create the node
+                is_last = i == len(parts) - 1
+
+                if is_last:
+                    # This is the target node
+                    child = VFSNode(
+                        name=part,
+                        is_directory=is_directory,
+                        base_path=base_path,
+                        inode=self._assign_inode(),
+                    )
+                else:
+                    # This is a parent directory
+                    child = VFSNode(
+                        name=part, is_directory=True, inode=self._assign_inode()
+                    )
+
+                current.add_child(child)
+
+                if child.inode is not None:
+                    self._inode_to_node[child.inode] = child
+
+            current = child
+
+        return current
+
+    def _remove_node(self, path: str) -> bool:
+        """
+        Remove a node from the tree.
+
+        Args:
+            path: NORMALIZED VFS path to remove (caller must normalize)
+
+        Returns:
+            True if removed, False if not found
+        """
+        if path == "/":
+            return False  # Can't remove root
+
+        node = self._get_node_by_path(path)
+        if node is None:
+            return False
+
+        # Remove from parent
+        if node.parent:
+            node.parent.remove_child(node.name)
+
+        # Remove from inode map
+        if node.inode:
+            self._inode_to_node.pop(node.inode, None)
+
+        # Recursively remove all children from inode map
+        self._remove_node_recursive(node)
+
+        return True
+
+    def _remove_node_recursive(self, node: VFSNode) -> None:
+        """Recursively remove all children from inode map."""
+        for child in list(node.children.values()):
+            if child.inode:
+                self._inode_to_node.pop(child.inode, None)
+            self._remove_node_recursive(child)
+
+    def _assign_inode(self) -> pyfuse3.InodeT:
+        """Assign a new inode number."""
+        inode = self._next_inode
+        self._next_inode = pyfuse3.InodeT(inode + 1)
+        return inode
+
+    def _get_parent_inodes(self, node: VFSNode) -> List[pyfuse3.InodeT]:
+        """
+        Get all parent inodes from node up to root.
+
+        This is useful for collecting parent directories that need cache invalidation.
+
+        Args:
+            node: Starting node
+
+        Returns:
+            List of parent inodes (excluding root)
+        """
+        inodes = []
+        current = node.parent
+        while current and current != self._root:
+            if current.inode:
+                inodes.append(current.inode)
+            current = current.parent
+        return inodes
+
+    # ========== End VFS Tree Helper Methods ==========
+
+    def sync_library_profiles(self) -> None:
+        """
+        Synchronize VFS with library profiles from settings.
+
+        This method:
+        1. Re-matches all MediaEntry items against current library profiles
+        2. Builds the set of current VFS paths based on matched profiles
+        3. Removes stale paths (paths that no longer exist)
+        4. Adds new paths (paths that didn't exist before)
+
+        Note: Uses incremental updates to preserve kernel inode cache consistency.
+        Directories are created automatically by the VFS based on file paths.
+
+        Called automatically:
+        - During RivenVFS initialization
+        - When settings change (via FilesystemService)
+        """
+        from program.media.media_entry import MediaEntry
+        from program.services.library_profile_matcher import LibraryProfileMatcher
+
+        log.log("VFS", "Synchronizing library profiles with VFS")
+
+        matcher = LibraryProfileMatcher()
+
+        # Step 1: Re-match all entries against current library profiles and build metadata map
+        from program.db.db import db as db_module
+
+        with db_module.Session() as session:
+            entries = (
+                session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
+            )
+
+            current_paths = set()
+            path_to_base = {}  # Build inside session to avoid detached instance errors
+            path_to_metadata = {}  # Cache metadata for each path
+            rematched_count = 0
+
+            for entry in entries:
+                # Get the MediaItem for this entry to re-match profiles
+                item = entry.media_item
+                if not item:
+                    log.warning(
+                        f"MediaEntry {entry.id} has no associated MediaItem, skipping"
+                    )
+                    continue
+
+                # Re-match library profiles based on current settings
+                new_profiles = matcher.get_matching_profiles(item)
+                old_profiles = entry.library_profiles or []
+
+                # Update if profiles changed
+                if set(new_profiles) != set(old_profiles):
+                    entry.library_profiles = new_profiles
+                    rematched_count += 1
+
+                # Get all current VFS paths for this entry
+                vfs_paths = entry.get_library_paths()
+                current_paths.update(vfs_paths)
+
+                # Build path to base path mapping and metadata cache (inside session)
+                if vfs_paths:
+                    base_path = vfs_paths[0]  # First path is always base path
+
+                    # Extract metadata from entry (use correct attribute names!)
+                    metadata = {
+                        "file_size": entry.file_size,
+                        "created_at": (
+                            entry.created_at.isoformat() if entry.created_at else None
+                        ),
+                        "updated_at": (
+                            entry.updated_at.isoformat() if entry.updated_at else None
+                        ),
+                        "entry_type": entry.entry_type,
+                    }
+
+                    for vfs_path in vfs_paths:
+                        path_to_base[vfs_path] = base_path
+                        path_to_metadata[vfs_path] = metadata
+
+            session.commit()
+            log.debug(f"Re-matched {rematched_count} entries with updated profiles")
+
+        # Step 2: Rebuild VFS tree from current paths
+        # Build new tree outside the lock to minimize critical section
+        new_root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
+        new_inode_to_node: Dict[int, VFSNode] = {pyfuse3.ROOT_INODE: new_root}
+        new_next_inode = self._next_inode  # Preserve inode counter
+
+        added_count = 0
+        directories_to_invalidate = set()
+
+        # Build the new tree (temporarily use instance variables for _get_or_create_node to work)
+        # This is safe because sync_library_profiles is only called from one thread at a time
+        saved_root = self._root
+        saved_inode_to_node = self._inode_to_node
+        saved_next_inode = self._next_inode
+
+        self._root = new_root
+        self._inode_to_node = new_inode_to_node
+        self._next_inode = new_next_inode
+
+        for vfs_path in current_paths:
+            # Get base path and metadata for this VFS path
+            base_path = path_to_base.get(vfs_path, vfs_path)
+            metadata = path_to_metadata.get(vfs_path, {})
+
+            # Create node in tree (creates parent directories automatically)
+            node = self._get_or_create_node(
+                path=vfs_path,
+                is_directory=False,  # We know these are files
+                base_path=base_path,
+            )
+
+            # Populate cached metadata in the node (eliminates DB queries in getattr!)
+            node.file_size = metadata.get("file_size")
+            node.created_at = metadata.get("created_at")
+            node.updated_at = metadata.get("updated_at")
+            node.entry_type = metadata.get("entry_type")
+
+            added_count += 1
+
+            # Collect parent directories for invalidation
+            parent_node = node.parent
+            while parent_node and parent_node != new_root:
+                directories_to_invalidate.add(parent_node.get_full_path())
+                parent_node = parent_node.parent
+
+        # Capture the new tree state
+        new_next_inode = self._next_inode
+
+        # Atomic swap: Replace old tree with new tree under lock
+        with self._tree_lock:
+            self._root = new_root
+            self._inode_to_node = new_inode_to_node
+            self._next_inode = new_next_inode
+
+        log.log(
+            "VFS",
+            f"Sync complete: rebuilt tree with {added_count} files, "
+            f"re-matched {rematched_count} entries",
+        )
+
+        # Step 3: Invalidate directory caches for changed directories
+        if added_count > 0:
+            try:
+                # Invalidate root directory
+                pyfuse3.invalidate_inode(pyfuse3.ROOT_INODE, attr_only=False)
+
+                # Invalidate all affected parent directories
+                for dir_path in directories_to_invalidate:
+                    node = self._get_node_by_path(dir_path)
+                    if node and node.inode:
+                        try:
+                            pyfuse3.invalidate_inode(node.inode, attr_only=False)
+                        except OSError:
+                            pass  # Ignore if kernel hasn't cached this inode yet
+
+                log.debug(
+                    f"Invalidated root + {len(directories_to_invalidate)} directory caches after sync"
+                )
+            except Exception as e:
+                log.trace(f"Could not invalidate directory caches: {e}")
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
@@ -572,23 +972,30 @@ class RivenVFS(pyfuse3.Operations):
             provider=provider,
             provider_download_id=provider_download_id,
         )
-        # Invalidate entry cache for this path and its parent
-        self._entry_cache_invalidate_path(path)
 
-        # Assign inode for the new file
-        self._assign_inode(path)
+        # Create node in tree (creates parent directories automatically)
+        with self._tree_lock:
+            node = self._get_or_create_node(
+                path=path,
+                is_directory=False,
+                base_path=path,  # For add_file, path is always the base path
+            )
 
-        # Assign inodes for any newly created parent directories
-        parent = self._normalize_path(self._get_parent_path(path))
-        parent_inodes_to_invalidate = []
-        while parent != "/" and parent not in self._path_to_inode:
-            parent_ino = self._assign_inode(parent)
-            parent_inodes_to_invalidate.append(parent_ino)
-            parent = self._normalize_path(self._get_parent_path(parent))
+            # Populate metadata in node (so getattr doesn't need DB query)
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc)
+            node.file_size = int(size or 0)
+            node.created_at = now.isoformat()
+            node.updated_at = now.isoformat()
+            node.entry_type = "media"  # add_file creates media entries
+
+            # Get parent inodes for invalidation (must be done inside lock)
+            parent_inodes = self._get_parent_inodes(node)
 
         # Invalidate FUSE cache to ensure directory listings are updated
         # This is crucial for media players that cache directory structure
-        self._invalidate_directory_cache(path, parent_inodes_to_invalidate)
+        self._invalidate_directory_cache(path, parent_inodes)
 
         log.debug(f"Added virtual file: {path}")
         return True
@@ -600,35 +1007,106 @@ class RivenVFS(pyfuse3.Operations):
         This is useful when FilesystemEntry records already exist in the database
         but need to be made accessible via FUSE.
 
+        For library profile paths (e.g., /kids/movies/...), this method resolves them
+        to the base path (e.g., /movies/...) for database lookup, then creates a node
+        in the tree with the base_path reference.
+
         Args:
-            path: Virtual path of the existing file
+            path: Virtual path of the existing file (can be base path or profile path)
 
         Returns:
             True if file was registered successfully
         """
         path = self._normalize_path(path)
 
-        # Check if file exists in database
-        if not self.db.exists(path):
-            log.warning(f"Cannot register non-existent file: {path}")
+        with self._tree_lock:
+            # Get base path from node if it exists, otherwise resolve it
+            node = self._get_node_by_path(path)
+            if node:
+                base_path = node.base_path or path
+            else:
+                base_path = self._resolve_path(path)
+
+        # Check if base path exists in database and get metadata
+        entry_info = self.db.get_entry(base_path)
+        if not entry_info:
+            log.warning(
+                f"Cannot register non-existent file: {path} (resolved: {base_path})"
+            )
             return False
 
-        # Assign inode for the file
-        self._assign_inode(path)
+        with self._tree_lock:
+            # Create node in tree (creates parent directories automatically)
+            # Note: This is called during sync, so the node might already exist
+            if not node:
+                node = self._get_or_create_node(
+                    path=path, is_directory=False, base_path=base_path
+                )
 
-        # Assign inodes for any parent directories that need them
-        parent = self._normalize_path(self._get_parent_path(path))
-        parent_inodes_to_invalidate = []
-        while parent != "/" and parent not in self._path_to_inode:
-            parent_ino = self._assign_inode(parent)
-            parent_inodes_to_invalidate.append(parent_ino)
-            parent = self._normalize_path(self._get_parent_path(parent))
+            # Populate metadata in node from database entry
+            node.file_size = entry_info.get("size", 0)
+            node.created_at = entry_info.get("created")
+            node.updated_at = entry_info.get("modified")
+            node.entry_type = entry_info.get("entry_type", "media")
+
+            # Get parent inodes for invalidation (must be done inside lock)
+            parent_inodes = self._get_parent_inodes(node)
 
         # Invalidate FUSE cache to ensure directory listings are updated
-        self._invalidate_directory_cache(path, parent_inodes_to_invalidate)
+        self._invalidate_directory_cache(path, parent_inodes)
 
-        log.debug(f"Registered existing file with FUSE: {path}")
         return True
+
+    def _resolve_path(self, path: str) -> str:
+        """
+        Resolve a path to its base path using the VFS tree.
+
+        If the path is a library profile path, returns the base path stored in the node.
+        If the node doesn't exist yet, attempts to strip library profile prefixes.
+
+        Args:
+            path: NORMALIZED path to resolve (caller must normalize)
+
+        Returns:
+            Resolved path (base path if it's a profile path, otherwise original path)
+        """
+        # Check if node exists and has base_path
+        node = self._get_node_by_path(path)
+        if node and node.base_path:
+            return node.base_path
+
+        # If not in tree, try to strip library profile prefix
+        # This handles the case where we're registering a library profile path
+        # before the node exists in the tree
+        base_path = self._strip_library_profile_prefix(path)
+        return base_path
+
+    def _strip_library_profile_prefix(self, path: str) -> str:
+        """
+        Strip library profile prefix from a path if present.
+
+        Args:
+            path: Path that may have a library profile prefix (e.g., /recent/movies/...)
+
+        Returns:
+            Base path without library profile prefix (e.g., /movies/...)
+        """
+        from program.settings.manager import settings_manager
+
+        profiles = settings_manager.settings.filesystem.library_profiles or {}
+
+        for profile in profiles.values():
+            if not profile.enabled:
+                continue
+
+            prefix = profile.library_path
+            if path.startswith(prefix + "/"):
+                # Strip the prefix and return the base path
+                # e.g., "/recent/movies/Title..." -> "/movies/Title..."
+                return path[len(prefix) :]
+
+        # No profile prefix found, return as-is
+        return path
 
     def rename_file(self, old_path: str, new_path: str) -> bool:
         """
@@ -651,31 +1129,41 @@ class RivenVFS(pyfuse3.Operations):
             log.warning(f"Failed to rename file in database: {old_path} -> {new_path}")
             return False
 
-        # Invalidate entry cache for old and new paths
-        self._entry_cache_invalidate_path(old_path)
-        self._entry_cache_invalidate_path(new_path)
+        # Update VFS tree
+        with self._tree_lock:
+            # Get old node to preserve metadata
+            old_node = self._get_node_by_path(old_path)
+            old_metadata = None
+            if old_node:
+                # Save metadata before removing
+                old_metadata = {
+                    "file_size": old_node.file_size,
+                    "created_at": old_node.created_at,
+                    "updated_at": old_node.updated_at,
+                    "entry_type": old_node.entry_type,
+                }
+                self._remove_node(old_path)
 
-        # Update FUSE layer
-        # Remove old inode mapping if it exists
-        if old_path in self._path_to_inode:
-            old_inode = self._path_to_inode[old_path]
-            del self._path_to_inode[old_path]
-            del self._inode_to_path[old_inode]
+            # Create new node
+            new_node = self._get_or_create_node(
+                path=new_path,
+                is_directory=False,
+                base_path=new_path,  # For rename, new_path is the base path
+            )
 
-        # Assign inode for the new path
-        self._assign_inode(new_path)
+            # Restore metadata to new node
+            if old_metadata:
+                new_node.file_size = old_metadata["file_size"]
+                new_node.created_at = old_metadata["created_at"]
+                new_node.updated_at = old_metadata["updated_at"]
+                new_node.entry_type = old_metadata["entry_type"]
 
-        # Assign inodes for any parent directories that need them
-        parent = self._normalize_path(self._get_parent_path(new_path))
-        parent_inodes_to_invalidate = []
-        while parent != "/" and parent not in self._path_to_inode:
-            parent_ino = self._assign_inode(parent)
-            parent_inodes_to_invalidate.append(parent_ino)
-            parent = self._normalize_path(self._get_parent_path(parent))
+            # Get parent inodes for invalidation (must be done inside lock)
+            parent_inodes = self._get_parent_inodes(new_node)
 
         # Invalidate FUSE cache for both old and new locations
         self._invalidate_rename_cache(old_path, new_path, None)
-        self._invalidate_directory_cache(new_path, parent_inodes_to_invalidate)
+        self._invalidate_directory_cache(new_path, parent_inodes)
 
         log.debug(f"Renamed file: {old_path} -> {new_path}")
         return True
@@ -690,12 +1178,18 @@ class RivenVFS(pyfuse3.Operations):
         return self.db.exists(self._normalize_path(path))
 
     def get_file_info(self, path: str) -> Optional[VFSEntry]:
-        """Get information about a virtual file."""
-        return self.db.get_entry(self._normalize_path(path))
+        """
+        Get information about a virtual file.
 
-    def list_directory(self, path: str) -> list[VFSEntry]:
-        """List contents of a virtual directory."""
-        return self.db.list_directory(self._normalize_path(path))
+        Resolves library profile paths to base paths for database lookup using alias map.
+        """
+        path = self._normalize_path(path)
+        resolved_path = self._resolve_path(path)
+        return self.db.get_entry(resolved_path)
+
+    def list_directory(self, path: str) -> list[Dict]:
+        """List contents of a virtual directory using VFS tree."""
+        return self._list_directory_cached(self._normalize_path(path))
 
     def get_opener_stats(self) -> Dict[str, Dict]:
         """Get statistics for each opener (process that opened files)."""
@@ -727,57 +1221,40 @@ class RivenVFS(pyfuse3.Operations):
             p = p / part
         return self._normalize_path(str(p))
 
-    def _get_entry_cached(self, path: str) -> Optional[VFSEntry]:
-        """Cached wrapper around self.db.get_entry to reduce repeated queries."""
-        import time
-
-        path = self._normalize_path(path)
-        ent_ts = self._entry_cache.get(path)
-        now = time.time()
-        if ent_ts is not None:
-            ent, ts = ent_ts
-            try:
-                if now - float(ts) < float(self._entry_cache_ttl):
-                    return ent
-            except Exception:
-                pass
-        ent = self.db.get_entry(path)
-        self._entry_cache[path] = (ent, now)
-        return ent
-
     def _exists_cached(self, path: str) -> bool:
-        return self._get_entry_cached(path) is not None
+        """Check if path exists in VFS tree (no database query)."""
+        return self._get_node_by_path(path) is not None
 
-    def _list_directory_cached(self, path: str) -> list[VFSEntry]:
-        # Keep listing uncached for simplicity and freshness; can be cached if needed later
-        return self.db.list_directory(self._normalize_path(path))
+    def _list_directory_cached(self, path: str) -> list[Dict]:
+        """
+        List directory contents using VFS tree for O(1) lookups.
 
-    def _entry_cache_invalidate_path(self, path: str) -> None:
-        """Invalidate cached entry info for a path and its parent directory."""
-        try:
-            path = self._normalize_path(path)
-            self._entry_cache.pop(path, None)
-            parent = self._normalize_path(self._get_parent_path(path))
-            self._entry_cache.pop(parent, None)
-        except Exception:
-            pass
+        The VFS tree is built during sync_library_profiles() and provides
+        instant directory listings without any database queries.
 
-    def _assign_inode(self, path: str) -> pyfuse3.InodeT:
-        """Assign an inode number to a path."""
-        if path in self._path_to_inode:
-            return self._path_to_inode[path]
-        ino = self._next_inode
-        self._next_inode = pyfuse3.InodeT(self._next_inode + 1)
-        self._path_to_inode[path] = ino
-        self._inode_to_path[ino] = path
-        return ino
+        Args:
+            path: NORMALIZED VFS path (caller must normalize)
+        """
+        with self._tree_lock:
+            # Get node from tree
+            node = self._get_node_by_path(path)
+            if node is None or not node.is_directory:
+                return []
 
-    def _get_path_from_inode(self, inode: pyfuse3.InodeT) -> str:
-        """Get path from inode number."""
-        try:
-            return self._inode_to_path[inode]
-        except KeyError:
-            raise pyfuse3.FUSEError(errno.ENOENT)
+            # Build result list from node's children - no database queries!
+            children = []
+            for name, child in node.children.items():
+                children.append({"name": name, "is_directory": child.is_directory})
+
+            return children
+
+    def _get_path_from_inode(self, inode: int) -> str:
+        """Get path from inode number using the VFS tree."""
+        with self._tree_lock:
+            node = self._inode_to_node.get(inode)
+            if node is None:
+                raise pyfuse3.FUSEError(errno.ENOENT)
+            return node.get_full_path()
 
     @staticmethod
     def _current_time_ns() -> int:
@@ -786,151 +1263,152 @@ class RivenVFS(pyfuse3.Operations):
 
         return int(time.time() * 1e9)
 
+    def _invalidate_entry(
+        self,
+        parent_path: str,
+        entry_name: str,
+        deleted_inode: Optional[pyfuse3.InodeT] = None,
+        operation: str = "modify",
+    ) -> None:
+        """
+        Helper to invalidate a directory entry in the kernel cache.
+
+        Args:
+            parent_path: Path to the parent directory
+            entry_name: Name of the entry to invalidate
+            deleted_inode: If provided, marks the entry as deleted with this inode
+            operation: Description of operation for logging (add/remove/rename)
+        """
+        try:
+            parent_node = self._get_node_by_path(parent_path)
+            if parent_node and parent_node.inode:
+                pyfuse3.invalidate_entry_async(
+                    parent_node.inode,
+                    pyfuse3.FileNameT(entry_name.encode("utf-8")),
+                    deleted=pyfuse3.InodeT(deleted_inode or 0),
+                    ignore_enoent=True,
+                )
+        except OSError as e:
+            if getattr(e, "errno", None) != errno.ENOENT:
+                log.warning(
+                    f"Failed to invalidate entry '{entry_name}' in {parent_path}: {e}"
+                )
+
+    def _invalidate_inode_list(
+        self,
+        inodes: list[pyfuse3.InodeT],
+        attr_only: bool = True,
+        operation: str = "modify",
+    ) -> None:
+        """
+        Helper to invalidate a list of inodes.
+
+        Args:
+            inodes: List of inode numbers to invalidate
+            attr_only: If True, only invalidate attributes; if False, invalidate content too
+            operation: Description of operation for logging
+        """
+        for ino in inodes:
+            try:
+                pyfuse3.invalidate_inode(ino, attr_only=attr_only)
+            except OSError as e:
+                if getattr(e, "errno", None) == errno.ENOENT:
+                    # Expected - inode not cached by kernel yet
+                    pass
+                else:
+                    log.warning(f"Failed to invalidate inode {ino}: {e}")
+
     def _invalidate_directory_cache(
         self, file_path: str, parent_inodes: list[pyfuse3.InodeT]
     ) -> None:
-        """Invalidate FUSE cache when adding files."""
-        try:
-            # Invalidate the immediate parent directory where the file was added
-            immediate_parent = self._normalize_path(self._get_parent_path(file_path))
-            if immediate_parent in self._path_to_inode:
-                parent_ino = self._path_to_inode[immediate_parent]
-                pyfuse3.invalidate_entry_async(
-                    parent_ino,
-                    pyfuse3.FileNameT(os.path.basename(file_path).encode("utf-8")),
-                    ignore_enoent=True,
-                )
-                log.trace(
-                    f"Invalidated directory entry for {file_path} in parent {immediate_parent}"
-                )
+        """
+        Invalidate FUSE cache when adding files.
 
-            # Also invalidate any newly created parent directories
-            for ino in parent_inodes:
-                try:
-                    pyfuse3.invalidate_inode(ino, attr_only=True)
-                    log.trace(
-                        f"Invalidated inode {ino} for newly created parent directory"
-                    )
-                except OSError as e:
-                    # Benign if kernel has not cached the inode yet
-                    if getattr(e, "errno", None) == errno.ENOENT:
-                        log.trace(
-                            f"Skip invalidating uncached inode {ino} after adding {file_path}: {e}"
-                        )
-                    else:
-                        raise
-        except OSError as e:
-            # Downgrade ENOENT during add: often means kernel never cached the parent dir yet
-            if getattr(e, "errno", None) == errno.ENOENT:
-                log.trace(
-                    f"Benign ENOENT while invalidating after adding {file_path}: {e}"
-                )
-            else:
-                log.warning(
-                    f"Failed to invalidate FUSE cache when adding {file_path}: {e}"
-                )
+        Args:
+            file_path: NORMALIZED file path (caller must normalize)
+            parent_inodes: List of parent inodes to invalidate
+        """
+        # Invalidate the immediate parent directory entry
+        immediate_parent = self._get_parent_path(file_path)
+        self._invalidate_entry(
+            immediate_parent, os.path.basename(file_path), operation="add"
+        )
+
+        # Invalidate any newly created parent directories
+        self._invalidate_inode_list(
+            parent_inodes, attr_only=True, operation="add parent"
+        )
 
     def _invalidate_removed_entry_cache(
-        self, file_path: str, inode: Optional[int]
+        self, file_path: str, inode: Optional[pyfuse3.InodeT]
     ) -> None:
-        """Invalidate FUSE cache when removing files."""
-        try:
-            parent_path = self._normalize_path(self._get_parent_path(file_path))
-            if parent_path in self._path_to_inode:
-                parent_ino = self._path_to_inode[parent_path]
-                pyfuse3.invalidate_entry_async(
-                    parent_ino,
-                    pyfuse3.FileNameT(os.path.basename(file_path).encode("utf-8")),
-                    deleted=pyfuse3.InodeT(inode or 0),
-                    ignore_enoent=True,
-                )
-                log.trace(f"Invalidated directory entry for removed {file_path}")
-        except OSError as e:
-            if getattr(e, "errno", None) == errno.ENOENT:
-                log.trace(
-                    f"Benign ENOENT while invalidating after removing {file_path}: {e}"
-                )
-            else:
-                log.warning(
-                    f"Failed to invalidate FUSE cache when removing {file_path}: {e}"
-                )
+        """
+        Invalidate FUSE cache when removing files.
+
+        Args:
+            file_path: NORMALIZED file path (caller must normalize)
+            inode: Inode of removed file
+        """
+        parent_path = self._get_parent_path(file_path)
+        self._invalidate_entry(
+            parent_path,
+            os.path.basename(file_path),
+            deleted_inode=inode,
+            operation="remove",
+        )
 
     def _invalidate_potentially_removed_dirs(self, file_path: str) -> None:
-        """Invalidate parent directory entries that may have been removed due to pruning."""
+        """
+        Invalidate parent directory entries that may have been removed due to pruning.
+
+        Args:
+            file_path: NORMALIZED file path (caller must normalize)
+        """
         try:
-            parent = self._normalize_path(self._get_parent_path(file_path))
-            grandparent = self._normalize_path(self._get_parent_path(parent))
+            parent = self._get_parent_path(file_path)
+            grandparent = self._get_parent_path(parent)
 
             # Invalidate the entry for 'parent' under its parent directory (grandparent)
-            if grandparent in self._path_to_inode:
-                name = os.path.basename(parent.rstrip("/"))
-                if name:
-                    pyfuse3.invalidate_entry_async(
-                        self._path_to_inode[grandparent],
-                        pyfuse3.FileNameT(name.encode("utf-8")),
-                        ignore_enoent=True,
-                    )
-                    log.trace(
-                        f"Invalidated potential removed dir entry '{name}' under {grandparent}"
-                    )
+            name = os.path.basename(parent.rstrip("/"))
+            if name:
+                self._invalidate_entry(grandparent, name, operation="prune")
 
             # One more level up (e.g., title dir)
-            ggparent = self._normalize_path(self._get_parent_path(grandparent))
+            ggparent = self._get_parent_path(grandparent)
             gname = os.path.basename(grandparent.rstrip("/"))
-            if ggparent in self._path_to_inode and gname:
-                pyfuse3.invalidate_entry_async(
-                    self._path_to_inode[ggparent],
-                    pyfuse3.FileNameT(gname.encode("utf-8")),
-                    ignore_enoent=True,
-                )
-                log.trace(
-                    f"Invalidated potential removed dir entry '{gname}' under {ggparent}"
-                )
-        except OSError as e:
-            log.warning(
-                f"Failed to invalidate FUSE cache when removing {file_path}: {e}"
-            )
+            if gname:
+                self._invalidate_entry(ggparent, gname, operation="prune")
         except Exception as e:
-            if getattr(e, "errno", None) == errno.ENOENT:
-                log.trace(
-                    f"Benign ENOENT while invalidating parent dirs for {file_path}: {e}"
-                )
-            else:
+            if getattr(e, "errno", None) != errno.ENOENT:
                 log.warning(
                     f"Failed to invalidate parent dir entries for {file_path}: {e}"
                 )
 
     def _invalidate_rename_cache(
-        self, old_path: str, new_path: str, inode: Optional[int]
+        self, old_path: str, new_path: str, inode: Optional[pyfuse3.InodeT]
     ) -> None:
-        """Invalidate FUSE cache when renaming files."""
-        try:
-            # Invalidate old parent directory
-            old_parent = self._normalize_path(self._get_parent_path(old_path))
-            if old_parent in self._path_to_inode:
-                old_parent_ino = self._path_to_inode[old_parent]
-                pyfuse3.invalidate_entry_async(
-                    old_parent_ino,
-                    pyfuse3.FileNameT(os.path.basename(old_path).encode("utf-8")),
-                    deleted=pyfuse3.InodeT(inode or 0),
-                    ignore_enoent=True,
-                )
-                log.trace(f"Invalidated old directory entry for renamed {old_path}")
+        """
+        Invalidate FUSE cache when renaming files.
 
-            # Invalidate new parent directory
-            new_parent = self._normalize_path(self._get_parent_path(new_path))
-            if new_parent in self._path_to_inode:
-                new_parent_ino = self._path_to_inode[new_parent]
-                pyfuse3.invalidate_entry_async(
-                    new_parent_ino,
-                    pyfuse3.FileNameT(os.path.basename(new_path).encode("utf-8")),
-                    ignore_enoent=True,
-                )
-                log.debug(f"Invalidated new directory entry for renamed {new_path}")
-        except OSError as e:
-            log.warning(
-                f"Failed to invalidate FUSE cache when renaming {old_path} to {new_path}: {e}"
-            )
+        Args:
+            old_path: NORMALIZED old file path (caller must normalize)
+            new_path: NORMALIZED new file path (caller must normalize)
+            inode: Inode of renamed file
+        """
+        # Invalidate old parent directory (mark as deleted)
+        old_parent = self._get_parent_path(old_path)
+        self._invalidate_entry(
+            old_parent,
+            os.path.basename(old_path),
+            deleted_inode=inode,
+            operation="rename (old)",
+        )
+
+        # Invalidate new parent directory (mark as added)
+        new_parent = self._get_parent_path(new_path)
+        self._invalidate_entry(
+            new_parent, os.path.basename(new_path), operation="rename (new)"
+        )
 
     # FUSE Operations
     async def getattr(self, inode: pyfuse3.InodeT, ctx=None) -> pyfuse3.EntryAttributes:
@@ -962,56 +1440,63 @@ class RivenVFS(pyfuse3.Operations):
                 attrs.st_ctime_ns = now_ns
                 return attrs
 
-            # For other paths, check database
-            entry_info = self._get_entry_cached(path)
-            if entry_info is None:
+            # For other paths, get node from tree
+            node = self._get_node_by_path(path)
+            if node is None:
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
-            # Use created_at timestamp from database for consistent file attributes
-            # This prevents media players from thinking files have changed
-            created_ts = entry_info.get("created")
-            modified_ts = entry_info.get("modified")
+            # Check if it's a directory
+            if node.is_directory:
+                # This is a virtual directory (e.g., /kids, /anime, /movies)
+                attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
+                attrs.st_nlink = 2
+                attrs.st_size = 0
+                now_ns = self._current_time_ns()
+                attrs.st_atime_ns = now_ns
+                attrs.st_mtime_ns = now_ns
+                attrs.st_ctime_ns = now_ns
+                return attrs
 
-            if created_ts:
+            # It's a file - use cached metadata from node (NO DATABASE QUERY!)
+            # Metadata was populated during sync_library_profiles()
+
+            # Parse timestamps from cached metadata
+            if node.created_at:
                 from datetime import datetime
 
                 try:
-                    created_dt = datetime.fromisoformat(created_ts)
+                    created_dt = datetime.fromisoformat(node.created_at)
                     created_ns = int(created_dt.timestamp() * 1_000_000_000)
                 except Exception:
                     created_ns = self._current_time_ns()
             else:
                 created_ns = self._current_time_ns()
 
-            if modified_ts:
+            if node.updated_at:
                 from datetime import datetime
 
                 try:
-                    modified_dt = datetime.fromisoformat(modified_ts)
-                    modified_ns = int(modified_dt.timestamp() * 1_000_000_000)
+                    updated_dt = datetime.fromisoformat(node.updated_at)
+                    updated_ns = int(updated_dt.timestamp() * 1_000_000_000)
                 except Exception:
-                    modified_ns = created_ns
+                    updated_ns = created_ns
             else:
-                modified_ns = created_ns
+                updated_ns = created_ns
 
             # Set timestamps: ctime = creation, mtime = modification, atime = access (use mtime)
             attrs.st_ctime_ns = created_ns
-            attrs.st_mtime_ns = modified_ns
+            attrs.st_mtime_ns = updated_ns
             attrs.st_atime_ns = (
-                modified_ns  # Use mtime for atime to avoid constant updates
+                updated_ns  # Use mtime for atime to avoid constant updates
             )
 
-            if entry_info["is_directory"]:
-                attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
-                attrs.st_nlink = 2
-                attrs.st_size = 0
-            else:
-                attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
-                attrs.st_nlink = 1
-                size = int(entry_info.get("size") or 0)
-                if size == 0:
-                    size = 1337 * 1024 * 1024  # Default size when unknown
-                attrs.st_size = size
+            # We already know it's a file from node.is_directory check above
+            attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
+            attrs.st_nlink = 1
+            size = int(node.file_size or 0)
+            if size == 0:
+                size = 1337 * 1024 * 1024  # Default size when unknown
+            attrs.st_size = size
 
             return attrs
         except pyfuse3.FUSEError:
@@ -1023,24 +1508,34 @@ class RivenVFS(pyfuse3.Operations):
     async def lookup(
         self, parent_inode: pyfuse3.InodeT, name: bytes, ctx=None
     ) -> pyfuse3.EntryAttributes:
-        """Look up a directory entry."""
+        """Look up a directory entry using VFS tree."""
         try:
-            parent_path = self._get_path_from_inode(parent_inode)
-            name_str = name.decode("utf-8")
+            with self._tree_lock:
+                # Get parent node from tree
+                parent_node = self._inode_to_node.get(parent_inode)
+                if parent_node is None:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
 
-            if name_str == ".":
-                return await self.getattr(parent_inode)
-            if name_str == "..":
-                parent_inode = self._path_to_inode.get(
-                    self._get_parent_path(parent_path), pyfuse3.ROOT_INODE
-                )
-                return await self.getattr(parent_inode)
+                name_str = name.decode("utf-8")
 
-            child_path = self._join_paths(parent_path, name_str)
-            if not self._exists_cached(child_path):
-                raise pyfuse3.FUSEError(errno.ENOENT)
+                if name_str == ".":
+                    child_inode = parent_inode
+                elif name_str == "..":
+                    # Get parent's parent
+                    if parent_node.parent:
+                        child_inode = parent_node.parent.inode
+                    else:
+                        child_inode = pyfuse3.ROOT_INODE
+                else:
+                    # Look up child in parent's children
+                    child_node = parent_node.get_child(name_str)
+                    if child_node is None:
+                        raise pyfuse3.FUSEError(errno.ENOENT)
+                    child_inode = child_node.inode
 
-            child_inode = self._assign_inode(child_path)
+                if child_inode is None:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
             return await self.getattr(child_inode)
         except pyfuse3.FUSEError:
             raise
@@ -1051,15 +1546,16 @@ class RivenVFS(pyfuse3.Operations):
     async def opendir(self, inode: pyfuse3.InodeT, ctx):
         """Open a directory for reading."""
         try:
-            path = self._get_path_from_inode(inode)
+            with self._tree_lock:
+                # Get node from tree
+                node = self._inode_to_node.get(inode)
+                if node is None:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
 
-            # Special case for root directory
-            if path == "/":
-                return inode  # Return the inode as file handle
+                # Check if it's a directory
+                if not node.is_directory:
+                    raise pyfuse3.FUSEError(errno.ENOTDIR)
 
-            entry_info = self._get_entry_cached(path)
-            if entry_info is None or not entry_info["is_directory"]:
-                raise pyfuse3.FUSEError(errno.ENOTDIR)
             return inode  # Return the inode as file handle for directories
         except pyfuse3.FUSEError:
             raise
@@ -1076,20 +1572,20 @@ class RivenVFS(pyfuse3.Operations):
             entries = self._list_directory_cached(path)
 
             # Build directory listing
-            items = [
-                (b".", inode),
-                (
-                    b"..",
-                    self._path_to_inode.get(
-                        self._get_parent_path(path), pyfuse3.ROOT_INODE
-                    ),
-                ),
-            ]
+            with self._tree_lock:
+                node = self._inode_to_node.get(inode)
+                parent_inode = (
+                    node.parent.inode if node and node.parent else pyfuse3.ROOT_INODE
+                )
 
-            for entry in entries:
-                name_bytes = entry["name"].encode("utf-8")
-                child_inode = self._assign_inode(self._join_paths(path, entry["name"]))
-                items.append((name_bytes, child_inode))
+                items = [(b".", inode), (b"..", parent_inode)]
+
+                for entry in entries:
+                    name_bytes = entry["name"].encode("utf-8")
+                    # Get child node from tree
+                    child_node = node.get_child(entry["name"]) if node else None
+                    if child_node and child_node.inode:
+                        items.append((name_bytes, child_node.inode))
 
             # Send directory entries starting from offset
             for idx in range(off, len(items)):
@@ -1108,26 +1604,33 @@ class RivenVFS(pyfuse3.Operations):
     async def open(self, inode: pyfuse3.InodeT, flags: int, ctx):
         """Open a file for reading."""
         try:
-            path = self._get_path_from_inode(inode)
-            file_info = self._get_entry_cached(path)
+            with self._tree_lock:
+                # Get node from tree and verify it's a file
+                node = self._inode_to_node.get(inode)
+                if node is None or node.is_directory:
+                    raise pyfuse3.FUSEError(
+                        errno.EISDIR if node and node.is_directory else errno.ENOENT
+                    )
+
+                path = node.get_full_path()
+                # Cache metadata from node
+                file_size = node.file_size
+                entry_type = node.entry_type
 
             log.trace(f"Opening file {path} (inode={inode}) with flags {flags})")
-
-            if file_info is None or file_info["is_directory"]:
-                raise pyfuse3.FUSEError(errno.ENOENT)
 
             # Only allow read access
             if flags & os.O_RDWR or flags & os.O_WRONLY:
                 raise pyfuse3.FUSEError(errno.EACCES)
 
-            # Create file handle with readahead buffer
+            # Create file handle with cached node metadata (no DB query!)
             fh = self._next_fh
             self._next_fh += 1
-
-            # Minimal handle info
+            # Store metadata in handle (don't store node reference to avoid holding lock)
             self._file_handles[fh] = {
                 "path": path,
-                "file_info": file_info,
+                "file_size": file_size,
+                "entry_type": entry_type,
                 "is_scanner": False,  # Will be detected based on read pattern (large jumps)
                 "buffers": [],
                 "sequential_reads": 0,
@@ -1162,25 +1665,24 @@ class RivenVFS(pyfuse3.Operations):
             if not path:
                 raise pyfuse3.FUSEError(errno.EBADF)
 
-            file_info = handle_info.get("file_info") or self._get_entry_cached(path)
-            if file_info is None or file_info.get("is_directory"):
-                raise pyfuse3.FUSEError(errno.ENOENT)
-            size_raw = file_info.get("size")
-            file_size = int(size_raw) if size_raw is not None else None
+            # Get cached metadata from file handle (populated in open())
+            file_size = handle_info.get("file_size")
+            entry_type = handle_info.get("entry_type")
 
             if size == 0:
                 return b""
 
             # Check if this is a subtitle entry - if so, read from database instead of HTTP
-            entry_type = file_info.get("entry_type")
             if entry_type == "subtitle":
                 # Subtitles are stored in the database, not fetched via HTTP
                 # Check if we've already cached the subtitle content in the handle
                 subtitle_content = handle_info.get("subtitle_content")
                 if subtitle_content is None:
+                    # Resolve path alias before querying database for subtitle content
+                    resolved_path = self._resolve_path(path)
                     # Fetch subtitle content from database (blocking call, but subtitles are small)
                     subtitle_content = await trio.to_thread.run_sync(
-                        lambda: self.db.get_subtitle_content(path)
+                        lambda: self.db.get_subtitle_content(resolved_path)
                     )
                     if subtitle_content is None:
                         log.error(f"Subtitle content not found for {path}")
@@ -1201,19 +1703,26 @@ class RivenVFS(pyfuse3.Operations):
 
             # For media entries, continue with normal HTTP streaming logic
 
+            # Resolve path alias to base path for consistent cache keys
+            # This ensures cache is shared between base path and all alias paths
+            resolved_path = self._resolve_path(path)
+
             import time
 
             now = time.time()
-            cached_url_info = self._url_cache.get(path)
+            cached_url_info = self._url_cache.get(resolved_path)
             if (
                 not cached_url_info
                 or (now - float(cached_url_info.get("timestamp", 0)))
                 > self.url_cache_ttl
             ):
-                url = self.db.get_download_url(path, for_http=True, force_resolve=False)
+                # Query database for download URL using resolved path
+                url = self.db.get_download_url(
+                    resolved_path, for_http=True, force_resolve=False
+                )
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
-                self._url_cache[path] = URLCacheItem(url=url, timestamp=now)
+                self._url_cache[resolved_path] = {"url": url, "timestamp": now}
             else:
                 url = str(cached_url_info.get("url"))
 
@@ -1263,9 +1772,10 @@ class RivenVFS(pyfuse3.Operations):
                             except Exception as e:
                                 log.trace(f"Footer prefetch failed: {e}")
 
+                        # Use resolved_path for footer prefetch to share cache between base and alias paths
                         trio.lowlevel.spawn_system_task(
                             _prefetch_footer,
-                            path,
+                            resolved_path,
                             url,
                             footer_chunk_start,
                             footer_chunk_end,
@@ -1295,20 +1805,21 @@ class RivenVFS(pyfuse3.Operations):
                     return b""
 
                 # Try cache first for exactly what kernel asked (async to avoid blocking event loop)
+                # Use resolved_path for cache to share cache between base and alias paths
                 cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.cache.get(path, off, off + size - 1)
+                    lambda: self.cache.get(resolved_path, off, off + size - 1)
                 )
                 if cached_bytes is not None:
                     returned_data = cached_bytes
                 else:
                     # Fetch the determined range (exact for non-promoted, larger for promoted)
                     data = await self._fetch_data_block(
-                        path, url, fetch_start, fetch_end
+                        resolved_path, url, fetch_start, fetch_end
                     )
                     if data:
                         # Cache immediately (async to avoid blocking event loop)
                         await trio.to_thread.run_sync(
-                            lambda: self.cache.put(path, fetch_start, data)
+                            lambda: self.cache.put(resolved_path, fetch_start, data)
                         )
 
                         # Always slice to return exactly what was requested
@@ -1368,8 +1879,9 @@ class RivenVFS(pyfuse3.Operations):
                 next_aligned_end = next_aligned_start + self.chunk_size - 1
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
+                # Use resolved_path for cache to share cache between base and alias paths
                 cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.cache.get(path, request_start, request_end)
+                    lambda: self.cache.get(resolved_path, request_start, request_end)
                 )
 
                 if cached_bytes is not None:
@@ -1391,20 +1903,22 @@ class RivenVFS(pyfuse3.Operations):
                         # Check if this chunk is cached (full chunk)
                         chunk_data = await trio.to_thread.run_sync(
                             lambda cs=current_chunk_start, ce=chunk_end: self.cache.get(
-                                path, cs, ce
+                                resolved_path, cs, ce
                             )
                         )
 
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(
-                                path, url, current_chunk_start, chunk_end
+                                resolved_path, url, current_chunk_start, chunk_end
                             )
                             if chunk_data:
                                 # Cache immediately (async to avoid blocking event loop)
                                 await trio.to_thread.run_sync(
                                     lambda chunk_to_cache=chunk_data: self.cache.put(
-                                        path, current_chunk_start, chunk_to_cache
+                                        resolved_path,
+                                        current_chunk_start,
+                                        chunk_to_cache,
                                     )
                                 )
 
@@ -1456,10 +1970,11 @@ class RivenVFS(pyfuse3.Operations):
                             if file_size is None
                             else min(next_aligned_end, file_size - 1)
                         )
+                        # Use resolved_path for prefetch to share cache between base and alias paths
                         trio.lowlevel.spawn_system_task(
                             self._prefetch_next_chunk,
                             fh,
-                            path,
+                            resolved_path,
                             url,
                             next_aligned_start,
                             pf_end,
@@ -1667,10 +2182,11 @@ class RivenVFS(pyfuse3.Operations):
         Be permissive for write checks to avoid client false negatives; actual writes still fail with EROFS.
         """
         try:
-            # Check existence only; permission enforcement happens at operation time
-            path = self._get_path_from_inode(inode)
-            if not self.db.exists(path):
-                raise pyfuse3.FUSEError(errno.ENOENT)
+            with self._tree_lock:
+                # Check existence in tree (no database query needed!)
+                node = self._inode_to_node.get(inode)
+                if node is None:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
             return None
         except pyfuse3.FUSEError:
             raise

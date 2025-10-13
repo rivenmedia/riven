@@ -73,6 +73,7 @@ class Cache:
         self._total_bytes = 0
         self._lock = threading.RLock()
         self._metrics = _Metrics()
+        self._last_log = 0.0  # Initialize last log timestamp
         try:
             os.makedirs(self.cfg.cache_dir, exist_ok=True)
         except Exception as e:
