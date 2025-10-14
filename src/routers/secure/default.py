@@ -33,6 +33,7 @@ async def health(request: Request) -> MessageResponse:
 
 class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
+
     service: Literal["realdebrid", "torbox", "alldebrid"]
     username: Optional[str] = None
     email: Optional[str] = None
@@ -47,6 +48,7 @@ class DownloaderUserInfo(BaseModel):
 
 class DownloaderUserInfoResponse(BaseModel):
     """Response containing user info for all initialized downloader services"""
+
     services: list[DownloaderUserInfo]
 
 
@@ -63,7 +65,9 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
         downloader: Downloader = request.app.program.services.get(Downloader)
 
         if not downloader or not downloader.initialized:
-            raise HTTPException(status_code=503, detail="No downloader service is initialized")
+            raise HTTPException(
+                status_code=503, detail="No downloader service is initialized"
+            )
 
         # Get user info from all initialized services
         services_info = []
@@ -74,18 +78,28 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
 
                 if user_info:
                     # Convert datetime objects to ISO strings for JSON serialization
-                    services_info.append(DownloaderUserInfo(
-                        service=user_info.service,
-                        username=user_info.username,
-                        email=user_info.email,
-                        user_id=user_info.user_id,
-                        premium_status=user_info.premium_status,
-                        premium_expires_at=user_info.premium_expires_at.isoformat() if user_info.premium_expires_at else None,
-                        premium_days_left=user_info.premium_days_left,
-                        points=user_info.points,
-                        total_downloaded_bytes=user_info.total_downloaded_bytes,
-                        cooldown_until=user_info.cooldown_until.isoformat() if user_info.cooldown_until else None,
-                    ))
+                    services_info.append(
+                        DownloaderUserInfo(
+                            service=user_info.service,
+                            username=user_info.username,
+                            email=user_info.email,
+                            user_id=user_info.user_id,
+                            premium_status=user_info.premium_status,
+                            premium_expires_at=(
+                                user_info.premium_expires_at.isoformat()
+                                if user_info.premium_expires_at
+                                else None
+                            ),
+                            premium_days_left=user_info.premium_days_left,
+                            points=user_info.points,
+                            total_downloaded_bytes=user_info.total_downloaded_bytes,
+                            cooldown_until=(
+                                user_info.cooldown_until.isoformat()
+                                if user_info.cooldown_until
+                                else None
+                            ),
+                        )
+                    )
                 else:
                     logger.warning(f"Failed to get user info from {service.key}")
             except Exception as e:
@@ -94,7 +108,10 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
                 continue
 
         if not services_info:
-            raise HTTPException(status_code=500, detail="Failed to retrieve user information from any downloader service")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve user information from any downloader service",
+            )
 
         return DownloaderUserInfoResponse(services=services_info)
 
@@ -104,12 +121,14 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
         logger.error(f"Error getting downloader user info: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
 @router.post("/generateapikey", operation_id="generateapikey")
 async def generate_apikey() -> MessageResponse:
     new_key = generate_api_key()
     settings_manager.settings.api_key = new_key
     settings_manager.save()
-    return { "message": new_key}
+    return {"message": new_key}
+
 
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
@@ -147,7 +166,9 @@ async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt Api not found")
     if trakt_api_key is None:
-        raise HTTPException(status_code=404, detail="Trakt Api key not found in settings")
+        raise HTTPException(
+            status_code=404, detail="Trakt Api key not found in settings"
+        )
     success = trakt_api.handle_oauth_callback(trakt_api_key, code)
     if success:
         return {"message": "OAuth token obtained successfully"}
@@ -173,9 +194,9 @@ class StatsResponse(BaseModel):
 async def get_stats(_: Request) -> StatsResponse:
     """
     Produce aggregated statistics for the media library and its items.
-    
+
     The response includes total counts for media items, movies, shows, seasons, and episodes; the total number of filesystem symlinks (determined by existence of FilesystemEntry records linked to movie or episode items); a mapping of each state to its item count; the number of incomplete items; and a mapping of incomplete item IDs to their scraped attempt counts.
-    
+
     Returns:
         StatsResponse: Aggregated statistics with keys `total_items`, `total_movies`, `total_shows`, `total_seasons`, `total_episodes`, `total_symlinks`, `incomplete_items`, `incomplete_retries`, and `states`.
     """
@@ -185,6 +206,7 @@ async def get_stats(_: Request) -> StatsResponse:
         with session.connection().execution_options(stream_results=True) as conn:
             from sqlalchemy import exists
             from program.media.filesystem_entry import FilesystemEntry
+
             movies_symlinks = conn.execute(
                 select(func.count(Movie.id)).where(
                     exists().where(FilesystemEntry.media_item_id == Movie.id)
@@ -208,8 +230,9 @@ async def get_stats(_: Request) -> StatsResponse:
             batch_size = 1000
 
             result = conn.execute(
-                select(MediaItem.id, MediaItem.scraped_times)
-                .where(MediaItem.last_state != States.Completed)
+                select(MediaItem.id, MediaItem.scraped_times).where(
+                    MediaItem.last_state != States.Completed
+                )
             )
 
             while True:
@@ -222,7 +245,11 @@ async def get_stats(_: Request) -> StatsResponse:
 
             states = {}
             for state in States:
-                states[state] = conn.execute(select(func.count(MediaItem.id)).where(MediaItem.last_state == state)).scalar_one()
+                states[state] = conn.execute(
+                    select(func.count(MediaItem.id)).where(
+                        MediaItem.last_state == state
+                    )
+                ).scalar_one()
 
             payload["total_items"] = total_items
             payload["total_movies"] = total_movies
@@ -236,8 +263,10 @@ async def get_stats(_: Request) -> StatsResponse:
 
     return StatsResponse(**payload)
 
+
 class LogsResponse(BaseModel):
     logs: list[str]
+
 
 @router.get("/logs", operation_id="logs")
 async def get_logs() -> LogsResponse:
@@ -252,7 +281,9 @@ async def get_logs() -> LogsResponse:
 
     try:
         with open(log_file_path, "r") as log_file:
-            log_contents = log_file.read().splitlines()  # Read the file and split into lines without newline characters
+            log_contents = (
+                log_file.read().splitlines()
+            )  # Read the file and split into lines without newline characters
         return LogsResponse(logs=log_contents)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
@@ -261,6 +292,7 @@ async def get_logs() -> LogsResponse:
 class EventResponse(BaseModel):
     events: dict[str, list[int]]
 
+
 @router.get("/events", operation_id="events")
 async def get_events(
     request: Request,
@@ -268,8 +300,10 @@ async def get_events(
     events = request.app.program.em.get_event_updates()
     return EventResponse(events=events)
 
+
 class MountResponse(BaseModel):
     files: dict[str, str]
+
 
 @router.get("/mount", operation_id="mount")
 async def get_mount_files() -> MountResponse:
@@ -293,7 +327,10 @@ async def get_mount_files() -> MountResponse:
 
 class UploadLogsResponse(BaseModel):
     success: bool
-    url: HttpUrl = Field(description="URL to the uploaded log file. 50M Filesize limit. 180 day retention.")
+    url: HttpUrl = Field(
+        description="URL to the uploaded log file. 50M Filesize limit. 180 day retention."
+    )
+
 
 @router.post("/upload_logs", operation_id="upload_logs")
 async def upload_logs() -> UploadLogsResponse:
@@ -315,7 +352,7 @@ async def upload_logs() -> UploadLogsResponse:
         response = requests.post(
             "https://paste.c-net.org/",
             data=log_contents.encode("utf-8"),
-            headers={"Content-Type": "text/plain"}
+            headers={"Content-Type": "text/plain"},
         )
 
         if response.status_code == 200:
@@ -329,8 +366,10 @@ async def upload_logs() -> UploadLogsResponse:
         logger.error(f"Failed to read or upload log file: {e}")
         raise HTTPException(status_code=500, detail="Failed to read or upload log file")
 
+
 class CalendarResponse(BaseModel):
     data: dict
+
 
 @router.get(
     "/calendar",
@@ -341,12 +380,12 @@ class CalendarResponse(BaseModel):
 async def fetch_calendar(_: Request) -> CalendarResponse:
     """Fetch the calendar of all the items in the library"""
     with db.Session() as session:
-        return CalendarResponse(
-            data=db_functions.create_calendar(session)
-        )
+        return CalendarResponse(data=db_functions.create_calendar(session))
+
 
 class VFSStatsResponse(BaseModel):
     stats: dict[str, dict] = Field(description="VFS statistics")
+
 
 @router.get(
     "/vfs_stats",
@@ -355,4 +394,6 @@ class VFSStatsResponse(BaseModel):
     operation_id="get_vfs_stats",
 )
 async def get_vfs_stats(request: Request) -> VFSStatsResponse:
-    return VFSStatsResponse(stats=request.app.program.services[FilesystemService].riven_vfs._opener_stats)
+    return VFSStatsResponse(
+        stats=request.app.program.services[FilesystemService].riven_vfs._opener_stats
+    )

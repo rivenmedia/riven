@@ -15,17 +15,17 @@ from program.settings.manager import settings_manager
 class LibraryProfileMatcher:
     """
     Service for matching MediaItems against library profile filter rules.
-    
+
     Evaluates metadata-only filters (genres, rating, year, etc.) to determine
     which library profiles a media item belongs to.
-    
+
     Note: Cannot filter on scraping results (resolution, codec, HDR) as those
     are not available from indexers - only from scrapers.
     """
-    
+
     def __init__(self):
         self.key = "library_profile_matcher"
-    
+
     def get_matching_profiles(self, item: MediaItem) -> List[str]:
         """
         Get list of library profile keys that match the given MediaItem.
@@ -60,18 +60,20 @@ class LibraryProfileMatcher:
                 matching_profiles.append(profile_key)
 
         return matching_profiles
-    
-    def _matches_filter_rules(self, item: MediaItem, rules: LibraryProfileFilterRules) -> bool:
+
+    def _matches_filter_rules(
+        self, item: MediaItem, rules: LibraryProfileFilterRules
+    ) -> bool:
         """
         Check if a MediaItem matches the given filter rules.
-        
+
         All specified rules must match (AND logic). If a rule is None/empty,
         it's considered a match (no filtering on that criterion).
-        
+
         Args:
             item: MediaItem to evaluate
             rules: Filter rules to evaluate against
-        
+
         Returns:
             True if all specified rules match, False otherwise
         """
@@ -141,7 +143,7 @@ class LibraryProfileMatcher:
             item_languages = self._get_normalized_languages(item)
             if not item_languages:
                 return False
-            
+
             # Check if any of the required languages are present
             if not any(lang in item_languages for lang in rules.languages):
                 return False
@@ -164,7 +166,7 @@ class LibraryProfileMatcher:
 
             if item.content_rating not in rules.content_ratings:
                 return False
-        
+
         # All rules matched
         return True
 
@@ -198,44 +200,43 @@ class LibraryProfileMatcher:
         if not item.genres:
             return []
         return [g.lower() for g in item.genres if g]
-    
+
     def _get_normalized_networks(self, item: MediaItem) -> List[str]:
         """Get normalized network list (lowercase) from MediaItem."""
         if not item.network:
             return []
         return [n.lower() for n in item.network if n]
-    
+
     def _get_normalized_countries(self, item: MediaItem) -> List[str]:
         """Get normalized country list (lowercase) from MediaItem."""
         if not item.country:
             return []
         return [c.lower() for c in item.country if c]
-    
+
     def _get_normalized_languages(self, item: MediaItem) -> List[str]:
         """Get normalized language list (lowercase) from MediaItem."""
         if not item.language:
             return []
         return [lang.lower() for lang in item.language if lang]
-    
+
     def _get_year(self, item: MediaItem) -> Optional[int]:
         """
         Extract year from MediaItem.
-        
+
         For shows/seasons/episodes, uses the show's aired_at year.
         For movies, uses the year field directly.
         """
         if item.type in ["show", "season", "episode"]:
             # For TV content, get the show's aired_at year
             show = item.get_top_title()
-            if show and hasattr(show, 'aired_at') and show.aired_at:
+            if show and hasattr(show, "aired_at") and show.aired_at:
                 try:
-                    return int(show.aired_at.split('-')[0])
+                    return int(show.aired_at.split("-")[0])
                 except (ValueError, IndexError, AttributeError):
                     return None
-        
-        # For movies or if show year not available, use year field
-        if hasattr(item, 'year') and item.year:
-            return item.year
-        
-        return None
 
+        # For movies or if show year not available, use year field
+        if hasattr(item, "year") and item.year:
+            return item.year
+
+        return None

@@ -48,12 +48,14 @@ import threading
 
 from program.services.downloaders import Downloader
 
+
 class ProviderHTTP:
     """
     Shared pycurl-based HTTP client with connection reuse via CurlShare and a simple
     per-host easy-handle pool. Uses HTTP/2 for multiplexing multiple range requests
     over a single connection, reducing handshake latency and improving performance.
     """
+
     def __init__(self) -> None:
         self._share = pycurl.CurlShare()
         try:
@@ -68,19 +70,25 @@ class ProviderHTTP:
         self._lock = threading.Lock()
 
         # Check if HTTP/2 is available in this libcurl build
-        self._http2_available = hasattr(pycurl, 'CURL_HTTP_VERSION_2_0')
+        self._http2_available = hasattr(pycurl, "CURL_HTTP_VERSION_2_0")
         if self._http2_available:
-            log.bind(component="RivenVFS").debug("HTTP/2 support detected, will use HTTP/2 for video streaming")
+            log.bind(component="RivenVFS").debug(
+                "HTTP/2 support detected, will use HTTP/2 for video streaming"
+            )
         else:
-            log.bind(component="RivenVFS").warning("HTTP/2 not available in libcurl, falling back to HTTP/1.1")
+            log.bind(component="RivenVFS").warning(
+                "HTTP/2 not available in libcurl, falling back to HTTP/1.1"
+            )
 
-    def _configure_common(self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False) -> None:
+    def _configure_common(
+        self, c: pycurl.Curl, http10: bool = False, ignore_content_length: bool = False
+    ) -> None:
         c.setopt(pycurl.NOSIGNAL, 1)
         c.setopt(pycurl.FOLLOWLOCATION, 1)
         c.setopt(pycurl.MAXREDIRS, 5)
         c.setopt(pycurl.CONNECTTIMEOUT, 5)
         c.setopt(pycurl.TIMEOUT, 30)
-        c.setopt(pycurl.USERAGENT, 'RivenVFS/1.0')
+        c.setopt(pycurl.USERAGENT, "RivenVFS/1.0")
         c.setopt(pycurl.LOW_SPEED_LIMIT, 10 * 1024)
         c.setopt(pycurl.LOW_SPEED_TIME, 15)
 
@@ -115,7 +123,7 @@ class ProviderHTTP:
     def _release(self, host: str, c: pycurl.Curl) -> None:
         with self._lock:
             self._pool.setdefault(host, []).append(c)
-    
+
     def range_preflight_check(self, target_url: str, start: int, end: int) -> int:
         parsed = urllib.parse.urlparse(target_url)
         host = parsed.netloc or ""
@@ -126,11 +134,14 @@ class ProviderHTTP:
             self._configure_common(c)
 
             c.setopt(pycurl.URL, target_url)
-            c.setopt(pycurl.HTTPHEADER, [
-                f'Range: bytes={start}-{end}',
-                'Accept-Encoding: identity',
-                'Connection: keep-alive',
-            ])
+            c.setopt(
+                pycurl.HTTPHEADER,
+                [
+                    f"Range: bytes={start}-{end}",
+                    "Accept-Encoding: identity",
+                    "Connection: keep-alive",
+                ],
+            )
             c.setopt(pycurl.NOBODY, True)
             c.setopt(pycurl.WRITEHEADER, header_buffer)
 
@@ -153,27 +164,39 @@ class ProviderHTTP:
 
             self._release(host, c)
 
-    def perform_range(self, target_url: str, start: int, end: int, http10: bool = False, ignore_content_length: bool = False) -> tuple[int, bytes, str]:
+    def perform_range(
+        self,
+        target_url: str,
+        start: int,
+        end: int,
+        http10: bool = False,
+        ignore_content_length: bool = False,
+    ) -> tuple[int, bytes, str]:
         parsed = urllib.parse.urlparse(target_url)
         host = parsed.netloc or ""
         c = self._acquire(host)
         response_buffer = io.BytesIO()
         header_buffer = io.BytesIO()
         try:
-            self._configure_common(c, http10=http10, ignore_content_length=ignore_content_length)
+            self._configure_common(
+                c, http10=http10, ignore_content_length=ignore_content_length
+            )
             c.setopt(pycurl.URL, target_url)
-            c.setopt(pycurl.HTTPHEADER, [
-                f'Range: bytes={start}-{end}',
-                'Accept-Encoding: identity',
-                'Connection: keep-alive',
-            ])
+            c.setopt(
+                pycurl.HTTPHEADER,
+                [
+                    f"Range: bytes={start}-{end}",
+                    "Accept-Encoding: identity",
+                    "Connection: keep-alive",
+                ],
+            )
             c.setopt(pycurl.WRITEDATA, response_buffer)
             c.setopt(pycurl.WRITEHEADER, header_buffer)
             c.perform()
             status_code = int(c.getinfo(pycurl.RESPONSE_CODE))
             # Extract data before closing buffers
             response_data = response_buffer.getvalue()
-            header_data = header_buffer.getvalue().decode('utf-8', errors='replace')
+            header_data = header_buffer.getvalue().decode("utf-8", errors="replace")
             return status_code, response_data, header_data
         finally:
             # Explicitly close buffers to free memory immediately
@@ -190,6 +213,7 @@ class ProviderHTTP:
                 pass
             self._release(host, c)
 
+
 import pyfuse3
 import trio
 import pycurl
@@ -204,9 +228,9 @@ from .cache import Cache, CacheConfig
 log = logger
 
 MEDIA_SCANNERS = [
-    "PMS ScannerPipe", # Plex
-    "Plex Media Scan", # Plex
-    "ffprobe" # Jellyfin
+    "PMS ScannerPipe",  # Plex
+    "Plex Media Scan",  # Plex
+    "ffprobe",  # Jellyfin
 ]
 
 
@@ -234,11 +258,12 @@ class VFSNode:
         updated_at: Modification timestamp as ISO string (None for directories)
         entry_type: Entry type ("media" or "subtitle", None for directories)
     """
+
     name: str
     is_directory: bool
     base_path: Optional[str] = None
     inode: Optional[int] = None
-    parent: Optional['VFSNode'] = None
+    parent: Optional["VFSNode"] = None
 
     # Cached metadata for files (eliminates database queries)
     file_size: Optional[int] = None
@@ -248,13 +273,13 @@ class VFSNode:
 
     def __post_init__(self):
         """Initialize children dict after dataclass init."""
-        if not hasattr(self, '_children'):
+        if not hasattr(self, "_children"):
             self._children: Dict[str, VFSNode] = {}
 
     @property
-    def children(self) -> Dict[str, 'VFSNode']:
+    def children(self) -> Dict[str, "VFSNode"]:
         """Get children dict."""
-        if not hasattr(self, '_children'):
+        if not hasattr(self, "_children"):
             self._children = {}
         return self._children
 
@@ -274,7 +299,7 @@ class VFSNode:
 
         return "/" + "/".join(reversed(parts))
 
-    def add_child(self, child: 'VFSNode') -> None:
+    def add_child(self, child: "VFSNode") -> None:
         """Add a child node to this directory."""
         if not self.is_directory:
             raise ValueError(f"Cannot add child to non-directory node: {self.name}")
@@ -282,14 +307,14 @@ class VFSNode:
         child.parent = self
         self.children[child.name] = child
 
-    def remove_child(self, name: str) -> Optional['VFSNode']:
+    def remove_child(self, name: str) -> Optional["VFSNode"]:
         """Remove and return a child node by name."""
         child = self.children.pop(name, None)
         if child:
             child.parent = None
         return child
 
-    def get_child(self, name: str) -> Optional['VFSNode']:
+    def get_child(self, name: str) -> Optional["VFSNode"]:
         """Get a child node by name."""
         return self.children.get(name)
 
@@ -300,6 +325,7 @@ class VFSNode:
 @dataclass
 class PrefetchChunk:
     """Represents a chunk to be prefetched with priority information."""
+
     path: str
     url: str
     start: int
@@ -343,8 +369,14 @@ class PrefetchScheduler:
         """Generate unique key for chunk tracking."""
         return f"{chunk.path}:{chunk.start}-{chunk.end}"
 
-    async def schedule_chunks(self, path: str, url: str, chunks: List[tuple[int, int]],
-                            cache_manager, fetch_func) -> None:
+    async def schedule_chunks(
+        self,
+        path: str,
+        url: str,
+        chunks: List[tuple[int, int]],
+        cache_manager,
+        fetch_func,
+    ) -> None:
         """Schedule multiple chunks for prefetching with fair allocation."""
         if not chunks:
             return
@@ -362,7 +394,7 @@ class PrefetchScheduler:
                 end=end,
                 priority=i,  # First chunk has highest priority
                 user_session=user_session,
-                created_at=current_time
+                created_at=current_time,
             )
             prefetch_chunks.append(chunk)
 
@@ -375,7 +407,9 @@ class PrefetchScheduler:
             # Start scheduler if not running
             if not self._scheduler_nursery and self._running:
                 # We'll start the scheduler in the background
-                trio.lowlevel.spawn_system_task(self._run_scheduler, cache_manager, fetch_func)
+                trio.lowlevel.spawn_system_task(
+                    self._run_scheduler, cache_manager, fetch_func
+                )
 
     async def _run_scheduler(self, cache_manager, fetch_func):
         """Main scheduler loop that processes chunks fairly."""
@@ -394,7 +428,12 @@ class PrefetchScheduler:
                             # Skip if already being processed
                             if chunk_key not in self._active_chunks:
                                 self._active_chunks[chunk_key] = chunk
-                                nursery.start_soon(self._process_chunk, chunk, cache_manager, fetch_func)
+                                nursery.start_soon(
+                                    self._process_chunk,
+                                    chunk,
+                                    cache_manager,
+                                    fetch_func,
+                                )
 
                     # Brief pause to prevent busy waiting
                     await trio.sleep(0.1)
@@ -409,24 +448,33 @@ class PrefetchScheduler:
             # Check cache first
             cached_data = cache_manager.get(chunk.path, chunk.start, chunk.end)
             if cached_data is not None:
-                log.trace(f"Prefetch chunk {chunk.path} [{chunk.start}-{chunk.end}] already cached")
+                log.trace(
+                    f"Prefetch chunk {chunk.path} [{chunk.start}-{chunk.end}] already cached"
+                )
                 return
 
             # Fetch the chunk
-            log.trace(f"Prefetching chunk {chunk.path} [{chunk.start}-{chunk.end}] priority={chunk.priority}")
+            log.trace(
+                f"Prefetching chunk {chunk.path} [{chunk.start}-{chunk.end}] priority={chunk.priority}"
+            )
             data = await fetch_func(chunk.path, chunk.url, chunk.start, chunk.end)
 
             if data:
                 cache_manager.put(chunk.path, chunk.start, data)
-                chunk_size_mb = len(data) // (1024*1024)
-                log.trace(f"Prefetched chunk {chunk.path} [{chunk.start}-{chunk.end}] = {chunk_size_mb}MB")
+                chunk_size_mb = len(data) // (1024 * 1024)
+                log.trace(
+                    f"Prefetched chunk {chunk.path} [{chunk.start}-{chunk.end}] = {chunk_size_mb}MB"
+                )
 
         except Exception as e:
-            log.trace(f"Prefetch chunk failed for {chunk.path} [{chunk.start}-{chunk.end}]: {e}")
+            log.trace(
+                f"Prefetch chunk failed for {chunk.path} [{chunk.start}-{chunk.end}]: {e}"
+            )
         finally:
             # Remove from active tracking
             async with self._lock:
                 self._active_chunks.pop(chunk_key, None)
+
 
 class RivenVFS(pyfuse3.Operations):
     """
@@ -469,7 +517,9 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             pass
         try:
-            usage = shutil.disk_usage(str(cache_dir if cache_dir.exists() else cache_dir.parent))
+            usage = shutil.disk_usage(
+                str(cache_dir if cache_dir.exists() else cache_dir.parent)
+            )
             free_bytes = int(usage.free)
         except Exception:
             free_bytes = 0
@@ -520,7 +570,7 @@ class RivenVFS(pyfuse3.Operations):
         # Validate cache size vs chunk size + prefetch
         # Cache needs to hold: current chunk + prefetch chunks + buffer for concurrent reads
         # Minimum: chunk_size * (fetch_ahead_chunks + 4 for concurrent reads)
-        min_cache_mb = (fs.chunk_size_mb * (self.fetch_ahead_chunks + 4))
+        min_cache_mb = fs.chunk_size_mb * (self.fetch_ahead_chunks + 4)
         if size_mb < min_cache_mb:
             logger.bind(component="RivenVFS").warning(
                 f"Cache size ({size_mb}MB) is too small for chunk_size ({fs.chunk_size_mb}MB) "
@@ -537,10 +587,16 @@ class RivenVFS(pyfuse3.Operations):
         self._opener_stats: Dict[str, Dict] = {}
 
         # Per-file-handle prefetch tracking (for proper multi-user coordination)
-        self._fh_prefetch_state: Dict[int, Dict] = {}  # fh -> {last_prefetch_pos: int, prefetch_window_end: int}
+        self._fh_prefetch_state: Dict[int, Dict] = (
+            {}
+        )  # fh -> {last_prefetch_pos: int, prefetch_window_end: int}
         # Per-path coordination for avoiding duplicate chunk fetches across file handles
-        self._path_chunks_in_progress: Dict[str, Set[int]] = {}  # path -> set of chunk_starts being fetched
-        self._prefetch_locks: Dict[str, trio.Lock] = {}  # path -> lock for coordinating prefetch
+        self._path_chunks_in_progress: Dict[str, Set[int]] = (
+            {}
+        )  # path -> set of chunk_starts being fetched
+        self._prefetch_locks: Dict[str, trio.Lock] = (
+            {}
+        )  # path -> lock for coordinating prefetch
 
         # Global prefetch scheduler for fair multi-user resource allocation
         self._prefetch_scheduler = PrefetchScheduler()
@@ -558,8 +614,8 @@ class RivenVFS(pyfuse3.Operations):
         # Initialize pyfuse3 and start main loop in background thread
         fuse_options = set(pyfuse3.default_options)
         fuse_options |= {
-            'fsname=rivenvfs',
-            'allow_other',
+            "fsname=rivenvfs",
+            "allow_other",
         }
 
         pyfuse3.init(self, self._mountpoint, fuse_options)
@@ -578,6 +634,7 @@ class RivenVFS(pyfuse3.Operations):
                 log.error(f"FUSE main loop exited with error: {e}")
                 # Log the full traceback for debugging
                 import traceback
+
                 log.error(f"Full traceback: {traceback.format_exc()}")
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
@@ -617,7 +674,9 @@ class RivenVFS(pyfuse3.Operations):
 
         return current
 
-    def _get_or_create_node(self, path: str, is_directory: bool, base_path: Optional[str] = None) -> VFSNode:
+    def _get_or_create_node(
+        self, path: str, is_directory: bool, base_path: Optional[str] = None
+    ) -> VFSNode:
         """
         Get or create a node at the given path, creating parent directories as needed.
 
@@ -641,7 +700,7 @@ class RivenVFS(pyfuse3.Operations):
 
             if child is None:
                 # Create the node
-                is_last = (i == len(parts) - 1)
+                is_last = i == len(parts) - 1
 
                 if is_last:
                     # This is the target node
@@ -649,14 +708,12 @@ class RivenVFS(pyfuse3.Operations):
                         name=part,
                         is_directory=is_directory,
                         base_path=base_path,
-                        inode=self._assign_inode()
+                        inode=self._assign_inode(),
                     )
                 else:
                     # This is a parent directory
                     child = VFSNode(
-                        name=part,
-                        is_directory=True,
-                        inode=self._assign_inode()
+                        name=part, is_directory=True, inode=self._assign_inode()
                     )
 
                 current.add_child(child)
@@ -757,10 +814,11 @@ class RivenVFS(pyfuse3.Operations):
 
         # Step 1: Re-match all entries against current library profiles and build metadata map
         from program.db.db import db as db_module
+
         with db_module.Session() as session:
-            entries = session.query(MediaEntry).filter(
-                MediaEntry.is_directory == False
-            ).all()
+            entries = (
+                session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
+            )
 
             current_paths = set()
             path_to_base = {}  # Build inside session to avoid detached instance errors
@@ -771,7 +829,9 @@ class RivenVFS(pyfuse3.Operations):
                 # Get the MediaItem for this entry to re-match profiles
                 item = entry.media_item
                 if not item:
-                    log.warning(f"MediaEntry {entry.id} has no associated MediaItem, skipping")
+                    log.warning(
+                        f"MediaEntry {entry.id} has no associated MediaItem, skipping"
+                    )
                     continue
 
                 # Re-match library profiles based on current settings
@@ -793,10 +853,14 @@ class RivenVFS(pyfuse3.Operations):
 
                     # Extract metadata from entry (use correct attribute names!)
                     metadata = {
-                        'file_size': entry.file_size,
-                        'created_at': entry.created_at.isoformat() if entry.created_at else None,
-                        'updated_at': entry.updated_at.isoformat() if entry.updated_at else None,
-                        'entry_type': entry.entry_type
+                        "file_size": entry.file_size,
+                        "created_at": (
+                            entry.created_at.isoformat() if entry.created_at else None
+                        ),
+                        "updated_at": (
+                            entry.updated_at.isoformat() if entry.updated_at else None
+                        ),
+                        "entry_type": entry.entry_type,
                     }
 
                     for vfs_path in vfs_paths:
@@ -834,14 +898,14 @@ class RivenVFS(pyfuse3.Operations):
             node = self._get_or_create_node(
                 path=vfs_path,
                 is_directory=False,  # We know these are files
-                base_path=base_path
+                base_path=base_path,
             )
 
             # Populate cached metadata in the node (eliminates DB queries in getattr!)
-            node.file_size = metadata.get('file_size')
-            node.created_at = metadata.get('created_at')
-            node.updated_at = metadata.get('updated_at')
-            node.entry_type = metadata.get('entry_type')
+            node.file_size = metadata.get("file_size")
+            node.created_at = metadata.get("created_at")
+            node.updated_at = metadata.get("updated_at")
+            node.entry_type = metadata.get("entry_type")
 
             added_count += 1
 
@@ -860,9 +924,10 @@ class RivenVFS(pyfuse3.Operations):
             self._inode_to_node = new_inode_to_node
             self._next_inode = new_next_inode
 
-        log.log("VFS",
+        log.log(
+            "VFS",
             f"Sync complete: rebuilt tree with {added_count} files, "
-            f"re-matched {rematched_count} entries"
+            f"re-matched {rematched_count} entries",
         )
 
         # Step 3: Invalidate directory caches for changed directories
@@ -880,7 +945,9 @@ class RivenVFS(pyfuse3.Operations):
                         except OSError:
                             pass  # Ignore if kernel hasn't cached this inode yet
 
-                log.debug(f"Invalidated root + {len(directories_to_invalidate)} directory caches after sync")
+                log.debug(
+                    f"Invalidated root + {len(directories_to_invalidate)} directory caches after sync"
+                )
             except Exception as e:
                 log.trace(f"Could not invalidate directory caches: {e}")
 
@@ -906,7 +973,7 @@ class RivenVFS(pyfuse3.Operations):
             # Detect if something is mounted there
             is_mounted = False
             try:
-                with open('/proc/mounts', 'r') as f:
+                with open("/proc/mounts", "r") as f:
                     for line in f:
                         if f" {mountpoint} " in line:
                             is_mounted = True
@@ -918,12 +985,14 @@ class RivenVFS(pyfuse3.Operations):
             if is_mounted:
                 # Try a sequence of unmount strategies (graceful -> lazy)
                 for cmd in (
-                    ['fusermount3', '-u', '-z', mountpoint],
-                    ['fusermount', '-u', '-z', mountpoint],
-                    ['umount', '-l', mountpoint],
+                    ["fusermount3", "-u", "-z", mountpoint],
+                    ["fusermount", "-u", "-z", mountpoint],
+                    ["umount", "-l", mountpoint],
                 ):
                     try:
-                        subprocess.run(cmd, capture_output=True, timeout=10, check=False)
+                        subprocess.run(
+                            cmd, capture_output=True, timeout=10, check=False
+                        )
                     except (subprocess.TimeoutExpired, FileNotFoundError):
                         continue
         except Exception:
@@ -948,7 +1017,9 @@ class RivenVFS(pyfuse3.Operations):
             # Terminate FUSE main loop from the Trio event loop context
             if self._trio_token is not None:
                 try:
-                    trio.from_thread.run(self._terminate_async, trio_token=self._trio_token)
+                    trio.from_thread.run(
+                        self._terminate_async, trio_token=self._trio_token
+                    )
                 except Exception as e:
                     log.warning(f"Error requesting FUSE termination: {e}")
             else:
@@ -967,8 +1038,12 @@ class RivenVFS(pyfuse3.Operations):
 
         # Force unmount if necessary
         try:
-            subprocess.run(['fusermount', '-u', mountpoint],
-                          capture_output=True, timeout=10, check=False)
+            subprocess.run(
+                ["fusermount", "-u", mountpoint],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
         except Exception:
             pass
 
@@ -980,8 +1055,14 @@ class RivenVFS(pyfuse3.Operations):
             log.warning(f"pyfuse3.terminate() failed: {e}")
 
     # Public API methods
-    def add_file(self, path: str, url: str, size: Optional[int] = None,
-                 provider: Optional[str] = None, provider_download_id: Optional[str] = None) -> bool:
+    def add_file(
+        self,
+        path: str,
+        url: str,
+        size: Optional[int] = None,
+        provider: Optional[str] = None,
+        provider_download_id: Optional[str] = None,
+    ) -> bool:
         """
         Add a virtual file to the filesystem.
 
@@ -1001,19 +1082,25 @@ class RivenVFS(pyfuse3.Operations):
         path = self._normalize_path(path)
 
         # Add file to database (creates parent directories automatically)
-        self.db.add_file(path, url, int(size or 0), provider=provider,
-                         provider_download_id=provider_download_id)
+        self.db.add_file(
+            path,
+            url,
+            int(size or 0),
+            provider=provider,
+            provider_download_id=provider_download_id,
+        )
 
         # Create node in tree (creates parent directories automatically)
         with self._tree_lock:
             node = self._get_or_create_node(
                 path=path,
                 is_directory=False,
-                base_path=path  # For add_file, path is always the base path
+                base_path=path,  # For add_file, path is always the base path
             )
 
             # Populate metadata in node (so getattr doesn't need DB query)
             from datetime import datetime, timezone
+
             now = datetime.now(timezone.utc)
             node.file_size = int(size or 0)
             node.created_at = now.isoformat()
@@ -1060,7 +1147,9 @@ class RivenVFS(pyfuse3.Operations):
         # Check if base path exists in database and get metadata
         entry_info = self.db.get_entry(base_path)
         if not entry_info:
-            log.warning(f"Cannot register non-existent file: {path} (resolved: {base_path})")
+            log.warning(
+                f"Cannot register non-existent file: {path} (resolved: {base_path})"
+            )
             return False
 
         with self._tree_lock:
@@ -1068,9 +1157,7 @@ class RivenVFS(pyfuse3.Operations):
             # Note: This is called during sync, so the node might already exist
             if not node:
                 node = self._get_or_create_node(
-                    path=path,
-                    is_directory=False,
-                    base_path=base_path
+                    path=path, is_directory=False, base_path=base_path
                 )
 
             # Populate metadata in node from database entry
@@ -1133,7 +1220,7 @@ class RivenVFS(pyfuse3.Operations):
             if path.startswith(prefix + "/"):
                 # Strip the prefix and return the base path
                 # e.g., "/recent/movies/Title..." -> "/movies/Title..."
-                return path[len(prefix):]
+                return path[len(prefix) :]
 
         # No profile prefix found, return as-is
         return path
@@ -1141,13 +1228,13 @@ class RivenVFS(pyfuse3.Operations):
     def rename_file(self, old_path: str, new_path: str) -> bool:
         """
         Rename a file from old_path to new_path and update VFS caches and inode mappings.
-        
+
         Performs a database rename and ensures FUSE entry caches, path↔inode mappings, and parent directory cache entries are updated or invalidated to reflect the move.
-        
+
         Parameters:
             old_path (str): Current filesystem path of the file.
             new_path (str): Target filesystem path for the file.
-        
+
         Returns:
             bool: `True` if the file was renamed successfully, `False` otherwise.
         """
@@ -1167,10 +1254,10 @@ class RivenVFS(pyfuse3.Operations):
             if old_node:
                 # Save metadata before removing
                 old_metadata = {
-                    'file_size': old_node.file_size,
-                    'created_at': old_node.created_at,
-                    'updated_at': old_node.updated_at,
-                    'entry_type': old_node.entry_type
+                    "file_size": old_node.file_size,
+                    "created_at": old_node.created_at,
+                    "updated_at": old_node.updated_at,
+                    "entry_type": old_node.entry_type,
                 }
                 self._remove_node(old_path)
 
@@ -1178,15 +1265,15 @@ class RivenVFS(pyfuse3.Operations):
             new_node = self._get_or_create_node(
                 path=new_path,
                 is_directory=False,
-                base_path=new_path  # For rename, new_path is the base path
+                base_path=new_path,  # For rename, new_path is the base path
             )
 
             # Restore metadata to new node
             if old_metadata:
-                new_node.file_size = old_metadata['file_size']
-                new_node.created_at = old_metadata['created_at']
-                new_node.updated_at = old_metadata['updated_at']
-                new_node.entry_type = old_metadata['entry_type']
+                new_node.file_size = old_metadata["file_size"]
+                new_node.created_at = old_metadata["created_at"]
+                new_node.updated_at = old_metadata["updated_at"]
+                new_node.entry_type = old_metadata["entry_type"]
 
             # Get parent inodes for invalidation (must be done inside lock)
             parent_inodes = self._get_parent_inodes(new_node)
@@ -1201,7 +1288,7 @@ class RivenVFS(pyfuse3.Operations):
     def file_exists(self, path: str) -> bool:
         """
         Check whether a virtual file exists at the given path.
-        
+
         Returns:
             true if the file exists, false otherwise.
         """
@@ -1220,7 +1307,7 @@ class RivenVFS(pyfuse3.Operations):
     def list_directory(self, path: str) -> list[Dict]:
         """List contents of a virtual directory using VFS tree."""
         return self._list_directory_cached(self._normalize_path(path))
-    
+
     def get_opener_stats(self) -> Dict[str, Dict]:
         """Get statistics for each opener (process that opened files)."""
         return self._opener_stats.copy()
@@ -1245,6 +1332,7 @@ class RivenVFS(pyfuse3.Operations):
     def _join_paths(self, base: str, *parts: str) -> str:
         """Join path components safely."""
         from pathlib import PurePosixPath
+
         p = PurePosixPath(base)
         for part in parts:
             p = p / part
@@ -1273,10 +1361,7 @@ class RivenVFS(pyfuse3.Operations):
             # Build result list from node's children - no database queries!
             children = []
             for name, child in node.children.items():
-                children.append({
-                    "name": name,
-                    "is_directory": child.is_directory
-                })
+                children.append({"name": name, "is_directory": child.is_directory})
 
             return children
 
@@ -1292,10 +1377,16 @@ class RivenVFS(pyfuse3.Operations):
     def _current_time_ns() -> int:
         """Get current time in nanoseconds."""
         import time
+
         return int(time.time() * 1e9)
 
-    def _invalidate_entry(self, parent_path: str, entry_name: str, deleted_inode: Optional[int] = None,
-                         operation: str = "modify") -> None:
+    def _invalidate_entry(
+        self,
+        parent_path: str,
+        entry_name: str,
+        deleted_inode: Optional[int] = None,
+        operation: str = "modify",
+    ) -> None:
         """
         Helper to invalidate a directory entry in the kernel cache.
 
@@ -1310,15 +1401,19 @@ class RivenVFS(pyfuse3.Operations):
             if parent_node and parent_node.inode:
                 pyfuse3.invalidate_entry_async(
                     parent_node.inode,
-                    entry_name.encode('utf-8'),
+                    entry_name.encode("utf-8"),
                     deleted=deleted_inode or 0 if deleted_inode else 0,
-                    ignore_enoent=True
+                    ignore_enoent=True,
                 )
         except OSError as e:
-            if getattr(e, 'errno', None) != errno.ENOENT:
-                log.warning(f"Failed to invalidate entry '{entry_name}' in {parent_path}: {e}")
+            if getattr(e, "errno", None) != errno.ENOENT:
+                log.warning(
+                    f"Failed to invalidate entry '{entry_name}' in {parent_path}: {e}"
+                )
 
-    def _invalidate_inode_list(self, inodes: list[int], attr_only: bool = True, operation: str = "modify") -> None:
+    def _invalidate_inode_list(
+        self, inodes: list[int], attr_only: bool = True, operation: str = "modify"
+    ) -> None:
         """
         Helper to invalidate a list of inodes.
 
@@ -1331,13 +1426,15 @@ class RivenVFS(pyfuse3.Operations):
             try:
                 pyfuse3.invalidate_inode(ino, attr_only=attr_only)
             except OSError as e:
-                if getattr(e, 'errno', None) == errno.ENOENT:
+                if getattr(e, "errno", None) == errno.ENOENT:
                     # Expected - inode not cached by kernel yet
                     pass
                 else:
                     log.warning(f"Failed to invalidate inode {ino}: {e}")
 
-    def _invalidate_directory_cache(self, file_path: str, parent_inodes: list[int]) -> None:
+    def _invalidate_directory_cache(
+        self, file_path: str, parent_inodes: list[int]
+    ) -> None:
         """
         Invalidate FUSE cache when adding files.
 
@@ -1347,12 +1444,18 @@ class RivenVFS(pyfuse3.Operations):
         """
         # Invalidate the immediate parent directory entry
         immediate_parent = self._get_parent_path(file_path)
-        self._invalidate_entry(immediate_parent, os.path.basename(file_path), operation="add")
+        self._invalidate_entry(
+            immediate_parent, os.path.basename(file_path), operation="add"
+        )
 
         # Invalidate any newly created parent directories
-        self._invalidate_inode_list(parent_inodes, attr_only=True, operation="add parent")
+        self._invalidate_inode_list(
+            parent_inodes, attr_only=True, operation="add parent"
+        )
 
-    def _invalidate_removed_entry_cache(self, file_path: str, inode: Optional[int]) -> None:
+    def _invalidate_removed_entry_cache(
+        self, file_path: str, inode: Optional[int]
+    ) -> None:
         """
         Invalidate FUSE cache when removing files.
 
@@ -1361,7 +1464,12 @@ class RivenVFS(pyfuse3.Operations):
             inode: Inode of removed file
         """
         parent_path = self._get_parent_path(file_path)
-        self._invalidate_entry(parent_path, os.path.basename(file_path), deleted_inode=inode, operation="remove")
+        self._invalidate_entry(
+            parent_path,
+            os.path.basename(file_path),
+            deleted_inode=inode,
+            operation="remove",
+        )
 
     def _invalidate_potentially_removed_dirs(self, file_path: str) -> None:
         """
@@ -1375,20 +1483,24 @@ class RivenVFS(pyfuse3.Operations):
             grandparent = self._get_parent_path(parent)
 
             # Invalidate the entry for 'parent' under its parent directory (grandparent)
-            name = os.path.basename(parent.rstrip('/'))
+            name = os.path.basename(parent.rstrip("/"))
             if name:
                 self._invalidate_entry(grandparent, name, operation="prune")
 
             # One more level up (e.g., title dir)
             ggparent = self._get_parent_path(grandparent)
-            gname = os.path.basename(grandparent.rstrip('/'))
+            gname = os.path.basename(grandparent.rstrip("/"))
             if gname:
                 self._invalidate_entry(ggparent, gname, operation="prune")
         except Exception as e:
-            if getattr(e, 'errno', None) != errno.ENOENT:
-                log.warning(f"Failed to invalidate parent dir entries for {file_path}: {e}")
+            if getattr(e, "errno", None) != errno.ENOENT:
+                log.warning(
+                    f"Failed to invalidate parent dir entries for {file_path}: {e}"
+                )
 
-    def _invalidate_rename_cache(self, old_path: str, new_path: str, inode: Optional[int]) -> None:
+    def _invalidate_rename_cache(
+        self, old_path: str, new_path: str, inode: Optional[int]
+    ) -> None:
         """
         Invalidate FUSE cache when renaming files.
 
@@ -1399,11 +1511,18 @@ class RivenVFS(pyfuse3.Operations):
         """
         # Invalidate old parent directory (mark as deleted)
         old_parent = self._get_parent_path(old_path)
-        self._invalidate_entry(old_parent, os.path.basename(old_path), deleted_inode=inode, operation="rename (old)")
+        self._invalidate_entry(
+            old_parent,
+            os.path.basename(old_path),
+            deleted_inode=inode,
+            operation="rename (old)",
+        )
 
         # Invalidate new parent directory (mark as added)
         new_parent = self._get_parent_path(new_path)
-        self._invalidate_entry(new_parent, os.path.basename(new_path), operation="rename (new)")
+        self._invalidate_entry(
+            new_parent, os.path.basename(new_path), operation="rename (new)"
+        )
 
     # FUSE Operations
     async def getattr(self, inode: int, ctx=None) -> pyfuse3.EntryAttributes:
@@ -1416,8 +1535,8 @@ class RivenVFS(pyfuse3.Operations):
             attrs.generation = 0
             attrs.entry_timeout = 300
             attrs.attr_timeout = 300
-            attrs.st_uid = os.getuid() if hasattr(os, 'getuid') else 0
-            attrs.st_gid = os.getgid() if hasattr(os, 'getgid') else 0
+            attrs.st_uid = os.getuid() if hasattr(os, "getuid") else 0
+            attrs.st_gid = os.getgid() if hasattr(os, "getgid") else 0
             attrs.st_blksize = 131072  # Hint larger block size to kernel (128 KiB)
             attrs.st_blocks = 1
 
@@ -1458,6 +1577,7 @@ class RivenVFS(pyfuse3.Operations):
             # Parse timestamps from cached metadata
             if node.created_at:
                 from datetime import datetime
+
                 try:
                     created_dt = datetime.fromisoformat(node.created_at)
                     created_ns = int(created_dt.timestamp() * 1_000_000_000)
@@ -1468,6 +1588,7 @@ class RivenVFS(pyfuse3.Operations):
 
             if node.updated_at:
                 from datetime import datetime
+
                 try:
                     updated_dt = datetime.fromisoformat(node.updated_at)
                     updated_ns = int(updated_dt.timestamp() * 1_000_000_000)
@@ -1479,7 +1600,9 @@ class RivenVFS(pyfuse3.Operations):
             # Set timestamps: ctime = creation, mtime = modification, atime = access (use mtime)
             attrs.st_ctime_ns = created_ns
             attrs.st_mtime_ns = updated_ns
-            attrs.st_atime_ns = updated_ns  # Use mtime for atime to avoid constant updates
+            attrs.st_atime_ns = (
+                updated_ns  # Use mtime for atime to avoid constant updates
+            )
 
             # We already know it's a file from node.is_directory check above
             attrs.st_mode = stat.S_IFREG | 0o644
@@ -1496,7 +1619,9 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("getattr error for inode=%s: %s", inode, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def lookup(self, parent_inode: int, name: bytes, ctx=None) -> pyfuse3.EntryAttributes:
+    async def lookup(
+        self, parent_inode: int, name: bytes, ctx=None
+    ) -> pyfuse3.EntryAttributes:
         """Look up a directory entry using VFS tree."""
         try:
             with self._tree_lock:
@@ -1505,11 +1630,11 @@ class RivenVFS(pyfuse3.Operations):
                 if parent_node is None:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
-                name_str = name.decode('utf-8')
+                name_str = name.decode("utf-8")
 
-                if name_str == '.':
+                if name_str == ".":
                     child_inode = parent_inode
-                elif name_str == '..':
+                elif name_str == "..":
                     # Get parent's parent
                     if parent_node.parent:
                         child_inode = parent_node.parent.inode
@@ -1558,15 +1683,14 @@ class RivenVFS(pyfuse3.Operations):
             # Build directory listing
             with self._tree_lock:
                 node = self._inode_to_node.get(inode)
-                parent_inode = node.parent.inode if node and node.parent else pyfuse3.ROOT_INODE
+                parent_inode = (
+                    node.parent.inode if node and node.parent else pyfuse3.ROOT_INODE
+                )
 
-                items = [
-                    (b'.', inode),
-                    (b'..', parent_inode)
-                ]
+                items = [(b".", inode), (b"..", parent_inode)]
 
                 for entry in entries:
-                    name_bytes = entry["name"].encode('utf-8')
+                    name_bytes = entry["name"].encode("utf-8")
                     # Get child node from tree
                     child_node = node.get_child(entry["name"]) if node else None
                     if child_node and child_node.inode:
@@ -1591,7 +1715,9 @@ class RivenVFS(pyfuse3.Operations):
                 # Get node from tree and verify it's a file
                 node = self._inode_to_node.get(inode)
                 if node is None or node.is_directory:
-                    raise pyfuse3.FUSEError(errno.EISDIR if node and node.is_directory else errno.ENOENT)
+                    raise pyfuse3.FUSEError(
+                        errno.EISDIR if node and node.is_directory else errno.ENOENT
+                    )
 
                 path = node.get_full_path()
                 # Cache metadata from node
@@ -1621,8 +1747,8 @@ class RivenVFS(pyfuse3.Operations):
 
             # Initialize per-file-handle prefetch state
             self._fh_prefetch_state[fh] = {
-                'last_prefetch_pos': -1,
-                'prefetch_window_end': -1
+                "last_prefetch_pos": -1,
+                "prefetch_window_end": -1,
             }
 
             log.trace(f"Opened file {path} with handle {fh}")
@@ -1688,11 +1814,18 @@ class RivenVFS(pyfuse3.Operations):
             resolved_path = self._resolve_path(path)
 
             import time
+
             now = time.time()
             cached_url_info = self._url_cache.get(resolved_path)
-            if not cached_url_info or (now - float(cached_url_info.get("timestamp", 0))) > self.url_cache_ttl:
+            if (
+                not cached_url_info
+                or (now - float(cached_url_info.get("timestamp", 0)))
+                > self.url_cache_ttl
+            ):
                 # Query database for download URL using resolved path
-                url = self.db.get_download_url(resolved_path, for_http=True, force_resolve=False)
+                url = self.db.get_download_url(
+                    resolved_path, for_http=True, force_resolve=False
+                )
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 self._url_cache[resolved_path] = {"url": url, "timestamp": now}
@@ -1711,14 +1844,20 @@ class RivenVFS(pyfuse3.Operations):
                 if offset_jump > file_size * 0.1 and offset_jump > 100 * 1024 * 1024:
                     is_scanner = True
                     handle_info["is_scanner"] = True
-                    log.debug(f"Detected scanner pattern for {path}: jump from {last_read_offset} to {off} ({offset_jump/(1024*1024):.1f}MB)")
+                    log.debug(
+                        f"Detected scanner pattern for {path}: jump from {last_read_offset} to {off} ({offset_jump/(1024*1024):.1f}MB)"
+                    )
 
                     # Prefetch footer chunk in background to satisfy scanner's next read
                     if file_size and file_size > self.chunk_size:
-                        footer_chunk_start = ((file_size - 1) // self.chunk_size) * self.chunk_size
+                        footer_chunk_start = (
+                            (file_size - 1) // self.chunk_size
+                        ) * self.chunk_size
                         footer_chunk_end = file_size - 1
 
-                        async def _prefetch_footer(fpath: str, furl: str, fstart: int, fend: int):
+                        async def _prefetch_footer(
+                            fpath: str, furl: str, fstart: int, fend: int
+                        ):
                             try:
                                 # Check if already cached
                                 cached = await trio.to_thread.run_sync(
@@ -1726,17 +1865,27 @@ class RivenVFS(pyfuse3.Operations):
                                 )
                                 if cached is None:
                                     # Fetch and cache footer
-                                    data = await self._fetch_data_block(fpath, furl, fstart, fend)
+                                    data = await self._fetch_data_block(
+                                        fpath, furl, fstart, fend
+                                    )
                                     if data:
                                         await trio.to_thread.run_sync(
                                             lambda: self.cache.put(fpath, fstart, data)
                                         )
-                                        log.trace(f"Prefetched footer chunk for scanner: {fpath} [{fstart}-{fend}]")
+                                        log.trace(
+                                            f"Prefetched footer chunk for scanner: {fpath} [{fstart}-{fend}]"
+                                        )
                             except Exception as e:
                                 log.trace(f"Footer prefetch failed: {e}")
 
                         # Use resolved_path for footer prefetch to share cache between base and alias paths
-                        trio.lowlevel.spawn_system_task(_prefetch_footer, resolved_path, url, footer_chunk_start, footer_chunk_end)
+                        trio.lowlevel.spawn_system_task(
+                            _prefetch_footer,
+                            resolved_path,
+                            url,
+                            footer_chunk_start,
+                            footer_chunk_end,
+                        )
 
             # Update last read offset for next jump detection
             handle_info["last_read_offset"] = off
@@ -1770,7 +1919,9 @@ class RivenVFS(pyfuse3.Operations):
                     returned_data = cached_bytes
                 else:
                     # Fetch the determined range (exact for non-promoted, larger for promoted)
-                    data = await self._fetch_data_block(resolved_path, url, fetch_start, fetch_end)
+                    data = await self._fetch_data_block(
+                        resolved_path, url, fetch_start, fetch_end
+                    )
                     if data:
                         # Cache immediately (async to avoid blocking event loop)
                         await trio.to_thread.run_sync(
@@ -1779,13 +1930,15 @@ class RivenVFS(pyfuse3.Operations):
 
                         # Always slice to return exactly what was requested
                         start_idx = off - fetch_start
-                        returned_data = data[start_idx:start_idx + size]
+                        returned_data = data[start_idx : start_idx + size]
                     else:
                         returned_data = b""
 
                 # Track sequential reads for scanners
                 if off == handle_info.get("last_read_end", 0):
-                    handle_info["sequential_reads"] = handle_info.get("sequential_reads", 0) + 1
+                    handle_info["sequential_reads"] = (
+                        handle_info.get("sequential_reads", 0) + 1
+                    )
                 handle_info["last_read_end"] = off + len(returned_data)
 
                 # Data integrity check: ensure we return exactly the requested size
@@ -1798,9 +1951,13 @@ class RivenVFS(pyfuse3.Operations):
                     # This should never happen, but if it does, truncate/pad to exact size
                     if len(returned_data) > expected_size:
                         returned_data = returned_data[:expected_size]
-                        log.warning(f"Scanner read returned too much data: got {len(returned_data)} bytes, expected {expected_size}")
+                        log.warning(
+                            f"Scanner read returned too much data: got {len(returned_data)} bytes, expected {expected_size}"
+                        )
                     else:
-                        log.error(f"Scanner read returned too little data: got {len(returned_data)} bytes, expected {expected_size}")
+                        log.error(
+                            f"Scanner read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
+                        )
                         # For media playbook, returning partial data is worse than returning empty
                         returned_data = b""
 
@@ -1836,7 +1993,9 @@ class RivenVFS(pyfuse3.Operations):
                 if cached_bytes is not None:
                     # Cache hit - data already sliced to exact request
                     returned_data = cached_bytes
-                    log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={len(cached_bytes)} source=cache-hit")
+                    log.trace(
+                        f"fh={fh} path={path} start={request_start} end={request_end} bytes={len(cached_bytes)} source=cache-hit"
+                    )
                 else:
                     # Cache miss - fetch all chunks needed
                     all_data = b""
@@ -1849,15 +2008,21 @@ class RivenVFS(pyfuse3.Operations):
 
                         # Check if this chunk is cached (full chunk)
                         chunk_data = await trio.to_thread.run_sync(
-                            lambda cs=current_chunk_start, ce=chunk_end: self.cache.get(resolved_path, cs, ce)
+                            lambda cs=current_chunk_start, ce=chunk_end: self.cache.get(
+                                resolved_path, cs, ce
+                            )
                         )
                         if chunk_data is None:
                             # Fetch this chunk
-                            chunk_data = await self._fetch_data_block(resolved_path, url, current_chunk_start, chunk_end)
+                            chunk_data = await self._fetch_data_block(
+                                resolved_path, url, current_chunk_start, chunk_end
+                            )
                             if chunk_data:
                                 # Cache immediately (async to avoid blocking event loop)
                                 await trio.to_thread.run_sync(
-                                    lambda: self.cache.put(resolved_path, current_chunk_start, chunk_data)
+                                    lambda: self.cache.put(
+                                        resolved_path, current_chunk_start, chunk_data
+                                    )
                                 )
 
                         if chunk_data:
@@ -1871,8 +2036,10 @@ class RivenVFS(pyfuse3.Operations):
                         # Return only the requested subrange from the fetched data
                         start_idx = request_start - first_chunk_start
                         need_len = request_end - request_start + 1
-                        returned_data = all_data[start_idx:start_idx + need_len]
-                        log.trace(f"fh={fh} path={path} start={request_start} end={request_end} bytes={need_len} source=fetch")
+                        returned_data = all_data[start_idx : start_idx + need_len]
+                        log.trace(
+                            f"fh={fh} path={path} start={request_start} end={request_end} bytes={need_len} source=fetch"
+                        )
 
                 # Data integrity check: ensure we return exactly the requested size
                 # The expected_size is already correctly calculated as request_end - request_start + 1
@@ -1882,22 +2049,39 @@ class RivenVFS(pyfuse3.Operations):
                     # This should never happen, but if it does, truncate/pad to exact size
                     if len(returned_data) > expected_size:
                         returned_data = returned_data[:expected_size]
-                        log.warning(f"Normal read returned too much data: got {len(returned_data)} bytes, expected {expected_size}")
+                        log.warning(
+                            f"Normal read returned too much data: got {len(returned_data)} bytes, expected {expected_size}"
+                        )
                     else:
-                        log.error(f"Normal read returned too little data: got {len(returned_data)} bytes, expected {expected_size}")
+                        log.error(
+                            f"Normal read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
+                        )
                         # For media playback, returning partial data is worse than returning empty
                         returned_data = b""
 
                 if off == handle_info.get("last_read_end", 0):
-                    handle_info["sequential_reads"] = handle_info.get("sequential_reads", 0) + 1
+                    handle_info["sequential_reads"] = (
+                        handle_info.get("sequential_reads", 0) + 1
+                    )
                 handle_info["last_read_end"] = off + len(returned_data)
 
                 # Prefetch if promoted
                 if handle_info["sequential_reads"] >= 3:
                     if file_size is None or next_aligned_start < file_size:
-                        pf_end = next_aligned_end if file_size is None else min(next_aligned_end, file_size - 1)
+                        pf_end = (
+                            next_aligned_end
+                            if file_size is None
+                            else min(next_aligned_end, file_size - 1)
+                        )
                         # Use resolved_path for prefetch to share cache between base and alias paths
-                        trio.lowlevel.spawn_system_task(self._prefetch_next_chunk, fh, resolved_path, url, next_aligned_start, pf_end)
+                        trio.lowlevel.spawn_system_task(
+                            self._prefetch_next_chunk,
+                            fh,
+                            resolved_path,
+                            url,
+                            next_aligned_start,
+                            pf_end,
+                        )
 
                 opener = handle_info.get("opener_name")
                 if opener and returned_data:
@@ -1909,7 +2093,9 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("read(simple) error fh=%s: %s", fh, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def _prefetch_next_chunk(self, fh: int, path: str, url: str, start: int, end: int) -> None:
+    async def _prefetch_next_chunk(
+        self, fh: int, path: str, url: str, start: int, end: int
+    ) -> None:
         """Prefetch multiple chunk_size requests for fetch_ahead_chunks chunks.
 
         Architecture:
@@ -1943,8 +2129,8 @@ class RivenVFS(pyfuse3.Operations):
                 # Initialize per-file-handle prefetch state
                 if fh not in self._fh_prefetch_state:
                     self._fh_prefetch_state[fh] = {
-                        'last_prefetch_pos': -1,
-                        'prefetch_window_end': -1
+                        "last_prefetch_pos": -1,
+                        "prefetch_window_end": -1,
                     }
 
                 # Initialize per-path chunk tracking
@@ -1956,7 +2142,9 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Determine prefetch window: from current file handle's read position for fetch_ahead_chunks chunks
                 # This ensures each file handle only prefetches its own window, not the entire file
-                desired_prefetch_end = start + (self.fetch_ahead_chunks * self.chunk_size) - 1
+                desired_prefetch_end = (
+                    start + (self.fetch_ahead_chunks * self.chunk_size) - 1
+                )
 
                 # Clamp prefetch window to file size boundaries
                 if file_size is not None:
@@ -1970,10 +2158,10 @@ class RivenVFS(pyfuse3.Operations):
                 read_chunk_start = (start // self.chunk_size) * self.chunk_size
 
                 # Optimize: only prefetch the NEW portion beyond what this file handle has already prefetched
-                if fh_state['last_prefetch_pos'] >= start:
+                if fh_state["last_prefetch_pos"] >= start:
                     # This file handle has already prefetched past this read position
                     # Only prefetch the new portion beyond our last prefetch for this file handle
-                    prefetch_start = fh_state['last_prefetch_pos'] + 1
+                    prefetch_start = fh_state["last_prefetch_pos"] + 1
                     prefetch_end = desired_prefetch_end
 
                     # If there's nothing new to prefetch for this file handle, skip
@@ -1986,10 +2174,14 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Calculate chunk-aligned ranges to prefetch
                 chunks_to_fetch = []
-                current_chunk_start = (prefetch_start // self.chunk_size) * self.chunk_size
+                current_chunk_start = (
+                    prefetch_start // self.chunk_size
+                ) * self.chunk_size
 
                 while current_chunk_start <= prefetch_end:
-                    chunk_end = min(current_chunk_start + self.chunk_size - 1, prefetch_end)
+                    chunk_end = min(
+                        current_chunk_start + self.chunk_size - 1, prefetch_end
+                    )
 
                     # Clamp chunk end to file size
                     if file_size is not None:
@@ -2015,13 +2207,17 @@ class RivenVFS(pyfuse3.Operations):
                     current_chunk_start += self.chunk_size
 
                 # Update last prefetch position for this specific file handle
-                fh_state['last_prefetch_pos'] = prefetch_end
-                fh_state['prefetch_window_end'] = prefetch_end
+                fh_state["last_prefetch_pos"] = prefetch_end
+                fh_state["prefetch_window_end"] = prefetch_end
 
                 # Schedule chunk fetches using global scheduler for fair multi-user allocation
                 if chunks_to_fetch:
-                    window_size_mb = (prefetch_end - prefetch_start + 1) // (1024*1024)
-                    log.trace(f"Scheduling {len(chunks_to_fetch)} chunks for {path}: NEW window [{prefetch_start}-{prefetch_end}] = {window_size_mb}MB")
+                    window_size_mb = (prefetch_end - prefetch_start + 1) // (
+                        1024 * 1024
+                    )
+                    log.trace(
+                        f"Scheduling {len(chunks_to_fetch)} chunks for {path}: NEW window [{prefetch_start}-{prefetch_end}] = {window_size_mb}MB"
+                    )
 
                     # Chunks are already marked as in-progress above to prevent race conditions
                     # Schedule chunks with the global scheduler for fair allocation
@@ -2030,16 +2226,20 @@ class RivenVFS(pyfuse3.Operations):
                         url=url,
                         chunks=chunks_to_fetch,
                         cache_manager=self.cache,
-                        fetch_func=self._fetch_data_block_with_cleanup
+                        fetch_func=self._fetch_data_block_with_cleanup,
                     )
                 else:
-                    log.trace(f"No NEW chunks to prefetch for fh={fh} path={path}: desired_end={desired_prefetch_end}, fh_last_pos={fh_state['last_prefetch_pos']}")
+                    log.trace(
+                        f"No NEW chunks to prefetch for fh={fh} path={path}: desired_end={desired_prefetch_end}, fh_last_pos={fh_state['last_prefetch_pos']}"
+                    )
 
             except Exception as e:
                 log.trace(f"Prefetch coordination failed for {path}: {e}")
                 # Best-effort: ignore prefetch errors
 
-    async def _fetch_data_block_with_cleanup(self, path: str, url: str, start: int, end: int) -> bytes:
+    async def _fetch_data_block_with_cleanup(
+        self, path: str, url: str, start: int, end: int
+    ) -> bytes:
         """Wrapper for _fetch_data_block that handles prefetch state cleanup."""
         try:
             data = await self._fetch_data_block(path, url, start, end)
@@ -2061,7 +2261,9 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Clean up per-path state if no other handles are using this path
                 if path:
-                    remaining_handles = [h for h in self._file_handles.values() if h.get("path") == path]
+                    remaining_handles = [
+                        h for h in self._file_handles.values() if h.get("path") == path
+                    ]
                     if not remaining_handles:
                         # No other handles for this path, clean up shared path state
                         self._path_chunks_in_progress.pop(path, None)
@@ -2100,7 +2302,9 @@ class RivenVFS(pyfuse3.Operations):
         """Remove a file."""
         try:
             # Deny user-initiated deletes; managed via provider interfaces only
-            log.info(f"Denied unlink via FUSE: parent_inode={parent_inode}, name={name!r}")
+            log.info(
+                f"Denied unlink via FUSE: parent_inode={parent_inode}, name={name!r}"
+            )
             raise pyfuse3.FUSEError(errno.EROFS)
         except pyfuse3.FUSEError:
             raise
@@ -2112,7 +2316,9 @@ class RivenVFS(pyfuse3.Operations):
         """Remove a directory."""
         try:
             # Deny user-initiated directory deletes; managed via provider interfaces only
-            log.info(f"Denied rmdir via FUSE: parent_inode={parent_inode}, name={name!r}")
+            log.info(
+                f"Denied rmdir via FUSE: parent_inode={parent_inode}, name={name!r}"
+            )
             raise pyfuse3.FUSEError(errno.EROFS)
         except pyfuse3.FUSEError:
             raise
@@ -2120,8 +2326,15 @@ class RivenVFS(pyfuse3.Operations):
             log.exception("rmdir error: parent=%s name=%s: %s", parent_inode, name, ex)
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def rename(self, parent_inode_old: int, name_old: bytes,
-                    parent_inode_new: int, name_new: bytes, flags: int, ctx):
+    async def rename(
+        self,
+        parent_inode_old: int,
+        name_old: bytes,
+        parent_inode_new: int,
+        name_new: bytes,
+        flags: int,
+        ctx,
+    ):
         """Rename/move a file or directory."""
         try:
             # Allow only internal/provider-driven renames; deny user-initiated via FUSE
@@ -2133,27 +2346,45 @@ class RivenVFS(pyfuse3.Operations):
         except pyfuse3.FUSEError:
             raise
         except Exception as ex:
-            log.exception("rename error: old_parent=%s new_parent=%s name_old=%s name_new=%s: %s",
-                          parent_inode_old, parent_inode_new, name_old, name_new, ex)
+            log.exception(
+                "rename error: old_parent=%s new_parent=%s name_old=%s name_new=%s: %s",
+                parent_inode_old,
+                parent_inode_new,
+                name_old,
+                name_new,
+                ex,
+            )
             raise pyfuse3.FUSEError(errno.EIO)
         except pyfuse3.FUSEError:
             raise
         except Exception as ex:
-            log.exception("rename error: old=%s/%s new=%s/%s: %s",
-                         parent_inode_old, name_old, parent_inode_new, name_new, ex)
+            log.exception(
+                "rename error: old=%s/%s new=%s/%s: %s",
+                parent_inode_old,
+                name_old,
+                parent_inode_new,
+                name_new,
+                ex,
+            )
             raise pyfuse3.FUSEError(errno.EIO)
 
     # HTTP helpers
 
-    def _http_range_request(self, target_url: str, start: int, end: int) -> tuple[int, bytes]:
+    def _http_range_request(
+        self, target_url: str, start: int, end: int
+    ) -> tuple[int, bytes]:
         try:
-            status_code, body, _ = self.http.perform_range(target_url, start, end, http10=False, ignore_content_length=False)
+            status_code, body, _ = self.http.perform_range(
+                target_url, start, end, http10=False, ignore_content_length=False
+            )
             return status_code, body
         except pycurl.error as e:
             log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
             # Content-Length workaround (HTTP/1.0 + ignore length)
             if e.args and e.args[0] == 8:
-                status_code, body, _ = self.http.perform_range(target_url, start, end, http10=True, ignore_content_length=True)
+                status_code, body, _ = self.http.perform_range(
+                    target_url, start, end, http10=True, ignore_content_length=True
+                )
                 log.info(f"Content-Length workaround successful for {target_url}")
                 return status_code, body
             raise
@@ -2167,10 +2398,12 @@ class RivenVFS(pyfuse3.Operations):
         fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
 
         if fresh_url and fresh_url != target_url:
-            self._url_cache[path] = {'url': fresh_url, 'timestamp': time.time()}
+            self._url_cache[path] = {"url": fresh_url, "timestamp": time.time()}
             return fresh_url
-        
-    async def _attempt_range_preflight_checks(self, path: str, target_url: str, start: int, end: int) -> str:
+
+    async def _attempt_range_preflight_checks(
+        self, path: str, target_url: str, start: int, end: int
+    ) -> str:
         """
         Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
 
@@ -2183,7 +2416,7 @@ class RivenVFS(pyfuse3.Operations):
             The effective URL that was successfully used (may differ from input if refreshed).
         """
 
-        max_preflight_attempts = 3 # Preflight checks generally pass the second time if the first response was 200 OK, add an extra 1 as a safeguard
+        max_preflight_attempts = 3  # Preflight checks generally pass the second time if the first response was 200 OK, add an extra 1 as a safeguard
         backoffs = [0.2, 0.5, 1.0]
 
         for preflight_attempt in range(max_preflight_attempts):
@@ -2196,13 +2429,17 @@ class RivenVFS(pyfuse3.Operations):
 
                 if preflight_status_code == 206:
                     # Preflight passed, proceed to actual request
-                    log.trace(f"Preflight checks passed for {path}: HTTP {preflight_status_code}")
+                    log.trace(
+                        f"Preflight checks passed for {path}: HTTP {preflight_status_code}"
+                    )
                     return target_url
                 elif preflight_status_code == 200:
                     if not is_max_attempt:
                         # Server refused range request. Serving this request would return the full media file,
                         # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                        log.debug(f"Request would have returned full body for: {target_url}; waiting for range request to become available.")
+                        log.debug(
+                            f"Request would have returned full body for: {target_url}; waiting for range request to become available."
+                        )
                         await trio.sleep(0.5)
                         continue
                     # Unable to get range support after retries
@@ -2210,10 +2447,14 @@ class RivenVFS(pyfuse3.Operations):
                 elif preflight_status_code == 404 or preflight_status_code == 410:
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
-                        fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+                        fresh_url = await trio.to_thread.run_sync(
+                            self._refresh_download_url, path, target_url
+                        )
 
                         if fresh_url is not None:
-                            log.info(f"Retrying with fresh URL after {preflight_status_code} for {path}")
+                            log.info(
+                                f"Retrying with fresh URL after {preflight_status_code} for {path}"
+                            )
                             target_url = fresh_url
                             await trio.sleep(0.5)  # Brief pause before retry
                             continue
@@ -2221,38 +2462,54 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 else:
                     # Other unexpected status codes
-                    log.trace(f"Unexpected preflight HTTP status {preflight_status_code} for {path}")
+                    log.trace(
+                        f"Unexpected preflight HTTP status {preflight_status_code} for {path}"
+                    )
                     raise pyfuse3.FUSEError(errno.EIO)
             except pycurl.error as e:
                 error_code = e.args[0] if e.args else 0
-                log.trace(f"HTTP preflight request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}) for {path}: {e}")
+                log.trace(
+                    f"HTTP preflight request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}) for {path}: {e}"
+                )
 
                 # Only refresh URL on connection-related errors, not rate limiting
-                if error_code in (6, 7, 28) and preflight_attempt == 0:  # Host resolution, connection, timeout
-                    fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+                if (
+                    error_code in (6, 7, 28) and preflight_attempt == 0
+                ):  # Host resolution, connection, timeout
+                    fresh_url = await trio.to_thread.run_sync(
+                        self._refresh_download_url, path, target_url
+                    )
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.info(f"Retrying with fresh URL after connection error for {path}")
+                        log.info(
+                            f"Retrying with fresh URL after connection error for {path}"
+                        )
                         # Continue with refreshed URL
                         continue
 
                 if not is_max_attempt:
-                    await trio.sleep(backoffs[min(preflight_attempt, len(backoffs) - 1)])
+                    await trio.sleep(
+                        backoffs[min(preflight_attempt, len(backoffs) - 1)]
+                    )
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
 
-    async def _fetch_data_block(self, path: str, target_url: str, start: int, end: int) -> bytes:
+    async def _fetch_data_block(
+        self, path: str, target_url: str, start: int, end: int
+    ) -> bytes:
         try:
-            target_url = await self._attempt_range_preflight_checks(path, target_url, start, end)
+            target_url = await self._attempt_range_preflight_checks(
+                path, target_url, start, end
+            )
         except Exception as e:
             log.error(f"Preflight checks failed for {path}: {e}")
             raise
 
         max_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
-            
+
         for attempt in range(max_attempts):
             is_max_attempt = attempt == (max_attempts - 1)
 
@@ -2267,11 +2524,13 @@ class RivenVFS(pyfuse3.Operations):
                 elif status == 200 and start == 0:
                     # Full body returned; slice to requested range length
                     log.trace(f"path={path} start={0} end={end + 1} bytes={end + 1}")
-                    return content[:(end - start + 1)]
+                    return content[: (end - start + 1)]
                 elif status == 200 and start > 0:
                     # Server doesn't support ranges but returned full content
                     # This shouldn't happen due to preflight, treat as error
-                    log.trace(f"Server returned full content instead of range for {path}")
+                    log.trace(
+                        f"Server returned full content instead of range for {path}"
+                    )
                     raise pyfuse3.FUSEError(errno.EIO)
                 elif status == 403:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
@@ -2286,12 +2545,16 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 elif status == 416:
                     # Requested range not satisfiable; treat as EOF
-                    return b''
+                    return b""
                 elif status == 429:
                     # Rate limited - back off exponentially, don't refresh URL
-                    log.trace(f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})")
+                    log.trace(
+                        f"HTTP 429 Rate Limited for {path} (attempt {attempt + 1})"
+                    )
                     if not is_max_attempt:
-                        backoff_time = min(backoffs[min(attempt, len(backoffs) - 1)] * 2, 5.0)
+                        backoff_time = min(
+                            backoffs[min(attempt, len(backoffs) - 1)] * 2, 5.0
+                        )
                         await trio.sleep(backoff_time)
                         continue
                     raise pyfuse3.FUSEError(errno.EAGAIN)
@@ -2301,15 +2564,23 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EIO)
             except pycurl.error as e:
                 error_code = e.args[0] if e.args else 0
-                log.trace(f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}")
+                log.trace(
+                    f"HTTP request failed (attempt {attempt + 1}/{max_attempts}) for {path}: {e}"
+                )
 
                 # Only refresh URL on connection-related errors, not rate limiting
-                if error_code in (6, 7, 28) and attempt == 0:  # Host resolution, connection, timeout
-                    fresh_url = await trio.to_thread.run_sync(self._refresh_download_url, path, target_url)
+                if (
+                    error_code in (6, 7, 28) and attempt == 0
+                ):  # Host resolution, connection, timeout
+                    fresh_url = await trio.to_thread.run_sync(
+                        self._refresh_download_url, path, target_url
+                    )
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.info(f"Retrying with fresh URL after connection error for {path}")
+                        log.info(
+                            f"Retrying with fresh URL after connection error for {path}"
+                        )
 
                 if not is_max_attempt:
                     await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
@@ -2318,4 +2589,3 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.EIO) from e
 
         raise pyfuse3.FUSEError(errno.EIO)
-

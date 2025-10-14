@@ -1,4 +1,4 @@
-""" Jackett scraper module """
+"""Jackett scraper module"""
 
 from types import SimpleNamespace
 from typing import Dict, List, Optional
@@ -18,6 +18,7 @@ INFOHASH_PATTERN = regex.compile(r"[A-Fa-f0-9]{40}")
 
 class JackettIndexer(BaseModel):
     """Indexer model for Jackett"""
+
     title: Optional[str] = None
     id: Optional[str] = None
     link: Optional[str] = None
@@ -45,17 +46,22 @@ class Jackett(ScraperService):
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
-                if not isinstance(self.settings.timeout, int) or self.settings.timeout <= 0:
+                if (
+                    not isinstance(self.settings.timeout, int)
+                    or self.settings.timeout <= 0
+                ):
                     logger.error("Jackett timeout is not set or invalid.")
                     return False
                 if not isinstance(self.settings.ratelimit, bool):
                     logger.error("Jackett ratelimit must be a valid boolean.")
                     return False
 
-
                 if self.settings.ratelimit:
                     rate_limits = {
-                        get_hostname_from_url(self.settings.url): {"rate": 300/60, "capacity": 300}
+                        get_hostname_from_url(self.settings.url): {
+                            "rate": 300 / 60,
+                            "capacity": 300,
+                        }
                     }
                 else:
                     rate_limits = {}
@@ -64,12 +70,14 @@ class Jackett(ScraperService):
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
                     rate_limits=rate_limits,
                     retries=3,
-                    backoff_factor=0.3
+                    backoff_factor=0.3,
                 )
 
                 return True
             except ReadTimeout:
-                logger.error("Jackett request timed out. Check your indexers, they may be too slow to respond.")
+                logger.error(
+                    "Jackett request timed out. Check your indexers, they may be too slow to respond."
+                )
                 return False
             except Exception as e:
                 logger.error(f"Jackett failed to initialize with API Key: {e}")
@@ -110,7 +118,9 @@ class Jackett(ScraperService):
                     torrents[infohash] = result.Title
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return torrents
@@ -121,7 +131,9 @@ class Jackett(ScraperService):
             return result.InfoHash.lower()
 
         infohash = None
-        if (infohash := INFOHASH_PATTERN.search(result.Guid)) or (infohash := INFOHASH_PATTERN.search(result.Details)):
+        if (infohash := INFOHASH_PATTERN.search(result.Guid)) or (
+            infohash := INFOHASH_PATTERN.search(result.Details)
+        ):
             infohash = infohash.group().lower()
 
         return infohash

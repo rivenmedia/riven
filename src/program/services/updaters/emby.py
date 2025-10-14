@@ -1,4 +1,5 @@
 """Emby Updater module"""
+
 from loguru import logger
 
 from program.services.updaters.base import BaseUpdater
@@ -26,7 +27,9 @@ class EmbyUpdater(BaseUpdater):
             logger.error("Emby URL is not set!")
             return False
         try:
-            response = self.session.get(f"{self.settings.url}/Users?api_key={self.settings.api_key}")
+            response = self.session.get(
+                f"{self.settings.url}/Users?api_key={self.settings.api_key}"
+            )
             if response.ok:
                 return True
         except Exception as e:

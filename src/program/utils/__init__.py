@@ -11,6 +11,7 @@ root_dir = Path(__file__).resolve().parents[3]
 data_dir_path = root_dir / "data"
 alembic_dir = data_dir_path / "alembic"
 
+
 def get_version() -> str:
     with open(root_dir / "pyproject.toml") as file:
         pyproject_toml = file.read()
@@ -21,6 +22,7 @@ def get_version() -> str:
     else:
         raise ValueError("Could not find version in pyproject.toml")
     return version
+
 
 def generate_api_key():
     """Generate a secure API key of the specified length."""

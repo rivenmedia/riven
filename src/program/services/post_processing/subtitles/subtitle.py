@@ -45,7 +45,9 @@ class SubtitleService:
             return
 
         self.initialized = True
-        logger.info(f"Subtitle service initialized with {len(self.providers)} provider(s) and {len(self.languages)} language(s)")
+        logger.info(
+            f"Subtitle service initialized with {len(self.providers)} provider(s) and {len(self.languages)} language(s)"
+        )
 
     def _initialize_providers(self):
         """Initialize configured subtitle providers."""
@@ -80,11 +82,17 @@ class SubtitleService:
         for lang_code in language_codes:
             try:
                 normalized = _normalize_language_to_alpha3(lang_code)
-                if normalized and normalized != 'eng' or lang_code.lower() in ['en', 'eng']:
+                if (
+                    normalized
+                    and normalized != "eng"
+                    or lang_code.lower() in ["en", "eng"]
+                ):
                     valid_languages.append(normalized)
-                elif normalized == 'eng' and lang_code.lower() not in ['en', 'eng']:
+                elif normalized == "eng" and lang_code.lower() not in ["en", "eng"]:
                     # Only add 'eng' if it was explicitly requested
-                    logger.warning(f"Language code '{lang_code}' normalized to 'eng' (fallback)")
+                    logger.warning(
+                        f"Language code '{lang_code}' normalized to 'eng' (fallback)"
+                    )
                 else:
                     valid_languages.append(normalized)
             except Exception as e:
@@ -112,7 +120,9 @@ class SubtitleService:
             return
 
         if not item.filesystem_entry:
-            logger.warning(f"No filesystem entry for {item.log_string}, cannot fetch subtitles")
+            logger.warning(
+                f"No filesystem entry for {item.log_string}, cannot fetch subtitles"
+            )
             return
 
         try:
@@ -121,7 +131,9 @@ class SubtitleService:
             # Get existing embedded subtitles from parsed_data
             embedded_subtitle_languages = self._get_embedded_subtitle_languages(item)
             if embedded_subtitle_languages:
-                logger.debug(f"Found {len(embedded_subtitle_languages)} embedded subtitle language(s) in {item.log_string}: {', '.join(embedded_subtitle_languages)}")
+                logger.debug(
+                    f"Found {len(embedded_subtitle_languages)} embedded subtitle language(s) in {item.log_string}: {', '.join(embedded_subtitle_languages)}"
+                )
 
             # Get video file information
             video_path = item.filesystem_entry.path
@@ -144,13 +156,17 @@ class SubtitleService:
                 episode = item.number
 
             # Get file size
-            file_size = item.filesystem_entry.file_size if item.filesystem_entry else None
+            file_size = (
+                item.filesystem_entry.file_size if item.filesystem_entry else None
+            )
 
             # Search for subtitles in each language
             for language in self.languages:
                 # Skip if language already exists as embedded subtitle
                 if language in embedded_subtitle_languages:
-                    logger.debug(f"Skipping {language} subtitle for {item.log_string} - already embedded in video")
+                    logger.debug(
+                        f"Skipping {language} subtitle for {item.log_string} - already embedded in video"
+                    )
                     continue
 
                 try:
@@ -164,10 +180,12 @@ class SubtitleService:
                         search_tags=search_tags,
                         imdb_id=imdb_id,
                         season=season,
-                        episode=episode
+                        episode=episode,
                     )
                 except Exception as e:
-                    logger.error(f"Failed to fetch {language} subtitle for {item.log_string}: {e}")
+                    logger.error(
+                        f"Failed to fetch {language} subtitle for {item.log_string}: {e}"
+                    )
 
             logger.debug(f"Finished fetching subtitles for {item.log_string}")
 
@@ -193,19 +211,21 @@ class SubtitleService:
             if not item.parsed_data:
                 return embedded_languages
 
-            ffprobe_data = item.parsed_data.get('ffprobe_data', {})
-            subtitle_tracks = ffprobe_data.get('subtitles', [])
+            ffprobe_data = item.parsed_data.get("ffprobe_data", {})
+            subtitle_tracks = ffprobe_data.get("subtitles", [])
 
             for track in subtitle_tracks:
-                lang = track.get('language')
-                if lang and lang != 'unknown':
+                lang = track.get("language")
+                if lang and lang != "unknown":
                     # Convert to ISO 639-3 if needed
                     # FFprobe typically returns ISO 639-2 (3-letter codes)
                     # which are compatible with our language list
                     embedded_languages.add(lang)
 
         except Exception as e:
-            logger.warning(f"Failed to extract embedded subtitle languages for {item.log_string}: {e}")
+            logger.warning(
+                f"Failed to extract embedded subtitle languages for {item.log_string}: {e}"
+            )
 
         return embedded_languages
 
@@ -230,32 +250,32 @@ class SubtitleService:
             if not item.parsed_data:
                 return None
 
-            parsed_filename = item.parsed_data.get('parsed_filename', {})
+            parsed_filename = item.parsed_data.get("parsed_filename", {})
 
             # Add release group if available
-            release_group = parsed_filename.get('group')
+            release_group = parsed_filename.get("group")
             if release_group:
                 tags.append(release_group)
 
             # Add quality/format tag (BluRay, HDTV, DVD, etc.)
-            quality = parsed_filename.get('quality')
+            quality = parsed_filename.get("quality")
             if quality:
                 tags.append(quality)
 
             # Add other relevant tags
-            if parsed_filename.get('proper'):
-                tags.append('Proper')
-            if parsed_filename.get('repack'):
-                tags.append('Repack')
-            if parsed_filename.get('remux'):
-                tags.append('Remux')
-            if parsed_filename.get('extended'):
-                tags.append('Extended')
-            if parsed_filename.get('unrated'):
-                tags.append('Unrated')
+            if parsed_filename.get("proper"):
+                tags.append("Proper")
+            if parsed_filename.get("repack"):
+                tags.append("Repack")
+            if parsed_filename.get("remux"):
+                tags.append("Remux")
+            if parsed_filename.get("extended"):
+                tags.append("Extended")
+            if parsed_filename.get("unrated"):
+                tags.append("Unrated")
 
             if tags:
-                tags_str = ','.join([t.lower() for t in tags])
+                tags_str = ",".join([t.lower() for t in tags])
                 logger.debug(f"Built search tags for {item.log_string}: {tags_str}")
                 return tags_str
 
@@ -278,31 +298,41 @@ class SubtitleService:
             # Get file size from filesystem entry
             file_size = item.filesystem_entry.file_size
             if not file_size or file_size < 128 * 1024:  # 128KB minimum
-                logger.debug(f"File too small ({file_size} bytes) to calculate hash for {item.log_string}")
+                logger.debug(
+                    f"File too small ({file_size} bytes) to calculate hash for {item.log_string}"
+                )
                 return None
 
             # Get the mounted VFS path
             from program.settings.manager import settings_manager
+
             mount_path = settings_manager.settings.filesystem.mount_path
             vfs_path = item.filesystem_entry.path
 
             # Construct the full path on the host filesystem
             import os
-            full_path = os.path.join(mount_path, vfs_path.lstrip('/'))
+
+            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
 
             # Check if file exists and is accessible
             if not os.path.exists(full_path):
-                logger.debug(f"VFS file not accessible at {full_path} for {item.log_string}")
+                logger.debug(
+                    f"VFS file not accessible at {full_path} for {item.log_string}"
+                )
                 return None
 
             # Calculate hash using the mounted VFS file
-            with open(full_path, 'rb') as f:
+            with open(full_path, "rb") as f:
                 video_hash = calculate_opensubtitles_hash(f, file_size)
-                logger.debug(f"Calculated OpenSubtitles hash for {item.log_string}: {video_hash}")
+                logger.debug(
+                    f"Calculated OpenSubtitles hash for {item.log_string}: {video_hash}"
+                )
                 return video_hash
 
         except FileNotFoundError:
-            logger.debug(f"VFS file not found for {item.log_string}, cannot calculate hash")
+            logger.debug(
+                f"VFS file not found for {item.log_string}, cannot calculate hash"
+            )
             return None
         except Exception as e:
             logger.error(f"Failed to calculate video hash for {item.log_string}: {e}")
@@ -319,7 +349,7 @@ class SubtitleService:
         search_tags: Optional[str],
         imdb_id: Optional[str],
         season: Optional[int],
-        episode: Optional[int]
+        episode: Optional[int],
     ):
         """
         Fetch subtitle for a specific language.
@@ -339,7 +369,9 @@ class SubtitleService:
         # Check if subtitle already exists
         existing_subtitle = self._get_existing_subtitle(item, language)
         if existing_subtitle:
-            logger.debug(f"Subtitle for {language} already exists for {item.log_string}")
+            logger.debug(
+                f"Subtitle for {language} already exists for {item.log_string}"
+            )
             return
 
         # Search for subtitles across all providers
@@ -354,24 +386,28 @@ class SubtitleService:
                     search_tags=search_tags,
                     season=season,
                     episode=episode,
-                    language=language
+                    language=language,
                 )
                 all_results.extend(results)
             except Exception as e:
-                logger.error(f"Provider {provider.name} failed to search subtitles: {e}")
+                logger.error(
+                    f"Provider {provider.name} failed to search subtitles: {e}"
+                )
 
         if not all_results:
             logger.debug(f"No {language} subtitles found for {item.log_string}")
             return
 
         # Sort by score (highest first)
-        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         # Try to download the best subtitle
         for subtitle_info in all_results[:3]:  # Try top 3 results
             try:
-                provider_name = subtitle_info.get('provider')
-                provider = next((p for p in self.providers if p.name == provider_name), None)
+                provider_name = subtitle_info.get("provider")
+                provider = next(
+                    (p for p in self.providers if p.name == provider_name), None
+                )
 
                 if not provider:
                     continue
@@ -391,7 +427,7 @@ class SubtitleService:
                     content=content,
                     file_hash=video_hash,
                     video_file_size=item.filesystem_entry.file_size,
-                    opensubtitles_id=subtitle_info.get('id')
+                    opensubtitles_id=subtitle_info.get("id"),
                 )
 
                 # Associate with media item
@@ -403,15 +439,23 @@ class SubtitleService:
                     session.add(subtitle_entry)
                     session.commit()
 
-                logger.debug(f"Downloaded and stored {language} subtitle for {item.log_string}")
+                logger.debug(
+                    f"Downloaded and stored {language} subtitle for {item.log_string}"
+                )
                 return
 
             except Exception as e:
-                logger.error(f"Failed to download subtitle from {subtitle_info.get('provider')}: {e}")
+                logger.error(
+                    f"Failed to download subtitle from {subtitle_info.get('provider')}: {e}"
+                )
 
-        logger.warning(f"Failed to download any {language} subtitle for {item.log_string}")
+        logger.warning(
+            f"Failed to download any {language} subtitle for {item.log_string}"
+        )
 
-    def _get_existing_subtitle(self, item: MediaItem, language: str) -> Optional[SubtitleEntry]:
+    def _get_existing_subtitle(
+        self, item: MediaItem, language: str
+    ) -> Optional[SubtitleEntry]:
         """
         Check if a subtitle already exists for the item and language.
 
@@ -424,10 +468,11 @@ class SubtitleService:
         """
         try:
             with db.Session() as session:
-                subtitle = session.query(SubtitleEntry).filter_by(
-                    media_item_id=item.id,
-                    language=language
-                ).first()
+                subtitle = (
+                    session.query(SubtitleEntry)
+                    .filter_by(media_item_id=item.id, language=language)
+                    .first()
+                )
                 return subtitle
         except Exception as e:
             logger.error(f"Failed to check for existing subtitle: {e}")

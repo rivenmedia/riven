@@ -13,12 +13,12 @@ from program.utils.logging import log_cleaner, logger
 def snapshot_database(snapshot_dir: Path = None):
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
-    
+
     Creates a snapshot file in `snapshot_dir` (defaults to ./data/db_snapshot), choosing either to run `pg_dump` directly or to run it inside a detected PostgreSQL Docker container when the configured host indicates a local/container instance. On success the snapshot file is written and `latest.sql` is updated to point to the new snapshot; on failure no symlink update is performed.
-    
+
     Parameters:
         snapshot_dir (Path | None): Directory to store snapshot files. If None, uses ./data/db_snapshot.
-    
+
     Returns:
         bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
     """
@@ -87,17 +87,23 @@ def snapshot_database(snapshot_dir: Path = None):
                 # Use docker exec to run pg_dump inside the container
                 # Pass PGPASSWORD into the container via -e flag
                 cmd = [
-                    "docker", "exec",
-                    "-e", f"PGPASSWORD={password}",
+                    "docker",
+                    "exec",
+                    "-e",
+                    f"PGPASSWORD={password}",
                     container_name,
                     "pg_dump",
-                    "-U", user,
-                    "-d", dbname,
+                    "-U",
+                    user,
+                    "-d",
+                    dbname,
                     "--clean",
                     "--if-exists",
                 ]
 
-                logger.info(f"Creating database snapshot at {snapshot_file} using docker exec...")
+                logger.info(
+                    f"Creating database snapshot at {snapshot_file} using docker exec..."
+                )
                 # Use os.environ.copy() to preserve PATH and other env vars
                 env = os.environ.copy()
                 # Don't set PGPASSWORD in local env since we pass it via docker exec -e
@@ -110,7 +116,9 @@ def snapshot_database(snapshot_dir: Path = None):
                     logger.error(f"Failed to create snapshot: {result.stderr}")
                     return False
             else:
-                logger.error("Could not find postgres container. Available containers: postgres, riven-db, riven_postgres")
+                logger.error(
+                    "Could not find postgres container. Available containers: postgres, riven-db, riven_postgres"
+                )
                 return False
         else:
             # Use pg_dump directly (assumes it's in PATH)
@@ -123,11 +131,16 @@ def snapshot_database(snapshot_dir: Path = None):
 
             cmd = [
                 "pg_dump",
-                "-h", host,
-                "-p", port,
-                "-U", user,
-                "-d", dbname,
-                "-f", str(snapshot_file),
+                "-h",
+                host,
+                "-p",
+                port,
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-f",
+                str(snapshot_file),
                 "--clean",
                 "--if-exists",
             ]
@@ -136,7 +149,9 @@ def snapshot_database(snapshot_dir: Path = None):
             result = subprocess.run(cmd, env=env, capture_output=True, text=True)
 
             if result.returncode == 0:
-                logger.success(f"Database snapshot created successfully: {snapshot_file}")
+                logger.success(
+                    f"Database snapshot created successfully: {snapshot_file}"
+                )
                 # Create a symlink to latest snapshot
                 latest_link = snapshot_dir / "latest.sql"
                 if latest_link.exists() or latest_link.is_symlink():
@@ -165,10 +180,10 @@ def snapshot_database(snapshot_dir: Path = None):
 def restore_database(snapshot_file: Path = None):
     """
     Restore the configured PostgreSQL database from a SQL snapshot file.
-    
+
     Parameters:
         snapshot_file (Path | None): Path to the SQL snapshot to restore. If None, uses ./data/db_snapshot/latest.sql.
-    
+
     Returns:
         bool: `True` if the restore completed successfully, `False` otherwise.
     """
@@ -231,7 +246,9 @@ def restore_database(snapshot_file: Path = None):
 
             if container_name:
                 # Use docker exec to run psql inside the container
-                logger.info(f"Restoring database from {snapshot_file} using docker exec...")
+                logger.info(
+                    f"Restoring database from {snapshot_file} using docker exec..."
+                )
 
                 # Read snapshot file and pipe to psql
                 with open(snapshot_file, "r") as f:
@@ -239,27 +256,38 @@ def restore_database(snapshot_file: Path = None):
 
                 # Pass PGPASSWORD into the container via -e flag
                 cmd = [
-                    "docker", "exec", "-i",
-                    "-e", f"PGPASSWORD={password}",
+                    "docker",
+                    "exec",
+                    "-i",
+                    "-e",
+                    f"PGPASSWORD={password}",
                     container_name,
                     "psql",
-                    "-U", user,
-                    "-d", dbname,
+                    "-U",
+                    user,
+                    "-d",
+                    dbname,
                 ]
 
                 # Use os.environ.copy() to preserve PATH and other env vars
                 env = os.environ.copy()
                 # Don't set PGPASSWORD in local env since we pass it via docker exec -e
-                result = subprocess.run(cmd, env=env, input=snapshot_content, capture_output=True, text=True)
+                result = subprocess.run(
+                    cmd, env=env, input=snapshot_content, capture_output=True, text=True
+                )
 
                 if result.returncode == 0:
-                    logger.success(f"Database restored successfully from {snapshot_file}")
+                    logger.success(
+                        f"Database restored successfully from {snapshot_file}"
+                    )
                     return True
                 else:
                     logger.error(f"Failed to restore database: {result.stderr}")
                     return False
             else:
-                logger.error("Could not find postgres container. Available containers: postgres, riven-db, riven_postgres")
+                logger.error(
+                    "Could not find postgres container. Available containers: postgres, riven-db, riven_postgres"
+                )
                 return False
         else:
             # Use psql directly (assumes it's in PATH)
@@ -272,11 +300,16 @@ def restore_database(snapshot_file: Path = None):
 
             cmd = [
                 "psql",
-                "-h", host,
-                "-p", port,
-                "-U", user,
-                "-d", dbname,
-                "-f", str(snapshot_file),
+                "-h",
+                host,
+                "-p",
+                port,
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-f",
+                str(snapshot_file),
             ]
 
             logger.info(f"Restoring database from {snapshot_file}...")
@@ -297,9 +330,9 @@ def restore_database(snapshot_file: Path = None):
 def handle_args():
     """
     Parse CLI arguments for database utilities and perform immediate actions for certain flags.
-    
+
     When invoked, parses flags for cache ignoring, hard database reset, log cleaning, creating a database snapshot, restoring a snapshot, and server port. If --hard_reset_db or --clean_logs are set, the corresponding operation is performed and the process exits. If --snapshot_db or --restore_db are set, the snapshot or restore operation is performed and the process exits with status 0 on success or 1 on failure. Otherwise, the parsed arguments are returned for further use.
-    
+
     Returns:
         argparse.Namespace: The parsed command-line arguments.
     """
@@ -333,10 +366,11 @@ def handle_args():
         help="Restore database from a snapshot file (default: latest snapshot).",
     )
     parser.add_argument(
-        "-p", "--port",
+        "-p",
+        "--port",
         type=int,
         default=8080,
-        help="Port to run the server on (default: 8080)"
+        help="Port to run the server on (default: 8080)",
     )
 
     args = parser.parse_args()

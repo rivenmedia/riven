@@ -41,16 +41,19 @@ class TraktAPI:
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
 
         rate_limits = {
-            "api.trakt.tv": {"rate": 1000/300, "capacity": 1000}  # 1000 calls per 5 minutes
+            "api.trakt.tv": {
+                "rate": 1000 / 300,
+                "capacity": 1000,
+            }  # 1000 calls per 5 minutes
         }
-        
+
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
             retries=2,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
-        
+
         self.headers = {
             "Content-type": "application/json",
             "trakt-api-key": self.CLIENT_ID,
@@ -224,10 +227,8 @@ class TraktAPI:
 
         data = next((d for d in response.data if d.type == type), None)
         if not data:
-            clause = (
-                lambda x: x.type == type
-                if type
-                else x in ["show", "movie", "season", "episode"]
+            clause = lambda x: (
+                x.type == type if type else x in ["show", "movie", "season", "episode"]
             )
             data = next((d for d in response.data if clause), None)
 

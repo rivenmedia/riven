@@ -119,7 +119,7 @@ class SubtitleEntry(FilesystemEntry):
         """
         # Calculate subtitle file size from content if not provided
         if subtitle_file_size is None and content:
-            subtitle_file_size = len(content.encode('utf-8'))
+            subtitle_file_size = len(content.encode("utf-8"))
 
         return cls(
             path=path,

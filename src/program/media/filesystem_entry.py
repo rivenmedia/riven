@@ -1,4 +1,5 @@
 """Model for filesystem entries"""
+
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
@@ -14,49 +15,56 @@ if TYPE_CHECKING:
 
 class FilesystemEntry(db.Model):
     """Base model for all virtual filesystem entries in RivenVFS"""
+
     __tablename__ = "FilesystemEntry"
 
-    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
 
     # Discriminator for polymorphic identity (media, subtitle, etc.)
     entry_type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
 
     # Common fields for all VFS entries
-    path: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False, index=True)  # virtual path in VFS
+    path: Mapped[str] = mapped_column(
+        sqlalchemy.String, nullable=False, index=True
+    )  # virtual path in VFS
 
     # File size in bytes (for media files, this is the video size; for subtitles, this is the subtitle file size)
-    file_size: Mapped[int] = mapped_column(sqlalchemy.BigInteger, nullable=False, default=0)
+    file_size: Mapped[int] = mapped_column(
+        sqlalchemy.BigInteger, nullable=False, default=0
+    )
 
     # Whether this entry represents a directory (only applicable to MediaEntry)
-    is_directory: Mapped[bool] = mapped_column(sqlalchemy.Boolean, nullable=False, default=False)
+    is_directory: Mapped[bool] = mapped_column(
+        sqlalchemy.Boolean, nullable=False, default=False
+    )
 
     created_at: Mapped[datetime] = mapped_column(
-        sqlalchemy.DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False
+        sqlalchemy.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False
+        nullable=False,
     )
 
     # Availability flag: set to True once added to the VFS
-    available_in_vfs: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False, nullable=False)
+    available_in_vfs: Mapped[bool] = mapped_column(
+        sqlalchemy.Boolean, default=False, nullable=False
+    )
 
     # Foreign key to MediaItem (many FilesystemEntries can belong to one MediaItem)
     media_item_id: Mapped[Optional[int]] = mapped_column(
         sqlalchemy.Integer,
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"),
-        nullable=True
+        nullable=True,
     )
 
     # Many-to-one relationship: many FilesystemEntries belong to one MediaItem
     media_item: Mapped[Optional["MediaItem"]] = relationship(
-        "MediaItem",
-        back_populates="filesystem_entries",
-        lazy="selectin"
+        "MediaItem", back_populates="filesystem_entries", lazy="selectin"
     )
 
     __mapper_args__ = {
@@ -65,11 +73,11 @@ class FilesystemEntry(db.Model):
     }
 
     __table_args__ = (
-        sqlalchemy.UniqueConstraint('path', name='uq_filesystem_entry_path'),
-        sqlalchemy.Index('ix_filesystem_entry_path', 'path'),
-        sqlalchemy.Index('ix_filesystem_entry_type', 'entry_type'),
-        sqlalchemy.Index('ix_filesystem_entry_media_item_id', 'media_item_id'),
-        sqlalchemy.Index('ix_filesystem_entry_created_at', 'created_at'),
+        sqlalchemy.UniqueConstraint("path", name="uq_filesystem_entry_path"),
+        sqlalchemy.Index("ix_filesystem_entry_path", "path"),
+        sqlalchemy.Index("ix_filesystem_entry_type", "entry_type"),
+        sqlalchemy.Index("ix_filesystem_entry_media_item_id", "media_item_id"),
+        sqlalchemy.Index("ix_filesystem_entry_created_at", "created_at"),
     )
 
     def __repr__(self):
@@ -92,12 +100,14 @@ class FilesystemEntry(db.Model):
             "media_item_id": self.media_item_id,
         }
 
+
 # ============================================================================
 # SQLAlchemy Event Listener for Automatic VFS Cleanup
 # ============================================================================
 
 from sqlalchemy import event
 from loguru import logger
+
 
 def cleanup_vfs_on_filesystem_entry_delete(mapper, connection, target: FilesystemEntry):
     """

@@ -1,4 +1,5 @@
-""" Rarbg scraper module """
+"""Rarbg scraper module"""
+
 from typing import Dict
 
 from loguru import logger
@@ -20,7 +21,10 @@ class Rarbg(ScraperService):
 
         if self.settings.ratelimit:
             rate_limits = {
-                get_hostname_from_url(self.settings.url): {"rate": 350/60, "capacity": 350}  # 350 calls per minute
+                get_hostname_from_url(self.settings.url): {
+                    "rate": 350 / 60,
+                    "capacity": 350,
+                }  # 350 calls per minute
             }
         else:
             rate_limits = {}
@@ -29,7 +33,7 @@ class Rarbg(ScraperService):
             base_url=self.settings.url,
             rate_limits=rate_limits,
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
         self._initialize()
 
@@ -59,14 +63,20 @@ class Rarbg(ScraperService):
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
-                logger.debug(f"TheRARBG rate limit exceeded for item: {item.log_string}")
+                logger.debug(
+                    f"TheRARBG rate limit exceeded for item: {item.log_string}"
+                )
             else:
                 logger.exception(f"TheRARBG exception thrown: {str(e)}")
         return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `TheRARBG` scrape method"""
-        search_string = item.log_string if item.type != "movie" else f"{item.log_string} ({item.aired_at.year})"
+        search_string = (
+            item.log_string
+            if item.type != "movie"
+            else f"{item.log_string} ({item.aired_at.year})"
+        )
         url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
 
         torrents: Dict[str, str] = {}
@@ -87,17 +97,23 @@ class Rarbg(ScraperService):
                     title = result.n  # n is the title
                     torrents[info_hash] = title
 
-            if page == 4: # 50 results per page, 400 results max
+            if page == 4:  # 50 results per page, 400 results max
                 break
 
             current_url = None
-            if hasattr(response.data, "links") and response.data.links and response.data.links.next:
-                if (next_url := response.data.links.next):
+            if (
+                hasattr(response.data, "links")
+                and response.data.links
+                and response.data.links.next
+            ):
+                if next_url := response.data.links.next:
                     current_url = next_url
                     page += 1
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 

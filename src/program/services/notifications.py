@@ -1,4 +1,5 @@
 """Notification service for Riven"""
+
 import json
 from datetime import datetime
 
@@ -46,13 +47,17 @@ class NotificationService:
                 continue
 
         if len(self.apprise) > 0:
-            logger.success(f"NotificationService initialized with {len(self.apprise)} service(s)")
+            logger.success(
+                f"NotificationService initialized with {len(self.apprise)} service(s)"
+            )
 
     def validate(self) -> bool:
         """Validate that the notification service is properly configured."""
         return True  # Service is always valid, even if no external services configured
 
-    def run(self, item: MediaItem, previous_state: States = None, new_state: States = None):
+    def run(
+        self, item: MediaItem, previous_state: States = None, new_state: States = None
+    ):
         """
         Main entry point for sending notifications.
 
@@ -82,7 +87,9 @@ class NotificationService:
         if item_to_notify.last_state == States.Completed:
             self._notify_completion(item_to_notify)
 
-    def _notify_state_change(self, item: MediaItem, previous_state: States, new_state: States):
+    def _notify_state_change(
+        self, item: MediaItem, previous_state: States, new_state: States
+    ):
         """
         Notify about a state change via WebSocket.
 
@@ -95,12 +102,17 @@ class NotificationService:
             new_state: The new state
         """
         if previous_state and previous_state != new_state:
-            websocket_manager.publish("item_update", {
-                "last_state": previous_state,
-                "new_state": new_state,
-                "item_id": item.id
-            })
-            logger.debug(f"State change notification: {item.log_string} {previous_state.name} -> {new_state.name}")
+            websocket_manager.publish(
+                "item_update",
+                {
+                    "last_state": previous_state,
+                    "new_state": new_state,
+                    "item_id": item.id,
+                },
+            )
+            logger.debug(
+                f"State change notification: {item.log_string} {previous_state.name} -> {new_state.name}"
+            )
 
     def _notify_completion(self, item: MediaItem):
         """
@@ -126,7 +138,7 @@ class NotificationService:
             "duration": duration,
             "timestamp": datetime.now().isoformat(),
             "log_string": item.log_string,
-            "imdb_id": item.imdb_id
+            "imdb_id": item.imdb_id,
         }
         sse_manager.publish_event("notifications", json.dumps(notification_data))
         logger.debug(f"SSE notification published for {item.log_string}")
@@ -138,18 +150,24 @@ class NotificationService:
     def _send_external_notification(self, item: MediaItem):
         """
         Send external notifications via Apprise (Discord, etc.).
-        
+
         Args:
             item: The MediaItem to notify about
         """
         # Check if this item type should trigger notifications
         if item.type not in self.settings.on_item_type:
-            logger.debug(f"Skipping external notification for {item.type} (not in on_item_type)")
+            logger.debug(
+                f"Skipping external notification for {item.type} (not in on_item_type)"
+            )
             return
 
         # Build notification message
         title = f"Riven completed a {item.type.title()}!"
-        body = f"**{item.log_string}** ({item.aired_at.year})" if item.aired_at else f"**{item.log_string}**"
+        body = (
+            f"**{item.log_string}** ({item.aired_at.year})"
+            if item.aired_at
+            else f"**{item.log_string}**"
+        )
 
         # Send via Apprise
         try:
@@ -184,4 +202,3 @@ class NotificationService:
                 logger.debug("No external notification services configured")
         except Exception as e:
             logger.debug(f"Failed to send generic notification: {e}")
-

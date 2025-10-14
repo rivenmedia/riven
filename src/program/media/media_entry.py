@@ -39,7 +39,7 @@ class MediaEntry(FilesystemEntry):
         sqlalchemy.JSON,
         nullable=True,
         default=list,
-        comment="List of library profile keys this entry matches (from settings.json)"
+        comment="List of library profile keys this entry matches (from settings.json)",
     )
 
     __mapper_args__ = {

@@ -8,6 +8,7 @@ This migration ensures the PostgreSQL sequence backing FilesystemEntry.id is
 in sync with the data after refactors, restores, or bulk imports. It is safe to
 run multiple times and works for both legacy serial and modern identity columns.
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -64,4 +65,3 @@ $$;
 def downgrade() -> None:
     """No-op: sequence reseeding is safe to keep; leaving as is on downgrade."""
     pass
-
