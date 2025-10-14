@@ -203,7 +203,7 @@ class PrefetchScheduler:
         path: str,
         url: str,
         chunks: List[tuple[int, int]],
-        cache_manager,
+        cache_manager: Cache,
         fetch_func,
     ) -> None:
         """Schedule multiple chunks for prefetching with fair allocation."""
@@ -240,7 +240,7 @@ class PrefetchScheduler:
                     self._run_scheduler, cache_manager, fetch_func
                 )
 
-    async def _run_scheduler(self, cache_manager, fetch_func):
+    async def _run_scheduler(self, cache_manager: Cache, fetch_func):
         """Main scheduler loop that processes chunks fairly."""
         async with trio.open_nursery() as nursery:
             self._scheduler_nursery = nursery
@@ -270,7 +270,12 @@ class PrefetchScheduler:
                 except Exception as e:
                     log.debug(f"Prefetch scheduler error: {e}")
 
-    async def _process_chunk(self, chunk: PrefetchChunk, cache_manager, fetch_func):
+    async def _process_chunk(
+        self,
+        chunk: PrefetchChunk,
+        cache_manager: Cache,
+        fetch_func,
+    ):
         """Process a single chunk fetch with per-chunk locking to prevent duplicate fetches."""
         chunk_key = self._chunk_key(chunk)
         try:
@@ -282,7 +287,9 @@ class PrefetchScheduler:
 
             async with chunk_lock:
                 # Check cache first (inside lock to prevent race with read())
-                cached_data = cache_manager.get(chunk.path, chunk.start, chunk.end)
+                cached_data = await trio.to_thread.run_sync(
+                    lambda: cache_manager.get(chunk.path, chunk.start, chunk.end)
+                )
                 if cached_data is not None:
                     # Already cached, skip (no log needed - reduces noise)
                     return
@@ -292,7 +299,9 @@ class PrefetchScheduler:
                 data = await fetch_func(chunk.path, chunk.url, chunk.start, chunk.end)
 
                 if data:
-                    cache_manager.put(chunk.path, chunk.start, data)
+                    await trio.to_thread.run_sync(
+                        lambda: cache_manager.put(chunk.path, chunk.start, data)
+                    )
                     chunk_size_mb = len(data) / (1024 * 1024)
                     log.debug(
                         f"Prefetched chunk: path={chunk.path} range=[{chunk.start}-{chunk.end}] size={chunk_size_mb:.1f}MB priority={chunk.priority:.1f}"
