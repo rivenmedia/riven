@@ -37,6 +37,7 @@ import shutil
 import errno
 import time
 from dataclasses import dataclass
+from kink import di
 from loguru import logger
 import subprocess
 from typing import Dict, List, Optional, Set, TypedDict
@@ -47,39 +48,6 @@ from program.services.downloaders import Downloader
 import httpx
 
 from program.settings.models import FilesystemModel
-
-
-class ProviderHTTP:
-    """
-    Shared httpx-based HTTP client with connection reuse via CurlShare and a simple
-    per-host easy-handle pool. Uses HTTP/2 for multiplexing multiple range requests
-    over a single connection, reducing handshake latency and improving performance.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.client = httpx.AsyncClient(
-            http2=True,
-            headers={
-                "Accept-Encoding": "identity",
-                "Connection": "keep-alive",
-            },
-        )
-
-    async def range_preflight_check(
-        self, target_url: str, start: int, end: int
-    ) -> httpx.Response:
-        return await self.client.head(
-            url=target_url, headers={"Range": f"bytes={start}-{end}"}
-        )
-
-    async def perform_range(
-        self, target_url: str, start: int, end: int
-    ) -> httpx.Response:
-        return await self.client.get(
-            url=target_url, headers={"Range": f"bytes={start}-{end}"}
-        )
-
 
 import pyfuse3
 import trio
@@ -439,8 +407,10 @@ class RivenVFS(pyfuse3.Operations):
         self._url_cache: Dict[str, URLCacheItem] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
 
-        # Shared HTTP client (httpx) for connection reuse
-        self.http = ProviderHTTP()
+        self.async_client = di[httpx.AsyncClient]
+
+        if not self.async_client:
+            raise Exception("httpx.AsyncClient not found in dependency injector")
 
         # Chunking
         self.chunk_size = fs.chunk_size_mb * 1024 * 1024
@@ -860,7 +830,6 @@ class RivenVFS(pyfuse3.Operations):
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
-        _ = self.http.client.aclose()
         if self._mounted:
             log.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
             self._cleanup_mountpoint(self._mountpoint)
@@ -2181,15 +2150,6 @@ class RivenVFS(pyfuse3.Operations):
 
     # HTTP helpers
 
-    async def _http_range_request(
-        self, target_url: str, start: int, end: int
-    ) -> tuple[int, bytes]:
-        try:
-            response = await self.http.perform_range(target_url, start, end)
-            return response.status_code, response.content
-        except Exception:
-            raise
-
     def _refresh_download_url(self, path: str, target_url: str) -> str | None:
         import time
 
@@ -2200,8 +2160,17 @@ class RivenVFS(pyfuse3.Operations):
             self._url_cache[path] = {"url": fresh_url, "timestamp": time.time()}
             return fresh_url
 
+    def _get_range_request_headers(self, start: int, end: int) -> httpx.Headers:
+        return httpx.Headers(
+            {
+                "Accept-Encoding": "identity",
+                "Connection": "keep-alive",
+                "Range": f"bytes={start}-{end}",
+            }
+        )
+
     async def _attempt_range_preflight_checks(
-        self, path: str, target_url: str, start: int, end: int
+        self, path: str, target_url: str, headers: httpx.Headers
     ) -> str:
         """
         Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
@@ -2222,8 +2191,9 @@ class RivenVFS(pyfuse3.Operations):
             is_max_attempt = preflight_attempt == (max_preflight_attempts - 1)
 
             try:
-                preflight_response = await self.http.range_preflight_check(
-                    target_url, start, end
+                preflight_response = await self.async_client.head(
+                    url=target_url,
+                    headers=headers,
                 )
                 preflight_response.raise_for_status()
 
@@ -2305,9 +2275,13 @@ class RivenVFS(pyfuse3.Operations):
     async def _fetch_data_block(
         self, path: str, target_url: str, start: int, end: int
     ) -> bytes:
+        headers = self._get_range_request_headers(start, end)
+
         try:
             target_url = await self._attempt_range_preflight_checks(
-                path, target_url, start, end
+                path,
+                target_url,
+                headers,
             )
         except Exception as e:
             log.error(f"Preflight checks failed for {path}: {e}")
@@ -2320,7 +2294,10 @@ class RivenVFS(pyfuse3.Operations):
             is_max_attempt = attempt == (max_attempts - 1)
 
             try:
-                range_response = await self.http.perform_range(target_url, start, end)
+                range_response = await self.async_client.get(
+                    url=target_url,
+                    headers=headers,
+                )
                 range_response.raise_for_status()
 
                 content_length = range_response.headers.get("Content-Length")

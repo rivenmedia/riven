@@ -5,10 +5,13 @@ import threading
 import time
 import traceback
 
+import httpx
+from kink import di
+import trio
 import uvicorn
 from dotenv import load_dotenv
 
-load_dotenv() # import required here to support SETTINGS_FILENAME
+load_dotenv()  # import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +42,7 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             )
         return response
 
+
 args = handle_args()
 
 app = FastAPI(
@@ -52,12 +56,14 @@ app = FastAPI(
     },
 )
 
+
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
     return get_scalar_api_reference(
         openapi_url=app.openapi_url,
         title=app.title,
     )
+
 
 app.program = riven
 app.add_middleware(LoguruMiddleware)
@@ -70,6 +76,7 @@ app.add_middleware(
 )
 
 app.include_router(app_router)
+
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -91,10 +98,12 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
+
 def signal_handler(signum, frame):
-    logger.log("PROGRAM","Exiting Gracefully.")
+    logger.log("PROGRAM", "Exiting Gracefully.")
     app.program.stop()
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
@@ -102,13 +111,21 @@ signal.signal(signal.SIGTERM, signal_handler)
 config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
 server = Server(config=config)
 
-with server.run_in_thread():
-    try:
-        app.program.start()
-        app.program.run()
-    except Exception as e:
-        logger.error(f"Error in main thread: {e}")
-        logger.exception(traceback.format_exc())
-    finally:
-        logger.critical("Server has been stopped")
-        sys.exit(0)
+
+async def main():
+    with server.run_in_thread():
+        try:
+            async with httpx.AsyncClient(http2=True) as async_client:
+                di[httpx.AsyncClient] = async_client
+
+                app.program.start()
+                app.program.run()
+        except Exception as e:
+            logger.error(f"Error in main thread: {e}")
+            logger.exception(traceback.format_exc())
+        finally:
+            logger.critical("Server has been stopped")
+            sys.exit(0)
+
+
+trio.run(main)
