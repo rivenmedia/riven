@@ -41,6 +41,7 @@ from kink import di
 from loguru import logger
 import subprocess
 from typing import Dict, List, Optional, Set, TypedDict
+from http import HTTPStatus
 
 import threading
 
@@ -2199,10 +2200,10 @@ class RivenVFS(pyfuse3.Operations):
 
                 preflight_status_code = preflight_response.status_code
 
-                if preflight_status_code == 206:
+                if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
                     # Preflight passed, proceed to actual request
                     return target_url
-                elif preflight_status_code == 200:
+                elif preflight_status_code == HTTPStatus.OK:
                     if not is_max_attempt:
                         # Server refused range request. Serving this request would return the full media file,
                         # which eats downloader bandwidth usage unnecessarily. Wait and retry.
@@ -2216,7 +2217,10 @@ class RivenVFS(pyfuse3.Operations):
             except httpx.HTTPStatusError as e:
                 preflight_status_code = e.response.status_code
 
-                if preflight_status_code == 404 or preflight_status_code == 410:
+                if (
+                    preflight_status_code == HTTPStatus.NOT_FOUND
+                    or preflight_status_code == HTTPStatus.GONE
+                ):
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
                         fresh_url = await trio.to_thread.run_sync(
@@ -2294,54 +2298,52 @@ class RivenVFS(pyfuse3.Operations):
             is_max_attempt = attempt == (max_attempts - 1)
 
             try:
-                range_response = await self.async_client.get(
+                async with self.async_client.stream(
+                    "GET",
                     url=target_url,
                     headers=headers,
-                )
-                range_response.raise_for_status()
+                ) as stream:
+                    stream.raise_for_status()
 
-                content_length = range_response.headers.get("Content-Length")
+                    range_bytes = end - start + 1
+                    content_length = stream.headers.get("Content-Length")
 
-                if int(content_length or 0) > end - start + 1:
-                    log.warning(
-                        f"Overfetch detected for {path}: Content-Length={content_length}, expected max {end-start+1}"
-                    )
+                    if (
+                        stream.status_code == HTTPStatus.OK
+                        and int(content_length) > range_bytes
+                    ):
+                        # Server appears to be ignoring range request and returning full content
+                        # This shouldn't happen due to preflight, treat as error
+                        log.warning(
+                            f"Server returned full content instead of range: path={path}"
+                        )
+                        raise pyfuse3.FUSEError(errno.EIO)
 
-                content = range_response.content
-                status = range_response.status_code
-
-                if status == 206:
-                    # Successful range request - no log (reduces noise)
-                    return content
-                elif status == 200 and start == 0:
-                    # Full body returned; slice to requested range length
-                    # No log - this is acceptable for start=0
-                    return content[: (end - start + 1)]
-                elif status == 200 and start > 0:
-                    # Server doesn't support ranges but returned full content
-                    # This shouldn't happen due to preflight, treat as error
-                    log.warning(
-                        f"Server returned full content instead of range: path={path}"
-                    )
-                    raise pyfuse3.FUSEError(errno.EIO)
+                    # Pull the first chunk from the stream and exit.
+                    # This *should* prevent the server from sending the rest of the data
+                    async for chunk in stream.aiter_bytes(range_bytes):
+                        return chunk
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
-                if status_code == 403:
+                if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     log.debug(f"HTTP 403 Forbidden: path={path} attempt={attempt + 1}")
                     if attempt < max_attempts - 1:
                         await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                         continue
                     raise pyfuse3.FUSEError(errno.EACCES)
-                elif status_code == 404 or status_code == 410:
+                elif (
+                    status_code == HTTPStatus.NOT_FOUND
+                    or status_code == HTTPStatus.GONE
+                ):
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
                     raise pyfuse3.FUSEError(errno.ENOENT)
-                elif status_code == 416:
+                elif status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
                     # Requested range not satisfiable; treat as EOF
                     return b""
-                elif status_code == 429:
+                elif status_code == HTTPStatus.TOO_MANY_REQUESTS:
                     # Rate limited - back off exponentially, don't refresh URL
                     log.warning(
                         f"HTTP 429 Rate Limited: path={path} attempt={attempt + 1}"
