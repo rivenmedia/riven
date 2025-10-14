@@ -6,4 +6,3 @@ Resolves: #issue-number-here
 - [ ] Updated **documentation** for changed code.
 
 ## Description:
-

@@ -227,7 +227,7 @@ def upgrade() -> None:
         op.execute(
             """
             INSERT INTO "FilesystemEntry" (id, entry_type, path, file_size, is_directory, created_at, updated_at, available_in_vfs, media_item_id)
-            SELECT 
+            SELECT
                 id,
                 'media' as entry_type,
                 path,
@@ -245,7 +245,7 @@ def upgrade() -> None:
         op.execute(
             """
             INSERT INTO "MediaEntry" (id, original_filename, download_url, unrestricted_url, provider, provider_download_id)
-            SELECT 
+            SELECT
                 id,
                 original_filename,
                 download_url,
