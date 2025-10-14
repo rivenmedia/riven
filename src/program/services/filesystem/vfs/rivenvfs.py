@@ -2329,10 +2329,15 @@ class RivenVFS(pyfuse3.Operations):
                         )
                         raise pyfuse3.FUSEError(errno.EIO)
 
+                    data = bytearray()
+
                     # Pull the first chunk from the stream and exit.
                     # This *should* prevent the server from sending the rest of the data
                     async for chunk in stream.aiter_bytes(range_bytes):
-                        return chunk
+                        data.extend(chunk)
+
+                        if len(data) >= range_bytes:
+                            return bytes(data[:range_bytes])
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
