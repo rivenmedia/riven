@@ -19,7 +19,7 @@ uvicorn = { extras = ["standard"], version = "^0.30.6" }
 apscheduler = "^3.10.4"
 regex = "^2023.12.25"
 coverage = "^7.6.8"
-cachetools = "^5.3.3"
+cachetools = "^6.2.1"
 loguru = "^0.7.2"
 opentelemetry-api = "^1.25.0"
 opentelemetry-sdk = "^1.25.0"
