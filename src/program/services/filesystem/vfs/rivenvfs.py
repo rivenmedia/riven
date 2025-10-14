@@ -418,10 +418,10 @@ class RivenVFS(pyfuse3.Operations):
         self._url_cache: Dict[str, URLCacheItem] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
 
-        self.async_client = di[httpx.AsyncClient]
-
-        if not self.async_client:
-            raise Exception("httpx.AsyncClient not found in dependency injector")
+        try:
+            self.async_client = di[httpx.AsyncClient]
+        except KeyError:
+            raise RuntimeError("httpx.AsyncClient not found in dependency injector")
 
         # Chunking
         self.chunk_size = fs.chunk_size_mb * 1024 * 1024
