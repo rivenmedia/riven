@@ -57,7 +57,6 @@ class ProviderHTTP:
     """
 
     def __init__(self) -> None:
-        self._pool: dict[str, httpx.AsyncClient] = {}
         self._lock = threading.Lock()
         self.client = httpx.AsyncClient(
             http2=True,
@@ -1748,6 +1747,7 @@ class RivenVFS(pyfuse3.Operations):
                         resolved_path, for_http=True, force_resolve=False
                     )
                 )
+
                 if not url:
                     raise pyfuse3.FUSEError(errno.ENOENT)
                 self._url_cache[resolved_path] = {"url": url, "timestamp": now}
@@ -2187,14 +2187,6 @@ class RivenVFS(pyfuse3.Operations):
         try:
             response = await self.http.perform_range(target_url, start, end)
             return response.status_code, response.content
-        # except pycurl.error as e:
-        #     log.warning(f"pycurl error for {target_url} range {start}-{end}: {e}")
-        #     # Content-Length workaround (HTTP/1.0 + ignore length)
-        #     if e.args and e.args[0] == 8:
-        #         response = await self.http.perform_range(target_url, start, end)
-        #         log.info(f"Content-Length workaround successful for {target_url}")
-        #         return response.status_code, response.content
-        #     raise
         except Exception:
             raise
 
