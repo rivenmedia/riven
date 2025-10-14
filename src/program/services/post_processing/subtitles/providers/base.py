@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Any
 
 class SubtitleProvider(ABC):
     """Abstract base class for subtitle providers."""
-    
+
     @abstractmethod
     def search_subtitles(
         self,
@@ -19,7 +19,7 @@ class SubtitleProvider(ABC):
         search_tags: Optional[str] = None,
         season: Optional[int] = None,
         episode: Optional[int] = None,
-        language: str = "en"
+        language: str = "en",
     ) -> List[Dict[str, Any]]:
         """
         Search for subtitles.
@@ -38,15 +38,14 @@ class SubtitleProvider(ABC):
             List of subtitle results
         """
         pass
-    
+
     @abstractmethod
     def download_subtitle(self, subtitle_info: Dict[str, Any]) -> Optional[str]:
         """Download subtitle content."""
         pass
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
         """Provider name."""
         pass
-    

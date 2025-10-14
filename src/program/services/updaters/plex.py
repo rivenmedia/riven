@@ -1,4 +1,5 @@
 """Plex Updater module"""
+
 from typing import Dict, List
 
 from kink import di

@@ -17,6 +17,7 @@ from program.settings.manager import settings_manager
 
 class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
+
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
 
     @abstractmethod
@@ -29,7 +30,9 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+    def get_instant_availability(
+        self, infohash: str, item_type: str
+    ) -> Optional[TorrentContainer]:
         """
         Get instant availability for a single infohash
 
@@ -101,7 +104,9 @@ def parse_filename(filename: str) -> ParsedFileData:
     """Parse a filename into a ParsedFileData object"""
     parsed_data: ParsedData = parse(filename)
     season: int | None = parsed_data.seasons[0] if parsed_data.seasons else None
-    return ParsedFileData(item_type=parsed_data.type, season=season, episodes=parsed_data.episodes)
+    return ParsedFileData(
+        item_type=parsed_data.type, season=season, episodes=parsed_data.episodes
+    )
 
 
 def premium_days_left(expiration: datetime) -> str:
@@ -120,6 +125,7 @@ def premium_days_left(expiration: datetime) -> str:
     else:
         expiration_message = "Your account expires soon."
     return expiration_message
+
 
 class Resolution(Enum):
     UHD_2160P = 9
@@ -150,10 +156,11 @@ def get_resolution(torrent: Stream) -> Resolution:
     resolution = torrent.resolution.lower() if torrent.resolution else "unknown"
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
 
+
 def _sort_streams_by_quality(streams: List[Stream]) -> List[Stream]:
     """Sort streams by resolution (highest first) and then by rank (highest first)."""
     return sorted(
         streams,
         key=lambda stream: (get_resolution(stream).value, stream.rank),
-        reverse=True
-    )   
+        reverse=True,
+    )

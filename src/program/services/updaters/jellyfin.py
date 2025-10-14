@@ -1,4 +1,5 @@
 """Jellyfin Updater module"""
+
 from loguru import logger
 
 from program.services.updaters.base import BaseUpdater
@@ -27,7 +28,9 @@ class JellyfinUpdater(BaseUpdater):
             return False
 
         try:
-            response = self.session.get(f"{self.settings.url}/Users", params={"api_key": self.settings.api_key})
+            response = self.session.get(
+                f"{self.settings.url}/Users", params={"api_key": self.settings.api_key}
+            )
             if response.ok:
                 return True
         except Exception as e:

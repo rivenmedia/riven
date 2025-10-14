@@ -61,6 +61,7 @@ testcontainers = "^4.8.0"
 mypy = "^1.11.2"
 requests-mock = "^1.12.1"
 black = "^25.9.0"
+pre-commit = "^4.3.0"
 
 [tool.poetry.group.test]
 optional = true

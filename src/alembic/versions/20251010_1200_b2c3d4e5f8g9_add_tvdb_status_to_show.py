@@ -5,6 +5,7 @@ Revises: a1b2c3d4e5f7
 Create Date: 2025-10-10 12:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -23,7 +24,7 @@ def upgrade() -> None:
     # Check if tvdb_status column already exists before adding it
     bind = op.get_bind()
     inspector = Inspector.from_engine(bind)
-    
+
     # Add tvdb_status column to Show table
     show_columns = [col["name"] for col in inspector.get_columns("Show")]
     if "tvdb_status" not in show_columns:
@@ -34,9 +35,8 @@ def downgrade() -> None:
     # Check if tvdb_status column exists before dropping it
     bind = op.get_bind()
     inspector = Inspector.from_engine(bind)
-    
+
     # Drop tvdb_status column from Show table
     show_columns = [col["name"] for col in inspector.get_columns("Show")]
     if "tvdb_status" in show_columns:
         op.drop_column("Show", "tvdb_status")
-

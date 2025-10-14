@@ -33,6 +33,7 @@ class RequestInfo(BaseModel):
     requestedBy_username: str
     requestedBy_avatar: Optional[str]
 
+
 class IssueInfo(BaseModel):
     issue_id: str
     issue_type: str
@@ -41,11 +42,13 @@ class IssueInfo(BaseModel):
     reportedBy_username: str
     reportedBy_avatar: Optional[str]
 
+
 class CommentInfo(BaseModel):
     comment_message: str
     commentedBy_email: str
     commentedBy_username: str
     commentedBy_avatar: Optional[str]
+
 
 class OverseerrWebhook(BaseModel):
     notification_type: str

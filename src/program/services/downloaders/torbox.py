@@ -20,23 +20,25 @@ from .shared import DownloaderBase, premium_days_left
 class TorBoxError(Exception):
     """Base exception for TorBox related errors"""
 
+
 class TorBoxAPI:
     """Handles TorBox API communication"""
+
     BASE_URL = "https://api.torbox.app/v1/api"
 
     def __init__(self, api_key: str, proxy_url: Optional[str] = None):
         self.api_key = api_key
-        
+
         # Configure rate limiting for TorBox (60 calls per minute)
         rate_limits = {
             "api.torbox.app": {"rate": 1, "capacity": 60}  # 60 calls per minute
         }
-        
+
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         try:
@@ -46,6 +48,7 @@ class TorBoxAPI:
         self.session.headers.update({"User-Agent": f"Riven/{version} TorBox/1.0"})
         if proxy_url:
             self.session.proxies = {"http": proxy_url, "https": proxy_url}
+
 
 class TorBoxDownloader(DownloaderBase):
     """Main TorBox downloader class implementing DownloaderBase"""
@@ -66,7 +69,7 @@ class TorBoxDownloader(DownloaderBase):
 
         self.api = TorBoxAPI(
             api_key=self.settings.api_key,
-            proxy_url=self.PROXY_URL if self.PROXY_URL else None
+            proxy_url=self.PROXY_URL if self.PROXY_URL else None,
         )
 
         return self._validate_premium()
@@ -86,14 +89,16 @@ class TorBoxDownloader(DownloaderBase):
         if not user_info.premium_status:
             logger.error("Premium membership required")
             return False
-        
+
         logger.info(premium_days_left(user_info.premium_expires_at))
         return True
-        
+
     def select_files(self, torrent_id: str, _: List[str] = None) -> None:
         pass
 
-    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+    def get_instant_availability(
+        self, infohash: str, item_type: str
+    ) -> Optional[TorrentContainer]:
         """
         Get instant availability for a single infohash.
         """
@@ -102,7 +107,9 @@ class TorBoxDownloader(DownloaderBase):
                 f"torrents/checkcached?hash={infohash}&format=object&list_files=true",
             )
             if not resp.ok:
-                logger.debug(f"Failed to check cache for {infohash}: {self._handle_error(resp)}")
+                logger.debug(
+                    f"Failed to check cache for {infohash}: {self._handle_error(resp)}"
+                )
                 return None
 
             data = resp.data.data
@@ -117,7 +124,6 @@ class TorBoxDownloader(DownloaderBase):
                 logger.debug(f"Torrent {infohash} is not cached")
                 return None
 
-
             torrent_files = []
 
             files = getattr(response_data, "files", [])
@@ -128,7 +134,7 @@ class TorBoxDownloader(DownloaderBase):
                         filename=file.name.split("/")[-1],
                         filesize_bytes=file.size,
                         filetype=item_type,
-                        file_id=file_id
+                        file_id=file_id,
                     )
                     if isinstance(debrid_file, DebridFile):
                         torrent_files.append(debrid_file)
@@ -142,23 +148,31 @@ class TorBoxDownloader(DownloaderBase):
 
             return TorrentContainer(infohash=infohash, files=torrent_files)
         except CircuitBreakerOpen as e:
-            logger.warning(f"Circuit breaker OPEN for TorBox API, skipping {infohash}: {e}")
+            logger.warning(
+                f"Circuit breaker OPEN for TorBox API, skipping {infohash}: {e}"
+            )
             raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to get instant availability for {infohash}: {e}")
             return None
 
-    def _process_torrent(self, torrent_id: str, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+    def _process_torrent(
+        self, torrent_id: str, infohash: str, item_type: str
+    ) -> Optional[TorrentContainer]:
         """Process a single torrent and return a TorrentContainer if valid."""
         torrent_info = self.get_torrent_info(torrent_id)
         if not torrent_info:
-            logger.debug(f"No torrent info found for {torrent_id} with infohash {infohash}")
+            logger.debug(
+                f"No torrent info found for {torrent_id} with infohash {infohash}"
+            )
             return None
 
         torrent_files = []
 
         if not torrent_info.files:
-            logger.debug(f"No files found in torrent {torrent_id} with infohash {infohash}")
+            logger.debug(
+                f"No files found in torrent {torrent_id} with infohash {infohash}"
+            )
             return None
 
         if torrent_info.status:
@@ -169,7 +183,7 @@ class TorBoxDownloader(DownloaderBase):
                         filename=file_info["filename"],
                         filesize_bytes=file_info["bytes"],
                         filetype=item_type,
-                        file_id=file_id
+                        file_id=file_id,
                     )
 
                     if isinstance(debrid_file, DebridFile):
@@ -179,17 +193,23 @@ class TorBoxDownloader(DownloaderBase):
                     continue
 
             if not torrent_files:
-                logger.debug(f"No valid files found after validating files in torrent {torrent_id} with infohash {infohash}")
+                logger.debug(
+                    f"No valid files found after validating files in torrent {torrent_id} with infohash {infohash}"
+                )
                 return None
 
             return TorrentContainer(infohash=infohash, files=torrent_files)
 
         if torrent_info.status in ("downloading", "queued"):
             # TODO: add support for downloading torrents
-            logger.debug(f"Skipping torrent {torrent_id} with infohash {infohash} because it is downloading. Torrent status on TorBox: {torrent_info.status}")
+            logger.debug(
+                f"Skipping torrent {torrent_id} with infohash {infohash} because it is downloading. Torrent status on TorBox: {torrent_info.status}"
+            )
             return None
 
-        logger.debug(f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}")
+        logger.debug(
+            f"Torrent {torrent_id} with infohash {infohash} is invalid. Torrent status on Real-Debrid: {torrent_info.status}"
+        )
         return None
 
     def add_torrent(self, infohash: str) -> str:
@@ -205,13 +225,12 @@ class TorBoxDownloader(DownloaderBase):
         """
         magnet = f"magnet:?xt=urn:btih:{infohash}"
         resp: SmartResponse = self.api.session.post(
-            "torrents/createtorrent",
-            data={"magnet": magnet.lower()}
+            "torrents/createtorrent", data={"magnet": magnet.lower()}
         )
         self._maybe_backoff(resp)
         if not resp.ok:
             raise TorBoxError(self._handle_error(resp))
-        
+
         data = resp.data.data
 
         tid = getattr(data, "torrent_id", None)
@@ -229,10 +248,14 @@ class TorBoxDownloader(DownloaderBase):
             return None
 
         try:
-            resp: SmartResponse = self.api.session.get(f"torrents/mylist?id={torrent_id}")
+            resp: SmartResponse = self.api.session.get(
+                f"torrents/mylist?id={torrent_id}"
+            )
             self._maybe_backoff(resp)
             if not resp.ok:
-                logger.debug(f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}")
+                logger.debug(
+                    f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}"
+                )
                 return None
 
             data = resp.data.data
@@ -249,8 +272,9 @@ class TorBoxDownloader(DownloaderBase):
                     "filename": file.short_name,
                     "bytes": file.size,
                     "selected": True,
-                    "download_url": ""  # Will be populated by correlation, empty string instead of None
-                } for file in data.files
+                    "download_url": "",  # Will be populated by correlation, empty string instead of None
+                }
+                for file in data.files
             }
             return TorrentInfo(
                 id=data.id,
@@ -265,7 +289,9 @@ class TorBoxDownloader(DownloaderBase):
                 files=files,
             )
         except CircuitBreakerOpen as e:
-            logger.warning(f"Circuit breaker OPEN for TorBox API, cannot get torrent info for {torrent_id}: {e}")
+            logger.warning(
+                f"Circuit breaker OPEN for TorBox API, cannot get torrent info for {torrent_id}: {e}"
+            )
             raise  # Re-raise to be handled by the calling service
         except Exception as e:
             logger.error(f"Failed to get torrent info for {torrent_id}: {e}")
@@ -278,14 +304,20 @@ class TorBoxDownloader(DownloaderBase):
                 f"torrents/requestdl?token={self.api.api_key}&torrent_id={torrent_id}&file_id={file_id}&zip_link=false"
             )
             if not resp.ok:
-                logger.debug(f"Failed to get download URL for torrent {torrent_id}, file {file_id}: {self._handle_error(resp)}")
+                logger.debug(
+                    f"Failed to get download URL for torrent {torrent_id}, file {file_id}: {self._handle_error(resp)}"
+                )
                 return None
             return getattr(resp.data, "data", None)
         except CircuitBreakerOpen as e:
-            logger.warning(f"Circuit breaker OPEN for TorBox API, cannot get download URL for {torrent_id}/{file_id}: {e}")
+            logger.warning(
+                f"Circuit breaker OPEN for TorBox API, cannot get download URL for {torrent_id}/{file_id}: {e}"
+            )
             return None
         except Exception as e:
-            logger.error(f"Failed to get download URL for torrent {torrent_id}, file {file_id}: {e}")
+            logger.error(
+                f"Failed to get download URL for torrent {torrent_id}, file {file_id}: {e}"
+            )
             return None
 
     def delete_torrent(self, torrent_id: str) -> None:
@@ -296,10 +328,13 @@ class TorBoxDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             TorBoxError: If the API returns a failing status.
         """
-        resp: SmartResponse = self.api.session.post("torrents/controltorrent", data={
-            "id": torrent_id,
-            "operation": "delete",
-        })
+        resp: SmartResponse = self.api.session.post(
+            "torrents/controltorrent",
+            data={
+                "id": torrent_id,
+                "operation": "delete",
+            },
+        )
         self._maybe_backoff(resp)
         if not resp.ok:
             raise TorBoxError(self._handle_error(resp))
@@ -334,9 +369,9 @@ class TorBoxDownloader(DownloaderBase):
 
     def resolve_link(self, link: str) -> Optional[Dict]:
         return {
-            'download_url': link,
-            'name': 'file',
-            'size': 0,
+            "download_url": link,
+            "name": "file",
+            "size": 0,
         }
 
     def get_user_info(self) -> Optional[UserInfo]:
@@ -357,9 +392,11 @@ class TorBoxDownloader(DownloaderBase):
             # Parse expiration datetime
             expiration = None
             premium_days = None
-            if hasattr(data, 'premium_expires_at') and data.premium_expires_at:
+            if hasattr(data, "premium_expires_at") and data.premium_expires_at:
                 try:
-                    expiration = datetime.strptime(data.premium_expires_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+                    expiration = datetime.strptime(
+                        data.premium_expires_at, "%Y-%m-%dT%H:%M:%SZ"
+                    ).replace(tzinfo=None)
                     time_left = expiration - datetime.utcnow()
                     premium_days = time_left.days
                 except Exception as e:
@@ -367,21 +404,23 @@ class TorBoxDownloader(DownloaderBase):
 
             # Parse cooldown datetime
             cooldown = None
-            if hasattr(data, 'cooldown_until') and data.cooldown_until:
+            if hasattr(data, "cooldown_until") and data.cooldown_until:
                 try:
-                    cooldown = datetime.strptime(data.cooldown_until, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=None)
+                    cooldown = datetime.strptime(
+                        data.cooldown_until, "%Y-%m-%dT%H:%M:%SZ"
+                    ).replace(tzinfo=None)
                 except Exception as e:
                     logger.debug(f"Failed to parse cooldown date: {e}")
 
             return UserInfo(
                 service="torbox",
                 username=None,  # TorBox doesn't provide username
-                email=getattr(data, 'email', None),
+                email=getattr(data, "email", None),
                 user_id=data.id,
-                premium_status="premium" if getattr(data, 'plan', 0) > 0 else "free",
+                premium_status="premium" if getattr(data, "plan", 0) > 0 else "free",
                 premium_expires_at=expiration.replace(tzinfo=None),
                 premium_days_left=premium_days,
-                total_downloaded_bytes=getattr(data, 'total_bytes_downloaded', None),
+                total_downloaded_bytes=getattr(data, "total_bytes_downloaded", None),
                 cooldown_until=cooldown,
             )
         except CircuitBreakerOpen as e:

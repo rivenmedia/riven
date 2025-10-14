@@ -20,35 +20,48 @@ def bootstrap_apis():
     __setup_tmdb()
     __setup_tvdb()
 
+
 def __setup_trakt():
     traktApi = TraktAPI(settings_manager.settings.content.trakt)
     di[TraktAPI] = traktApi
+
 
 def __setup_tmdb():
     tmdbApi = TMDBApi()
     di[TMDBApi] = tmdbApi
 
+
 def __setup_tvdb():
     tvdbApi = TVDBApi()
     di[TVDBApi] = tvdbApi
 
+
 def __setup_plex():
     if not settings_manager.settings.updaters.plex.enabled:
         return
-    plexApi = PlexAPI(settings_manager.settings.updaters.plex.token, settings_manager.settings.updaters.plex.url)
+    plexApi = PlexAPI(
+        settings_manager.settings.updaters.plex.token,
+        settings_manager.settings.updaters.plex.url,
+    )
     di[PlexAPI] = plexApi
+
 
 def __setup_overseerr():
     if not settings_manager.settings.content.overseerr.enabled:
         return
-    overseerrApi = OverseerrAPI(settings_manager.settings.content.overseerr.api_key, settings_manager.settings.content.overseerr.url)
+    overseerrApi = OverseerrAPI(
+        settings_manager.settings.content.overseerr.api_key,
+        settings_manager.settings.content.overseerr.url,
+    )
     di[OverseerrAPI] = overseerrApi
+
 
 def __setup_mdblist():
     if not settings_manager.settings.content.mdblist.enabled:
         return
     mdblistApi = MdblistAPI(settings_manager.settings.content.mdblist.api_key)
     di[MdblistAPI] = mdblistApi
+
 
 def __setup_listrr():
     if not settings_manager.settings.content.listrr.enabled:

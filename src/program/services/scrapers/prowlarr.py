@@ -1,4 +1,4 @@
-""" Prowlarr scraper module """
+"""Prowlarr scraper module"""
 
 import concurrent.futures
 import time
@@ -21,15 +21,18 @@ class SearchParams(BaseModel):
     movie: list[str]
     tv: list[str]
 
+
 class Category(BaseModel):
     name: str
     type: str
     ids: list[int]
 
+
 class Capabilities(BaseModel):
     supports_raw_search: bool
     categories: list[Category]
     search_params: SearchParams
+
 
 class Indexer(BaseModel):
     id: int
@@ -37,6 +40,7 @@ class Indexer(BaseModel):
     enable: bool
     protocol: str
     capabilities: Capabilities
+
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
 INFOHASH_PATTERN = regex.compile(r"btih:([A-Fa-f0-9]{40})")
@@ -64,7 +68,7 @@ class Prowlarr(ScraperService):
         return SmartSession(
             base_url=f"{self.settings.url.rstrip('/')}/api/v1",
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
 
     def validate(self) -> bool:
@@ -87,7 +91,9 @@ class Prowlarr(ScraperService):
                     return False
                 return True
             except ReadTimeout:
-                logger.error("Prowlarr request timed out. Check your indexers, they may be too slow to respond.")
+                logger.error(
+                    "Prowlarr request timed out. Check your indexers, they may be too slow to respond."
+                )
                 return False
             except Exception as e:
                 logger.error(f"Prowlarr failed to initialize with API Key: {e}")
@@ -106,8 +112,12 @@ class Prowlarr(ScraperService):
             if statuses:
                 status = next((x for x in statuses if x.indexerId == id), None)
                 if status and status.disabledTill > datetime.now().isoformat():
-                    disabled_until = datetime.fromisoformat(status.disabledTill).strftime("%Y-%m-%d %H:%M")
-                    logger.debug(f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping")
+                    disabled_until = datetime.fromisoformat(
+                        status.disabledTill
+                    ).strftime("%Y-%m-%d %H:%M")
+                    logger.debug(
+                        f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping"
+                    )
                     continue
 
             name = indexer_data.name
@@ -143,28 +153,32 @@ class Prowlarr(ScraperService):
                         caps.append(Category(name="Anime", type="anime", ids=[cap.id]))
 
             if not caps:
-                logger.warning(f"No valid capabilities found for indexer {name}. Consider removing this indexer.")
+                logger.warning(
+                    f"No valid capabilities found for indexer {name}. Consider removing this indexer."
+                )
                 continue
 
             search_params = SearchParams(
                 search=list(set(indexer_data.capabilities.searchParams)),
                 movie=list(set(indexer_data.capabilities.movieSearchParams)),
-                tv=list(set(indexer_data.capabilities.tvSearchParams))
+                tv=list(set(indexer_data.capabilities.tvSearchParams)),
             )
 
             capabilities = Capabilities(
                 supports_raw_search=indexer_data.capabilities.supportsRawSearch,
                 categories=caps,
-                search_params=search_params
+                search_params=search_params,
             )
 
-            indexers.append(Indexer(
-                id=id,
-                name=name,
-                enable=enable,
-                protocol=protocol,
-                capabilities=capabilities
-            ))
+            indexers.append(
+                Indexer(
+                    id=id,
+                    name=name,
+                    enable=enable,
+                    protocol=protocol,
+                    capabilities=capabilities,
+                )
+            )
 
         self.last_indexer_scan = datetime.now()
         return indexers
@@ -172,13 +186,20 @@ class Prowlarr(ScraperService):
     def _periodic_indexer_scan(self):
         """scan indexers every 30 minutes"""
         previous_count = len(self.indexers)
-        if self.last_indexer_scan is None or (datetime.now() - self.last_indexer_scan).total_seconds() > 1800:
+        if (
+            self.last_indexer_scan is None
+            or (datetime.now() - self.last_indexer_scan).total_seconds() > 1800
+        ):
             self.indexers = self.get_indexers()
             self.last_indexer_scan = datetime.now()
             if len(self.indexers) != previous_count:
-                logger.info(f"Indexers count changed from {previous_count} to {len(self.indexers)}")
+                logger.info(
+                    f"Indexers count changed from {previous_count} to {len(self.indexers)}"
+                )
                 next_scan_time = self.last_indexer_scan + timedelta(seconds=1800)
-                logger.info(f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}")
+                logger.info(
+                    f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}"
+                )
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Prowlarr site for the given media items
@@ -204,7 +225,9 @@ class Prowlarr(ScraperService):
         torrents = {}
         start_time = time.time()
 
-        with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="ProwlarrScraper", max_workers=len(self.indexers)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            thread_name_prefix="ProwlarrScraper", max_workers=len(self.indexers)
+        ) as executor:
             future_to_indexer = {
                 executor.submit(self.scrape_indexer, indexer, item): indexer
                 for indexer in self.indexers
@@ -222,7 +245,9 @@ class Prowlarr(ScraperService):
 
         elapsed = time.time() - start_time
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
             logger.debug(f"Total time taken: {elapsed:.2f} seconds")
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
@@ -232,7 +257,11 @@ class Prowlarr(ScraperService):
     def build_search_params(self, indexer: Indexer, item: MediaItem) -> dict:
         """Build a search query for a single indexer."""
         params = {}
-        item_title = item.get_top_title() if item.type in ("show", "season", "episode") else item.title
+        item_title = (
+            item.get_top_title()
+            if item.type in ("show", "season", "episode")
+            else item.title
+        )
         search_params = indexer.capabilities.search_params
 
         def set_query_and_type(query, search_type):
@@ -247,7 +276,9 @@ class Prowlarr(ScraperService):
             elif "q" in search_params.search:
                 set_query_and_type(item_title, "search")
             else:
-                raise ValueError(f"Indexer {indexer.name} does not support movie search")
+                raise ValueError(
+                    f"Indexer {indexer.name} does not support movie search"
+                )
 
         elif item.type == "show":
             if "imdbId" in search_params.tv:
@@ -268,7 +299,9 @@ class Prowlarr(ScraperService):
                 query = f"{item_title} S{item.number}"
                 set_query_and_type(query, "search")
             else:
-                raise ValueError(f"Indexer {indexer.name} does not support season search")
+                raise ValueError(
+                    f"Indexer {indexer.name} does not support season search"
+                )
 
         elif item.type == "episode":
             if "q" in search_params.tv:
@@ -283,11 +316,17 @@ class Prowlarr(ScraperService):
                 query = f"{item.log_string}"
                 set_query_and_type(query, "search")
             else:
-                raise ValueError(f"Indexer {indexer.name} does not support episode search")
+                raise ValueError(
+                    f"Indexer {indexer.name} does not support episode search"
+                )
 
-        categories = {cat_id for category in indexer.capabilities.categories
-                      if category.type == item.type or (category.type == "anime" and item.is_anime)
-                      for cat_id in category.ids}
+        categories = {
+            cat_id
+            for category in indexer.capabilities.categories
+            if category.type == item.type
+            or (category.type == "anime" and item.is_anime)
+            for cat_id in category.ids
+        }
 
         params["indexerIds"] = indexer.id
         params["categories"] = list(categories)
@@ -308,12 +347,18 @@ class Prowlarr(ScraperService):
             return {}
 
         start_time = time.time()
-        response = self.session.get("/search", params=params, timeout=self.timeout, headers=self.headers)
+        response = self.session.get(
+            "/search", params=params, timeout=self.timeout, headers=self.headers
+        )
         if not response.ok:
             message = response.data.message or "Unknown error"
-            logger.debug(f"Failed to scrape {indexer.name}: [{response.status_code}] {message}")
+            logger.debug(
+                f"Failed to scrape {indexer.name}: [{response.status_code}] {message}"
+            )
             self.indexers.remove(indexer)
-            logger.debug(f"Removed indexer {indexer.name} from the list of usable indexers")
+            logger.debug(
+                f"Removed indexer {indexer.name} from the list of usable indexers"
+            )
             return {}
 
         data = response.data
@@ -345,5 +390,7 @@ class Prowlarr(ScraperService):
 
             streams[infohash.lower()] = title
 
-        logger.debug(f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds")
+        logger.debug(
+            f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
+        )
         return streams

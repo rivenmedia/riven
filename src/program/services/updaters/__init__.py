@@ -1,4 +1,5 @@
 """Updater module"""
+
 import os
 from typing import Generator
 
@@ -31,7 +32,9 @@ class Updater:
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
-        initialized_services = [service for service in self.services.values() if service.initialized]
+        initialized_services = [
+            service for service in self.services.values() if service.initialized
+        ]
         return len(initialized_services) > 0
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
@@ -75,7 +78,9 @@ class Updater:
             _item.updated = True
             logger.debug(f"Updated {_item.log_string}")
 
-        logger.info(f"Updated {item.log_string} ({len(refreshed_paths)} unique paths refreshed)")
+        logger.info(
+            f"Updated {item.log_string} ({len(refreshed_paths)} unique paths refreshed)"
+        )
         yield item
 
     def refresh_path(self, path: str) -> bool:
@@ -102,20 +107,18 @@ class Updater:
                     logger.error(f"Failed to refresh path {path}: {e}")
 
         return success
-    
+
     def get_items_to_update(self, item: MediaItem) -> list[MediaItem]:
         """Get the list of files to update for the given item."""
         if item.type in ["movie", "episode"]:
             return [item]
         if item.type == "show":
             return [
-                e for season in item.seasons
+                e
+                for season in item.seasons
                 for e in season.episodes
                 if e.available_in_vfs
             ]
         if item.type == "season":
-            return [
-                e for e in item.episodes
-                if e.available_in_vfs
-            ]
+            return [e for e in item.episodes if e.available_in_vfs]
         return []

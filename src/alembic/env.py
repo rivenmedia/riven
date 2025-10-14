@@ -12,7 +12,10 @@ from program.settings.manager import settings_manager
 # Loguru handler for alembic logs
 class LoguruHandler(logging.Handler):
     def emit(self, record):
-        logger.opt(depth=1, exception=record.exc_info).log("DATABASE", record.getMessage())
+        logger.opt(depth=1, exception=record.exc_info).log(
+            "DATABASE", record.getMessage()
+        )
+
 
 # TODO: Will come back to this later...
 # if settings_manager.settings.debug_database:
@@ -33,17 +36,22 @@ config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.
 # Set MetaData object for autogenerate support
 target_metadata = db.Model.metadata
 
+
 def reset_database(connection) -> bool:
     """Reset database if needed"""
     try:
         # Drop and recreate schema
         if db.engine.name == "postgresql":
-            connection.execute(text("""
+            connection.execute(
+                text(
+                    """
                 SELECT pg_terminate_backend(pid)
                 FROM pg_stat_activity
                 WHERE datname = current_database()
                 AND pid <> pg_backend_pid()
-            """))
+            """
+                )
+            )
             connection.execute(text("DROP SCHEMA public CASCADE"))
             connection.execute(text("CREATE SCHEMA public"))
             connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
@@ -53,6 +61,7 @@ def reset_database(connection) -> bool:
     except Exception as e:
         logger.error(f"Database reset failed: {e}")
         return False
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
@@ -66,6 +75,7 @@ def run_migrations_offline() -> None:
 
     with context.begin_transaction():
         context.run_migrations()
+
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
@@ -118,6 +128,7 @@ def run_migrations_online() -> None:
         except Exception as e:
             logger.error(f"Unexpected error during migration: {e}")
             raise
+
 
 if context.is_offline_mode():
     run_migrations_offline()

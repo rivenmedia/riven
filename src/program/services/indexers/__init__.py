@@ -15,13 +15,16 @@ from program.services.indexers.tvdb_indexer import TVDBIndexer
 
 class IndexerService(BaseIndexer):
     """Entry point to indexing. Composite indexer that delegates to appropriate service based on media type."""
+
     def __init__(self):
         super().__init__()
         self.key = "indexerservice"
         self.tmdb_indexer = TMDBIndexer()
         self.tvdb_indexer = TVDBIndexer()
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Union[Movie, Show], None, None]:
+    def run(
+        self, in_item: MediaItem, log_msg: bool = True
+    ) -> Generator[Union[Movie, Show], None, None]:
         """Run the appropriate indexer based on item type."""
         if not in_item:
             logger.error("Item is None")
@@ -31,7 +34,9 @@ class IndexerService(BaseIndexer):
 
         if item_type == "movie" or (in_item.tmdb_id and not in_item.tvdb_id):
             yield from self.tmdb_indexer.run(in_item, log_msg)
-        elif item_type in ["show", "season", "episode"] or (in_item.tvdb_id and not in_item.tmdb_id):
+        elif item_type in ["show", "season", "episode"] or (
+            in_item.tvdb_id and not in_item.tmdb_id
+        ):
             yield from self.tvdb_indexer.run(in_item, log_msg)
 
         elif item_type == "mediaitem":
@@ -49,7 +54,9 @@ class IndexerService(BaseIndexer):
                 yield item
                 return
 
-        logger.warning(f"Unknown item type, cannot index {in_item.log_string}.. skipping")
+        logger.warning(
+            f"Unknown item type, cannot index {in_item.log_string}.. skipping"
+        )
         return
 
     def reindex_ongoing(self) -> int:
@@ -58,16 +65,28 @@ class IndexerService(BaseIndexer):
         try:
             with db.Session() as session:
                 # Gather two sets: (1) ongoing/unreleased movies & shows, (2) shows missing tvdb_status
-                items_state = session.execute(
-                    select(MediaItem)
-                    .where(MediaItem.type.in_(["movie", "show"]))
-                    .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-                ).unique().scalars().all()
+                items_state = (
+                    session.execute(
+                        select(MediaItem)
+                        .where(MediaItem.type.in_(["movie", "show"]))
+                        .where(
+                            MediaItem.last_state.in_(
+                                [States.Ongoing, States.Unreleased]
+                            )
+                        )
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
 
                 # For now to populate missing fields for existing shows, this can be removed later on.
-                shows_missing_status = session.execute(
-                    select(Show).where(Show.tvdb_status.is_(None))
-                ).unique().scalars().all()
+                shows_missing_status = (
+                    session.execute(select(Show).where(Show.tvdb_status.is_(None)))
+                    .unique()
+                    .scalars()
+                    .all()
+                )
 
                 # Combine and deduplicate by id
                 items_map = {i.id: i for i in items_state}
@@ -95,7 +114,9 @@ class IndexerService(BaseIndexer):
                 try:
                     session.commit()
                 except Exception as e:
-                    logger.debug(f"Commit failed during reindex (likely item was deleted): {e}")
+                    logger.debug(
+                        f"Commit failed during reindex (likely item was deleted): {e}"
+                    )
                     session.rollback()
 
                 return count

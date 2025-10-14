@@ -22,7 +22,9 @@ class SettingsManager:
             logger.info(f"Settings filename: {self.filename}")
             self.settings = AppModel()
             self.settings = AppModel.model_validate(
-                self.check_environment(json.loads(self.settings.model_dump_json()), "RIVEN")
+                self.check_environment(
+                    json.loads(self.settings.model_dump_json()), "RIVEN"
+                )
             )
             self.notify_observers()
         else:
@@ -39,14 +41,18 @@ class SettingsManager:
         checked_settings = {}
         for key, value in settings.items():
             if isinstance(value, dict):
-                sub_checked_settings = self.check_environment(value, f"{prefix}{seperator}{key}")
-                checked_settings[key] = (sub_checked_settings)
+                sub_checked_settings = self.check_environment(
+                    value, f"{prefix}{seperator}{key}"
+                )
+                checked_settings[key] = sub_checked_settings
             else:
                 environment_variable = f"{prefix}_{key}".upper()
                 if os.getenv(environment_variable, None):
                     new_value = os.getenv(environment_variable)
                     if isinstance(value, bool):
-                        checked_settings[key] = new_value.lower() == "true" or new_value == "1"
+                        checked_settings[key] = (
+                            new_value.lower() == "true" or new_value == "1"
+                        )
                     elif isinstance(value, int):
                         checked_settings[key] = int(new_value)
                     elif isinstance(value, float):
@@ -77,7 +83,9 @@ class SettingsManager:
             logger.error(f"Error parsing settings file: {e}")
             raise
         except FileNotFoundError:
-            logger.warning(f"Error loading settings: {self.settings_file} does not exist")
+            logger.warning(
+                f"Error loading settings: {self.settings_file} does not exist"
+            )
             raise
         self.notify_observers()
 

@@ -53,16 +53,17 @@ class Overseerr:
         overseerr_items: list[MediaItem] = self.api.get_media_requests(self.key)
 
         if self.settings.use_webhook:
-            logger.info("Webhook is enabled. Running Overseerr once before switching to webhook only mode")
+            logger.info(
+                "Webhook is enabled. Running Overseerr once before switching to webhook only mode"
+            )
             self.run_once = True
 
         if overseerr_items:
             overseerr_items = [
-                item for item in overseerr_items
-                if not item_exists_by_any_id(
-                    tvdb_id=item.tvdb_id,
-                    tmdb_id=item.tmdb_id
-                )]
+                item
+                for item in overseerr_items
+                if not item_exists_by_any_id(tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id)
+            ]
 
         logger.info(f"Fetched {len(overseerr_items)} items from overseerr")
 

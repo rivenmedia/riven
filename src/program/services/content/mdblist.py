@@ -13,6 +13,7 @@ from program.settings.manager import settings_manager
 
 class Mdblist:
     """Content class for mdblist"""
+
     def __init__(self):
         self.key = "mdblist"
         self.settings = settings_manager.settings.content.mdblist
@@ -51,23 +52,35 @@ class Mdblist:
                     items = self.api.list_items_by_id(list_id)
                 else:
                     items = self.api.list_items_by_url(list_id)
-                    
+
                 for item in items:
                     if hasattr(item, "error"):
                         logger.error(f"Mdblist error: {item.error}")
                         continue
 
-                    if item.mediatype == "movie" and not item_exists_by_any_id(imdb_id=item.imdb_id, tmdb_id=str(item.id)):
-                        items_to_yield.append(MediaItem({
-                            "tmdb_id": item.id,
-                            "requested_by": self.key,
-                        }))
+                    if item.mediatype == "movie" and not item_exists_by_any_id(
+                        imdb_id=item.imdb_id, tmdb_id=str(item.id)
+                    ):
+                        items_to_yield.append(
+                            MediaItem(
+                                {
+                                    "tmdb_id": item.id,
+                                    "requested_by": self.key,
+                                }
+                            )
+                        )
 
-                    elif item.mediatype == "show" and not item_exists_by_any_id(imdb_id=item.imdb_id, tvdb_id=str(item.tvdbid)):
-                        items_to_yield.append(MediaItem({
-                            "tvdb_id": item.tvdbid,
-                            "requested_by": self.key,
-                        }))
+                    elif item.mediatype == "show" and not item_exists_by_any_id(
+                        imdb_id=item.imdb_id, tvdb_id=str(item.tvdbid)
+                    ):
+                        items_to_yield.append(
+                            MediaItem(
+                                {
+                                    "tvdb_id": item.tvdbid,
+                                    "requested_by": self.key,
+                                }
+                            )
+                        )
 
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):

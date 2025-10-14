@@ -15,6 +15,7 @@ from program.services.filesystem import FilesystemService
 def movie():
     return Movie({"imdb_id": "tt1375666", "requested_by": "Iceberg"})
 
+
 @pytest.fixture
 def show():
     show = Show({"imdb_id": "tt0903747", "requested_by": "Iceberg"})
@@ -24,9 +25,11 @@ def show():
     show.add_season(season)
     return show
 
+
 @pytest.fixture
 def media_item_movie():
     return MediaItem({"imdb_id": "tt1375666", "requested_by": "Iceberg"})
+
 
 @pytest.fixture
 def media_item_show():
@@ -37,13 +40,16 @@ def media_item_show():
     show.add_season(season)
     return show
 
+
 @pytest.fixture
 def season(show):
     return show.seasons[0]
 
+
 @pytest.fixture
 def episode(season):
     return season.episodes[0]
+
 
 def test_initial_state(movie, show, season, episode):
     """Test that items start in the Unknown state."""
@@ -52,13 +58,14 @@ def test_initial_state(movie, show, season, episode):
     # Then: The item's state should be Unknown
 
     # As long as we initialize Movies with an imdb_id and requested_by,
-    # it should end up as Requested. 
+    # it should end up as Requested.
     assert movie.state == States.Requested, "Movie should start in Requested state"
-    
+
     # Show, Season and Episode are Unknown until they are added to a Show.
     assert show.state == States.Unknown, "Show should start in Unknown state"
     assert season.state == States.Unknown, "Season should start in Unknown state"
     assert episode.state == States.Unknown, "Episode should start in Unknown state"
+
 
 def test_requested_state(movie):
     """Test transition to the Requested state."""
@@ -68,6 +75,7 @@ def test_requested_state(movie):
     # Then: The item's state should be Requested
     assert movie.state == States.Requested, "Movie should transition to Requested state"
 
+
 def test_indexed_state(movie):
     """Test transition to the Indexed state."""
     # Given: A media item (movie)
@@ -75,6 +83,7 @@ def test_indexed_state(movie):
     # When: The item has a title set
     # Then: The item's state should be Indexed
     assert movie.state == States.Indexed, "Movie should transition to Indexed state"
+
 
 def test_scraped_state(episode):
     """Test transition to the Scraped state."""
@@ -84,6 +93,7 @@ def test_scraped_state(episode):
     # Then: The item's state should be Scraped
     assert episode.state == States.Scraped, "Episode should transition to Scraped state"
 
+
 def test_downloaded_state(episode):
     """Test transition to the Downloaded state."""
     # Given: A media item (episode)
@@ -91,7 +101,9 @@ def test_downloaded_state(episode):
     episode.set("folder", "/path/to/folder")
     # When: The item has file and folder set
     # Then: The item's state should be Downloaded
-    assert episode.state == States.Downloaded, "Episode should transition to Downloaded state"
+    assert (
+        episode.state == States.Downloaded
+    ), "Episode should transition to Downloaded state"
 
 
 def test_completed_state(movie):
@@ -102,6 +114,7 @@ def test_completed_state(movie):
     # Then: The item's state should be Completed
     assert movie.state == States.Completed, "Movie should transition to Completed state"
 
+
 def test_show_state_transitions(show):
     """Test full state transitions of a show."""
     # Given: A media item (show)
@@ -111,39 +124,50 @@ def test_show_state_transitions(show):
     # Then: The show's state should transition based on its episodes and seasons
     assert show.state == States.Completed, "Show should transition to Completed state"
 
-@pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, IndexerService),
-    # (States.Requested, IndexerService, IndexerService),
-    (States.Indexed, IndexerService, Scraping),
-    (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, FilesystemService),
-    (States.Symlinked, FilesystemService, PlexUpdater),
-    (States.Completed, PlexUpdater, None)
-])
+
+@pytest.mark.parametrize(
+    "state, service, next_service",
+    [
+        (States.Unknown, Program, IndexerService),
+        # (States.Requested, IndexerService, IndexerService),
+        (States.Indexed, IndexerService, Scraping),
+        (States.Scraped, Scraping, RealDebridDownloader),
+        (States.Downloaded, RealDebridDownloader, FilesystemService),
+        (States.Symlinked, FilesystemService, PlexUpdater),
+        (States.Completed, PlexUpdater, None),
+    ],
+)
 def test_process_event_transitions_movie(state, service, next_service, movie):
     """Test processing events for state transitions."""
     # Given: A media item (movie) and a service
     movie._determine_state = lambda: state  # Manually override the state
 
     # When: The event is processed
-    updated_item, next_service_result, items_to_submit = process_event(None, service, movie)
+    updated_item, next_service_result, items_to_submit = process_event(
+        None, service, movie
+    )
 
     # Then: The next service should be as expected based on the current service
     if next_service is None:
         assert next_service_result is None, f"Next service should be None for {service}"
     else:
-        assert next_service_result == next_service, f"Next service should be {next_service} for {service}"
+        assert (
+            next_service_result == next_service
+        ), f"Next service should be {next_service} for {service}"
 
 
-@pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, IndexerService),
-    # (States.Requested, IndexerService, IndexerService),
-    (States.Indexed, IndexerService, Scraping),
-    (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, FilesystemService),
-    (States.Symlinked, FilesystemService, PlexUpdater),
-    (States.Completed, PlexUpdater, None)
-])
+@pytest.mark.parametrize(
+    "state, service, next_service",
+    [
+        (States.Unknown, Program, IndexerService),
+        # (States.Requested, IndexerService, IndexerService),
+        (States.Indexed, IndexerService, Scraping),
+        (States.Scraped, Scraping, RealDebridDownloader),
+        (States.Downloaded, RealDebridDownloader, FilesystemService),
+        (States.Symlinked, FilesystemService, PlexUpdater),
+        (States.Completed, PlexUpdater, None),
+    ],
+)
 def test_process_event_transition_shows(state, service, next_service, show):
     """Test processing events for state transitions with shows."""
     # Given: A media item (show) and a service
@@ -157,37 +181,52 @@ def test_process_event_transition_shows(state, service, next_service, show):
             season.episodes = []
 
     # When: The event is processed
-    updated_item, next_service_result, items_to_submit = process_event(None, service, show)
+    updated_item, next_service_result, items_to_submit = process_event(
+        None, service, show
+    )
 
     # Then: The next service should be as expected based on the current service
     if next_service is None:
         assert next_service_result is None, f"Next service should be None for {service}"
     else:
-        assert next_service_result == next_service, f"Next service should be {next_service} for {service}"
+        assert (
+            next_service_result == next_service
+        ), f"Next service should be {next_service} for {service}"
+
 
 # test media item movie
-@pytest.mark.parametrize("state, service, next_service", [
-    (States.Unknown, Program, IndexerService),
-    # (States.Requested, IndexerService, IndexerService),
-    (States.Indexed, IndexerService, Scraping),
-    (States.Scraped, Scraping, RealDebridDownloader),
-    (States.Downloaded, RealDebridDownloader, FilesystemService),
-    (States.Symlinked, FilesystemService, PlexUpdater),
-    (States.Completed, PlexUpdater, None)
-])
-def test_process_event_transitions_media_item_movie(state, service, next_service, media_item_movie):
+@pytest.mark.parametrize(
+    "state, service, next_service",
+    [
+        (States.Unknown, Program, IndexerService),
+        # (States.Requested, IndexerService, IndexerService),
+        (States.Indexed, IndexerService, Scraping),
+        (States.Scraped, Scraping, RealDebridDownloader),
+        (States.Downloaded, RealDebridDownloader, FilesystemService),
+        (States.Symlinked, FilesystemService, PlexUpdater),
+        (States.Completed, PlexUpdater, None),
+    ],
+)
+def test_process_event_transitions_media_item_movie(
+    state, service, next_service, media_item_movie
+):
     """Test processing events for state transitions."""
     # Given: A media item (movie) and a service
     media_item_movie._determine_state = lambda: state
 
     # When: The event is processed
-    updated_item, next_service_result, items_to_submit = process_event(None, service, media_item_movie)
+    updated_item, next_service_result, items_to_submit = process_event(
+        None, service, media_item_movie
+    )
 
     # Then: The next service should be as expected based on the current service
     if next_service is None:
         assert next_service_result is None, f"Next service should be None for {service}"
     else:
-        assert next_service_result == next_service, f"Next service should be {next_service} for {service}"
+        assert (
+            next_service_result == next_service
+        ), f"Next service should be {next_service} for {service}"
+
 
 # test media item show
 # @pytest.mark.parametrize("state, service, next_service", [

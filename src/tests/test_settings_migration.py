@@ -24,13 +24,13 @@ old_settings_data = {
             "enabled": False,
             "api_key": "",
             "proxy_enabled": False,
-            "proxy_url": ""
+            "proxy_url": "",
         },
         "all_debrid": {
             "enabled": True,
             "api_key": "12345678",
             "proxy_enabled": False,
-            "proxy_url": "https://no_proxy.com"
+            "proxy_url": "https://no_proxy.com",
         },
     },
 }
@@ -45,6 +45,7 @@ def test_load_and_migrate_settings():
         version_file.write_text("9.9.9")
 
         import program.settings.models
+
         program.settings.manager.data_dir_path = DATA_PATH
         program.settings.models.version_file_path = version_file
         settings_manager = SettingsManager()
@@ -58,8 +59,14 @@ def test_load_and_migrate_settings():
         assert settings_manager.settings.downloaders.real_debrid.enabled is False
         assert settings_manager.settings.downloaders.all_debrid.enabled is True
         assert settings_manager.settings.downloaders.all_debrid.api_key == "12345678"
-        assert settings_manager.settings.downloaders.all_debrid.proxy_url == "https://no_proxy.com"
-        assert settings_manager.settings.database.host == "postgresql+psycopg2://postgres:postgres@localhost/riven"
+        assert (
+            settings_manager.settings.downloaders.all_debrid.proxy_url
+            == "https://no_proxy.com"
+        )
+        assert (
+            settings_manager.settings.database.host
+            == "postgresql+psycopg2://postgres:postgres@localhost/riven"
+        )
         assert settings_manager.settings.version == TEST_VERSION
     finally:
         temp_settings_file.unlink()

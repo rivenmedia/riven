@@ -1,9 +1,11 @@
 ﻿"""Listrr API"""
+
 from program.utils.request import SmartSession
 
 
 class ListrrAPIError(Exception):
     """Base exception for ListrrAPI related errors"""
+
 
 class ListrrAPI:
     """Handles Listrr API communication"""
@@ -17,14 +19,16 @@ class ListrrAPI:
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
         self.session.headers.update(self.headers)
 
     def validate(self):
         return self.session.get("/List/My")
 
-    def get_items_from_Listrr(self, content_type, content_lists) -> list[tuple[str, str]]:  # noqa: C901, PLR0912
+    def get_items_from_Listrr(
+        self, content_type, content_lists
+    ) -> list[tuple[str, str]]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
         unique_ids: set[str] = set()
         if not content_lists:
