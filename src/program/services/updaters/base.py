@@ -1,4 +1,5 @@
 """Base Updater class for media server updaters"""
+
 from abc import ABC, abstractmethod
 
 from loguru import logger
@@ -55,4 +56,3 @@ class BaseUpdater(ABC):
             bool: True if refresh was triggered successfully, False otherwise
         """
         pass
-

@@ -27,6 +27,7 @@ class EventManager:
     """
     Manages the execution of services and the handling of events.
     """
+
     def __init__(self):
         self._executors: list[ThreadPoolExecutor] = []
         self._futures: list[Future] = []
@@ -50,7 +51,7 @@ class EventManager:
                 logger.debug(f"Executor for {service_name} found.")
                 return executor["_executor"]
         _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=1)
-        self._executors.append({ "_name_prefix": service_name, "_executor": _executor })
+        self._executors.append({"_name_prefix": service_name, "_executor": _executor})
         logger.debug(f"Created executor for {service_name}")
         return _executor
 
@@ -83,9 +84,13 @@ class EventManager:
                 self.remove_event_from_running(future.event)
                 logger.debug(f"Removed {future.event.log_message} from running events.")
                 if future.cancellation_event.is_set():
-                    logger.debug(f"Future with Item ID: {item_id} was cancelled discarding results...")
+                    logger.debug(
+                        f"Future with Item ID: {item_id} was cancelled discarding results..."
+                    )
                     return
-                self.add_event(Event(emitted_by=service, item_id=item_id, run_at=timestamp))
+                self.add_event(
+                    Event(emitted_by=service, item_id=item_id, run_at=timestamp)
+                )
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
@@ -108,9 +113,16 @@ class EventManager:
                 with db.Session() as session:
                     try:
                         # Query just the columns we need, avoiding relationship loading entirely
-                        item = session.query(MediaItem).filter_by(id=event.item_id).options(
-                            sqlalchemy.orm.load_only(MediaItem.id, MediaItem.last_state)
-                        ).one_or_none()
+                        item = (
+                            session.query(MediaItem)
+                            .filter_by(id=event.item_id)
+                            .options(
+                                sqlalchemy.orm.load_only(
+                                    MediaItem.id, MediaItem.last_state
+                                )
+                            )
+                            .one_or_none()
+                        )
                     except Exception as e:
                         logger.error(f"Error getting item from database: {e}")
                         return
@@ -120,7 +132,9 @@ class EventManager:
                         return
 
                     if item.is_parent_blocked():
-                        logger.debug(f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}")
+                        logger.debug(
+                            f"Not queuing {item.log_string if item.log_string else event.log_message}: Item is {item.last_state.name}"
+                        )
                         return
 
                     # Cache the item state in the event for efficient priority sorting
@@ -214,13 +228,20 @@ class EventManager:
 
         cancellation_event = threading.Event()
         executor = self._find_or_create_executor(service)
-        future = executor.submit(db_functions.run_thread_with_db_item, program.all_services[service].run, service, program, event, cancellation_event)
+        future = executor.submit(
+            db_functions.run_thread_with_db_item,
+            program.all_services[service].run,
+            service,
+            program,
+            event,
+            cancellation_event,
+        )
         future.cancellation_event = cancellation_event
         if event:
             future.event = event
         self._futures.append(future)
         websocket_manager.publish("event_update", self.get_event_updates())
-        future.add_done_callback(lambda f:self._process_future(f, service))
+        future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):
         """
@@ -251,8 +272,10 @@ class EventManager:
                                 logger.debug(f"Canceled job for Item ID {fid}")
                             except Exception as e:
                                 if not suppress_logs:
-                                    logger.error(f"Error cancelling future for {fid}: {str(e)}")
-            
+                                    logger.error(
+                                        f"Error cancelling future for {fid}: {str(e)}"
+                                    )
+
             for fid in ids_to_cancel:
                 self.remove_id_from_queues(fid)
 
@@ -284,7 +307,9 @@ class EventManager:
                     now = datetime.now()
 
                     # Filter events that are ready to run (run_at <= now)
-                    ready_events = [event for event in self._queued_events if event.run_at <= now]
+                    ready_events = [
+                        event for event in self._queued_events if event.run_at <= now
+                    ]
 
                     if not ready_events:
                         raise Empty
@@ -368,8 +393,12 @@ class EventManager:
                 logger.debug(f"Item ID {item_id} is already running, skipping.")
                 return False
             for related_id in related_ids:
-                if self._id_in_queue(related_id) or self._id_in_running_events(related_id):
-                    logger.debug(f"Child of Item ID {item_id} is already in the queue or running, skipping.")
+                if self._id_in_queue(related_id) or self._id_in_running_events(
+                    related_id
+                ):
+                    logger.debug(
+                        f"Child of Item ID {item_id} is already in the queue or running, skipping."
+                    )
                     return False
         else:
             # Content-only
@@ -379,8 +408,12 @@ class EventManager:
                 return False
 
             # Single-pass checks: queued and running
-            if self.item_exists_in_queue(ci, self._queued_events) or self.item_exists_in_queue(ci, self._running_events):
-                logger.debug(f"Content Item with {ci.log_string} is already queued or running, skipping.")
+            if self.item_exists_in_queue(
+                ci, self._queued_events
+            ) or self.item_exists_in_queue(ci, self._running_events):
+                logger.debug(
+                    f"Content Item with {ci.log_string} is already queued or running, skipping."
+                )
                 return False
 
         self.add_event_to_queue(event)
@@ -393,7 +426,9 @@ class EventManager:
         Args:
             item (MediaItem): The item to add to the queue as an event.
         """
-        if not db_functions.item_exists_by_any_id(item.id, item.tvdb_id, item.tmdb_id, item.imdb_id):
+        if not db_functions.item_exists_by_any_id(
+            item.id, item.tvdb_id, item.tmdb_id, item.imdb_id
+        ):
             if self.add_event(Event(service, content_item=item)):
                 logger.debug(f"Added item with {item.log_string} to the queue.")
                 return True
@@ -407,7 +442,13 @@ class EventManager:
             Dict[str, List[str]]: A dictionary with the event types as keys and a list of item IDs as values.
         """
         events = [future.event for future in self._futures if hasattr(future, "event")]
-        event_types = ["Scraping", "Downloader", "Symlinker", "Updater", "PostProcessing"]
+        event_types = [
+            "Scraping",
+            "Downloader",
+            "Symlinker",
+            "Updater",
+            "PostProcessing",
+        ]
 
         updates = {event_type: [] for event_type in event_types}
         for event in events:

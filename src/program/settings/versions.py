@@ -10,10 +10,11 @@ from RTN.models import BaseRankingModel, BestRanking, DefaultRanking, SettingsMo
 class VersionProfile(SettingsModel):
     """
     A class representing a version profile for the application.
-    
+
     This represents a single JSON version configuration for a user.
     For example, it could be a 'movies-4k.json' that would be in charge of getting 4K movies.
     """
+
     id: str = ""
     media_type: Literal["movie", "show"] = "movie"
     symlink_path: str = "movies"
@@ -21,7 +22,7 @@ class VersionProfile(SettingsModel):
     enable_upgrades: bool = False
     upgrade_resolution_to: Literal["4k", "2160p", "1080p", "720p"] = "1080p"
     upgrade_at: datetime
-    upgrade_interval: float = 168.0 # 7 days (in hours)
+    upgrade_interval: float = 168.0  # 7 days (in hours)
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -49,7 +50,9 @@ class VersionHandler:
                 self.current_profile = profile_name
                 logger.info(f"Loaded profile '{profile_name}' successfully.")
         except FileNotFoundError:
-            logger.error(f"Profile '{profile_name}' not found in directory '{self.config_directory}'.")
+            logger.error(
+                f"Profile '{profile_name}' not found in directory '{self.config_directory}'."
+            )
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing JSON file for profile '{profile_name}': {e}")
 
@@ -83,21 +86,23 @@ class RankModels:
 
     Methods:
         `get(name: str)` -> `BaseRankingModel`: Returns a ranking model based on the given name.
-        
+
     Note:
         If the name is not found, use the `custom` model which uses a base ranking model for all categories with all ranks set to 0.
     """
 
-    custom: BaseRankingModel = BaseRankingModel() # All ranks set to 0 by default
-    default: DefaultRanking = DefaultRanking() # Good for 720p/1080p releases
-    best: BestRanking = BestRanking() # Good for 4K HDR REMUX releases
+    custom: BaseRankingModel = BaseRankingModel()  # All ranks set to 0 by default
+    default: DefaultRanking = DefaultRanking()  # Good for 720p/1080p releases
+    best: BestRanking = BestRanking()  # Good for 4K HDR REMUX releases
 
     @classmethod
     def get(cls, name: str) -> BaseRankingModel:
         """Get a ranking model by name."""
         model = getattr(cls, name, None)
         if model is None:
-            logger.warning(f"Ranking model '{name}' not found. Setting to custom model.")
+            logger.warning(
+                f"Ranking model '{name}' not found. Setting to custom model."
+            )
             return cls.custom
         return model
 

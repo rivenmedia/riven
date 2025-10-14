@@ -13,9 +13,10 @@ class WebSocketLogHandler(logging.Handler):
         log_entry = {
             "time": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
-            "message": record.msg
+            "message": record.msg,
         }
         manager.publish("logging", json.dumps(log_entry))
+
 
 logger.add(WebSocketLogHandler())
 

@@ -15,12 +15,15 @@ from routers.secure.ws import router as ws_router
 API_VERSION = "v1"
 
 app_router = APIRouter(prefix=f"/api/{API_VERSION}")
+
+
 @app_router.get("/", operation_id="root")
 async def root(_: Request) -> RootResponse:
     return {
         "message": "Riven is running!",
         "version": settings_manager.settings.version,
     }
+
 
 app_router.include_router(default_router, dependencies=[Depends(resolve_api_key)])
 app_router.include_router(items_router, dependencies=[Depends(resolve_api_key)])

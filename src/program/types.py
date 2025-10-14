@@ -29,9 +29,11 @@ Downloader = Union[
 Service = Union[Content, Scraper, Downloader, FilesystemService, Updater]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
+
 class ProcessedEvent:
     service: Service
     related_media_items: list[MediaItem]
+
 
 @dataclass
 class Event:

@@ -29,12 +29,14 @@ async def get_settings_schema() -> dict[str, Any]:
     """
     return settings_manager.settings.model_json_schema()
 
+
 @router.get("/load", operation_id="load_settings")
 async def load_settings() -> MessageResponse:
     settings_manager.load()
     return {
         "message": "Settings loaded!",
     }
+
 
 @router.post("/save", operation_id="save_settings")
 async def save_settings() -> MessageResponse:
@@ -90,6 +92,7 @@ async def set_all_settings(new_settings: Dict[str, Any]) -> MessageResponse:
     return {
         "message": "All settings updated successfully!",
     }
+
 
 @router.post("/set", operation_id="set_settings")
 async def set_settings(settings: List[SetSettings]) -> MessageResponse:

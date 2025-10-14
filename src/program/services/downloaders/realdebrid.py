@@ -47,7 +47,7 @@ class RealDebridAPI:
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
             retries=2,
-            backoff_factor=0.5
+            backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         if proxy_url:
@@ -109,7 +109,9 @@ class RealDebridDownloader(DownloaderBase):
         logger.info(premium_days_left(user_info.premium_expires_at))
         return True
 
-    def get_instant_availability(self, infohash: str, item_type: str) -> Optional[TorrentContainer]:
+    def get_instant_availability(
+        self, infohash: str, item_type: str
+    ) -> Optional[TorrentContainer]:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
         and returning a TorrentContainer when the status is 'downloaded'.
@@ -121,7 +123,9 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             torrent_id = self.add_torrent(infohash)
-            container, reason, info = self._process_torrent(torrent_id, infohash, item_type)
+            container, reason, info = self._process_torrent(
+                torrent_id, infohash, item_type
+            )
             if container is None and reason:
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
                 # Failed validation - delete the torrent
@@ -129,7 +133,9 @@ class RealDebridDownloader(DownloaderBase):
                     try:
                         self.delete_torrent(torrent_id)
                     except Exception as e:
-                        logger.debug(f"Failed to delete failed torrent {torrent_id}: {e}")
+                        logger.debug(
+                            f"Failed to delete failed torrent {torrent_id}: {e}"
+                        )
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
@@ -160,7 +166,9 @@ class RealDebridDownloader(DownloaderBase):
                     pass
             return None
         except InvalidDebridFileException as e:
-            logger.debug(f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}")
+            logger.debug(
+                f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
+            )
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
@@ -176,7 +184,9 @@ class RealDebridDownloader(DownloaderBase):
                     pass
             return None
         except Exception as e:
-            logger.error(f"Availability check failed [{infohash}]: Unexpected error - {e}")
+            logger.error(
+                f"Availability check failed [{infohash}]: Unexpected error - {e}"
+            )
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
@@ -242,12 +252,18 @@ class RealDebridDownloader(DownloaderBase):
                         download_url = meta.get("download_url", "")
                         if download_url:  # Empty string is falsy, so this works
                             df.download_url = download_url
-                            logger.debug(f"Using correlated download URL for {meta['filename']}")
+                            logger.debug(
+                                f"Using correlated download URL for {meta['filename']}"
+                            )
                         else:
-                            logger.warning(f"No download URL available for {meta['filename']}")
+                            logger.warning(
+                                f"No download URL available for {meta['filename']}"
+                            )
                         files.append(df)
                 except InvalidDebridFileException as e:
-                    logger.debug(f"{infohash}: {e}")  # noisy per-file details kept at debug
+                    logger.debug(
+                        f"{infohash}: {e}"
+                    )  # noisy per-file details kept at debug
 
             if not files:
                 return None, "no valid files after validation", None
@@ -258,7 +274,14 @@ class RealDebridDownloader(DownloaderBase):
         if info.status in ("downloading", "queued"):
             return None, f"Not instantly available (status={info.status})", None
 
-        if info.status in ("magnet_error", "error", "virus", "dead", "compressing", "uploading"):
+        if info.status in (
+            "magnet_error",
+            "error",
+            "virus",
+            "dead",
+            "compressing",
+            "uploading",
+        ):
             return None, f"Invalid on Real-Debrid (status={info.status})", None
 
         return None, f"unsupported torrent status: {info.status}", None
@@ -275,7 +298,9 @@ class RealDebridDownloader(DownloaderBase):
             RealDebridError: If the API returns a failing status.
         """
         magnet = f"magnet:?xt=urn:btih:{infohash}"
-        resp: SmartResponse = self.api.session.post("torrents/addMagnet", data={"magnet": magnet.lower()})
+        resp: SmartResponse = self.api.session.post(
+            "torrents/addMagnet", data={"magnet": magnet.lower()}
+        )
         self._maybe_backoff(resp)
         if not resp.ok:
             raise RealDebridError(self._handle_error(resp))
@@ -309,7 +334,9 @@ class RealDebridDownloader(DownloaderBase):
         resp: SmartResponse = self.api.session.get(f"torrents/info/{torrent_id}")
         self._maybe_backoff(resp)
         if not resp.ok:
-            logger.debug(f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}")
+            logger.debug(
+                f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}"
+            )
             return None
 
         data = resp.data
@@ -323,12 +350,13 @@ class RealDebridDownloader(DownloaderBase):
         # Build initial files dict
         files = {
             file.id: {
-                "path": file.path, # we're gonna need this to weed out the junk files
+                "path": file.path,  # we're gonna need this to weed out the junk files
                 "filename": file.path.split("/")[-1],
                 "bytes": file.bytes,
                 "selected": file.selected,
-                "download_url": ""  # Will be populated by correlation, empty string instead of None
-            } for file in data.files
+                "download_url": "",  # Will be populated by correlation, empty string instead of None
+            }
+            for file in data.files
         }
 
         # Correlate files to torrent links if torrent is downloaded
@@ -337,11 +365,12 @@ class RealDebridDownloader(DownloaderBase):
             try:
                 # Get selected files in order (these correspond to links by index)
                 selected_files = [
-                    (file.id, file) for file in data.files
-                    if file.selected == 1
+                    (file.id, file) for file in data.files if file.selected == 1
                 ]
 
-                logger.debug(f"Correlating {len(selected_files)} selected files with {len(links)} links for torrent {torrent_id}")
+                logger.debug(
+                    f"Correlating {len(selected_files)} selected files with {len(links)} links for torrent {torrent_id}"
+                )
 
                 # Correlate selected files to links by index - use torrent links directly
                 for i in range(min(len(selected_files), len(links))):
@@ -356,7 +385,9 @@ class RealDebridDownloader(DownloaderBase):
                         logger.warning(f"File key {file_id} not found in files dict")
 
             except Exception as e:
-                logger.warning(f"Failed to correlate torrent links for torrent {torrent_id}: {e}")
+                logger.warning(
+                    f"Failed to correlate torrent links for torrent {torrent_id}: {e}"
+                )
                 # Continue without download URLs - files will have download_url=""
 
         return TorrentInfo(
@@ -369,7 +400,7 @@ class RealDebridDownloader(DownloaderBase):
             alternative_filename=data.original_filename,
             progress=data.progress,
             files=files,
-            links=links
+            links=links,
         )
 
     def delete_torrent(self, torrent_id: str) -> None:
@@ -443,18 +474,22 @@ class RealDebridDownloader(DownloaderBase):
                 data={"link": link},
                 headers=headers,
                 proxies=proxies,
-                timeout=10
+                timeout=10,
             )
 
             if response.status_code == 200:
                 data = response.json()
+
                 class ResponseData:
                     def __init__(self, data):
                         for key, value in data.items():
                             setattr(self, key, value)
+
                 return ResponseData(data)
             else:
-                logger.debug(f"Direct unrestrict failed with status {response.status_code}: {response.text}")
+                logger.debug(
+                    f"Direct unrestrict failed with status {response.status_code}: {response.text}"
+                )
                 return None
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
@@ -471,9 +506,9 @@ class RealDebridDownloader(DownloaderBase):
             if not resp:
                 return None
             return {
-                'download_url': resp.download,
-                'name': resp.filename or resp.original_filename,
-                'size': int(resp.filesize or 0),
+                "download_url": resp.download,
+                "name": resp.filename or resp.original_filename,
+                "size": int(resp.filesize or 0),
             }
         except Exception as e:
             logger.debug(f"resolve_link failed for {link}: {e}")
@@ -498,9 +533,11 @@ class RealDebridDownloader(DownloaderBase):
             # Parse expiration datetime
             expiration = None
             premium_days = None
-            if hasattr(data, 'expiration') and data.expiration:
+            if hasattr(data, "expiration") and data.expiration:
                 try:
-                    expiration = datetime.fromisoformat(data.expiration.replace("Z", "+00:00"))
+                    expiration = datetime.fromisoformat(
+                        data.expiration.replace("Z", "+00:00")
+                    )
                     time_left = expiration - datetime.now(expiration.tzinfo)
                     premium_days = time_left.days
                 except Exception as e:
@@ -508,13 +545,13 @@ class RealDebridDownloader(DownloaderBase):
 
             return UserInfo(
                 service="realdebrid",
-                username=getattr(data, 'username', None),
-                email=getattr(data, 'email', None),
+                username=getattr(data, "username", None),
+                email=getattr(data, "email", None),
                 user_id=data.id,
-                premium_status="premium" if getattr(data, 'premium', 0) > 0 else "free",
+                premium_status="premium" if getattr(data, "premium", 0) > 0 else "free",
                 premium_expires_at=expiration.replace(tzinfo=None),
                 premium_days_left=premium_days,
-                points=getattr(data, 'points', None),
+                points=getattr(data, "points", None),
             )
         except CircuitBreakerOpen as e:
             logger.warning(f"Circuit breaker OPEN while getting user info: {e}")

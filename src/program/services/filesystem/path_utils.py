@@ -11,11 +11,11 @@ from program.services.downloaders.models import ParsedFileData
 def _determine_target_filename(item: MediaItem, file_data: ParsedFileData) -> str:
     """
     Builds the target filename for a media item using its attributes and optional parsed file data.
-    
+
     Parameters:
         item (MediaItem): The media item to generate a filename for. Expected types: Movie, Season, or Episode.
         file_data (ParsedFileData): Optional parsed file data used to detect multi-episode files; may be None.
-    
+
     Returns:
         str or None: The generated filename string in one of the following formats:
             - Movie: "Title (Year) {tmdb-<tmdb_id>}"
@@ -59,11 +59,13 @@ def determine_base_path(item: MediaItem, settings=None, is_anime: bool = False) 
     The deprecated separate_anime_dirs setting is ignored - use library profiles instead.
     """
     # Check by type attribute first (for compatibility with mock objects)
-    item_type = getattr(item, 'type', None)
+    item_type = getattr(item, "type", None)
 
-    if item_type == 'movie' or isinstance(item, Movie):
+    if item_type == "movie" or isinstance(item, Movie):
         return "/movies"
-    elif item_type in ['show', 'season', 'episode'] or isinstance(item, (Show, Season, Episode)):
+    elif item_type in ["show", "season", "episode"] or isinstance(
+        item, (Show, Season, Episode)
+    ):
         return "/shows"
     else:
         return "/movies"  # Fallback
@@ -72,13 +74,13 @@ def determine_base_path(item: MediaItem, settings=None, is_anime: bool = False) 
 def create_folder_structure(item: MediaItem, base_path: str) -> str:
     """
     Build the nested folder path for a media item under the given base directory.
-    
+
     Constructs a folder name for Movie as "Title (Year) {tmdb-<tmdb_id>}". For Show, uses "Title (Year) {tvdb-<tvdb_id>}". For Season and Episode, nests a "Season XX" folder (season number zero-padded to two digits) under the show's folder derived from the parent Show. Any forward slashes in titles are replaced with '-' to avoid creating subdirectories. Returns the base_path unchanged for unrecognized item types.
-    
+
     Parameters:
         item: The media item (Movie, Show, Season, or Episode) whose folder structure to build.
         base_path (str): The root directory under which item-specific folders are appended.
-    
+
     Returns:
         str: The full folder path under base_path for the provided item.
     """
@@ -103,7 +105,12 @@ def create_folder_structure(item: MediaItem, base_path: str) -> str:
         return base_path  # Fallback
 
 
-def generate_target_path(item: MediaItem, settings=None, original_filename: str = None, file_data: ParsedFileData = None) -> str:
+def generate_target_path(
+    item: MediaItem,
+    settings=None,
+    original_filename: str = None,
+    file_data: ParsedFileData = None,
+) -> str:
     """
     Builds the base VFS path for a media item (without library profile prefixes).
 
