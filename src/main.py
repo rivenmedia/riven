@@ -101,7 +101,6 @@ class Server(uvicorn.Server):
 
 def signal_handler(signum, frame):
     logger.log("PROGRAM", "Exiting Gracefully.")
-    app.program.stop()
     sys.exit(0)
 
 
@@ -121,10 +120,11 @@ async def main():
                 app.program.start()
                 app.program.run()
         except Exception as e:
-            logger.error(f"Error in main thread: {e}")
+            logger.error(f"Error in main thread ({type(e).__name__}): {e}")
             logger.exception(traceback.format_exc())
         finally:
             logger.critical("Server has been stopped")
+            app.program.stop()
             sys.exit(0)
 
 
