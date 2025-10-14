@@ -2320,6 +2320,7 @@ class RivenVFS(pyfuse3.Operations):
 
                     if (
                         stream.status_code == HTTPStatus.OK
+                        and content_length is not None
                         and int(content_length) > range_bytes
                     ):
                         # Server appears to be ignoring range request and returning full content

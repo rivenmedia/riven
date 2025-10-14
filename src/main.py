@@ -45,6 +45,14 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
 args = handle_args()
 
+
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI):
+    di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
+    yield
+    await di[httpx.AsyncClient].aclose()
+
+
 app = FastAPI(
     title="Riven",
     summary="A media management system.",
@@ -54,6 +62,7 @@ app = FastAPI(
         "name": "GPL-3.0",
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
+    lifespan=lifespan,
 )
 
 
@@ -114,11 +123,8 @@ server = Server(config=config)
 async def main():
     with server.run_in_thread():
         try:
-            async with httpx.AsyncClient(http2=True) as async_client:
-                di[httpx.AsyncClient] = async_client
-
-                app.program.start()
-                app.program.run()
+            app.program.start()
+            app.program.run()
         except Exception as e:
             logger.error(f"Error in main thread ({type(e).__name__}): {e}")
             logger.exception(traceback.format_exc())
