@@ -1913,12 +1913,7 @@ class RivenVFS(pyfuse3.Operations):
             return
 
         # Get file size to avoid prefetching beyond EOF
-        handle_info = self._file_handles[fh]
-        file_info = handle_info.get("file_info")
-        file_size = None
-        if file_info:
-            size_raw = file_info.get("size")
-            file_size = int(size_raw) if size_raw is not None else None
+        file_size = self._file_handles[fh].get("file_size")
 
         # Get or create prefetch lock for this path
         if path not in self._prefetch_locks:
@@ -2224,8 +2219,20 @@ class RivenVFS(pyfuse3.Operations):
                         continue
                     # Unable to get range support after retries
                     raise pyfuse3.FUSEError(errno.EIO)
+            except httpx.RemoteProtocolError as e:
+                log.debug(
+                    f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
+                )
+                if not is_max_attempt:
+                    await trio.sleep(
+                        backoffs[min(preflight_attempt, len(backoffs) - 1)]
+                    )
+                    continue
+                raise pyfuse3.FUSEError(errno.EIO) from e
             except httpx.HTTPStatusError as e:
                 preflight_status_code = e.response.status_code
+
+                log.debug(f"Preflight HTTP error {preflight_status_code}: path={path}")
 
                 if (
                     preflight_status_code == HTTPStatus.NOT_FOUND
@@ -2287,7 +2294,11 @@ class RivenVFS(pyfuse3.Operations):
         raise pyfuse3.FUSEError(errno.EIO)
 
     async def _fetch_data_block(
-        self, path: str, target_url: str, start: int, end: int
+        self,
+        path: str,
+        target_url: str,
+        start: int,
+        end: int,
     ) -> bytes:
         headers = self._get_range_request_headers(start, end)
 
@@ -2332,13 +2343,16 @@ class RivenVFS(pyfuse3.Operations):
 
                     data = bytearray()
 
-                    # Pull the first chunk from the stream and exit.
+                    # Read chunk from the stream and exit once filled.
                     # This *should* prevent the server from sending the rest of the data
                     async for chunk in stream.aiter_bytes(range_bytes):
                         data.extend(chunk)
 
                         if len(data) >= range_bytes:
-                            return bytes(data[:range_bytes])
+                            break
+
+                    return bytes(data[:range_bytes])
+
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
@@ -2395,12 +2409,24 @@ class RivenVFS(pyfuse3.Operations):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except httpx.RemoteProtocolError as e:
+                # This can happen if the server closes the connection prematurely
+                log.debug(
+                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
+                )
+                if not is_max_attempt:
+                    await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+                    continue
+
+                raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError:
                 if not is_max_attempt:
                     continue
                 raise
             except Exception as e:
-                log.error(f"Unexpected error fetching data block for {path}: {e}")
+                log.error(
+                    f"Unexpected error fetching data block for {path} ({type(e).__name__}): {e}"
+                )
                 if not is_max_attempt:
                     await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                     continue
