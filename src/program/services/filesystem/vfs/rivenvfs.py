@@ -2203,6 +2203,7 @@ class RivenVFS(pyfuse3.Operations):
                 preflight_response = await self.async_client.head(
                     url=target_url,
                     headers=headers,
+                    follow_redirects=True,
                 )
                 preflight_response.raise_for_status()
 
@@ -2329,6 +2330,7 @@ class RivenVFS(pyfuse3.Operations):
                     url=target_url,
                     headers=headers,
                     timeout=httpx.Timeout(5.0, read=30.0),
+                    follow_redirects=True,
                 ) as stream:
                     stream.raise_for_status()
 
