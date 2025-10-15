@@ -681,10 +681,10 @@ class RTNSettingsModel(SettingsModel, Observable): ...
 
 
 class IndexerModel(Observable):
-    reindex_ongoing_interval: int = Field(
-        default=60 * 60 * 24,
+    schedule_offset_minutes: int = Field(
+        default=30,
         ge=0,
-        description="Interval in seconds to reindex all ongoing items (24 hours default, 0 to disable)",
+        description="Offset in minutes after aired_at time to schedule scraping for episodes and movies (30 minutes default)",
     )
 
 

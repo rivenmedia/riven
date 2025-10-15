@@ -454,7 +454,7 @@ class RealDebridDownloader(DownloaderBase):
                             setattr(self, key, value)
                 return ResponseData(data)
             else:
-                logger.debug(f"Direct unrestrict failed with status {response.status_code}: {response.text}")
+                logger.debug(f"Direct unrestrict failed with status {response.status_code}: {response.error}")
                 return None
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")

@@ -198,6 +198,54 @@ class MediaItem(db.Model):
                 self.streams.append(stream)
             logger.debug(f"Unblacklisted stream {stream.infohash} for {self.log_string}")
             return True
+
+    def schedule(self, run_at: datetime, task_type: str = "episode_release", *, offset_seconds: int | None = None, reason: str | None = None) -> bool:
+        """Schedule a task for this item at a specific time.
+
+        Creates a ScheduledTask row (idempotent via unique index).
+        Opens its own session (session-per-request).
+        """
+        from sqlalchemy.exc import IntegrityError
+        from program.scheduling.models import ScheduledTask, ScheduledStatus
+        from program.db.db import db
+
+        if not self.id:
+            logger.error("Cannot schedule task for unsaved item (missing id)")
+            return False
+        if not run_at:
+            logger.error("Cannot schedule task without a run_at time")
+            return False
+        try:
+            # Defensive: avoid scheduling in the past
+            if run_at <= datetime.now():
+                logger.debug(f"Refusing to schedule past/now task for {self.log_string} at {run_at.isoformat()} [{task_type}]")
+                return False
+        except Exception:
+            pass
+
+        payload = {
+            "item_id": int(self.id),
+            "task_type": task_type,
+            "scheduled_for": run_at,
+            "status": ScheduledStatus.Pending,
+            "offset_seconds": offset_seconds,
+            "reason": reason,
+        }
+
+        try:
+            with db.Session() as session:
+                st = ScheduledTask(**payload)
+                session.add(st)
+                session.commit()
+                logger.info(f"Scheduled {task_type} for {self.log_string} at {run_at.isoformat()} (offset={offset_seconds})")
+                return True
+        except IntegrityError:
+            logger.debug(f"Schedule already exists for item {self.id} at {run_at.isoformat()} [{task_type}]")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to schedule task for {self.log_string}: {e}")
+            return False
+
         return False
 
     @property

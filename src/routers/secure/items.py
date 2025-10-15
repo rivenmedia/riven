@@ -490,27 +490,27 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
         ]
     }
 
+# TODO: reimplement later
+# class UpdateNewReleasesResponse(BaseModel):
+#     message: str
+#     updated_items: list[dict]
 
-class UpdateNewReleasesResponse(BaseModel):
-    message: str
-    updated_items: list[dict]
-
-@router.post(
-    "/update_new_releases",
-    summary="Update New Releases",
-    description="Update state for new releases",
-    operation_id="update_new_releases_items",
-)
-async def update_new_releases_items(request: Request, update_type: Literal["series", "seasons", "episodes"] = "episodes", hours: Optional[int] = 24) -> UpdateNewReleasesResponse:
-    with db.Session() as session:
-        updated_items = db_functions.update_new_releases(session, update_type=update_type, hours=hours)
-        for item_id in updated_items:
-            request.app.program.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
-        if updated_items:
-            logger.log("API", f"Successfully updated {len(updated_items)} items")
-        else:
-            logger.log("API", "No items required state updates")
-    return {"message": f"Updated {len(updated_items)} items", "updated_items": updated_items}
+# @router.post(
+#     "/update_new_releases",
+#     summary="Update New Releases",
+#     description="Update state for new releases",
+#     operation_id="update_new_releases_items",
+# )
+# async def update_new_releases_items(request: Request, update_type: Literal["series", "seasons", "episodes"] = "episodes", hours: Optional[int] = 24) -> UpdateNewReleasesResponse:
+#     with db.Session() as session:
+#         updated_items = db_functions.update_new_releases(session, update_type=update_type, hours=hours)
+#         for item_id in updated_items:
+#             request.app.program.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
+#         if updated_items:
+#             logger.log("API", f"Successfully updated {len(updated_items)} items")
+#         else:
+#             logger.log("API", "No items required state updates")
+#     return {"message": f"Updated {len(updated_items)} items", "updated_items": updated_items}
 
 
 class RemoveResponse(BaseModel):

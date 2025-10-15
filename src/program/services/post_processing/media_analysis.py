@@ -148,10 +148,10 @@ class MediaAnalysisService:
                 logger.debug(f"ffprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
 
-            logger.warning(f"FFprobe returned no data for {item.log_string}")
+            logger.warning(f"ffprobe returned no data for {item.log_string}")
             return {}
-        except Exception:
-            logger.error(f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}")
+        except Exception as e:
+            logger.error(f"ffprobe analysis failed for {item.log_string}: {str(e)}")
             return {}
 
     def _parse_filename(self, filename: str, item: MediaItem) -> Dict[str, Any]:

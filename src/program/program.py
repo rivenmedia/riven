@@ -6,7 +6,10 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from kink import di
+from sqlalchemy import select
+
+from program.scheduling.models import ScheduledTask, ScheduledStatus
+from program.media.state import States
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -34,7 +37,8 @@ from .state_transition import process_event
 from .services.filesystem import FilesystemService
 from .types import Event
 
-if settings_manager.settings.tracemalloc:
+# Defer importing tracemalloc until runtime to avoid issues during tests that patch settings_manager
+if bool(getattr(settings_manager.settings, "tracemalloc", False)):
     import tracemalloc
 
 from sqlalchemy import func, select, text
@@ -59,9 +63,15 @@ class Program(threading.Thread):
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
         if self.enable_trace:
-            tracemalloc.start()
-            self.malloc_time = time.monotonic()-50
-            self.last_snapshot = None
+            try:
+                import tracemalloc as _tracemalloc
+            except Exception:
+                # Disable tracing if tracemalloc isn't available or import failed under test mocks
+                self.enable_trace = False
+            else:
+                _tracemalloc.start()
+                self.malloc_time = time.monotonic() - 50
+                self.last_snapshot = None
 
     def initialize_apis(self):
         bootstrap_apis()
@@ -105,7 +115,12 @@ class Program(threading.Thread):
             logger.error("No Updater service initialized, you must enable at least one.")
 
         if self.enable_trace:
-            self.last_snapshot = tracemalloc.take_snapshot()
+            try:
+                import tracemalloc as _tracemalloc
+            except Exception:
+                self.enable_trace = False
+            else:
+                self.last_snapshot = _tracemalloc.take_snapshot()
 
 
     def validate(self) -> bool:
@@ -125,7 +140,7 @@ class Program(threading.Thread):
     def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
-        
+
         This method prepares runtime state and external integrations by registering settings observers, creating the data directory and default settings if missing, initializing APIs and services after database migrations, computing and logging item counts (including filesystem-backed items), configuring executors and the background scheduler, scheduling periodic service and maintenance tasks, starting the thread and scheduler, and marking the program as initialized.
         """
         latest_version = get_version()
@@ -222,19 +237,316 @@ class Program(threading.Thread):
         count = indexer_service.reindex_ongoing()
         if count:
             logger.log("PROGRAM", f"Reindexed {count} ongoing items")
-        else:
-            logger.debug("No ongoing items reindexed")
+
+    def _process_scheduled_tasks(self) -> None:
+        """Process due scheduled tasks and emit appropriate events or actions.
+
+        - For release tasks (episodes/movies): refresh state and enqueue to event manager
+        - For reindex tasks: reindex the specific item via IndexerService
+        """
+        from datetime import datetime
+        from sqlalchemy.exc import SQLAlchemyError
+        from program.db import db_functions
+
+        try:
+            with db.Session() as session:
+                now = datetime.now()
+                due_tasks = (
+                    session.execute(
+                        select(ScheduledTask)
+                        .where(ScheduledTask.status == ScheduledStatus.Pending)
+                        .where(ScheduledTask.scheduled_for <= now)
+                        .order_by(ScheduledTask.scheduled_for.asc())
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
+
+                if not due_tasks:
+                    return
+
+                for task in due_tasks:
+                    try:
+                        # Load item by id (detached) then merge to this session
+                        item = db_functions.get_item_by_id(task.item_id, session=session, load_tree=False)
+                        if not item:
+                            task.status = ScheduledStatus.Failed
+                            task.executed_at = now
+                            session.add(task)
+                            session.commit()
+                            logger.debug(f"ScheduledTask {task.id} item {task.item_id} no longer exists")
+                            continue
+                        item = session.merge(item)
+
+                        # Reindex tasks: support shows and movies (and generic items)
+                        if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
+                            indexer_service = self.services.get(IndexerService)
+                            if not indexer_service:
+                                raise RuntimeError("IndexerService not available")
+                            updated = next(indexer_service.run(item, log_msg=False), None)
+                            if updated:
+                                session.merge(updated)
+                                session.commit()
+                                logger.info(f"Reindexed {item.log_string} from scheduler")
+                        else:
+                            # Refresh item state and enqueue for processing (idempotent pipeline)
+                            was_completed = getattr(item, "last_state", None) == States.Completed
+                            item.store_state()
+                            session.commit()
+                            # Avoid enqueuing items that were already fully completed
+                            if not was_completed:
+                                self.em.add_event(Event(emitted_by="Scheduler", item_id=item.id))
+                                logger.info(f"Enqueued {item.log_string} from scheduler")
+
+                        task.status = ScheduledStatus.Completed
+                        task.executed_at = datetime.now()
+                        session.add(task)
+                        session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        task.status = ScheduledStatus.Failed
+                        task.executed_at = datetime.now()
+                        session.add(task)
+                        session.commit()
+                        logger.error(f"Failed processing ScheduledTask {getattr(task,'id',None)}: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"Scheduler DB error: {e}")
+
+    def _monitor_ongoing_schedules(self) -> None:
+        """Ensure schedules exist for upcoming releases and metadata refreshes.
+
+        - Episodes with a future aired_at: schedule "episode_release" at aired_at + offset
+        - Movies with a future aired_at: schedule "movie_release" at aired_at + offset
+        - Ongoing/Unreleased shows: schedule a targeted reindex at the next air time computed from release_data
+          (preferring release_data.next_aired when present; otherwise compute from airs_days/time).
+        - For items missing any air hints: schedule a daily reindex (idempotent) to discover updates.
+        """
+        from datetime import datetime, timedelta
+        from sqlalchemy import and_, not_
+        from program.media.item import Episode, Show, Movie
+        from program.scheduling.models import ScheduledTask, ScheduledStatus
+
+        offset_seconds = settings_manager.settings.indexer.schedule_offset_minutes * 60
+        now = datetime.now()
+
+        def has_future_task(session, item_id: int, task_type: str) -> bool:
+            """Return True if a pending future task of this type already exists for item."""
+            existing = (
+                session.execute(
+                    select(ScheduledTask)
+                    .where(ScheduledTask.item_id == item_id)
+                    .where(ScheduledTask.task_type == task_type)
+                    .where(ScheduledTask.status == ScheduledStatus.Pending)
+                    .where(ScheduledTask.scheduled_for >= now)
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            return existing is not None
+
+        try:
+            with db.Session() as session:
+                # 1) Episodes with a future air date (skip already-completed)
+                upcoming_eps = (
+                    session.execute(
+                        select(Episode)
+                        .where(Episode.aired_at.is_not(None))
+                        .where(Episode.aired_at >= now)
+                        .where(not_(Episode.last_state == States.Completed))
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
+                for ep in upcoming_eps:
+                    run_at = ep.aired_at + timedelta(seconds=offset_seconds)
+                    if not has_future_task(session, ep.id, "episode_release"):
+                        try:
+                            ep.schedule(
+                                run_at,
+                                task_type="episode_release",
+                                offset_seconds=offset_seconds,
+                                reason="monitor:episode_air",
+                            )
+                        except Exception as e:
+                            logger.debug(f"Skipping schedule for {ep.log_string}: {e}")
+
+                # 2) Movies with a future release date (skip already-completed)
+                upcoming_movies = (
+                    session.execute(
+                        select(Movie)
+                        .where(Movie.aired_at.is_not(None))
+                        .where(Movie.aired_at >= now)
+                        .where(not_(Movie.last_state == States.Completed))
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
+                for mv in upcoming_movies:
+                    run_at = mv.aired_at + timedelta(seconds=offset_seconds)
+                    if not has_future_task(session, mv.id, "movie_release"):
+                        try:
+                            mv.schedule(
+                                run_at,
+                                task_type="movie_release",
+                                offset_seconds=offset_seconds,
+                                reason="monitor:movie_release",
+                            )
+                        except Exception as e:
+                            logger.debug(f"Skipping schedule for {mv.log_string}: {e}")
+
+                # 3) Ongoing/unreleased shows: compute next air time; schedule reindex
+                ongoing_shows = (
+                    session.execute(
+                        select(Show).where(Show.last_state.in_([States.Ongoing, States.Unreleased]))
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
+                for show in ongoing_shows:
+                    rd = show.release_data or {}
+                    next_air = self._compute_next_air_datetime(rd, now)
+                    if next_air and next_air > now:
+                        if not has_future_task(session, show.id, "reindex_show"):
+                            try:
+                                show.schedule(next_air, task_type="reindex_show", reason="monitor:next_air")
+                            except Exception as e:
+                                logger.debug(f"Skipping reindex schedule for {show.log_string}: {e}")
+                    else:
+                        # No hint available; schedule a daily reindex to discover updates
+                        fallback_time = (now + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+                        if not has_future_task(session, show.id, "reindex_show"):
+                            try:
+                                show.schedule(fallback_time, task_type="reindex_show", reason="monitor:fallback_daily")
+                            except Exception as e:
+                                logger.debug(f"Skipping fallback reindex for {show.log_string}: {e}")
+
+                # 4) Movies without a known release date: daily reindex to discover updates
+                unknown_movies = (
+                    session.execute(
+                        select(Movie)
+                        .where(Movie.aired_at.is_(None))
+                        .where(Movie.last_state.in_([States.Unreleased, States.Indexed, States.Requested, States.Unknown]))
+                    )
+                    .unique()
+                    .scalars()
+                    .all()
+                )
+                for mv in unknown_movies:
+                    fallback_time = (now + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+                    if not has_future_task(session, mv.id, "reindex_movie"):
+                        try:
+                            mv.schedule(fallback_time, task_type="reindex_movie", reason="monitor:fallback_daily")
+                        except Exception as e:
+                            logger.debug(f"Skipping fallback reindex for {mv.log_string}: {e}")
+        except Exception as e:
+            logger.error(f"Monitor ongoing schedules failed: {e}")
+
+    @staticmethod
+    def _compute_next_air_datetime(release_data: dict, ref: datetime) -> datetime | None:
+        """Compute the next air datetime from a TVDB-like release_data payload.
+
+        Preferred order:
+        1) Use release_data['next_aired'] (ISO date or datetime string). If it's a date-only string, combine with 'airs_time'.
+        2) Otherwise, compute from 'airs_days' + 'airs_time'.
+
+        Timezone handling:
+        - If release_data['timezone'] is present and recognized, interpret times in that zone and convert to local naive datetime.
+        - Otherwise, treat times as local naive.
+        """
+        from datetime import datetime, timedelta
+        try:
+            from zoneinfo import ZoneInfo  # Python 3.9+
+        except Exception:
+            ZoneInfo = None
+
+        if not release_data:
+            return None
+
+        # Helper to localize a naive datetime based on provided timezone and convert to local naive
+        def to_local_naive(dt: datetime) -> datetime:
+            if not isinstance(dt, datetime):
+                return None
+            tz_name = (release_data or {}).get("timezone")
+            if tz_name and ZoneInfo is not None:
+                try:
+                    tz = ZoneInfo(tz_name)
+                    aware = dt.replace(tzinfo=tz)
+                    # Convert to local timezone then drop tzinfo
+                    local = datetime.now().astimezone().tzinfo
+                    if local:
+                        aware_local = aware.astimezone(local)
+                        return aware_local.replace(tzinfo=None)
+                except Exception:
+                    pass
+            # Fallback: treat as local naive
+            return dt
+
+        # 1) Prefer explicit next_aired
+        next_aired = (release_data or {}).get("next_aired")
+        airs_time = (release_data or {}).get("airs_time")
+        if next_aired:
+            na_str = str(next_aired)
+            dt = None
+            # Treat date-only specially so we can combine with airs_time
+            if "T" in na_str or " " in na_str:
+                try:
+                    dt = datetime.fromisoformat(na_str)
+                except Exception:
+                    dt = None
+            else:
+                # Date-only string
+                try:
+                    date_only = datetime.fromisoformat(na_str + "T00:00:00")
+                    if airs_time:
+                        try:
+                            hour, minute = [int(x) for x in str(airs_time).split(":", 1)]
+                        except Exception:
+                            hour, minute = 0, 0
+                        date_only = date_only.replace(hour=hour, minute=minute)
+                    dt = date_only
+                except Exception:
+                    dt = None
+            if dt:
+                dt_local = to_local_naive(dt)
+                if dt_local and dt_local >= ref:
+                    return dt_local
+                # If next_aired was in the past, fall through to compute from airs_days/time
+
+        # 2) Compute from airs_days + airs_time
+        airs_days = (release_data or {}).get("airs_days") or {}
+        if not airs_time:
+            return None
+        try:
+            hour, minute = [int(x) for x in str(airs_time).split(":", 1)]
+        except Exception:
+            return None
+
+        # Build list of weekdays [0=Monday..6=Sunday] that are True
+        day_map = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        valid_days: list[int] = [i for i, name in enumerate(day_map) if airs_days.get(name) is True]
+        if not valid_days:
+            return None
+
+        # Find next occurrence >= ref (limit search to 3 weeks)
+        for i in range(0, 21):
+            candidate = ref + timedelta(days=i)
+            if candidate.weekday() in valid_days:
+                candidate_dt = candidate.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                candidate_dt = to_local_naive(candidate_dt)
+                if candidate_dt and candidate_dt >= ref:
+                    return candidate_dt
+        return None
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
-
-        # Add reindex_ongoing if enabled (interval > 0)
-        reindex_interval = settings_manager.settings.indexer.reindex_ongoing_interval
-        if reindex_interval > 0:
-            scheduled_functions[self._reindex_ongoing] = {"interval": reindex_interval}
 
         # Add retry_library if enabled (interval > 0)
         retry_interval = settings_manager.settings.retry_interval
@@ -245,6 +557,10 @@ class Program(threading.Thread):
         clean_interval = settings_manager.settings.logging.clean_interval
         if clean_interval > 0:
             scheduled_functions[log_cleaner] = {"interval": clean_interval}
+
+        # Add scheduler processing and monitoring
+        scheduled_functions[self._process_scheduled_tasks] = {"interval": 60}
+        scheduled_functions[self._monitor_ongoing_schedules] = {"interval": 15 * 60}
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
