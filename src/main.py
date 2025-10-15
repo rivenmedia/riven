@@ -99,23 +99,18 @@ class Server(uvicorn.Server):
             while not self.started:
                 time.sleep(1e-3)
             yield
-        except Exception as e:
-            logger.error(f"Error in server thread: {e}")
-            logger.exception(traceback.format_exc())
-            raise e
+        except Exception:
+            logger.exception(f"Error in server thread")
+            raise
         finally:
             self.should_exit = True
             sys.exit(0)
 
 
-def signal_handler(_signum, _frame):
-    logger.log("PROGRAM", "Exiting gracefully.")
-    try:
-        server.should_exit = True
-    except NameError:
-        pass
-
+def signal_handler(signum, frame):
+    logger.log("PROGRAM", "Exiting Gracefully.")
     app.program.stop()
+    sys.exit(0)
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -129,9 +124,9 @@ async def main():
     with server.run_in_thread():
         try:
             app.program.start()
-            await app.program.run()
+            app.program.run()
         except Exception:
-            logger.exception(f"Error in main thread")
+            logger.exception("Error in main thread")
         finally:
             logger.critical("Server has been stopped")
             sys.exit(0)

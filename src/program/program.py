@@ -376,10 +376,10 @@ class Program(threading.Thread):
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    async def run(self):
+    def run(self):
         while self.initialized:
             if not self.validate():
-                await trio.sleep(1)
+                time.sleep(1)
                 continue
 
             try:
@@ -389,7 +389,7 @@ class Program(threading.Thread):
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
-                await trio.sleep(0.1)
+                time.sleep(0.1)
                 continue
 
             existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
