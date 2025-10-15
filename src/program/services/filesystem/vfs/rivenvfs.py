@@ -419,7 +419,9 @@ class RivenVFS(pyfuse3.Operations):
         try:
             self.async_client = di[httpx.AsyncClient]
         except KeyError:
-            raise RuntimeError("httpx.AsyncClient not found in dependency injector")
+            raise RuntimeError(
+                "httpx.AsyncClient not found in dependency injector"
+            ) from None
 
         # Chunking
         self.chunk_size = fs.chunk_size_mb * 1024 * 1024
