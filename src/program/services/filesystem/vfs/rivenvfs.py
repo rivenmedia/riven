@@ -53,8 +53,6 @@ from program.settings.models import FilesystemModel
 
 import pyfuse3
 import trio
-import os
-
 from .db import VFSDatabase, VFSEntry
 
 from program.settings.manager import settings_manager
