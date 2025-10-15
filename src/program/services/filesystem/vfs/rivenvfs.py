@@ -2325,6 +2325,7 @@ class RivenVFS(pyfuse3.Operations):
                     "GET",
                     url=target_url,
                     headers=headers,
+                    timeout=httpx.Timeout(5.0, read=30.0),
                 ) as stream:
                     stream.raise_for_status()
 
