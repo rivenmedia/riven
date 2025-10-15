@@ -2199,8 +2199,6 @@ class RivenVFS(pyfuse3.Operations):
         backoffs = [0.2, 0.5, 1.0]
 
         for preflight_attempt in range(max_preflight_attempts):
-            is_max_attempt = preflight_attempt == (max_preflight_attempts - 1)
-
             try:
                 preflight_response = await self.async_client.head(
                     url=target_url,
@@ -2214,17 +2212,17 @@ class RivenVFS(pyfuse3.Operations):
                     # Preflight passed, proceed to actual request
                     return target_url
                 elif preflight_status_code == HTTPStatus.OK:
-                    if not is_max_attempt:
-                        # Server refused range request. Serving this request would return the full media file,
-                        # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                        log.warning(
-                            f"Server doesn't support range requests yet: path={path} (retrying)"
-                        )
+                    # Server refused range request. Serving this request would return the full media file,
+                    # which eats downloader bandwidth usage unnecessarily. Wait and retry.
+                    log.warning(
+                        f"Server doesn't support range requests yet: path={path}"
+                    )
 
-                        if await self._retry_with_backoff(
-                            preflight_attempt, max_preflight_attempts, backoffs
-                        ):
-                            continue
+                    if await self._retry_with_backoff(
+                        preflight_attempt, max_preflight_attempts, backoffs
+                    ):
+                        continue
+
                     # Unable to get range support after retries
                     raise pyfuse3.FUSEError(errno.EIO)
             except httpx.RemoteProtocolError as e:
@@ -2289,7 +2287,7 @@ class RivenVFS(pyfuse3.Operations):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError as e:
+            except pyfuse3.FUSEError:
                 raise
             except Exception:
                 log.exception(f"Unexpected error during preflight checks for {path}")
@@ -2299,7 +2297,7 @@ class RivenVFS(pyfuse3.Operations):
                 ):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
+                raise pyfuse3.FUSEError(errno.EIO) from None
         raise pyfuse3.FUSEError(errno.EIO)
 
     async def _fetch_data_block(
@@ -2325,8 +2323,6 @@ class RivenVFS(pyfuse3.Operations):
         backoffs = [0.2, 0.5, 1.0]
 
         for attempt in range(max_attempts):
-            is_max_attempt = attempt == (max_attempts - 1)
-
             try:
                 async with self.async_client.stream(
                     "GET",
@@ -2424,10 +2420,10 @@ class RivenVFS(pyfuse3.Operations):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError as e:
+            except pyfuse3.FUSEError:
                 raise
             except Exception:
                 log.exception(f"Unexpected error fetching data block for {path}")
-                raise
+                raise pyfuse3.FUSEError(errno.EIO) from None
 
         raise pyfuse3.FUSEError(errno.EIO)

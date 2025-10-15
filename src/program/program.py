@@ -7,6 +7,7 @@ from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from kink import di
+import trio
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -375,10 +376,10 @@ class Program(threading.Thread):
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    def run(self):
+    async def run(self):
         while self.initialized:
             if not self.validate():
-                time.sleep(1)
+                await trio.sleep(1)
                 continue
 
             try:
@@ -388,7 +389,7 @@ class Program(threading.Thread):
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
-                time.sleep(0.1)
+                await trio.sleep(0.1)
                 continue
 
             existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
