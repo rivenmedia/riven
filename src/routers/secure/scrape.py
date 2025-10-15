@@ -3,15 +3,16 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from loguru import logger
 from PTT import parse_title
 from pydantic import BaseModel, RootModel
 from RTN import ParsedData
+from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
-from program.db.db import db
+from program.db.db import db, get_db
 from program.media.item import MediaItem
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -444,7 +445,10 @@ def manual_select_files(
     operation_id="manual_update_attributes",
 )
 async def manual_update_attributes(
-    request: Request, session_id, data: Union[DebridFile, ShowFileData]
+    request: Request,
+    session_id,
+    data: Union[DebridFile, ShowFileData],
+    session: Session = Depends(get_db),
 ) -> UpdateAttributesResponse:
     """
     Apply selected file attributes from a scraping session to the referenced media item(s).
@@ -469,37 +473,36 @@ async def manual_update_attributes(
         session_manager.abort_session(session_id)
         raise HTTPException(status_code=500, detail="No item ID found")
 
-    with db.Session() as db_session:
-        item = None
-        if session.media_type == "tv" and session.tvdb_id:
-            item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
-        elif session.media_type == "movie" and session.tmdb_id:
-            item = db_functions.get_item_by_external_id(tmdb_id=str(session.tmdb_id))
-        elif session.imdb_id:
-            item = db_functions.get_item_by_external_id(imdb_id=session.imdb_id)
+    item = None
+    if session.media_type == "tv" and session.tvdb_id:
+        item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
+    elif session.media_type == "movie" and session.tmdb_id:
+        item = db_functions.get_item_by_external_id(tmdb_id=str(session.tmdb_id))
+    elif session.imdb_id:
+        item = db_functions.get_item_by_external_id(imdb_id=session.imdb_id)
 
-        if not item:
-            item_data = {}
-            if session.imdb_id:
-                item_data["imdb_id"] = session.imdb_id
-            if session.tmdb_id:
-                item_data["tmdb_id"] = session.tmdb_id
-            if session.tvdb_id:
-                item_data["tvdb_id"] = session.tvdb_id
+    if not item:
+        item_data = {}
+        if session.imdb_id:
+            item_data["imdb_id"] = session.imdb_id
+        if session.tmdb_id:
+            item_data["tmdb_id"] = session.tmdb_id
+        if session.tvdb_id:
+            item_data["tvdb_id"] = session.tvdb_id
 
-            if item_data:
-                item_data["requested_by"] = "riven"
-                item_data["requested_at"] = datetime.now()
-                prepared_item = MediaItem(item_data)
-                item = next(IndexerService().run(prepared_item), None)
-                if item:
-                    db_session.merge(item)
-                    db_session.commit()
+        if item_data:
+            item_data["requested_by"] = "riven"
+            item_data["requested_at"] = datetime.now()
+            prepared_item = MediaItem(item_data)
+            item = next(IndexerService().run(prepared_item), None)
+            if item:
+                session.merge(item)
+                session.commit()
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        item = db_session.merge(item)
+        item = session.merge(item)
         item_ids_to_submit = set()
 
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
@@ -520,44 +523,30 @@ async def manual_update_attributes(
             from sqlalchemy import select
             from program.media.media_entry import MediaEntry
 
-            staging_path = f"/__incoming__/{item.id}/{data.filename}"
             fs_entry = None
 
             if item.filesystem_entry:
                 fs_entry = item.filesystem_entry
                 # Update source metadata on existing entry
                 fs_entry.original_filename = data.filename
-                if not fs_entry.path:
-                    fs_entry.path = staging_path
             else:
-                # Try to reuse an existing staging entry for this item+filename
-                existing = db_session.execute(
-                    select(MediaEntry).where(
-                        MediaEntry.path == staging_path,
-                    )
-                ).scalar_one_or_none()
-
-                if existing:
-                    fs_entry = existing
-                else:
-                    # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                    fs_entry = MediaEntry.create_virtual_entry(
-                        path=staging_path,
-                        download_url=getattr(data, "download_url", None),
-                        provider=None,
-                        provider_download_id=None,
-                        file_size=(data.filesize or 0),
-                        original_filename=data.filename,
-                    )
-                    db_session.add(fs_entry)
-                    db_session.commit()
-                    db_session.refresh(fs_entry)
+                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+                fs_entry = MediaEntry.create_virtual_entry(
+                    original_filename=data.filename,
+                    download_url=getattr(data, "download_url", None),
+                    provider=None,
+                    provider_download_id=None,
+                    file_size=(data.filesize or 0),
+                )
+                session.add(fs_entry)
+                session.commit()
+                session.refresh(fs_entry)
 
                 # Link MediaItem to FilesystemEntry
                 # Clear existing entries and add the new one
                 item.filesystem_entries.clear()
                 item.filesystem_entries.append(fs_entry)
-                item = db_session.merge(item)
+                item = session.merge(item)
 
             item.active_stream = {
                 "infohash": session.magnet,
@@ -567,8 +556,8 @@ async def manual_update_attributes(
 
             # Ensure the item is properly attached to the session before adding streams
             # This prevents SQLAlchemy warnings about detached objects
-            if object_session(item) is not db_session:
-                item = db_session.merge(item)
+            if object_session(item) is not session:
+                item = session.merge(item)
 
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.add(item.id)
@@ -613,8 +602,17 @@ async def manual_update_attributes(
 
         item.store_state()
         log_string = item.log_string
-        db_session.merge(item)
-        db_session.commit()
+        session.merge(item)
+        session.commit()
+
+    # Sync VFS to reflect any deleted/updated entries
+    # Must happen AFTER commit so the database reflects the changes
+    from program.services.filesystem import FilesystemService
+
+    filesystem_service = request.app.program.services.get(FilesystemService)
+    if filesystem_service and filesystem_service.riven_vfs:
+        filesystem_service.riven_vfs.sync(item)
+        logger.debug("VFS synced after manual scraping update")
 
     for item_id in item_ids_to_submit:
         request.app.program.em.add_event(Event("ManualAPI", item_id))

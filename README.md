@@ -213,8 +213,8 @@ Library profiles allow you to organize media into different virtual libraries ba
 | Filter | Type | Description | Example |
 |--------|------|-------------|---------|
 | `content_types` | List[str] | Media types to include (`movie`, `show`) | `["movie", "show"]` |
-| `genres` | List[str] | Include if ANY genre matches (OR logic) | `["animation", "family"]` |
-| `exclude_genres` | List[str] | Exclude if ANY genre matches | `["horror"]` |
+| `genres` | List[str] | Include if ANY genre matches (OR logic). Use `!` to exclude values. | `["animation", "family", "!horror"]` |
+| `min_year` | int | Minimum release year | `2020` |
 | `min_year` | int | Minimum release year | `2020` |
 | `max_year` | int | Maximum release year | `1999` |
 | `min_rating` | float | Minimum rating (0-10 scale) | `7.5` |
@@ -224,6 +224,8 @@ Library profiles allow you to organize media into different virtual libraries ba
 | `countries` | List[str] | Countries of origin (ISO codes, OR logic) | `["GB", "UK"]` |
 | `languages` | List[str] | Original languages (ISO 639-1 codes, OR logic) | `["en", "ja"]` |
 | `content_ratings` | List[str] | Allowed content ratings | `["G", "PG", "TV-Y"]` |
+
+> Exclusion syntax: For any list-based filter (genres, networks, countries, languages, content_ratings), prefix a value with `!` to exclude it.
 
 **Content Ratings Reference**:
 - **US Movies**: `G`, `PG`, `PG-13`, `R`, `NC-17`, `NR` (Not Rated), `Unrated`
@@ -240,8 +242,8 @@ Library profiles allow you to organize media into different virtual libraries ba
         "enabled": true,
         "filter_rules": {
           "content_types": ["movie", "show"],
-          "genres": ["animation", "family"],
-          "content_ratings": ["G", "PG", "TV-Y", "TV-G"],
+          "genres": ["animation", "family", "!horror"],
+          "content_ratings": ["G", "PG", "TV-Y", "TV-G", "!TV-MA"],
           "max_rating": 7.5
         }
       }

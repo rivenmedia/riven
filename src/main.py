@@ -9,6 +9,8 @@ from kink import di
 import uvicorn
 from dotenv import load_dotenv
 
+from program.db.db import db
+
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI

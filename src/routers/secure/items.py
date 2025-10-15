@@ -17,6 +17,7 @@ from program.media.state import States
 from program.services.content import Overseerr
 from program.services.updaters import Updater
 from program.types import Event
+from program.services.filesystem.filesystem_service import FilesystemService
 
 from ..models.shared import MessageResponse
 
@@ -388,7 +389,9 @@ class ResetResponse(BaseModel):
     description="Reset media items with bases on item IDs",
     operation_id="reset_items",
 )
-async def reset_items(request: Request, ids: str) -> ResetResponse:
+async def reset_items(
+    request: Request, ids: str, session: Session = Depends(get_db)
+) -> ResetResponse:
     """
     Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
 
@@ -410,26 +413,22 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
     updater: Updater | None = request.app.program.services.get(Updater)
 
     try:
-        with db.Session() as session:
-            # Load items using ORM
-            items = (
-                session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))
-                .scalars()
-                .all()
-            )
+        # Load items using ORM
+        items = (
+            session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))
+            .scalars()
+            .all()
+        )
 
-            for media_item in items:
-                try:
-                    # Gather refresh_path before reset (similar to remove endpoint)
-                    refresh_path = None
-                    if (
-                        updater
-                        and media_item.filesystem_entry
-                        and media_item.filesystem_entry.path
-                    ):
+        for media_item in items:
+            try:
+                # Gather all refresh paths before reset (entry may appear at multiple VFS paths)
+                refresh_paths = []
+                if updater and media_item.filesystem_entry:
+                    vfs_paths = media_item.filesystem_entry.get_all_vfs_paths()
+                    for vfs_path in vfs_paths:
                         abs_path = os.path.join(
-                            updater.library_path,
-                            media_item.filesystem_entry.path.lstrip("/"),
+                            updater.library_path, vfs_path.lstrip("/")
                         )
                         if media_item.type == "movie":
                             refresh_path = os.path.dirname(os.path.dirname(abs_path))
@@ -437,44 +436,45 @@ async def reset_items(request: Request, ids: str) -> ResetResponse:
                             refresh_path = os.path.dirname(
                                 os.path.dirname(os.path.dirname(abs_path))
                             )
+                        if refresh_path not in refresh_paths:
+                            refresh_paths.append(refresh_path)
 
-                    def mutation(i: MediaItem, s: Session):
-                        """
-                        Blacklist the MediaItem's currently active stream and reset the item's state.
+                def mutation(i: MediaItem, s: Session):
+                    """
+                    Blacklist the MediaItem's currently active stream and reset the item's state.
 
-                        Parameters:
-                            i (MediaItem): The item to mutate.
-                            s (Session): Database session (provided for caller context; not used directly here).
-                        """
-                        i.blacklist_active_stream()
-                        i.reset()
+                    Parameters:
+                        i (MediaItem): The item to mutate.
+                        s (Session): Database session (provided for caller context; not used directly here).
+                    """
+                    i.blacklist_active_stream()
+                    i.reset()
 
-                    apply_item_mutation(
-                        request.app.program,
-                        session,
-                        media_item,
-                        mutation,
-                        bubble_parents=True,
-                    )
-                    session.commit()
+                apply_item_mutation(
+                    request.app.program,
+                    session,
+                    media_item,
+                    mutation,
+                    bubble_parents=True,
+                )
+                session.commit()
 
-                    # Trigger media server refresh to remove from library (if item was actually removed)
-                    if updater and updater.initialized and refresh_path:
+                # Trigger media server refresh for all paths where this item appeared
+                if updater and updater.initialized:
+                    for refresh_path in refresh_paths:
                         updater.refresh_path(refresh_path)
                         logger.debug(
                             f"Triggered media server refresh for {refresh_path}"
                         )
 
-                except ValueError as e:
-                    logger.error(
-                        f"Failed to reset item with id {media_item.id}: {str(e)}"
-                    )
-                    continue
-                except Exception as e:
-                    logger.error(
-                        f"Unexpected error while resetting item with id {media_item.id}: {str(e)}"
-                    )
-                    continue
+            except ValueError as e:
+                logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
+                continue
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while resetting item with id {media_item.id}: {str(e)}"
+                )
+                continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"message": f"Reset items with id {ids}", "ids": ids}
@@ -530,12 +530,11 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     operation_id="retry_library_items",
 )
 async def retry_library_items(request: Request) -> RetryResponse:
-    with db.Session() as session:
-        item_ids = db_functions.retry_library(session)
-        for item_id in item_ids:
-            request.app.program.em.add_event(
-                Event(emitted_by="RetryLibrary", item_id=item_id)
-            )
+    item_ids = db_functions.retry_library()
+    for item_id in item_ids:
+        request.app.program.em.add_event(
+            Event(emitted_by="RetryLibrary", item_id=item_id)
+        )
     return {"message": f"Retried {len(item_ids)} items", "ids": item_ids}
 
 
@@ -616,7 +615,9 @@ class RemoveResponse(BaseModel):
     operation_id="remove_item",
     response_model=RemoveResponse,  # keep if you already use this
 )
-async def remove_item(request: Request, ids: str) -> RemoveResponse:
+async def remove_item(
+    request: Request, ids: str, session: Session = Depends(get_db)
+) -> RemoveResponse:
     """
     Remove one or more media items identified by their IDs.
 
@@ -644,64 +645,83 @@ async def remove_item(request: Request, ids: str) -> RemoveResponse:
 
     removed_ids = []
 
-    with db.Session() as session:
-        for item_id in ids:
-            # Load item using ORM
-            item: MediaItem = session.get(MediaItem, item_id)
-            if not item:
-                logger.warning(f"Item {item_id} not found, skipping")
-                continue
+    for item_id in ids:
+        # Load item using ORM
+        item: MediaItem = session.get(MediaItem, item_id)
+        if not item:
+            logger.warning(f"Item {item_id} not found, skipping")
+            continue
 
-            # Only allow movies and shows to be removed
-            if item.type not in ("movie", "show"):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
-                )
+        # Only allow movies and shows to be removed
+        if item.type not in ("movie", "show"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
+            )
 
-            logger.debug(f"Removing item with ID {item.id}")
+        logger.debug(f"Removing item with ID {item.id}")
 
-            # 1. Cancel active jobs (EventManager cancels children too)
-            request.app.program.em.cancel_job(item.id)
+        # 1. Cancel active jobs (EventManager cancels children too)
+        request.app.program.em.cancel_job(item.id)
 
-            # 2. Gather refresh_path before deletion
-            refresh_path = None
-            if updater and item.filesystem_entry and item.filesystem_entry.path:
-                abs_path = os.path.join(
-                    updater.library_path, item.filesystem_entry.path.lstrip("/")
-                )
+        # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
+        refresh_paths = []
+        if updater and item.filesystem_entry:
+            vfs_paths = item.filesystem_entry.get_all_vfs_paths()
+            for vfs_path in vfs_paths:
+                # Check if VFS path is already absolute (filesystem path)
+                # VFS paths are normally VFS-relative (e.g., /movies/...) but could be
+                # absolute filesystem paths in some configurations
+                if os.path.isabs(vfs_path) and not vfs_path.startswith(
+                    str(updater.library_path)
+                ):
+                    # VFS path is absolute but not under library_path - use as-is
+                    abs_path = vfs_path
+                elif os.path.isabs(vfs_path) and vfs_path.startswith(
+                    str(updater.library_path)
+                ):
+                    # VFS path is already an absolute path under library_path - use as-is
+                    abs_path = vfs_path
+                else:
+                    # VFS path is VFS-relative - join with library_path
+                    abs_path = os.path.join(updater.library_path, vfs_path.lstrip("/"))
+
                 if item.type == "movie":
                     refresh_path = os.path.dirname(os.path.dirname(abs_path))
                 else:  # show
                     refresh_path = os.path.dirname(
                         os.path.dirname(os.path.dirname(abs_path))
                     )
+                if refresh_path not in refresh_paths:
+                    refresh_paths.append(refresh_path)
 
-            # 3. Delete from Overseerr
-            if item.overseerr_id and overseerr:
-                try:
-                    overseerr.delete_request(item.overseerr_id)
-                    logger.debug(
-                        f"Deleted Overseerr request {item.overseerr_id} for {item.id}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to delete Overseerr request {item.overseerr_id}: {e}"
-                    )
+        # 3. Delete from Overseerr
+        if item.overseerr_id and overseerr:
+            try:
+                overseerr.delete_request(item.overseerr_id)
+                logger.debug(
+                    f"Deleted Overseerr request {item.overseerr_id} for {item.id}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete Overseerr request {item.overseerr_id}: {e}"
+                )
 
-            # 4. Delete from database using ORM
-            # Event listeners automatically handle:
-            # - VFS file removal (FilesystemEntry cleanup via before_delete)
-            # - Subtitle file deletion from disk (via Subtitle before_delete)
-            # - Orphaned stream cleanup (via after_delete)
-            # - CASCADE deletion of children (Seasons/Episodes via ORM)
-            session.delete(item)
-            session.commit()
-            removed_ids.append(item_id)
-            logger.debug(f"Deleted item {item_id} from database")
+        # 4. Remove from VFS
+        if item.filesystem_entry:
+            filesystem_service = request.app.program.services.get(FilesystemService)
+            if filesystem_service and filesystem_service.riven_vfs:
+                filesystem_service.riven_vfs.remove(item)
 
-            # 5. Trigger media server refresh to remove from library
-            if updater and updater.initialized and refresh_path:
+        # 5. Delete from database using ORM
+        session.delete(item)
+        session.commit()
+        removed_ids.append(item_id)
+        logger.debug(f"Deleted item {item_id} from database")
+
+        # 6. Trigger media server refresh for all paths where this item appeared
+        if updater and updater.initialized:
+            for refresh_path in refresh_paths:
                 updater.refresh_path(refresh_path)
                 logger.debug(f"Triggered media server refresh for {refresh_path}")
 
@@ -940,7 +960,7 @@ class ReindexResponse(BaseModel):
 
 @router.post(
     "/reindex",
-    summary="Reindex item with Composite Indexer to pick up new season & episode releases.",
+    summary="Reindex item to pick up new season & episode releases.",
     description="Submits an item to be re-indexed through the indexer to manually fix shows that don't have release dates. Only works for movies and shows. Requires item id as a parameter.",
     operation_id="composite_reindexer",
 )
@@ -1023,50 +1043,3 @@ async def reindex_item(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to reindex item: {str(e)}",
             )
-
-
-class FfprobeResponse(BaseModel):
-    message: str
-    data: dict
-
-
-@router.post(
-    "/ffprobe",
-    summary="Parse Media Files using ffprobe",
-    description="Parse a media file",
-    operation_id="ffprobe_media_files",
-)
-async def ffprobe_symlinks(request: Request, id: int) -> FfprobeResponse:
-    """Parse all symlinks from item. Requires ffmpeg to be installed."""
-    item: MediaItem = db_functions.get_item_by_id(id)
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
-        )
-
-    data = {}
-    try:
-        if item.type in ("movie", "episode"):
-            if item.filesystem_path:
-                data[item.id] = parse_media_file(item.filesystem_path)
-
-        elif item.type == "show":
-            for season in item.seasons:
-                for episode in season.episodes:
-                    if episode.filesystem_path:
-                        data[episode.id] = parse_media_file(episode.filesystem_path)
-
-        elif item.type == "season":
-            for episode in item.episodes:
-                if episode.filesystem_path:
-                    data[episode.id] = parse_media_file(episode.filesystem_path)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
-
-    if data:
-        return FfprobeResponse(
-            message=f"Successfully parsed media files for item {id}", data=data
-        )
-    return FfprobeResponse(message=f"No media files found for item {id}", data={})

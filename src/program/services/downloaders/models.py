@@ -130,14 +130,6 @@ class DebridFile(BaseModel):
         }
 
 
-class ParsedFileData(BaseModel):
-    """Represents a parsed file from a filename"""
-
-    item_type: Literal["movie", "show"]
-    season: Optional[int] = Field(default=None)
-    episodes: Optional[List[int]] = Field(default_factory=list)
-
-
 class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
 
