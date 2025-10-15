@@ -14,6 +14,7 @@ LAST_LOGS_CLEANED: datetime | None = None
 
 def setup_logger(level):
     """Setup the logger"""
+
     # Helper function to get log settings from environment or use default
     def get_log_settings(name, default_color, default_icon):
         color = os.getenv(f"RIVEN_LOGGER_{name}_FG", default_color)
@@ -30,21 +31,20 @@ def setup_logger(level):
 
     log_levels = {
         "PROGRAM": (20, "cc6600", "🤖"),
-        "DATABASE": (5, "d834eb", "🛢️"), # trace
+        "DATABASE": (5, "d834eb", "🛢️"),  # trace
         "DEBRID": (20, "cc3333", "🔗"),
-        "FILESYSTEM": (5, "F9E79F", "🔗"), # trace
-        "VFS": (5, "9B59B6", "🧲"), # trace
-        "FUSE": (5, "999999", "⚙️"), # trace
-
+        "FILESYSTEM": (5, "F9E79F", "🔗"),  # trace
+        "VFS": (5, "9B59B6", "🧲"),  # trace
+        "FUSE": (5, "999999", "⚙️"),  # trace
         "SCRAPER": (20, "3D5A80", "👻"),
         "COMPLETED": (20, "FFFFFF", "🟢"),
-        "CACHE": (5, "527826", "📜"), # trace
+        "CACHE": (5, "527826", "📜"),  # trace
         "NOT_FOUND": (20, "818589", "🤷‍"),
         "NEW": (20, "ce7fab", "✨"),
         "FILES": (20, "FFFFE0", "🗃️ "),
         "ITEM": (20, "92a1cf", "🗃️ "),
         "DISCOVERY": (20, "e56c49", "🔍"),
-        "API": (10, "006989", "👾"), # debug
+        "API": (10, "006989", "👾"),  # debug
         "PLEX": (20, "DAD3BE", "📽️ "),
         "LOCAL": (20, "DAD3BE", "📽️ "),
         "JELLYFIN": (20, "DAD3BE", "📽️ "),
@@ -80,9 +80,15 @@ def setup_logger(level):
     )
 
     log_settings = settings_manager.settings.logging
-    retention_value = f"{log_settings.retention_hours} hours" if log_settings.enabled else None
-    rotation_value = f"{getattr(log_settings, 'rotation_mb', 10)} MB" if getattr(log_settings, 'rotation_mb', 10) > 0 else None
-    compression_value = getattr(log_settings, 'compression', "disabled")
+    retention_value = (
+        f"{log_settings.retention_hours} hours" if log_settings.enabled else None
+    )
+    rotation_value = (
+        f"{getattr(log_settings, 'rotation_mb', 10)} MB"
+        if getattr(log_settings, "rotation_mb", 10) > 0
+        else None
+    )
+    compression_value = getattr(log_settings, "compression", "disabled")
 
     handlers = [
         {
@@ -101,19 +107,24 @@ def setup_logger(level):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M")
         log_filename = logs_dir_path / f"riven-{timestamp}.log"
 
-        handlers.append({
-            "sink": log_filename,
-            "level": level.upper(),
-            "format": log_format,
-            "rotation": rotation_value,
-            "retention": retention_value,
-            "compression": compression_value if compression_value != "disabled" else None,
-            "backtrace": False,
-            "diagnose": True,
-            "enqueue": True,
-        })
+        handlers.append(
+            {
+                "sink": log_filename,
+                "level": level.upper(),
+                "format": log_format,
+                "rotation": rotation_value,
+                "retention": retention_value,
+                "compression": (
+                    compression_value if compression_value != "disabled" else None
+                ),
+                "backtrace": False,
+                "diagnose": True,
+                "enqueue": True,
+            }
+        )
 
     logger.configure(handlers=handlers)
+
 
 def log_cleaner():
     """Remove old log files based on user retention settings, leaving the most recent one."""
@@ -122,7 +133,10 @@ def log_cleaner():
         return
 
     global LAST_LOGS_CLEANED
-    if LAST_LOGS_CLEANED and (datetime.now() - LAST_LOGS_CLEANED).total_seconds() < 3600:
+    if (
+        LAST_LOGS_CLEANED
+        and (datetime.now() - LAST_LOGS_CLEANED).total_seconds() < 3600
+    ):
         return
 
     try:
@@ -131,13 +145,17 @@ def log_cleaner():
             return
 
         # Include compressed rotated files too (e.g., .log.gz/.zip)
-        log_files = sorted(logs_dir_path.glob("riven-*.log*"), key=lambda x: x.stat().st_mtime)
+        log_files = sorted(
+            logs_dir_path.glob("riven-*.log*"), key=lambda x: x.stat().st_mtime
+        )
         cleaned = False
         retention_hours = max(0, int(log_settings.retention_hours))
 
         for log_file in log_files[:-1]:
             # remove files older than the configured retention window
-            file_age_hours = (datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)).total_seconds() / 3600
+            file_age_hours = (
+                datetime.now() - datetime.fromtimestamp(log_file.stat().st_mtime)
+            ).total_seconds() / 3600
             if file_age_hours > retention_hours:
                 log_file.unlink()
                 cleaned = True
@@ -147,7 +165,6 @@ def log_cleaner():
             logger.debug(f"Cleaned up old logs older than {retention_hours} hours.")
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")
-
 
 
 setup_logger(settings_manager.settings.log_level)

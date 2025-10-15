@@ -26,10 +26,10 @@ assignees: ''
 <!-- A clear and concise description of what you expected to happen -->
 
 ## Steps To Reproduce
-1. 
-2. 
-3. 
-4. 
+1.
+2.
+3.
+4.
 
 ## Logs
 <!-- Please provide relevant log output. Logs can be found in your data directory under `logs/` -->

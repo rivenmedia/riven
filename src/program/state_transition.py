@@ -10,7 +10,11 @@ from program.services.filesystem import FilesystemService
 from program.types import ProcessedEvent, Service
 
 
-def process_event(emitted_by: Service, existing_item: MediaItem | None = None, content_item: MediaItem | None = None) -> ProcessedEvent:
+def process_event(
+    emitted_by: Service,
+    existing_item: MediaItem | None = None,
+    content_item: MediaItem | None = None,
+) -> ProcessedEvent:
     """Process an event and return the updated item, next service and items to submit."""
     next_service: Service = None
     no_further_processing: ProcessedEvent = (None, [])
@@ -19,7 +23,9 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
     if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
         return no_further_processing
 
-    if content_item or (existing_item is not None and existing_item.last_state == States.Requested):
+    if content_item or (
+        existing_item is not None and existing_item.last_state == States.Requested
+    ):
         next_service = IndexerService
         log_string = None
         if existing_item:
@@ -29,14 +35,23 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         logger.debug(f"Submitting {log_string} to IndexerService")
         return next_service, [content_item or existing_item]
 
-    elif existing_item is not None and existing_item.last_state in [States.PartiallyCompleted, States.Ongoing]:
+    elif existing_item is not None and existing_item.last_state in [
+        States.PartiallyCompleted,
+        States.Ongoing,
+    ]:
         if existing_item.type == "show":
-            incomplete_seasons = [s for s in existing_item.seasons if s.last_state not in [States.Completed, States.Unreleased]]
+            incomplete_seasons = [
+                s
+                for s in existing_item.seasons
+                if s.last_state not in [States.Completed, States.Unreleased]
+            ]
             for season in incomplete_seasons:
                 _, sub_items = process_event(emitted_by, season, None)
                 items_to_submit += sub_items
         elif existing_item.type == "season":
-            incomplete_episodes = [e for e in existing_item.episodes if e.last_state != States.Completed]
+            incomplete_episodes = [
+                e for e in existing_item.episodes if e.last_state != States.Completed
+            ]
             for episode in incomplete_episodes:
                 _, sub_items = process_event(emitted_by, episode, None)
                 items_to_submit += sub_items
@@ -46,9 +61,20 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
         if emitted_by != Scraping and Scraping.should_submit(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":
-            items_to_submit = [s for s in existing_item.seasons if s.last_state in [States.Indexed, States.PartiallyCompleted, States.Unknown] and Scraping.should_submit(s)]
+            items_to_submit = [
+                s
+                for s in existing_item.seasons
+                if s.last_state
+                in [States.Indexed, States.PartiallyCompleted, States.Unknown]
+                and Scraping.should_submit(s)
+            ]
         elif existing_item.type == "season":
-            items_to_submit = [e for e in existing_item.episodes if e.last_state in [States.Indexed, States.Unknown] and Scraping.should_submit(e)]
+            items_to_submit = [
+                e
+                for e in existing_item.episodes
+                if e.last_state in [States.Indexed, States.Unknown]
+                and Scraping.should_submit(e)
+            ]
 
     elif existing_item is not None and existing_item.last_state == States.Scraped:
         next_service = Downloader
@@ -72,6 +98,8 @@ def process_event(emitted_by: Service, existing_item: MediaItem | None = None, c
 
     if items_to_submit:
         service_name = next_service.__name__ if next_service else "StateTransition"
-        logger.debug(f"State transition complete: {len(items_to_submit)} items queued for {service_name}")
+        logger.debug(
+            f"State transition complete: {len(items_to_submit)} items queued for {service_name}"
+        )
 
     return next_service, items_to_submit

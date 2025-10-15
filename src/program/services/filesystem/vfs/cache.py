@@ -57,8 +57,6 @@ class CacheBackend:
         raise NotImplementedError
 
 
-
-
 class Cache:
     """
     Simple file-based block cache on disk with cross-chunk boundary support.
@@ -78,7 +76,9 @@ class Cache:
             os.makedirs(self.cfg.cache_dir, exist_ok=True)
         except Exception as e:
             # Do not raise here; CacheManager may have attempted to validate and fall back.
-            logger.warning(f"Disk cache directory init warning for {self.cfg.cache_dir}: {e}")
+            logger.warning(
+                f"Disk cache directory init warning for {self.cfg.cache_dir}: {e}"
+            )
 
         # Lazy-rebuild index for any pre-existing files so size limits apply after restart
         try:
@@ -100,7 +100,9 @@ class Cache:
                                     continue
                                 key = fp.name
                                 st = fp.stat()
-                                entries.append((key, int(st.st_size), float(st.st_mtime)))
+                                entries.append(
+                                    (key, int(st.st_size), float(st.st_mtime))
+                                )
                             except Exception:
                                 continue
                     elif sub.is_file():
@@ -237,29 +239,38 @@ class Cache:
                 read_time = time.time() - read_start
 
                 if read_time > 0.01:  # Log slow reads (>10ms)
-                    logger.warning(f"Slow cache read: {len(result)/(1024*1024):.2f}MB in {read_time*1000:.1f}ms from {chunk_file}")
+                    logger.warning(
+                        f"Slow cache read: {len(result)/(1024*1024):.2f}MB in {read_time*1000:.1f}ms from {chunk_file}"
+                    )
 
                 if len(result) == needed_len:
-                        # Update LRU (move to end) but only update timestamp periodically
-                        # to reduce lock contention and index modifications
-                        with self._lock:
-                            if chunk_key in self._index:
-                                chunk_entry = self._index[chunk_key]
-                                self._index.move_to_end(chunk_key, last=True)
-                                # Only update timestamp if it's been more than 10 seconds
-                                # This reduces write pressure on the index
-                                now = time.time()
-                                if now - chunk_entry[1] > 10.0:
-                                    self._index[chunk_key] = (chunk_entry[0], now, chunk_entry[2], chunk_entry[3])
+                    # Update LRU (move to end) but only update timestamp periodically
+                    # to reduce lock contention and index modifications
+                    with self._lock:
+                        if chunk_key in self._index:
+                            chunk_entry = self._index[chunk_key]
+                            self._index.move_to_end(chunk_key, last=True)
+                            # Only update timestamp if it's been more than 10 seconds
+                            # This reduces write pressure on the index
+                            now = time.time()
+                            if now - chunk_entry[1] > 10.0:
+                                self._index[chunk_key] = (
+                                    chunk_entry[0],
+                                    now,
+                                    chunk_entry[2],
+                                    chunk_entry[3],
+                                )
 
-                        self._metrics.hits += 1
-                        self._metrics.bytes_from_cache += needed_len
+                    self._metrics.hits += 1
+                    self._metrics.bytes_from_cache += needed_len
 
-                        total_time = time.time() - get_start_time
-                        if total_time > 0.05:  # Log if cache.get() takes >50ms
-                            logger.warning(f"Slow cache.get(): {total_time*1000:.1f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.1f}ms)")
+                    total_time = time.time() - get_start_time
+                    if total_time > 0.05:  # Log if cache.get() takes >50ms
+                        logger.warning(
+                            f"Slow cache.get(): {total_time*1000:.1f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.1f}ms)"
+                        )
 
-                        return result
+                    return result
             except FileNotFoundError:
                 # Chunk file missing, fall through to slow path
                 pass
@@ -300,14 +311,16 @@ class Cache:
 
                     # Plan this read operation
                     chunk_file = self._file_for(chunk_key)
-                    chunks_to_read.append({
-                        'chunk_key': chunk_key,
-                        'chunk_ts': chunk_ts,
-                        'chunk_file': chunk_file,
-                        'copy_start': copy_start,
-                        'bytes_to_read': bytes_to_read,
-                        'chunk_end': chunk_end
-                    })
+                    chunks_to_read.append(
+                        {
+                            "chunk_key": chunk_key,
+                            "chunk_ts": chunk_ts,
+                            "chunk_file": chunk_file,
+                            "copy_start": copy_start,
+                            "bytes_to_read": bytes_to_read,
+                            "chunk_end": chunk_end,
+                        }
+                    )
 
                     current_pos = chunk_end + 1
 
@@ -318,16 +331,18 @@ class Cache:
 
             for chunk_info in chunks_to_read:
                 try:
-                    with chunk_info['chunk_file'].open("rb") as f:
-                        f.seek(chunk_info['copy_start'])
-                        chunk_slice = f.read(chunk_info['bytes_to_read'])
+                    with chunk_info["chunk_file"].open("rb") as f:
+                        f.seek(chunk_info["copy_start"])
+                        chunk_slice = f.read(chunk_info["bytes_to_read"])
                 except FileNotFoundError:
                     # Chunk file missing, abort slow path
                     break
 
-                if len(chunk_slice) == chunk_info['bytes_to_read']:
+                if len(chunk_slice) == chunk_info["bytes_to_read"]:
                     result_data.extend(chunk_slice)
-                    chunks_used.append((chunk_info['chunk_key'], chunk_info['chunk_ts']))
+                    chunks_used.append(
+                        (chunk_info["chunk_key"], chunk_info["chunk_ts"])
+                    )
                 else:
                     # Incomplete read, abort slow path
                     break
@@ -343,7 +358,12 @@ class Cache:
                                 # Only update timestamp if it's been more than 10 seconds
                                 if now - chunk_ts > 10.0:
                                     chunk_entry = self._index[chunk_key]
-                                    self._index[chunk_key] = (chunk_entry[0], now, chunk_entry[2], chunk_entry[3])
+                                    self._index[chunk_key] = (
+                                        chunk_entry[0],
+                                        now,
+                                        chunk_entry[2],
+                                        chunk_entry[3],
+                                    )
 
                     self._metrics.hits += 1
                     self._metrics.bytes_from_cache += needed_len
@@ -439,7 +459,7 @@ class Cache:
             s["total_bytes"] = self._total_bytes
             s["entries"] = len(self._index)
         return s
-    
+
     def maybe_log_stats(self) -> None:
         now = time.time()
         if not self.cfg.metrics_enabled:

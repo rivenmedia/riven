@@ -14,6 +14,7 @@ from program.services.indexers.base import BaseIndexer
 
 class TVDBIndexer(BaseIndexer):
     """TVDB indexer class for TV shows, seasons and episodes"""
+
     key = "TVDBIndexer"
 
     def __init__(self):
@@ -21,27 +22,35 @@ class TVDBIndexer(BaseIndexer):
         self.key = "tvdbindexer"
         self.api = di[TVDBApi]
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Show, None, None]:
+    def run(
+        self, in_item: MediaItem, log_msg: bool = True
+    ) -> Generator[Show, None, None]:
         """Run the TVDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
             return
 
         if in_item.type not in ["show", "mediaitem", "season", "episode"]:
-            logger.debug(f"TVDB indexer skipping incorrect item type: {in_item.log_string}")
+            logger.debug(
+                f"TVDB indexer skipping incorrect item type: {in_item.log_string}"
+            )
             return
 
         if not (in_item.imdb_id or in_item.tvdb_id):
-            logger.error(f"Item {in_item.log_string} does not have an imdb_id or tvdb_id, cannot index it")
+            logger.error(
+                f"Item {in_item.log_string} does not have an imdb_id or tvdb_id, cannot index it"
+            )
             return
 
         # Scenario 1: Fresh indexing - create new Show from API data
         if in_item.type == "mediaitem":
-            if (item := self._create_show_from_id(in_item.imdb_id, in_item.tvdb_id)):
+            if item := self._create_show_from_id(in_item.imdb_id, in_item.tvdb_id):
                 item = self.copy_items(in_item, item)
                 item.indexed_at = datetime.now()
                 if log_msg:
-                    logger.debug(f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})")
+                    logger.debug(
+                        f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})"
+                    )
                 yield item
                 return
 
@@ -63,13 +72,17 @@ class TVDBIndexer(BaseIndexer):
             if self._update_show_metadata(show):
                 show.indexed_at = datetime.now()
                 if log_msg:
-                    logger.debug(f"Reindexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})")
+                    logger.debug(
+                        f"Reindexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
+                    )
                 yield show
                 return
 
-        logger.error(f"Failed to index TV show with ids: imdb={in_item.imdb_id}, tvdb={in_item.tvdb_id}")
+        logger.error(
+            f"Failed to index TV show with ids: imdb={in_item.imdb_id}, tvdb={in_item.tvdb_id}"
+        )
         return
-        
+
     def _update_show_metadata(self, show: Show) -> bool:
         """Update an existing Show object with fresh TVDB metadata.
 
@@ -101,7 +114,14 @@ class TVDBIndexer(BaseIndexer):
 
             # Update Show metadata from API data
             if not imdb_id:
-                imdb_id = next((item.id for item in show_data.remoteIds if item.sourceName == "IMDB"), None)
+                imdb_id = next(
+                    (
+                        item.id
+                        for item in show_data.remoteIds
+                        if item.sourceName == "IMDB"
+                    ),
+                    None,
+                )
 
             # Parse aired date
             aired_at = None
@@ -128,22 +148,38 @@ class TVDBIndexer(BaseIndexer):
 
             # Get title (with translation if needed)
             title = show_data.name
-            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != "eng":
-                if (translation := self.api.get_translation(show_data.id, "eng")):
-                    if translation and hasattr(translation, "data") and translation.data.name:
+            if (
+                hasattr(show_data, "originalLanguage")
+                and show_data.originalLanguage != "eng"
+            ):
+                if translation := self.api.get_translation(show_data.id, "eng"):
+                    if (
+                        translation
+                        and hasattr(translation, "data")
+                        and translation.data.name
+                    ):
                         title = translation.data.name
-                        if hasattr(translation.data, "aliases") and translation.data.aliases:
+                        if (
+                            hasattr(translation.data, "aliases")
+                            and translation.data.aliases
+                        ):
                             additional_aliases = translation.data.aliases
-                            aliases["eng"].extend([alias for alias in additional_aliases])
+                            aliases["eng"].extend(
+                                [alias for alias in additional_aliases]
+                            )
 
             if aliases:
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             # Extract genres and determine if anime
             genres_lower = [
-                (g.name or "").lower() for g in (show_data.genres or []) if hasattr(g, "name")
+                (g.name or "").lower()
+                for g in (show_data.genres or [])
+                if hasattr(g, "name")
             ]
-            is_anime = ("anime" in genres_lower) or ("animation" in genres_lower and show_data.originalLanguage != "eng")
+            is_anime = ("anime" in genres_lower) or (
+                "animation" in genres_lower and show_data.originalLanguage != "eng"
+            )
 
             # Clean up title
             title = regex.sub(r"\s*\(.*\)\s*$", "", title)
@@ -166,7 +202,11 @@ class TVDBIndexer(BaseIndexer):
 
             # Update the Show object's attributes
             show.title = title
-            show.year = int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None
+            show.year = (
+                int(show_data.firstAired.split("-")[0])
+                if show_data.firstAired
+                else None
+            )
             show.tvdb_id = str(show_data.id)
             show.imdb_id = imdb_id
             show.aired_at = aired_at
@@ -190,7 +230,9 @@ class TVDBIndexer(BaseIndexer):
             logger.error(f"Error updating show metadata: {str(e)}")
             return False
 
-    def _create_show_from_id(self, imdb_id: Optional[str] = None, tvdb_id: Optional[str] = None) -> Optional[Show]:
+    def _create_show_from_id(
+        self, imdb_id: Optional[str] = None, tvdb_id: Optional[str] = None
+    ) -> Optional[Show]:
         """Create a show item from TVDB using available IDs."""
         if not imdb_id and not tvdb_id:
             logger.error("No IMDB ID or TVDB ID provided")
@@ -211,13 +253,17 @@ class TVDBIndexer(BaseIndexer):
                 search_results = self.api.search_by_imdb_id(imdb_id)
                 if search_results and search_results.data:
                     if hasattr(search_results.data[0], "movie"):
-                        logger.info(f"IMDB ID {imdb_id} is a movie, not a show, skipping")
+                        logger.info(
+                            f"IMDB ID {imdb_id} is a movie, not a show, skipping"
+                        )
                         return None
                     elif hasattr(search_results.data[0], "series"):
                         tvdb_id = str(search_results.data[0].series.id)
                         show_details = self.api.get_series(tvdb_id)
                         if show_details:
-                            show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
+                            show_item = self._map_show_from_tvdb_data(
+                                show_details, imdb_id
+                            )
                             if show_item:
                                 self._add_seasons_to_show(show_item, show_details)
                                 return show_item
@@ -229,12 +275,21 @@ class TVDBIndexer(BaseIndexer):
             logger.error(f"Error creating show from TVDB ID: {e}")
 
         return None
-            
-    def _map_show_from_tvdb_data(self, show_data, imdb_id: Optional[str] = None) -> Optional[Show]:
+
+    def _map_show_from_tvdb_data(
+        self, show_data, imdb_id: Optional[str] = None
+    ) -> Optional[Show]:
         """Map TVDB show data to our Show object."""
         try:
             if not imdb_id:
-                imdb_id: Optional[str] = next((item.id for item in show_data.remoteIds if item.sourceName == "IMDB"), None)
+                imdb_id: Optional[str] = next(
+                    (
+                        item.id
+                        for item in show_data.remoteIds
+                        if item.sourceName == "IMDB"
+                    ),
+                    None,
+                )
 
             aired_at = None
             if first_aired := show_data.firstAired:
@@ -258,22 +313,38 @@ class TVDBIndexer(BaseIndexer):
             aliases.setdefault("eng", []).append(slug.title())
 
             title = show_data.name
-            if hasattr(show_data, "originalLanguage") and show_data.originalLanguage != "eng":
-                if (translation := self.api.get_translation(show_data.id, "eng")):
-                    if translation and hasattr(translation, "data") and translation.data.name:
+            if (
+                hasattr(show_data, "originalLanguage")
+                and show_data.originalLanguage != "eng"
+            ):
+                if translation := self.api.get_translation(show_data.id, "eng"):
+                    if (
+                        translation
+                        and hasattr(translation, "data")
+                        and translation.data.name
+                    ):
                         title = translation.data.name
-                        if hasattr(translation.data, "aliases") and translation.data.aliases:
+                        if (
+                            hasattr(translation.data, "aliases")
+                            and translation.data.aliases
+                        ):
                             additional_aliases = translation.data.aliases
-                            aliases["eng"].extend([alias for alias in additional_aliases])
+                            aliases["eng"].extend(
+                                [alias for alias in additional_aliases]
+                            )
 
             if aliases:
                 # get rid of duplicate values
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             genres_lower = [
-                (g.name or "").lower() for g in (show_data.genres or []) if hasattr(g, "name")
+                (g.name or "").lower()
+                for g in (show_data.genres or [])
+                if hasattr(g, "name")
             ]
-            is_anime = ("anime" in genres_lower) or ("animation" in genres_lower and show_data.originalLanguage != "eng")
+            is_anime = ("anime" in genres_lower) or (
+                "animation" in genres_lower and show_data.originalLanguage != "eng"
+            )
 
             # last minute title cleanup to remove '(year)' and '(country code)'
             title = regex.sub(r"\s*\(.*\)\s*$", "", title)
@@ -300,7 +371,11 @@ class TVDBIndexer(BaseIndexer):
 
             show_item = {
                 "title": title,
-                "year": int(show_data.firstAired.split("-")[0]) if show_data.firstAired else None,
+                "year": (
+                    int(show_data.firstAired.split("-")[0])
+                    if show_data.firstAired
+                    else None
+                ),
                 "tvdb_id": str(show_data.id),
                 "tmdb_id": None,
                 "imdb_id": imdb_id,
@@ -329,13 +404,19 @@ class TVDBIndexer(BaseIndexer):
         """Add or update seasons and episodes for the given show using TVDB API."""
         try:
             # Build a map of existing seasons by number for quick lookup
-            existing_seasons = {s.number: s for s in show.seasons} if show.seasons else {}
+            existing_seasons = (
+                {s.number: s for s in show.seasons} if show.seasons else {}
+            )
 
             seasons = show_details.seasons
-            filtered_seasons: List = [season for season in seasons if season.number != 0 and season.type.type == "official"]
+            filtered_seasons: List = [
+                season
+                for season in seasons
+                if season.number != 0 and season.type.type == "official"
+            ]
 
             for season_data in filtered_seasons:
-                if (extended_data := self.api.get_season(season_data.id).data):
+                if extended_data := self.api.get_season(season_data.id).data:
                     season_number = extended_data.number
                     if season_number is None:
                         continue
@@ -353,9 +434,15 @@ class TVDBIndexer(BaseIndexer):
                         show.add_season(season_item)
 
                     # Handle episodes for this season
-                    if (episodes := extended_data.episodes) and isinstance(episodes, list):
+                    if (episodes := extended_data.episodes) and isinstance(
+                        episodes, list
+                    ):
                         # Build a map of existing episodes by number
-                        existing_episodes = {e.number: e for e in season_item.episodes} if season_item.episodes else {}
+                        existing_episodes = (
+                            {e.number: e for e in season_item.episodes}
+                            if season_item.episodes
+                            else {}
+                        )
 
                         for episode_data in episodes:
                             episode_number = episode_data.number
@@ -366,15 +453,19 @@ class TVDBIndexer(BaseIndexer):
                             if episode_number in existing_episodes:
                                 # Update existing episode with fresh metadata
                                 episode_item = existing_episodes[episode_number]
-                                self._update_episode_metadata(episode_item, episode_data)
+                                self._update_episode_metadata(
+                                    episode_item, episode_data
+                                )
                             else:
                                 # Create new episode
-                                episode_item = self._create_episode_from_data(episode_data, season_item)
+                                episode_item = self._create_episode_from_data(
+                                    episode_data, season_item
+                                )
                                 if episode_item:
                                     season_item.add_episode(episode_item)
         except Exception as e:
             logger.error(f"Error adding/updating seasons to show: {str(e)}")
-            
+
     def _update_season_metadata(self, season: Season, season_data):
         """Update an existing Season object with fresh TVDB metadata."""
         try:
@@ -432,7 +523,7 @@ class TVDBIndexer(BaseIndexer):
                 "year": year,
                 "type": "season",
                 "is_anime": show.is_anime,
-                "requested_at": datetime.now()
+                "requested_at": datetime.now(),
             }
 
             season = Season(season_item)
@@ -469,7 +560,9 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error updating episode metadata: {str(e)}")
 
-    def _create_episode_from_data(self, episode_data, season: Season) -> Optional[Episode]:
+    def _create_episode_from_data(
+        self, episode_data, season: Season
+    ) -> Optional[Episode]:
         """Create an Episode object from TVDB episode data."""
         try:
             episode_number = episode_data.number

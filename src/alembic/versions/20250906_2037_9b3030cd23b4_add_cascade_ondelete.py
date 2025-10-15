@@ -5,6 +5,7 @@ Revises: add_resolution_to_stream
 Create Date: 2025-09-06 20:37:08.871075
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -21,29 +22,37 @@ def upgrade():
     op.drop_constraint("Movie_id_fkey", "Movie", type_="foreignkey")
     op.create_foreign_key(
         "Movie_id_fkey",
-        "Movie", "MediaItem",
-        ["id"], ["id"],
+        "Movie",
+        "MediaItem",
+        ["id"],
+        ["id"],
         ondelete="CASCADE",
     )
     op.drop_constraint("Show_id_fkey", "Show", type_="foreignkey")
     op.create_foreign_key(
         "Show_id_fkey",
-        "Show", "MediaItem",
-        ["id"], ["id"],
+        "Show",
+        "MediaItem",
+        ["id"],
+        ["id"],
         ondelete="CASCADE",
     )
     op.drop_constraint("Season_id_fkey", "Season", type_="foreignkey")
     op.create_foreign_key(
         "Season_id_fkey",
-        "Season", "MediaItem",
-        ["id"], ["id"],
+        "Season",
+        "MediaItem",
+        ["id"],
+        ["id"],
         ondelete="CASCADE",
     )
     op.drop_constraint("Episode_id_fkey", "Episode", type_="foreignkey")
     op.create_foreign_key(
         "Episode_id_fkey",
-        "Episode", "MediaItem",
-        ["id"], ["id"],
+        "Episode",
+        "MediaItem",
+        ["id"],
+        ["id"],
         ondelete="CASCADE",
     )
 
@@ -51,15 +60,19 @@ def upgrade():
     op.drop_constraint("Season_parent_id_fkey", "Season", type_="foreignkey")
     op.create_foreign_key(
         "Season_parent_id_fkey",
-        "Season", "Show",
-        ["parent_id"], ["id"],
+        "Season",
+        "Show",
+        ["parent_id"],
+        ["id"],
         ondelete="CASCADE",
     )
     op.drop_constraint("Episode_parent_id_fkey", "Episode", type_="foreignkey")
     op.create_foreign_key(
         "Episode_parent_id_fkey",
-        "Episode", "Season",
-        ["parent_id"], ["id"],
+        "Episode",
+        "Season",
+        ["parent_id"],
+        ["id"],
         ondelete="CASCADE",
     )
 
@@ -67,10 +80,13 @@ def upgrade():
     op.drop_constraint("Subtitle_parent_id_fkey", "Subtitle", type_="foreignkey")
     op.create_foreign_key(
         "Subtitle_parent_id_fkey",
-        "Subtitle", "MediaItem",
-        ["parent_id"], ["id"],
+        "Subtitle",
+        "MediaItem",
+        ["parent_id"],
+        ["id"],
         ondelete="CASCADE",
     )
+
 
 def downgrade():
     pass

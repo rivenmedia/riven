@@ -3,6 +3,7 @@
 This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
+
 from typing import Generator
 from loguru import logger
 
@@ -10,7 +11,6 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-
 
 
 class FilesystemService:
@@ -49,16 +49,16 @@ class FilesystemService:
         except Exception as e:
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
-    
+
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """
         Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
-        
+
         Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via _process_single_item, and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
-        
+
         Parameters:
             item (MediaItem): The media item (episode, movie, season, or show) to process.
-        
+
         Returns:
             Generator[MediaItem, None, None]: Yields the original `item` once processing completes (or immediately if processing cannot proceed).
         """
@@ -77,7 +77,7 @@ class FilesystemService:
         # Process each episode/movie
         for episode_or_movie in items_to_process:
             self._process_single_item(episode_or_movie)
-        
+
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
@@ -86,7 +86,7 @@ class FilesystemService:
     def _process_single_item(self, item: MediaItem) -> None:
         """
         Register a single media item's existing file with the RivenVFS so it becomes available in the VFS.
-        
+
         If the item has no filesystem entry, the function does nothing. On successful registration the function sets
         `filesystem_entry.available_in_vfs = True`; on failure it leaves the entry unchanged and logs an error. Any
         exceptions raised during processing are caught and logged.
@@ -102,7 +102,7 @@ class FilesystemService:
             filesystem_entry = item.filesystem_entry
 
             # Check if already processed (available in VFS)
-            if getattr(filesystem_entry, 'available_in_vfs', False):
+            if getattr(filesystem_entry, "available_in_vfs", False):
                 logger.debug(f"Item {item.log_string} already available in VFS")
                 return
 
@@ -119,9 +119,13 @@ class FilesystemService:
             if success:
                 filesystem_entry.available_in_vfs = True
                 if len(all_paths) > 1:
-                    logger.debug(f"Added {item.log_string} to RivenVFS at {len(all_paths)} paths: {all_paths}")
+                    logger.debug(
+                        f"Added {item.log_string} to RivenVFS at {len(all_paths)} paths: {all_paths}"
+                    )
                 else:
-                    logger.debug(f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}")
+                    logger.debug(
+                        f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}"
+                    )
 
         except Exception as e:
             logger.error(f"Failed to process {item.log_string} with RivenVFS: {e}")
@@ -129,7 +133,7 @@ class FilesystemService:
     def close(self):
         """
         Close the underlying RivenVFS and release associated resources.
-        
+
         If a RivenVFS instance is present, attempts to close it and always sets self.riven_vfs to None. Exceptions raised while closing are logged and not propagated.
         """
         try:

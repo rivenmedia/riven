@@ -1,4 +1,5 @@
 """MediaItem class"""
+
 from datetime import datetime
 from typing import Any, List, Optional, TYPE_CHECKING
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 
 class MediaItem(db.Model):
     """MediaItem class"""
+
     __tablename__ = "MediaItem"
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
     imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -28,52 +30,86 @@ class MediaItem(db.Model):
     title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    requested_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, default=datetime.now())
-    requested_by: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    requested_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    indexed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
-    scraped_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    requested_at: Mapped[Optional[datetime]] = mapped_column(
+        sqlalchemy.DateTime, default=datetime.now()
+    )
+    requested_by: Mapped[Optional[str]] = mapped_column(
+        sqlalchemy.String, nullable=True
+    )
+    requested_id: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer, nullable=True
+    )
+    indexed_at: Mapped[Optional[datetime]] = mapped_column(
+        sqlalchemy.DateTime, nullable=True
+    )
+    scraped_at: Mapped[Optional[datetime]] = mapped_column(
+        sqlalchemy.DateTime, nullable=True
+    )
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
-    streams: Mapped[list[Stream]] = relationship(secondary="StreamRelation", back_populates="parents", lazy="selectin", cascade="all")
-    blacklisted_streams: Mapped[list[Stream]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_parents", lazy="selectin", cascade="all")
+    active_stream: Mapped[Optional[dict]] = mapped_column(
+        sqlalchemy.JSON, nullable=True
+    )
+    streams: Mapped[list[Stream]] = relationship(
+        secondary="StreamRelation",
+        back_populates="parents",
+        lazy="selectin",
+        cascade="all",
+    )
+    blacklisted_streams: Mapped[list[Stream]] = relationship(
+        secondary="StreamBlacklistRelation",
+        back_populates="blacklisted_parents",
+        lazy="selectin",
+        cascade="all",
+    )
 
     aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     country: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     language: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    aired_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    aired_at: Mapped[Optional[datetime]] = mapped_column(
+        sqlalchemy.DateTime, nullable=True
+    )
     year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
 
     # Rating metadata (normalized for filtering)
-    rating: Mapped[Optional[float]] = mapped_column(sqlalchemy.Float, nullable=True)  # 0.0-10.0 scale (TMDB vote_average)
-    content_rating: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)  # US content rating (G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA, etc.)
+    rating: Mapped[Optional[float]] = mapped_column(
+        sqlalchemy.Float, nullable=True
+    )  # 0.0-10.0 scale (TMDB vote_average)
+    content_rating: Mapped[Optional[str]] = mapped_column(
+        sqlalchemy.String, nullable=True
+    )  # US content rating (G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA, etc.)
 
     updated: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    overseerr_id: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    last_state: Mapped[Optional[States]] = mapped_column(sqlalchemy.Enum(States), default=States.Unknown)
+    overseerr_id: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer, nullable=True
+    )
+    last_state: Mapped[Optional[States]] = mapped_column(
+        sqlalchemy.Enum(States), default=States.Unknown
+    )
     parsed_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
     filesystem_entries: Mapped[list["FilesystemEntry"]] = relationship(
         "FilesystemEntry",
         back_populates="media_item",
         lazy="selectin",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
     subtitles: Mapped[list[SubtitleEntry]] = relationship(
         SubtitleEntry,
         back_populates="media_item",
         lazy="selectin",
         cascade="all, delete-orphan",
-        overlaps="filesystem_entries"
+        overlaps="filesystem_entries",
     )
-    failed_attempts: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+    failed_attempts: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer, default=0
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",
-        "polymorphic_on":"type",
+        "polymorphic_on": "type",
     }
 
     __table_args__ = (
@@ -103,7 +139,7 @@ class MediaItem(db.Model):
 
         self.indexed_at = None
 
-        self.scraped_at  = None
+        self.scraped_at = None
         self.scraped_times = 0
         self.active_stream = item.get("active_stream", {})
         self.streams: List[Stream] = []
@@ -146,9 +182,12 @@ class MediaItem(db.Model):
             try:
                 from program.program import riven
                 from program.services.notifications import NotificationService
+
                 notification_service = riven.all_services.get(NotificationService)
                 if notification_service:
-                    notification_service.run(self, previous_state=previous_state, new_state=new_state)
+                    notification_service.run(
+                        self, previous_state=previous_state, new_state=new_state
+                    )
             except Exception as e:
                 # Fallback: log error but don't break state storage
                 logger.debug(f"Failed to send state change notification: {e}")
@@ -161,10 +200,19 @@ class MediaItem(db.Model):
             return False
 
         def find_and_blacklist_stream(streams):
-            stream = next((s for s in streams if s.infohash == self.active_stream.get("infohash")), None)
+            stream = next(
+                (
+                    s
+                    for s in streams
+                    if s.infohash == self.active_stream.get("infohash")
+                ),
+                None,
+            )
             if stream:
                 self.blacklist_stream(stream)
-                logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
+                logger.debug(
+                    f"Blacklisted stream {stream.infohash} for {self.log_string}"
+                )
                 return True
             return False
 
@@ -174,10 +222,16 @@ class MediaItem(db.Model):
         if self.type == "episode":
             if self.parent and find_and_blacklist_stream(self.parent.streams):
                 return True
-            if self.parent and self.parent.parent and find_and_blacklist_stream(self.parent.parent.streams):
+            if (
+                self.parent
+                and self.parent.parent
+                and find_and_blacklist_stream(self.parent.parent.streams)
+            ):
                 return True
 
-        logger.debug(f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist")
+        logger.debug(
+            f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist"
+        )
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
@@ -196,7 +250,9 @@ class MediaItem(db.Model):
             self.blacklisted_streams.remove(stream)
             if stream not in self.streams:
                 self.streams.append(stream)
-            logger.debug(f"Unblacklisted stream {stream.infohash} for {self.log_string}")
+            logger.debug(
+                f"Unblacklisted stream {stream.infohash} for {self.log_string}"
+            )
             return True
 
     def schedule(self, run_at: datetime, task_type: str = "episode_release", *, offset_seconds: int | None = None, reason: str | None = None) -> bool:
@@ -288,7 +344,9 @@ class MediaItem(db.Model):
         if session and session.is_active:
             try:
                 session.refresh(self, attribute_names=["blacklisted_streams"])
-                return (len(self.streams) > 0 and any(stream not in self.blacklisted_streams for stream in self.streams))
+                return len(self.streams) > 0 and any(
+                    stream not in self.blacklisted_streams for stream in self.streams
+                )
             except:
                 pass
         return False
@@ -302,24 +360,62 @@ class MediaItem(db.Model):
             "trakt_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
-            "tmdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None
+            "tmdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
         }
 
         if self.type == "season":
             parent_title = self.parent.title
             season_number = self.number
-            parent_ids["trakt_id"] = self.parent.trakt_id if hasattr(self, "parent") and hasattr(self.parent, "trakt_id") else None
-            parent_ids["imdb_id"] = self.parent.imdb_id if hasattr(self, "parent") and hasattr(self.parent, "imdb_id") else None
-            parent_ids["tvdb_id"] = self.parent.tvdb_id if hasattr(self, "parent") and hasattr(self.parent, "tvdb_id") else None
-            parent_ids["tmdb_id"] = self.parent.tmdb_id if hasattr(self, "parent") and hasattr(self.parent, "tmdb_id") else None
+            parent_ids["trakt_id"] = (
+                self.parent.trakt_id
+                if hasattr(self, "parent") and hasattr(self.parent, "trakt_id")
+                else None
+            )
+            parent_ids["imdb_id"] = (
+                self.parent.imdb_id
+                if hasattr(self, "parent") and hasattr(self.parent, "imdb_id")
+                else None
+            )
+            parent_ids["tvdb_id"] = (
+                self.parent.tvdb_id
+                if hasattr(self, "parent") and hasattr(self.parent, "tvdb_id")
+                else None
+            )
+            parent_ids["tmdb_id"] = (
+                self.parent.tmdb_id
+                if hasattr(self, "parent") and hasattr(self.parent, "tmdb_id")
+                else None
+            )
         elif self.type == "episode":
             parent_title = self.parent.parent.title
             season_number = self.parent.number
             episode_number = self.number
-            parent_ids["trakt_id"] = self.parent.parent.trakt_id if hasattr(self, "parent") and hasattr(self.parent, "trakt_id") else None
-            parent_ids["imdb_id"] = self.parent.parent.imdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "imdb_id") else None
-            parent_ids["tvdb_id"] = self.parent.parent.tvdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "tvdb_id") else None
-            parent_ids["tmdb_id"] = self.parent.parent.tmdb_id if hasattr(self, "parent") and hasattr(self.parent, "parent") and hasattr(self.parent.parent, "tmdb_id") else None
+            parent_ids["trakt_id"] = (
+                self.parent.parent.trakt_id
+                if hasattr(self, "parent") and hasattr(self.parent, "trakt_id")
+                else None
+            )
+            parent_ids["imdb_id"] = (
+                self.parent.parent.imdb_id
+                if hasattr(self, "parent")
+                and hasattr(self.parent, "parent")
+                and hasattr(self.parent.parent, "imdb_id")
+                else None
+            )
+            parent_ids["tvdb_id"] = (
+                self.parent.parent.tvdb_id
+                if hasattr(self, "parent")
+                and hasattr(self.parent, "parent")
+                and hasattr(self.parent.parent, "tvdb_id")
+                else None
+            )
+            parent_ids["tmdb_id"] = (
+                self.parent.parent.tmdb_id
+                if hasattr(self, "parent")
+                and hasattr(self.parent, "parent")
+                and hasattr(self.parent.parent, "tmdb_id")
+                else None
+            )
 
         data = {
             "id": str(self.id),
@@ -351,19 +447,27 @@ class MediaItem(db.Model):
 
         return data
 
-    def to_extended_dict(self, abbreviated_children=False, with_streams=False) -> dict[str, Any]:
+    def to_extended_dict(
+        self, abbreviated_children=False, with_streams=False
+    ) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
         dict = self.to_dict()
         match self:
             case Show():
                 dict["seasons"] = (
-                    [season.to_extended_dict(with_streams=with_streams) for season in self.seasons]
+                    [
+                        season.to_extended_dict(with_streams=with_streams)
+                        for season in self.seasons
+                    ]
                     if not abbreviated_children
                     else self.represent_children
                 )
             case Season():
                 dict["episodes"] = (
-                    [episode.to_extended_dict(with_streams=with_streams) for episode in self.episodes]
+                    [
+                        episode.to_extended_dict(with_streams=with_streams)
+                        for episode in self.episodes
+                    ]
                     if not abbreviated_children
                     else self.represent_children
                 )
@@ -371,17 +475,27 @@ class MediaItem(db.Model):
         dict["country"] = self.country if hasattr(self, "country") else None
         dict["network"] = self.network if hasattr(self, "network") else None
         if with_streams:
-            dict["streams"] = [stream.to_dict() for stream in getattr(self, "streams", [])]
-            dict["blacklisted_streams"] = [stream.to_dict() for stream in getattr(self, "blacklisted_streams", [])]
+            dict["streams"] = [
+                stream.to_dict() for stream in getattr(self, "streams", [])
+            ]
+            dict["blacklisted_streams"] = [
+                stream.to_dict() for stream in getattr(self, "blacklisted_streams", [])
+            ]
             dict["active_stream"] = (
                 self.active_stream if hasattr(self, "active_stream") else None
             )
         dict["number"] = self.number if hasattr(self, "number") else None
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
 
-        dict["filesystem_entry"] = self.filesystem_entry.to_dict() if self.filesystem_entry else None
+        dict["filesystem_entry"] = (
+            self.filesystem_entry.to_dict() if self.filesystem_entry else None
+        )
         dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
-        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles] if hasattr(self, "subtitles") else []
+        dict["subtitles"] = (
+            [subtitle.to_dict() for subtitle in self.subtitles]
+            if hasattr(self, "subtitles")
+            else []
+        )
         if self.parsed_data:
             probe_data = self.parsed_data.get("ffprobe_data", {})
             if probe_data:
@@ -456,7 +570,11 @@ class MediaItem(db.Model):
         Returns:
             `true` if at least one associated filesystem entry is available in the mounted VFS, `false` otherwise.
         """
-        return any(fe.available_in_vfs for fe in self.filesystem_entries) if self.filesystem_entries else False
+        return (
+            any(fe.available_in_vfs for fe in self.filesystem_entries)
+            if self.filesystem_entries
+            else False
+        )
 
     def get_top_imdb_id(self) -> str:
         """
@@ -558,8 +676,11 @@ class MediaItem(db.Model):
 
 class Movie(MediaItem):
     """Movie class"""
+
     __tablename__ = "Movie"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
+    )
     __mapper_args__ = {
         "polymorphic_identity": "movie",
         "polymorphic_load": "selectin",
@@ -579,10 +700,14 @@ class Movie(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
+
 class Show(MediaItem):
     """Show class"""
+
     __tablename__ = "Show"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
+    )
     seasons: Mapped[List["Season"]] = relationship(
         back_populates="parent",
         foreign_keys="Season.parent_id",
@@ -614,10 +739,16 @@ class Show(MediaItem):
         if all(season.state == States.Completed for season in self.seasons):
             # Check TVDB status - only mark as Completed if the show has ended
             # If status is "Continuing" or "Upcoming", the show is still ongoing
-            if self.tvdb_status and self.tvdb_status.lower() in ["continuing", "upcoming"]:
+            if self.tvdb_status and self.tvdb_status.lower() in [
+                "continuing",
+                "upcoming",
+            ]:
                 return States.Ongoing
             return States.Completed
-        if any(season.state in [States.Ongoing, States.Unreleased] for season in self.seasons):
+        if any(
+            season.state in [States.Ongoing, States.Unreleased]
+            for season in self.seasons
+        ):
             return States.Ongoing
         if any(
             season.state in (States.Completed, States.PartiallyCompleted)
@@ -665,7 +796,9 @@ class Show(MediaItem):
             season.parent = self
             self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
-    def get_absolute_episode(self, episode_number: int, season_number: int = None) -> Optional["Episode"]:
+    def get_absolute_episode(
+        self, episode_number: int, season_number: int = None
+    ) -> Optional["Episode"]:
         """Get the absolute episode number based on season and episode."""
         if not episode_number or episode_number == 0:
             return None
@@ -673,7 +806,9 @@ class Show(MediaItem):
         if season_number is not None:
             season = next((s for s in self.seasons if s.number == season_number), None)
             if season:
-                episode = next((e for e in season.episodes if e.number == episode_number), None)
+                episode = next(
+                    (e for e in season.episodes if e.number == episode_number), None
+                )
                 if episode:
                     return episode
 
@@ -686,11 +821,17 @@ class Show(MediaItem):
 
         return None
 
+
 class Season(MediaItem):
     """Season class"""
+
     __tablename__ = "Season"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True)
+    id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
+    )
+    parent_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
+    )
     parent: Mapped["Show"] = relationship(
         lazy=False,
         back_populates="seasons",
@@ -755,7 +896,15 @@ class Season(MediaItem):
     def __getattribute__(self, name):
         """Override attribute access to inherit from parent show if not set"""
         # List of attributes that should be inherited from parent
-        inherited_attrs = {'genres', 'country', 'network', 'language', 'is_anime', 'rating', 'content_rating'}
+        inherited_attrs = {
+            "genres",
+            "country",
+            "network",
+            "language",
+            "is_anime",
+            "rating",
+            "content_rating",
+        }
 
         # Get the value normally first
         value = object.__getattribute__(self, name)
@@ -763,7 +912,7 @@ class Season(MediaItem):
         # If it's an inherited attribute and the value is empty/None, try to get from parent
         if name in inherited_attrs and not value:
             try:
-                parent = object.__getattribute__(self, 'parent')
+                parent = object.__getattribute__(self, "parent")
                 if parent:
                     return getattr(parent, name, value)
             except AttributeError:
@@ -813,9 +962,14 @@ class Season(MediaItem):
 
 class Episode(MediaItem):
     """Episode class"""
+
     __tablename__ = "Episode"
-    id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True)
+    id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
+    )
+    parent_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True
+    )
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
         foreign_keys="Episode.parent_id",
@@ -854,7 +1008,15 @@ class Episode(MediaItem):
     def __getattribute__(self, name):
         """Override attribute access to inherit from parent show (through season) if not set"""
         # List of attributes that should be inherited from parent show
-        inherited_attrs = {'genres', 'country', 'network', 'language', 'is_anime', 'rating', 'content_rating'}
+        inherited_attrs = {
+            "genres",
+            "country",
+            "network",
+            "language",
+            "is_anime",
+            "rating",
+            "content_rating",
+        }
 
         # Get the value normally first
         value = object.__getattribute__(self, name)
@@ -862,8 +1024,8 @@ class Episode(MediaItem):
         # If it's an inherited attribute and the value is empty/None, try to get from parent show
         if name in inherited_attrs and not value:
             try:
-                parent = object.__getattribute__(self, 'parent')
-                if parent and hasattr(parent, 'parent'):
+                parent = object.__getattribute__(self, "parent")
+                if parent and hasattr(parent, "parent"):
                     return getattr(parent.parent, name, value)
             except AttributeError:
                 pass

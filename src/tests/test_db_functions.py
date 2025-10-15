@@ -79,24 +79,35 @@ def test_scoped_db_session(db_engine):
         session.close()
         # Fast cleanup: TRUNCATE everything, reset sequences
         with db_engine.connect() as conn:
-            tables = conn.execute(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            ).scalars().all()
+            tables = (
+                conn.execute(
+                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                )
+                .scalars()
+                .all()
+            )
             if tables:
                 quoted = ", ".join(f'"public"."{t}"' for t in tables)
                 conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
                 conn.commit()
 
 
-
 def _torrent(rt: str, ih: str, pt: str, rank=100, lev=0.9) -> Torrent:
     pd = ParsedData(parsed_title=pt, raw_title=rt)
-    return Torrent(raw_title=rt, infohash=ih, data=pd, fetch=True, rank=rank, lev_ratio=lev)
+    return Torrent(
+        raw_title=rt, infohash=ih, data=pd, fetch=True, rank=rank, lev_ratio=lev
+    )
+
 
 def _movie(tmdb_id: str, imdb_id: str | None = None, title="Movie") -> Movie:
-    return Movie({"title": title, "tmdb_id": tmdb_id, "imdb_id": imdb_id, "type": "movie"})
+    return Movie(
+        {"title": title, "tmdb_id": tmdb_id, "imdb_id": imdb_id, "type": "movie"}
+    )
 
-def _show_tree(tvdb: str, seasons: list[int], eps: int) -> tuple[Show, list[Season], list[Episode]]:
+
+def _show_tree(
+    tvdb: str, seasons: list[int], eps: int
+) -> tuple[Show, list[Season], list[Episode]]:
     show = Show({"title": "Show", "tvdb_id": tvdb, "type": "show"})
     all_s, all_e = [], []
     for s in seasons:
@@ -117,6 +128,7 @@ def _show_tree(tvdb: str, seasons: list[int], eps: int) -> tuple[Show, list[Seas
 
 # ------------------------------ Tests -------------------------------------- #
 
+
 def test_clear_streams_when_none_exist(test_scoped_db_session):
     m = _movie("10001", "tt10001")
     test_scoped_db_session.add(m)
@@ -125,31 +137,79 @@ def test_clear_streams_when_none_exist(test_scoped_db_session):
     clear_streams(media_item_id=m.id)
 
     from sqlalchemy import select
-    assert test_scoped_db_session.execute(select(StreamRelation).where(StreamRelation.parent_id == m.id)).scalar_one_or_none() is None
-    assert test_scoped_db_session.execute(select(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id)).scalar_one_or_none() is None
+
+    assert (
+        test_scoped_db_session.execute(
+            select(StreamRelation).where(StreamRelation.parent_id == m.id)
+        ).scalar_one_or_none()
+        is None
+    )
+    assert (
+        test_scoped_db_session.execute(
+            select(StreamBlacklistRelation).where(
+                StreamBlacklistRelation.media_item_id == m.id
+            )
+        ).scalar_one_or_none()
+        is None
+    )
 
 
 def test_add_multiple_streams_then_clear_streams(test_scoped_db_session):
     from sqlalchemy import func, select
-    
+
     m = _movie("10002", "tt10002")
-    s1 = Stream(_torrent("Example.Movie.2020.1080p", "997592a005d9c162391803c615975676738d6a11", "Example Movie"))
-    s2 = Stream(_torrent("Example.Movie.2020.720p",  "c24046b60d764b2b58dce6fbb676bcd3cfcd257e", "Example Movie"))
+    s1 = Stream(
+        _torrent(
+            "Example.Movie.2020.1080p",
+            "997592a005d9c162391803c615975676738d6a11",
+            "Example Movie",
+        )
+    )
+    s2 = Stream(
+        _torrent(
+            "Example.Movie.2020.720p",
+            "c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
+            "Example Movie",
+        )
+    )
     test_scoped_db_session.add_all([m, s1, s2])
     test_scoped_db_session.commit()
 
-    test_scoped_db_session.add_all([
-        StreamRelation(parent_id=m.id, child_id=s1.id),
-        StreamRelation(parent_id=m.id, child_id=s2.id),
-    ])
+    test_scoped_db_session.add_all(
+        [
+            StreamRelation(parent_id=m.id, child_id=s1.id),
+            StreamRelation(parent_id=m.id, child_id=s2.id),
+        ]
+    )
     test_scoped_db_session.commit()
 
     clear_streams(media_item_id=m.id)
 
-    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamRelation).where(StreamRelation.parent_id == m.id)).scalar() == 0
-    assert test_scoped_db_session.execute(select(func.count()).select_from(StreamBlacklistRelation).where(StreamBlacklistRelation.media_item_id == m.id)).scalar() == 0
+    assert (
+        test_scoped_db_session.execute(
+            select(func.count())
+            .select_from(StreamRelation)
+            .where(StreamRelation.parent_id == m.id)
+        ).scalar()
+        == 0
+    )
+    assert (
+        test_scoped_db_session.execute(
+            select(func.count())
+            .select_from(StreamBlacklistRelation)
+            .where(StreamBlacklistRelation.media_item_id == m.id)
+        ).scalar()
+        == 0
+    )
     # clear_streams only drops associations, not Stream rows
-    assert test_scoped_db_session.execute(select(func.count()).select_from(Stream).where(Stream.id.in_([s1.id, s2.id]))).scalar() == 2
+    assert (
+        test_scoped_db_session.execute(
+            select(func.count())
+            .select_from(Stream)
+            .where(Stream.id.in_([s1.id, s2.id]))
+        ).scalar()
+        == 2
+    )
 
 
 def test_item_exists_by_any_id_paths(test_scoped_db_session):
@@ -157,10 +217,34 @@ def test_item_exists_by_any_id_paths(test_scoped_db_session):
     test_scoped_db_session.add(mov)
     test_scoped_db_session.commit()
 
-    assert item_exists_by_any_id(item_id=mov.id, tvdb_id=None, tmdb_id=None, imdb_id=None, session=test_scoped_db_session)
-    assert item_exists_by_any_id(item_id=None, tvdb_id=None, tmdb_id=30002, imdb_id=None, session=test_scoped_db_session)
-    assert item_exists_by_any_id(item_id=None, tvdb_id=None, tmdb_id=None, imdb_id="tt30002", session=test_scoped_db_session)
+    assert item_exists_by_any_id(
+        item_id=mov.id,
+        tvdb_id=None,
+        tmdb_id=None,
+        imdb_id=None,
+        session=test_scoped_db_session,
+    )
+    assert item_exists_by_any_id(
+        item_id=None,
+        tvdb_id=None,
+        tmdb_id=30002,
+        imdb_id=None,
+        session=test_scoped_db_session,
+    )
+    assert item_exists_by_any_id(
+        item_id=None,
+        tvdb_id=None,
+        tmdb_id=None,
+        imdb_id="tt30002",
+        session=test_scoped_db_session,
+    )
+
 
 def test_item_exists_by_any_id_negative(test_scoped_db_session):
-    assert not item_exists_by_any_id(item_id="non_existent", tvdb_id=None, tmdb_id=None, imdb_id=None, session=test_scoped_db_session)
-
+    assert not item_exists_by_any_id(
+        item_id="non_existent",
+        tvdb_id=None,
+        tmdb_id=None,
+        imdb_id=None,
+        session=test_scoped_db_session,
+    )

@@ -18,7 +18,7 @@ class PostProcessing:
         # SubtitleService runs second and can use the metadata
         self.services = {
             MediaAnalysisService: MediaAnalysisService(),
-            SubtitleService: SubtitleService()
+            SubtitleService: SubtitleService(),
         }
         self.initialized = True
 
@@ -37,7 +37,12 @@ class PostProcessing:
         if item.type in ["movie", "episode"]:
             return [item]
         elif item.type == "show":
-            return [e for s in item.seasons for e in s.episodes if e.last_state == States.Completed]
+            return [
+                e
+                for s in item.seasons
+                for e in s.episodes
+                if e.last_state == States.Completed
+            ]
         elif item.type == "season":
             return [e for e in item.episodes if e.last_state == States.Completed]
         return []

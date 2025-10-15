@@ -111,76 +111,70 @@ class LibraryProfileFilterRules(BaseModel):
 
     content_types: List[str] | None = Field(
         default=None,
-        description="Media types to include (movie, show). None/omit = all types"
+        description="Media types to include (movie, show). None/omit = all types",
     )
     genres: List[str] | None = Field(
         default=None,
-        description="Include if ANY genre matches (OR logic). None/omit = no genre filter"
+        description="Include if ANY genre matches (OR logic). None/omit = no genre filter",
     )
     exclude_genres: List[str] | None = Field(
         default=None,
-        description="Exclude if ANY genre matches. None/omit = no exclusion"
+        description="Exclude if ANY genre matches. None/omit = no exclusion",
     )
     min_year: int | None = Field(
         default=None,
         ge=1900,
-        description="Minimum release year. None/omit = no minimum"
+        description="Minimum release year. None/omit = no minimum",
     )
     max_year: int | None = Field(
         default=None,
         ge=1900,
-        description="Maximum release year. None/omit = no maximum"
+        description="Maximum release year. None/omit = no maximum",
     )
     is_anime: bool | None = Field(
-        default=None,
-        description="Filter by anime flag. None/omit = no anime filter"
+        default=None, description="Filter by anime flag. None/omit = no anime filter"
     )
     networks: List[str] | None = Field(
         default=None,
-        description="TV networks to include (OR logic). None/omit = no network filter"
+        description="TV networks to include (OR logic). None/omit = no network filter",
     )
     countries: List[str] | None = Field(
         default=None,
-        description="Countries of origin to include (OR logic). None/omit = no country filter"
+        description="Countries of origin to include (OR logic). None/omit = no country filter",
     )
     languages: List[str] | None = Field(
         default=None,
-        description="Original languages to include (OR logic). None/omit = no language filter"
+        description="Original languages to include (OR logic). None/omit = no language filter",
     )
     min_rating: float | None = Field(
         default=None,
         ge=0.0,
         le=10.0,
-        description="Minimum rating (0-10 scale). None/omit = no minimum"
+        description="Minimum rating (0-10 scale). None/omit = no minimum",
     )
     max_rating: float | None = Field(
         default=None,
         ge=0.0,
         le=10.0,
-        description="Maximum rating (0-10 scale). None/omit = no maximum"
+        description="Maximum rating (0-10 scale). None/omit = no maximum",
     )
     content_ratings: List[str] | None = Field(
         default=None,
-        description="Allowed content ratings (G, PG, PG-13, R, TV-MA, etc.). None/omit = no filter"
+        description="Allowed content ratings (G, PG, PG-13, R, TV-MA, etc.). None/omit = no filter",
     )
 
 
 class LibraryProfile(BaseModel):
     """Library profile configuration for organizing media into different libraries"""
 
-    name: str = Field(
-        description="Human-readable profile name"
-    )
+    name: str = Field(description="Human-readable profile name")
     library_path: str = Field(
         description="VFS path prefix for this profile (e.g., '/kids', '/anime')"
     )
-    enabled: bool = Field(
-        default=True,
-        description="Enable this profile"
-    )
+    enabled: bool = Field(default=True, description="Enable this profile")
     filter_rules: LibraryProfileFilterRules = Field(
         default_factory=lambda: LibraryProfileFilterRules(),
-        description="Metadata filter rules for matching items"
+        description="Metadata filter rules for matching items",
     )
 
     @field_validator("library_path")
@@ -191,10 +185,13 @@ class LibraryProfile(BaseModel):
         if not v.startswith("/"):
             raise ValueError("library_path must start with '/'")
         if v == "/default":
-            raise ValueError("library_path cannot be '/default' (reserved for default path)")
+            raise ValueError(
+                "library_path cannot be '/default' (reserved for default path)"
+            )
         # Check for valid characters (alphanumeric, dash, underscore, slash)
         import re
-        if not re.match(r'^/[a-zA-Z0-9_\-/]+$', v):
+
+        if not re.match(r"^/[a-zA-Z0-9_\-/]+$", v):
             raise ValueError(
                 "library_path must contain only alphanumeric characters, dashes, underscores, and slashes"
             )
@@ -210,7 +207,6 @@ class FilesystemModel(Observable):
         default_factory=lambda: {
             # Example profiles (disabled by default) - enable or customize as needed
             # These demonstrate all available filter options
-
             "example_kids": LibraryProfile(
                 name="Kids & Family Content",
                 library_path="/kids",
@@ -221,67 +217,55 @@ class FilesystemModel(Observable):
                     # US Movie Ratings: G, PG, PG-13, R, NC-17, NR (Not Rated), Unrated
                     # US TV Ratings: TV-Y, TV-Y7, TV-G, TV-PG, TV-14, TV-MA
                     content_ratings=["G", "PG", "TV-Y", "TV-Y7", "TV-G", "TV-PG"],
-                    max_rating=7.5
-                )
+                    max_rating=7.5,
+                ),
             ),
-
             "example_anime": LibraryProfile(
                 name="Anime Content",
                 library_path="/anime",
                 enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    is_anime=True
-                )
+                filter_rules=LibraryProfileFilterRules(is_anime=True),
             ),
-
             "example_recent": LibraryProfile(
                 name="Recent Releases (Last 3 Years)",
                 library_path="/recent",
                 enabled=False,
                 filter_rules=LibraryProfileFilterRules(
                     min_year=2022  # Adjust based on current year
-                )
+                ),
             ),
-
             "example_highly_rated": LibraryProfile(
                 name="Highly Rated (8.0+)",
                 library_path="/top_rated",
                 enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    min_rating=8.0
-                )
+                filter_rules=LibraryProfileFilterRules(min_rating=8.0),
             ),
-
             "example_action": LibraryProfile(
                 name="Action & Adventure",
                 library_path="/action",
                 enabled=False,
                 filter_rules=LibraryProfileFilterRules(
                     genres=["action", "adventure", "thriller"],
-                    exclude_genres=["horror"]  # Exclude horror from action library
-                )
+                    exclude_genres=["horror"],  # Exclude horror from action library
+                ),
             ),
-
             "example_hbo": LibraryProfile(
                 name="HBO Originals",
                 library_path="/hbo",
                 enabled=False,
                 filter_rules=LibraryProfileFilterRules(
-                    content_types=["show"],
-                    networks=["HBO", "HBO Max"]
-                )
+                    content_types=["show"], networks=["HBO", "HBO Max"]
+                ),
             ),
-
             "example_british": LibraryProfile(
                 name="British Content",
                 library_path="/british",
                 enabled=False,
                 filter_rules=LibraryProfileFilterRules(
                     countries=["GB", "UK"],  # ISO country codes
-                    languages=["en"]  # ISO 639-1 language codes
-                )
+                    languages=["en"],  # ISO 639-1 language codes
+                ),
             ),
-
             "example_classic": LibraryProfile(
                 name="Classic Films (Pre-2000)",
                 library_path="/classics",
@@ -289,9 +273,9 @@ class FilesystemModel(Observable):
                 filter_rules=LibraryProfileFilterRules(
                     content_types=["movie"],
                     max_year=1999,
-                    min_rating=7.0  # Only well-regarded classics
-                )
-            )
+                    min_rating=7.0,  # Only well-regarded classics
+                ),
+            ),
         },
         description=(
             "Library profiles for organizing media into different libraries based on metadata. "
@@ -299,7 +283,7 @@ class FilesystemModel(Observable):
             "Each profile filters media by metadata (genres, ratings, etc.) and creates additional "
             "VFS paths. Media always appears at the base path (/movies, /shows) plus any matching "
             "profile paths (e.g., /kids/movies, /anime/movies)."
-        )
+        ),
     )
     cache_dir: Path = Field(
         default=Path("/dev/shm/riven-cache"),
@@ -329,9 +313,10 @@ class FilesystemModel(Observable):
     def validate_library_profiles(cls, v):
         """Validate library profile keys"""
         import re
+
         for key in v.keys():
             # Profile keys must be lowercase alphanumeric with underscores
-            if not re.match(r'^[a-z0-9_]+$', key):
+            if not re.match(r"^[a-z0-9_]+$", key):
                 raise ValueError(
                     f"Profile key '{key}' must be lowercase alphanumeric with underscores only"
                 )
@@ -749,7 +734,8 @@ class LoggingModel(Observable):
     )
     rotation_mb: int = Field(default=10, description="Log file rotation size in MB")
     compression: Literal["zip", "gz", "bz2", "xz", "disabled"] = Field(
-        default="disabled", description="Log compression format (empty for no compression)"
+        default="disabled",
+        description="Log compression format (empty for no compression)",
     )
 
     @field_validator("compression", mode="before")
@@ -757,6 +743,7 @@ class LoggingModel(Observable):
         if v == "" or not v:
             return "disabled"
         return v
+
 
 class AppModel(Observable):
     version: str = Field(default_factory=get_version, description="Application version")

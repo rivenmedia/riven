@@ -35,7 +35,7 @@ def _normalize_language_to_alpha3(language: str) -> str:
 
         if not language_str:
             logger.warning("Empty language code provided, defaulting to 'eng'")
-            return 'eng'
+            return "eng"
 
         # Try different parsing strategies
         lang_obj = None
@@ -47,24 +47,24 @@ def _normalize_language_to_alpha3(language: str) -> str:
             except (BabelfishError, ValueError):
                 # Strategy 2: Try as ISO 639-2/B (bibliographic code)
                 try:
-                    lang_obj = Language.fromcode(language_str, 'alpha3b')
+                    lang_obj = Language.fromcode(language_str, "alpha3b")
                 except (BabelfishError, ValueError, KeyError):
                     pass
 
         # Strategy 3: Try as ISO 639-1 (2-letter code)
         if lang_obj is None and len(language_str) == 2:
             try:
-                lang_obj = Language.fromcode(language_str, 'alpha2')
+                lang_obj = Language.fromcode(language_str, "alpha2")
             except (BabelfishError, ValueError, KeyError):
                 pass
 
         # Strategy 4: Try parsing as locale string (e.g., 'en-US', 'pt_BR')
-        if lang_obj is None and ('-' in language_str or '_' in language_str):
+        if lang_obj is None and ("-" in language_str or "_" in language_str):
             try:
                 # Extract just the language part before the separator
-                lang_part = language_str.split('-')[0].split('_')[0]
+                lang_part = language_str.split("-")[0].split("_")[0]
                 if len(lang_part) == 2:
-                    lang_obj = Language.fromcode(lang_part, 'alpha2')
+                    lang_obj = Language.fromcode(lang_part, "alpha2")
                 elif len(lang_part) == 3:
                     lang_obj = Language(lang_part)
             except (BabelfishError, ValueError, KeyError):
@@ -75,11 +75,13 @@ def _normalize_language_to_alpha3(language: str) -> str:
 
         # Fallback to English
         logger.warning(f"Could not parse language '{language}', defaulting to 'eng'")
-        return 'eng'
+        return "eng"
 
     except Exception as e:
-        logger.error(f"Error normalizing language '{language}': {e}, defaulting to 'eng'")
-        return 'eng'
+        logger.error(
+            f"Error normalizing language '{language}': {e}, defaulting to 'eng'"
+        )
+        return "eng"
 
 
 class OpenSubtitlesProvider(SubtitleProvider):
@@ -103,10 +105,10 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
     def _check_response(self, response: dict) -> dict:
         """Check OpenSubtitles API response and handle errors."""
-        if not isinstance(response, dict) or 'status' not in response:
+        if not isinstance(response, dict) or "status" not in response:
             raise Exception("Invalid response format")
 
-        status = response['status']
+        status = response["status"]
         status_code = int(status[:3])
 
         if status_code == 401:
@@ -124,26 +126,30 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
     def initialize(self):
         """Initialize the provider session with anonymous authentication."""
-        logger.debug(f'Logging in anonymously with user agent: {self.user_agent}')
+        logger.debug(f"Logging in anonymously with user agent: {self.user_agent}")
         # Anonymous login: empty username and password
-        response = self.server.LogIn("", "", 'eng', self.user_agent)
+        response = self.server.LogIn("", "", "eng", self.user_agent)
         logger.debug(f'Login response status: {response.get("status")}')
-        if 'status' not in response:
-            raise Exception('No status in login response')
-        status = response['status']
+        if "status" not in response:
+            raise Exception("No status in login response")
+        status = response["status"]
         status_code = int(status[:3])
         if status_code != 200:
-            raise Exception(f'Login failed: {status}')
-        self.token = str(response['token'])
+            raise Exception(f"Login failed: {status}")
+        self.token = str(response["token"])
         self.login_time = time.time()
-        logger.debug('Authenticated to OpenSubtitles (anonymous)')
+        logger.debug("Authenticated to OpenSubtitles (anonymous)")
 
     def _ensure_authenticated(self) -> bool:
         """Ensure we have a valid session token."""
         current_time = time.time()
 
         # Check if we need to login (no token or token older than 10 minutes)
-        if not self.token or not self.login_time or (current_time - self.login_time) > 600:
+        if (
+            not self.token
+            or not self.login_time
+            or (current_time - self.login_time) > 600
+        ):
             if self.login_time:
                 logger.debug("Token expired (>10 minutes), re-authenticating...")
             self.initialize()
@@ -159,7 +165,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
         search_tags: Optional[str] = None,
         season: Optional[int] = None,
         episode: Optional[int] = None,
-        language: str = "en"
+        language: str = "en",
     ) -> List[Dict[str, Any]]:
         """
         Search subtitles using multi-strategy approach.
@@ -195,27 +201,33 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
             # Strategy 1: moviehash + moviebytesize (perfect match - exact file)
             if video_hash and file_size:
-                search_criteria.append({
-                    'sublanguageid': opensubtitles_lang,
-                    'moviehash': video_hash,
-                    'moviebytesize': str(file_size)
-                })
-                logger.trace(f"OpenSubtitles search strategy 1: moviehash={video_hash[:8]}...{video_hash[-8:]}, size={file_size:,} bytes")
+                search_criteria.append(
+                    {
+                        "sublanguageid": opensubtitles_lang,
+                        "moviehash": video_hash,
+                        "moviebytesize": str(file_size),
+                    }
+                )
+                logger.trace(
+                    f"OpenSubtitles search strategy 1: moviehash={video_hash[:8]}...{video_hash[-8:]}, size={file_size:,} bytes"
+                )
 
             # Strategy 2: imdbid + filename + tag (release-specific match)
             if imdb_id and search_tags:
-                imdb_id = imdb_id.lstrip('tt')  # Remove leading 'tt' from IMDB ID
+                imdb_id = imdb_id.lstrip("tt")  # Remove leading 'tt' from IMDB ID
                 criteria = {
-                    'sublanguageid': opensubtitles_lang,
-                    'imdbid': imdb_id,  # Remove leading 'tt' from IMDB ID
-                    'tags': search_tags
+                    "sublanguageid": opensubtitles_lang,
+                    "imdbid": imdb_id,  # Remove leading 'tt' from IMDB ID
+                    "tags": search_tags,
                 }
                 if season is not None:
-                    criteria['season'] = str(season)
+                    criteria["season"] = str(season)
                 if episode is not None:
-                    criteria['episode'] = str(episode)
+                    criteria["episode"] = str(episode)
                 search_criteria.append(criteria)
-                logger.trace(f"OpenSubtitles search strategy 2: imdbid={imdb_id}, tags={search_tags}, season={season}, episode={episode}")
+                logger.trace(
+                    f"OpenSubtitles search strategy 2: imdbid={imdb_id}, tags={search_tags}, season={season}, episode={episode}"
+                )
 
             if not search_criteria:
                 logger.trace("Skipping OpenSubtitles search: no valid search criteria")
@@ -224,7 +236,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
             response = self.server.SearchSubtitles(self.token, search_criteria)
             response = self._check_response(response)
 
-            data = response.get('data') or []
+            data = response.get("data") or []
             if not data:
                 logger.debug("No subtitles found from OpenSubtitles")
                 return []
@@ -237,54 +249,66 @@ class OpenSubtitlesProvider(SubtitleProvider):
             for item in data:
                 try:
                     # Get match type from API response
-                    matched_by = (item.get('MatchedBy') or 'unknown').lower()
-                    item_hash = str(item.get('MovieHash') or '0').lower()
+                    matched_by = (item.get("MatchedBy") or "unknown").lower()
+                    item_hash = str(item.get("MovieHash") or "0").lower()
 
                     # Validate hash matches - ensure MovieHash field matches our hash
-                    if matched_by == 'moviehash':
-                        if not norm_hash or item_hash == '0' or item_hash != norm_hash:
+                    if matched_by == "moviehash":
+                        if not norm_hash or item_hash == "0" or item_hash != norm_hash:
                             # Invalid hash match, skip it
                             continue
 
                     # Determine match type for scoring
                     # Priority: moviehash > tag > imdbid > fulltext
-                    is_hash_match = (matched_by == 'moviehash')
-                    is_tag_match = (matched_by == 'tag')
-                    is_imdb_match = (matched_by == 'imdbid')
-                    is_fulltext_match = (matched_by == 'fulltext')
+                    is_hash_match = matched_by == "moviehash"
+                    is_tag_match = matched_by == "tag"
+                    is_imdb_match = matched_by == "imdbid"
+                    is_fulltext_match = matched_by == "fulltext"
 
-                    results.append({
-                        'id': item['IDSubtitleFile'],
-                        'language': item['SubLanguageID'],
-                        'filename': item.get('SubFileName', 'subtitle.srt'),
-                        'download_count': int(item.get('SubDownloadsCnt', 0)),
-                        'rating': float(item.get('SubRating', 0)),
-                        'matched_by': matched_by,
-                        'movie_hash': item.get('MovieHash'),
-                        'movie_name': item.get('MovieName', ''),
-                        'provider': self.name,
-                        'score': self._calculate_score(item, is_hash_match, is_tag_match, is_imdb_match, is_fulltext_match)
-                    })
+                    results.append(
+                        {
+                            "id": item["IDSubtitleFile"],
+                            "language": item["SubLanguageID"],
+                            "filename": item.get("SubFileName", "subtitle.srt"),
+                            "download_count": int(item.get("SubDownloadsCnt", 0)),
+                            "rating": float(item.get("SubRating", 0)),
+                            "matched_by": matched_by,
+                            "movie_hash": item.get("MovieHash"),
+                            "movie_name": item.get("MovieName", ""),
+                            "provider": self.name,
+                            "score": self._calculate_score(
+                                item,
+                                is_hash_match,
+                                is_tag_match,
+                                is_imdb_match,
+                                is_fulltext_match,
+                            ),
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Error processing subtitle result: {e}")
                     continue
 
             # Sort by score (hash > tag > imdb > fulltext)
-            results.sort(key=lambda x: x.get('score', 0), reverse=True)
+            results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
             # Log match type distribution
-            hash_count = sum(1 for r in results if r['matched_by'] == 'moviehash')
-            tag_count = sum(1 for r in results if r['matched_by'] == 'tag')
-            imdb_count = sum(1 for r in results if r['matched_by'] == 'imdbid')
-            fulltext_count = sum(1 for r in results if r['matched_by'] == 'fulltext')
-            logger.debug(f"Found {len(results)} subtitles from OpenSubtitles (hash:{hash_count}, tag:{tag_count}, imdb:{imdb_count}, fulltext:{fulltext_count})")
+            hash_count = sum(1 for r in results if r["matched_by"] == "moviehash")
+            tag_count = sum(1 for r in results if r["matched_by"] == "tag")
+            imdb_count = sum(1 for r in results if r["matched_by"] == "imdbid")
+            fulltext_count = sum(1 for r in results if r["matched_by"] == "fulltext")
+            logger.debug(
+                f"Found {len(results)} subtitles from OpenSubtitles (hash:{hash_count}, tag:{tag_count}, imdb:{imdb_count}, fulltext:{fulltext_count})"
+            )
 
             return results
 
         except Exception as e:
             error_msg = str(e).lower()
             if "syntax error" in error_msg or "expat" in error_msg:
-                logger.warning("OpenSubtitles server issue (HTML response) - trying other providers")
+                logger.warning(
+                    "OpenSubtitles server issue (HTML response) - trying other providers"
+                )
             else:
                 logger.error(f"OpenSubtitles search error: {e}")
             return []
@@ -295,20 +319,22 @@ class OpenSubtitlesProvider(SubtitleProvider):
             if not self._ensure_authenticated():
                 return None
 
-            subtitle_id = subtitle_info.get('id')
+            subtitle_id = subtitle_info.get("id")
             if not subtitle_id:
                 return None
 
-            logger.debug(f"Downloading subtitle: {subtitle_info.get('filename', 'unknown')}")
+            logger.debug(
+                f"Downloading subtitle: {subtitle_info.get('filename', 'unknown')}"
+            )
 
             response = self.server.DownloadSubtitles(self.token, [str(subtitle_id)])
             response = self._check_response(response)
 
-            if not response.get('data') or not response['data']:
+            if not response.get("data") or not response["data"]:
                 return None
 
             # Decode subtitle content (base64 + zlib compression)
-            subtitle_data = response['data'][0]['data']
+            subtitle_data = response["data"][0]["data"]
             decoded_data = base64.b64decode(subtitle_data)
             decompressed_data = zlib.decompress(decoded_data, 47)
 
@@ -330,7 +356,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
         is_hash_match: bool,
         is_tag_match: bool = False,
         is_imdb_match: bool = False,
-        is_fulltext_match: bool = False
+        is_fulltext_match: bool = False,
     ) -> int:
         """
         Score results with priority: hash > tag > imdb > fulltext.
@@ -367,8 +393,12 @@ class OpenSubtitlesProvider(SubtitleProvider):
             score += 1000
 
         # Tie-breakers: popularity and rating
-        score += int(subtitle_item.get('SubDownloadsCnt', 0)) // 100  # Downloads (max ~100 points)
-        score += int(float(subtitle_item.get('SubRating', 0)) * 10)   # Rating (max 100 points)
+        score += (
+            int(subtitle_item.get("SubDownloadsCnt", 0)) // 100
+        )  # Downloads (max ~100 points)
+        score += int(
+            float(subtitle_item.get("SubRating", 0)) * 10
+        )  # Rating (max 100 points)
 
         return score
 
@@ -377,7 +407,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
         if not content_bytes:
             return None
 
-        encodings = ['utf-8', 'utf-8-sig', 'iso-8859-1', 'windows-1252', 'cp1252']
+        encodings = ["utf-8", "utf-8-sig", "iso-8859-1", "windows-1252", "cp1252"]
 
         for encoding in encodings:
             try:
@@ -389,7 +419,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
         # Last resort with error replacement
         try:
-            return content_bytes.decode('utf-8', errors='replace')
+            return content_bytes.decode("utf-8", errors="replace")
         except Exception:
             logger.error("Failed to decode subtitle content")
             return None

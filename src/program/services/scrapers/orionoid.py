@@ -1,4 +1,5 @@
-""" Orionoid scraper module """
+"""Orionoid scraper module"""
+
 from typing import Dict
 
 from loguru import logger
@@ -27,7 +28,10 @@ class Orionoid(ScraperService):
 
         if self.settings.ratelimit:
             rate_limits = {
-                "api.orionoid.com": {"rate": 50/60, "capacity": 50}  # 50 calls per minute
+                "api.orionoid.com": {
+                    "rate": 50 / 60,
+                    "capacity": 50,
+                }  # 50 calls per minute
             }
         else:
             rate_limits = {}
@@ -36,7 +40,7 @@ class Orionoid(ScraperService):
             base_url=self.base_url,
             rate_limits=rate_limits,
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
         self._initialize()
 
@@ -45,7 +49,9 @@ class Orionoid(ScraperService):
         if not self.settings.enabled:
             return False
         if len(self.settings.api_key) != 32 or self.settings.api_key == "":
-            logger.error("Orionoid API Key is not valid or not set. Please check your settings.")
+            logger.error(
+                "Orionoid API Key is not valid or not set. Please check your settings."
+            )
             return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Orionoid timeout is not set or invalid.")
@@ -113,7 +119,9 @@ class Orionoid(ScraperService):
             if "rate limit" in str(e).lower() or "429" in str(e):
                 logger.debug(f"Orionoid ratelimit exceeded for item: {item.log_string}")
             else:
-                logger.exception(f"Orionoid exception for item: {item.log_string} - Exception: {e}")
+                logger.exception(
+                    f"Orionoid exception for item: {item.log_string} - Exception: {e}"
+                )
         return {}
 
     def _build_query_params(self, item: MediaItem) -> dict:
@@ -127,7 +135,7 @@ class Orionoid(ScraperService):
             "action": "retrieve",
             "type": media_type,
             "streamtype": "torrent",
-            "protocoltorrent": "magnet"
+            "protocoltorrent": "magnet",
         }
 
         if item.type == "season":
@@ -166,7 +174,9 @@ class Orionoid(ScraperService):
             torrents[stream.file.hash] = stream.file.name
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 

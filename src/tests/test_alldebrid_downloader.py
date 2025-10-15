@@ -174,4 +174,3 @@
 #     with open("src/tests/test_data/alldebrid_magnet_delete.json") as f:
 #         body = json.load(f)
 #     return lambda url, **params: body
-

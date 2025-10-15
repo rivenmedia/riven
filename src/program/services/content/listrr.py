@@ -1,4 +1,5 @@
 """Listrr content module"""
+
 from typing import Generator
 
 from kink import di
@@ -58,29 +59,49 @@ class Listrr:
     def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Listrr`"""
         try:
-            movie_items = self.api.get_items_from_Listrr("Movies", self.settings.movie_lists)
-            show_items = self.api.get_items_from_Listrr("Shows", self.settings.show_lists)
+            movie_items = self.api.get_items_from_Listrr(
+                "Movies", self.settings.movie_lists
+            )
+            show_items = self.api.get_items_from_Listrr(
+                "Shows", self.settings.show_lists
+            )
         except Exception as e:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
-        movie_items = [item for item in movie_items if not item_exists_by_any_id(imdb_id=item[0], tmdb_id=str(item[1]))]
-        show_items = [item for item in show_items if not item_exists_by_any_id(imdb_id=item[0], tvdb_id=str(item[1]))]
+        movie_items = [
+            item
+            for item in movie_items
+            if not item_exists_by_any_id(imdb_id=item[0], tmdb_id=str(item[1]))
+        ]
+        show_items = [
+            item
+            for item in show_items
+            if not item_exists_by_any_id(imdb_id=item[0], tvdb_id=str(item[1]))
+        ]
 
         listrr_items = []
         for item in movie_items:
             _, tmdb_id = item
-            listrr_items.append(MediaItem({
-                "tmdb_id": tmdb_id,
-                "requested_by": self.key,
-            }))
+            listrr_items.append(
+                MediaItem(
+                    {
+                        "tmdb_id": tmdb_id,
+                        "requested_by": self.key,
+                    }
+                )
+            )
 
         for item in show_items:
             _, tvdb_id = item
-            listrr_items.append(MediaItem({
-                "tvdb_id": tvdb_id,
-                "requested_by": self.key,
-            }))
+            listrr_items.append(
+                MediaItem(
+                    {
+                        "tvdb_id": tvdb_id,
+                        "requested_by": self.key,
+                    }
+                )
+            )
 
         logger.info(f"Fetched {len(listrr_items)} new items from Listrr")
         yield listrr_items

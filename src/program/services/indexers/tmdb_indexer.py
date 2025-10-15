@@ -13,6 +13,7 @@ from program.services.indexers.base import BaseIndexer
 
 class TMDBIndexer(BaseIndexer):
     """TMDB indexer class for movies"""
+
     key = "TMDBIndexer"
 
     def __init__(self):
@@ -20,27 +21,35 @@ class TMDBIndexer(BaseIndexer):
         self.key = "tmdbindexer"
         self.api = di[TMDBApi]
 
-    def run(self, in_item: MediaItem, log_msg: bool = True) -> Generator[Movie, None, None]:
+    def run(
+        self, in_item: MediaItem, log_msg: bool = True
+    ) -> Generator[Movie, None, None]:
         """Run the TMDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
             return
 
         if not (in_item.imdb_id or in_item.tmdb_id):
-            logger.error(f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it")
+            logger.error(
+                f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
+            )
             return
 
         if in_item.type not in ["movie", "mediaitem"]:
-            logger.debug(f"TMDB indexer skipping incorrect item type: {in_item.log_string}")
+            logger.debug(
+                f"TMDB indexer skipping incorrect item type: {in_item.log_string}"
+            )
             return
 
         # Scenario 1: Fresh indexing - create new Movie from API data
         if in_item.type == "mediaitem":
-            if (item := self._create_movie_from_id(in_item.imdb_id, in_item.tmdb_id)):
+            if item := self._create_movie_from_id(in_item.imdb_id, in_item.tmdb_id):
                 item = self.copy_items(in_item, item)
                 item.indexed_at = datetime.now()
                 if log_msg:
-                    logger.debug(f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})")
+                    logger.debug(
+                        f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})"
+                    )
                 yield item
                 return
 
@@ -49,11 +58,15 @@ class TMDBIndexer(BaseIndexer):
             if self._update_movie_metadata(in_item):
                 in_item.indexed_at = datetime.now()
                 if log_msg:
-                    logger.debug(f"Reindexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})")
+                    logger.debug(
+                        f"Reindexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})"
+                    )
                 yield in_item
                 return
 
-        logger.error(f"Failed to index movie with ids: imdb={in_item.imdb_id}, tmdb={in_item.tmdb_id}")
+        logger.error(
+            f"Failed to index movie with ids: imdb={in_item.imdb_id}, tmdb={in_item.tmdb_id}"
+        )
         return
 
     def _update_movie_metadata(self, movie: Movie) -> bool:
@@ -73,7 +86,9 @@ class TMDBIndexer(BaseIndexer):
             # Get movie details from API
             movie_details = None
             if tmdb_id:
-                result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
+                result = self.api.get_movie_details(
+                    tmdb_id, "append_to_response=external_ids,release_dates"
+                )
                 movie_details = result.data if result and result.data else None
             elif imdb_id:
                 results = self.api.get_from_external_id("imdb_id", imdb_id)
@@ -81,7 +96,9 @@ class TMDBIndexer(BaseIndexer):
                     movie_results = results.data.movie_results
                     if movie_results:
                         tmdb_id = str(movie_results[0].id)
-                        result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
+                        result = self.api.get_movie_details(
+                            tmdb_id, "append_to_response=external_ids,release_dates"
+                        )
                         movie_details = result.data if result and result.data else None
 
             if not movie_details:
@@ -92,7 +109,9 @@ class TMDBIndexer(BaseIndexer):
             release_date = None
             if getattr(movie_details, "release_date", None):
                 try:
-                    release_date = datetime.strptime(movie_details.release_date, "%Y-%m-%d")
+                    release_date = datetime.strptime(
+                        movie_details.release_date, "%Y-%m-%d"
+                    )
                 except (ValueError, TypeError):
                     pass
 
@@ -118,14 +137,21 @@ class TMDBIndexer(BaseIndexer):
                 for release_country in movie_details.release_dates.results:
                     if release_country.iso_3166_1 == "US":
                         for release in release_country.release_dates:
-                            if hasattr(release, "certification") and release.certification:
+                            if (
+                                hasattr(release, "certification")
+                                and release.certification
+                            ):
                                 content_rating = release.certification
                                 break
                         break
 
             # Update the Movie object's attributes
             movie.title = getattr(movie_details, "title", None)
-            movie.year = int(movie_details.release_date[:4]) if getattr(movie_details, "release_date", None) else None
+            movie.year = (
+                int(movie_details.release_date[:4])
+                if getattr(movie_details, "release_date", None)
+                else None
+            )
             movie.tmdb_id = str(movie_details.id)
             movie.imdb_id = getattr(movie_details, "imdb_id", None)
             movie.aired_at = release_date
@@ -146,7 +172,9 @@ class TMDBIndexer(BaseIndexer):
             logger.error(f"Error updating movie metadata: {str(e)}")
             return False
 
-    def _create_movie_from_id(self, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None) -> Optional[Movie]:
+    def _create_movie_from_id(
+        self, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None
+    ) -> Optional[Movie]:
         """Create a movie item from TMDB using available IDs."""
         if not imdb_id and not tmdb_id:
             logger.error("No IMDB ID or TMDB ID provided")
@@ -157,20 +185,26 @@ class TMDBIndexer(BaseIndexer):
         try:
             # Direct lookup by TMDB ID
             if tmdb_id:
-                result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
+                result = self.api.get_movie_details(
+                    tmdb_id, "append_to_response=external_ids,release_dates"
+                )
                 movie_details = result.data if result and result.data else None
 
             # Lookup via IMDB ID
             elif imdb_id:
                 results = self.api.get_from_external_id("imdb_id", imdb_id)
-                if (results and results.data) and not getattr(results.data, "movie_results", []):
+                if (results and results.data) and not getattr(
+                    results.data, "movie_results", []
+                ):
                     logger.debug(f"IMDB ID {imdb_id} is not a movie, skipping")
                     return None
 
                 movie_results = results.data.movie_results
                 if movie_results:
                     tmdb_id = str(movie_results[0].id)
-                    result = self.api.get_movie_details(tmdb_id, "append_to_response=external_ids,release_dates")
+                    result = self.api.get_movie_details(
+                        tmdb_id, "append_to_response=external_ids,release_dates"
+                    )
                     movie_details = result.data if result and result.data else None
 
         except Exception as e:
@@ -214,7 +248,10 @@ class TMDBIndexer(BaseIndexer):
                     if release_country.iso_3166_1 == "US":
                         # Get the first certification available
                         for release in release_country.release_dates:
-                            if hasattr(release, "certification") and release.certification:
+                            if (
+                                hasattr(release, "certification")
+                                and release.certification
+                            ):
                                 content_rating = release.certification
                                 break
                         break

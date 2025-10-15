@@ -5,6 +5,7 @@ Revises: 834cba7d26b4
 Create Date: 2025-01-05 12:00:00.000000
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -35,12 +36,17 @@ def upgrade() -> None:
     # Add 'absolute_number' column to 'Episode' if it doesn't exist
     episode_columns = [col["name"] for col in inspector.get_columns("Episode")]
     if "absolute_number" not in episode_columns:
-        op.add_column("Episode", sa.Column("absolute_number", sa.Integer(), nullable=True))
+        op.add_column(
+            "Episode", sa.Column("absolute_number", sa.Integer(), nullable=True)
+        )
 
     # Create index on 'absolute_number' if it doesn't exist
     episode_indexes = [ix["name"] for ix in inspector.get_indexes("Episode")]
     if "ix_episode_absolute_number" not in episode_indexes:
-        op.create_index("ix_episode_absolute_number", "Episode", ["absolute_number"], unique=False)
+        op.create_index(
+            "ix_episode_absolute_number", "Episode", ["absolute_number"], unique=False
+        )
+
 
 def downgrade() -> None:
     bind = op.get_bind()
