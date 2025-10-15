@@ -40,25 +40,28 @@ from dataclasses import dataclass
 from kink import di
 from loguru import logger
 import subprocess
-from typing import Dict, List, Optional, Set, TypedDict
 from http import HTTPStatus
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, TypedDict
 
 import threading
 
 from program.services.downloaders import Downloader
 import httpx
 
-from program.settings.models import FilesystemModel
-
-
 import pyfuse3
 import trio
-from .db import VFSDatabase, VFSEntry
+
+from program.settings.models import FilesystemModel
+from .db import VFSDatabase
 
 from program.settings.manager import settings_manager
 from .cache import Cache, CacheConfig
 
 log = logger
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
+    from program.media.filesystem_entry import FilesystemEntry
 
 
 @dataclass
@@ -72,9 +75,9 @@ class VFSNode:
     Attributes:
         name: Name of this node (e.g., "Frozen.mkv" or "movies")
         is_directory: True if this is a directory, False if it's a file
-        base_path: Path in database for files (e.g., "/movies/Frozen.mkv")
-                   For profile paths, this points to the canonical base path.
-                   For directories, this is None.
+        original_filename: Original filename from debrid provider (for files only)
+                          This is used to look up the MediaEntry in the database.
+                          For directories, this is None.
         inode: FUSE inode number assigned to this node
         children: Dict of child name -> VFSNode (only for directories)
         parent: Reference to parent VFSNode (None for root)
@@ -88,8 +91,8 @@ class VFSNode:
 
     name: str
     is_directory: bool
-    base_path: Optional[str] = None
-    inode: Optional[pyfuse3.InodeT] = None
+    original_filename: Optional[str] = None
+    inode: Optional[int] = None
     parent: Optional["VFSNode"] = None
 
     # Cached metadata for files (eliminates database queries)
@@ -506,7 +509,7 @@ class RivenVFS(pyfuse3.Operations):
         log.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
 
         # Synchronize library profiles with VFS structure
-        self.sync_library_profiles()
+        self.sync()
 
     # ========== VFS Tree Helper Methods ==========
 
@@ -538,7 +541,7 @@ class RivenVFS(pyfuse3.Operations):
         return current
 
     def _get_or_create_node(
-        self, path: str, is_directory: bool, base_path: Optional[str] = None
+        self, path: str, is_directory: bool, original_filename: Optional[str] = None
     ) -> VFSNode:
         """
         Get or create a node at the given path, creating parent directories as needed.
@@ -546,7 +549,7 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             path: NORMALIZED VFS path (caller must normalize)
             is_directory: Whether this is a directory
-            base_path: Base path in database (for files)
+            original_filename: Original filename from debrid provider (for files)
 
         Returns:
             The VFSNode at the path
@@ -570,7 +573,7 @@ class RivenVFS(pyfuse3.Operations):
                     child = VFSNode(
                         name=part,
                         is_directory=is_directory,
-                        base_path=base_path,
+                        original_filename=original_filename,
                         inode=self._assign_inode(),
                     )
                 else:
@@ -651,7 +654,7 @@ class RivenVFS(pyfuse3.Operations):
             current = current.parent
         return inodes
 
-    # ========== End VFS Tree Helper Methods ==========
+    # Public API methods
 
     async def _get_chunk_lock(self, path: str, chunk_start: int) -> trio.Lock:
         """
@@ -670,170 +673,112 @@ class RivenVFS(pyfuse3.Operations):
                 self._chunk_locks[chunk_key] = trio.Lock()
             return self._chunk_locks[chunk_key]
 
-    def sync_library_profiles(self) -> None:
+    def sync(self, item: Optional["MediaItem"] = None) -> None:
         """
-        Synchronize VFS with library profiles from settings.
+        Synchronize VFS with database state.
 
-        This method:
-        1. Re-matches all MediaEntry items against current library profiles
-        2. Builds the set of current VFS paths based on matched profiles
-        3. Removes stale paths (paths that no longer exist)
-        4. Adds new paths (paths that didn't exist before)
+        Two modes:
+        1. Full sync (item=None): Re-match all entries and rebuild entire VFS tree
+        2. Individual sync (item provided): Re-register this specific item (unregister + register)
 
-        Note: Uses incremental updates to preserve kernel inode cache consistency.
-        Directories are created automatically by the VFS based on file paths.
+        Args:
+            item: If provided, only sync this item. If None, full sync.
 
-        Called automatically:
-        - During RivenVFS initialization
-        - When settings change (via FilesystemService)
+        Called:
+        - During RivenVFS initialization (full sync)
+        - When settings change (full sync)
+        - After adding subtitles to an item (individual sync)
+        - After item metadata changes (individual sync)
+        """
+        if item is None:
+            self._sync_full()
+        else:
+            self._sync_individual(item)
+
+    def add(self, item: "MediaItem") -> bool:
+        """
+        Add a MediaItem to the VFS.
+
+        Registers the item's MediaEntry (video file) and all associated SubtitleEntry
+        objects in the VFS tree.
+
+        Args:
+            item: MediaItem to add to VFS
+
+        Returns:
+            True if successfully added, False otherwise
         """
         from program.media.media_entry import MediaEntry
-        from program.services.library_profile_matcher import LibraryProfileMatcher
 
-        log.log("VFS", "Synchronizing library profiles with VFS")
+        # Only process if this item has a filesystem entry
+        if not item.filesystem_entry:
+            log.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
+            return False
 
-        matcher = LibraryProfileMatcher()
+        entry = item.filesystem_entry
+        if not isinstance(entry, MediaEntry):
+            log.warning(f"Item {item.id} filesystem_entry is not a MediaEntry")
+            return False
 
-        # Step 1: Re-match all entries against current library profiles and build metadata map
-        from program.db.db import db as db_module
+        # Register the MediaEntry (video file)
+        video_paths = self._register_filesystem_entry(entry)
 
-        with db_module.Session() as session:
-            entries = (
-                session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
-            )
+        if not video_paths:
+            return False
 
-            current_paths = set()
-            path_to_base = {}  # Build inside session to avoid detached instance errors
-            path_to_metadata = {}  # Cache metadata for each path
-            rematched_count = 0
+        # Mark as available in VFS
+        entry.available_in_vfs = True
 
-            for entry in entries:
-                # Get the MediaItem for this entry to re-match profiles
-                item = entry.media_item
-                if not item:
-                    log.warning(
-                        f"MediaEntry {entry.id} has no associated MediaItem, skipping"
-                    )
-                    continue
+        # Register all subtitles for this video
+        for subtitle in item.subtitles:
+            self._register_filesystem_entry(subtitle, video_paths=video_paths)
+            subtitle.available_in_vfs = True
 
-                # Re-match library profiles based on current settings
-                new_profiles = matcher.get_matching_profiles(item)
-                old_profiles = entry.library_profiles or []
+        return True
 
-                # Update if profiles changed
-                if set(new_profiles) != set(old_profiles):
-                    entry.library_profiles = new_profiles
-                    rematched_count += 1
+    def remove(self, item: "MediaItem") -> bool:
+        """
+        Remove a MediaItem from the VFS.
 
-                # Get all current VFS paths for this entry
-                vfs_paths = entry.get_library_paths()
-                current_paths.update(vfs_paths)
+        Removes the item's MediaEntry (video file) and all associated SubtitleEntry
+        objects from the VFS tree, and prunes empty parent directories.
 
-                # Build path to base path mapping and metadata cache (inside session)
-                if vfs_paths:
-                    base_path = vfs_paths[0]  # First path is always base path
+        Args:
+            item: MediaItem to remove from VFS
 
-                    # Extract metadata from entry (use correct attribute names!)
-                    metadata = {
-                        "file_size": entry.file_size,
-                        "created_at": (
-                            entry.created_at.isoformat() if entry.created_at else None
-                        ),
-                        "updated_at": (
-                            entry.updated_at.isoformat() if entry.updated_at else None
-                        ),
-                        "entry_type": entry.entry_type,
-                    }
+        Returns:
+            True if successfully removed, False otherwise
+        """
+        from program.media.media_entry import MediaEntry
 
-                    for vfs_path in vfs_paths:
-                        path_to_base[vfs_path] = base_path
-                        path_to_metadata[vfs_path] = metadata
+        # Only process if this item has a filesystem entry
+        if not item.filesystem_entry:
+            log.debug(f"Item {item.id} has no filesystem_entry, skipping VFS remove")
+            return False
 
-            session.commit()
-            log.info(
-                f"Re-matched {rematched_count} entries with updated library profiles"
-            )
+        entry = item.filesystem_entry
+        if not isinstance(entry, MediaEntry):
+            log.warning(f"Item {item.id} filesystem_entry is not a MediaEntry")
+            return False
 
-        # Step 2: Rebuild VFS tree from current paths
-        # Build new tree outside the lock to minimize critical section
-        new_root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
-        new_inode_to_node: Dict[int, VFSNode] = {pyfuse3.ROOT_INODE: new_root}
-        new_next_inode = self._next_inode  # Preserve inode counter
+        log.debug(f"Removing VFS nodes for item {item.id}")
 
-        added_count = 0
-        directories_to_invalidate = set()
+        # Unregister the MediaEntry (video file)
+        video_paths = self._unregister_filesystem_entry(entry)
 
-        # Build the new tree (temporarily use instance variables for _get_or_create_node to work)
-        # This is safe because sync_library_profiles is only called from one thread at a time
-        saved_root = self._root
-        saved_inode_to_node = self._inode_to_node
-        saved_next_inode = self._next_inode
+        # Mark as not available in VFS
+        entry.available_in_vfs = False
 
-        self._root = new_root
-        self._inode_to_node = new_inode_to_node
-        self._next_inode = new_next_inode
+        # Unregister all subtitles for this video
+        for subtitle in item.subtitles:
+            self._unregister_filesystem_entry(subtitle, video_paths=video_paths)
+            subtitle.available_in_vfs = False
 
-        for vfs_path in current_paths:
-            # Get base path and metadata for this VFS path
-            base_path = path_to_base.get(vfs_path, vfs_path)
-            metadata = path_to_metadata.get(vfs_path, {})
+        if video_paths:
+            log.debug(f"Removed item {item.id} from VFS ({len(video_paths)} path(s))")
+            return True
 
-            # Create node in tree (creates parent directories automatically)
-            node = self._get_or_create_node(
-                path=vfs_path,
-                is_directory=False,  # We know these are files
-                base_path=base_path,
-            )
-
-            # Populate cached metadata in the node (eliminates DB queries in getattr!)
-            node.file_size = metadata.get("file_size")
-            node.created_at = metadata.get("created_at")
-            node.updated_at = metadata.get("updated_at")
-            node.entry_type = metadata.get("entry_type")
-
-            added_count += 1
-
-            # Collect parent directories for invalidation
-            parent_node = node.parent
-            while parent_node and parent_node != new_root:
-                directories_to_invalidate.add(parent_node.get_full_path())
-                parent_node = parent_node.parent
-
-        # Capture the new tree state
-        new_next_inode = self._next_inode
-
-        # Atomic swap: Replace old tree with new tree under lock
-        with self._tree_lock:
-            self._root = new_root
-            self._inode_to_node = new_inode_to_node
-            self._next_inode = new_next_inode
-
-        log.log(
-            "VFS",
-            f"Sync complete: rebuilt tree with {added_count} files, "
-            f"re-matched {rematched_count} entries",
-        )
-
-        # Step 3: Invalidate directory caches for changed directories
-        if added_count > 0:
-            try:
-                # Invalidate root directory
-                pyfuse3.invalidate_inode(pyfuse3.ROOT_INODE, attr_only=False)
-
-                # Invalidate all affected parent directories
-                for dir_path in directories_to_invalidate:
-                    node = self._get_node_by_path(dir_path)
-                    if node and node.inode:
-                        try:
-                            pyfuse3.invalidate_inode(node.inode, attr_only=False)
-                        except OSError:
-                            pass  # Ignore if kernel hasn't cached this inode yet
-
-                log.info(
-                    f"Invalidated {len(directories_to_invalidate)} directory caches after library sync"
-                )
-            except Exception as e:
-                log.debug(f"Could not invalidate directory caches: {e}")
+        return False
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
@@ -841,6 +786,8 @@ class RivenVFS(pyfuse3.Operations):
             log.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
             self._cleanup_mountpoint(self._mountpoint)
             self._mounted = False
+
+    # Helper methods
 
     def __del__(self):
         """Ensure cleanup on garbage collection."""
@@ -938,265 +885,384 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             log.exception("pyfuse3.terminate() failed")
 
-    # Public API methods
-    def add_file(
-        self,
-        path: str,
-        url: str,
-        size: Optional[int] = None,
-        provider: Optional[str] = None,
-        provider_download_id: Optional[str] = None,
-    ) -> bool:
+    def _sync_full(self) -> None:
         """
-        Add a virtual file to the filesystem.
+        Full VFS sync: Re-match all entries and rebuild entire VFS tree.
 
-        Args:
-            path: Virtual path where the file should appear
-            url: Source URL or provider-specific restricted URL
-            size: File size in bytes (optional, will be detected if not provided)
-            provider: Provider name (e.g., 'realdebrid', 'premiumize')
-            provider_download_id: Provider-specific download ID
-
-        Returns:
-            True if file was added successfully
-
-        Raises:
-            ValueError: If parent directory doesn't exist or path is invalid
+        Steps:
+        1. Re-match all MediaEntry items against current library profiles
+        2. Clear VFS tree
+        3. Re-register all entries using add()
         """
-        path = self._normalize_path(path)
+        from program.media.media_entry import MediaEntry
+        from program.services.library_profile_matcher import LibraryProfileMatcher
 
-        # Add file to database (creates parent directories automatically)
-        self.db.add_file(
-            path,
-            url,
-            int(size or 0),
-            provider=provider,
-            provider_download_id=provider_download_id,
-        )
+        log.log("VFS", "Full sync: re-matching library profiles")
 
-        # Create node in tree (creates parent directories automatically)
-        with self._tree_lock:
-            node = self._get_or_create_node(
-                path=path,
-                is_directory=False,
-                base_path=path,  # For add_file, path is always the base path
+        matcher = LibraryProfileMatcher()
+
+        # Step 1: Re-match all entries against current library profiles and collect item IDs
+        from program.db.db import db as db_module
+
+        item_ids = []
+        rematched_count = 0
+
+        with db_module.Session() as session:
+            entries = (
+                session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
             )
 
-            # Populate metadata in node (so getattr doesn't need DB query)
-            from datetime import datetime, timezone
+            for entry in entries:
+                # Get the MediaItem for this entry to re-match profiles
+                item = entry.media_item
+                if not item:
+                    log.warning(
+                        f"MediaEntry {entry.id} has no associated MediaItem, skipping"
+                    )
+                    continue
 
-            now = datetime.now(timezone.utc)
-            node.file_size = int(size or 0)
-            node.created_at = now.isoformat()
-            node.updated_at = now.isoformat()
-            node.entry_type = "media"  # add_file creates media entries
+                # Re-match library profiles based on current settings
+                new_profiles = matcher.get_matching_profiles(item)
+                old_profiles = entry.library_profiles or []
 
-            # Get parent inodes for invalidation (must be done inside lock)
-            parent_inodes = self._get_parent_inodes(node)
+                # Update if profiles changed
+                if set(new_profiles) != set(old_profiles):
+                    entry.library_profiles = new_profiles
+                    rematched_count += 1
 
-        # Invalidate FUSE cache to ensure directory listings are updated
-        # This is crucial for media players that cache directory structure
-        self._invalidate_directory_cache(path, parent_inodes)
+                # Store item ID for later registration (avoid duplicates)
+                if item.id not in item_ids:
+                    item_ids.append(item.id)
 
-        log.info(f"Added file to VFS: {path}")
-        return True
+            session.commit()
+            log.debug(f"Re-matched {rematched_count} entries with updated profiles")
 
-    def register_existing_file(self, path: str) -> bool:
+        # Step 2: Clear VFS tree and rebuild from scratch
+        log.debug("Clearing VFS tree for rebuild")
+        with self._tree_lock:
+            # Create new root node
+            self._root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
+            self._inode_to_node = {pyfuse3.ROOT_INODE: self._root}
+            # Keep inode counter to avoid reusing inodes
+            # self._next_inode is preserved
+
+        # Step 3: Re-register all items (in a new session to avoid detached instance errors)
+        log.debug(f"Re-registering {len(item_ids)} items")
+        registered_count = 0
+
+        with db_module.Session() as session:
+            for item_id in item_ids:
+                try:
+                    # Re-fetch item in this session
+                    from program.media.item import MediaItem
+
+                    item = (
+                        session.query(MediaItem).filter(MediaItem.id == item_id).first()
+                    )
+                    if not item:
+                        continue
+
+                    # Use add() to register the item (handles both media and subtitles)
+                    if self.add(item):
+                        registered_count += 1
+                except Exception as e:
+                    log.error(f"Failed to register item {item_id}: {e}")
+
+        log.log("VFS", f"Full sync complete: re-registered {registered_count} items")
+
+        # Step 4: Invalidate directory caches to ensure Plex/Jellyfin see the changes
+        if registered_count > 0:
+            try:
+                # Invalidate root directory
+                pyfuse3.invalidate_inode(pyfuse3.ROOT_INODE, attr_only=False)
+                log.debug(f"Invalidated root directory cache after sync")
+            except Exception as e:
+                log.trace(f"Could not invalidate directory caches: {e}")
+
+    def _sync_individual(self, item: "MediaItem") -> None:
         """
-        Register an existing file with the FUSE layer without creating database entries.
+        Individual sync: Re-register a specific item (unregister + register).
 
-        This is useful when FilesystemEntry records already exist in the database
-        but need to be made accessible via FUSE.
-
-        For library profile paths (e.g., /kids/movies/...), this method resolves them
-        to the base path (e.g., /movies/...) for database lookup, then creates a node
-        in the tree with the base_path reference.
+        This is used when an item's VFS representation needs to be updated without
+        doing a full rebuild. For example:
+        - After adding subtitles to an existing item
+        - After metadata changes that affect paths
 
         Args:
-            path: Virtual path of the existing file (can be base path or profile path)
+            item: MediaItem to re-sync
+        """
+        from sqlalchemy.orm import object_session
+        from program.db.db import db as db_module
+
+        log.debug(f"Individual sync: re-registering item {item.id}")
+
+        # Check if item is already in a session
+        existing_session = object_session(item)
+
+        if existing_session:
+            # Item is in an active session - refresh relationships to get latest data
+            # This is crucial when subtitles were just added in the same session
+            existing_session.refresh(item, attribute_names=["subtitles"])
+
+            # Step 1: Remove existing VFS nodes for this item
+            self.remove(item)
+
+            # Step 2: Re-add the item with current state (including new subtitles)
+            self.add(item)
+        else:
+            # Item is detached - fetch it in a new session
+            with db_module.Session() as session:
+                from program.media.item import MediaItem
+
+                fresh_item = (
+                    session.query(MediaItem).filter(MediaItem.id == item.id).first()
+                )
+                if not fresh_item:
+                    log.warning(f"Item {item.id} not found in database, cannot sync")
+                    return
+
+                # Step 1: Remove existing VFS nodes for this item
+                self.remove(fresh_item)
+
+                # Step 2: Re-add the item with current state (including new subtitles)
+                self.add(fresh_item)
+
+        log.debug(f"Individual sync complete for item {item.id}")
+
+    def _register_filesystem_entry(
+        self, entry: FilesystemEntry, video_paths: Optional[list[str]] = None
+    ) -> list[str]:
+        """
+        Register a FilesystemEntry (MediaEntry or SubtitleEntry) in the VFS.
+
+        Args:
+            entry: FilesystemEntry to register (MediaEntry or SubtitleEntry)
+            video_paths: For SubtitleEntry, the video paths to register subtitles alongside
 
         Returns:
-            True if file was registered successfully
+            List of registered VFS paths
         """
-        path = self._normalize_path(path)
+        from program.media.media_entry import MediaEntry
+        from program.media.subtitle_entry import SubtitleEntry
+        import os
 
-        with self._tree_lock:
-            # Get base path from node if it exists, otherwise resolve it
-            node = self._get_node_by_path(path)
-            if node:
-                base_path = node.base_path or path
-            else:
-                base_path = self._resolve_path(path)
+        if isinstance(entry, MediaEntry):
+            # Register MediaEntry (video file)
+            all_paths = entry.get_all_vfs_paths()
+            registered_paths = []
 
-        # Check if base path exists in database and get metadata
-        entry_info = self.db.get_entry(base_path)
-        if not entry_info:
-            log.warning(
-                f"Cannot register non-existent file: {path} (resolved: {base_path})"
-            )
-            return False
+            for path in all_paths:
+                if self._register_clean_path(
+                    clean_path=path,
+                    original_filename=entry.original_filename,
+                    file_size=entry.file_size,
+                    created_at=(
+                        entry.created_at.isoformat() if entry.created_at else None
+                    ),
+                    updated_at=(
+                        entry.updated_at.isoformat() if entry.updated_at else None
+                    ),
+                    entry_type="media",
+                ):
+                    registered_paths.append(path)
 
-        with self._tree_lock:
-            # Create node in tree (creates parent directories automatically)
-            # Note: This is called during sync, so the node might already exist
-            if not node:
-                node = self._get_or_create_node(
-                    path=path, is_directory=False, base_path=base_path
+            return registered_paths
+
+        elif isinstance(entry, SubtitleEntry):
+            # Register SubtitleEntry (subtitle file)
+            if not video_paths:
+                log.warning(f"Cannot register subtitle {entry.id} without video_paths")
+                return []
+
+            registered_paths = []
+            language = entry.language
+
+            for video_path in video_paths:
+                # Generate subtitle path alongside video
+                directory = os.path.dirname(video_path)
+                filename = os.path.basename(video_path)
+                name_without_ext = os.path.splitext(filename)[0]
+                subtitle_path = os.path.join(
+                    directory, f"{name_without_ext}.{language}.srt"
                 )
 
-            # Populate metadata in node from database entry
-            node.file_size = entry_info.get("size", 0)
-            node.created_at = entry_info.get("created")
-            node.updated_at = entry_info.get("modified")
-            node.entry_type = entry_info.get("entry_type", "media")
+                if self._register_clean_path(
+                    clean_path=subtitle_path,
+                    original_filename=f"subtitle:{entry.parent_original_filename}:{language}",
+                    file_size=entry.file_size,
+                    created_at=(
+                        entry.created_at.isoformat() if entry.created_at else None
+                    ),
+                    updated_at=(
+                        entry.updated_at.isoformat() if entry.updated_at else None
+                    ),
+                    entry_type="subtitle",
+                ):
+                    registered_paths.append(subtitle_path)
 
-            # Get parent inodes for invalidation (must be done inside lock)
-            parent_inodes = self._get_parent_inodes(node)
+            return registered_paths
 
-        # Invalidate FUSE cache to ensure directory listings are updated
-        self._invalidate_directory_cache(path, parent_inodes)
+        else:
+            log.warning(f"Unknown FilesystemEntry type: {type(entry)}")
+            return []
 
-        return True
-
-    def _resolve_path(self, path: str) -> str:
+    def _unregister_filesystem_entry(
+        self, entry: FilesystemEntry, video_paths: Optional[list[str]] = None
+    ) -> list[str]:
         """
-        Resolve a path to its base path using the VFS tree.
-
-        If the path is a library profile path, returns the base path stored in the node.
-        If the node doesn't exist yet, attempts to strip library profile prefixes.
+        Unregister a FilesystemEntry (MediaEntry or SubtitleEntry) from the VFS.
 
         Args:
-            path: NORMALIZED path to resolve (caller must normalize)
+            entry: FilesystemEntry to unregister (MediaEntry or SubtitleEntry)
+            item: Associated MediaItem
+            video_paths: For SubtitleEntry, the video paths to unregister subtitles from
 
         Returns:
-            Resolved path (base path if it's a profile path, otherwise original path)
+            List of unregistered VFS paths
         """
-        # Check if node exists and has base_path
-        node = self._get_node_by_path(path)
-        if node and node.base_path:
-            return node.base_path
+        from program.media.media_entry import MediaEntry
+        from program.media.subtitle_entry import SubtitleEntry
+        import os
 
-        # If not in tree, try to strip library profile prefix
-        # This handles the case where we're registering a library profile path
-        # before the node exists in the tree
-        base_path = self._strip_library_profile_prefix(path)
-        return base_path
+        if isinstance(entry, MediaEntry):
+            # Unregister MediaEntry (video file)
+            all_paths = entry.get_all_vfs_paths()
+            unregistered_paths = []
 
-    def _strip_library_profile_prefix(self, path: str) -> str:
+            for path in all_paths:
+                if self._unregister_clean_path(path):
+                    unregistered_paths.append(path)
+
+            return unregistered_paths
+
+        elif isinstance(entry, SubtitleEntry):
+            # Unregister SubtitleEntry (subtitle file)
+            if not video_paths:
+                log.warning(
+                    f"Cannot unregister subtitle {entry.id} without video_paths"
+                )
+                return []
+
+            unregistered_paths = []
+            language = entry.language
+
+            for video_path in video_paths:
+                # Generate subtitle path alongside video
+                directory = os.path.dirname(video_path)
+                filename = os.path.basename(video_path)
+                name_without_ext = os.path.splitext(filename)[0]
+                subtitle_path = os.path.join(
+                    directory, f"{name_without_ext}.{language}.srt"
+                )
+
+                if self._unregister_clean_path(subtitle_path):
+                    unregistered_paths.append(subtitle_path)
+
+            return unregistered_paths
+
+        else:
+            log.warning(f"Unknown FilesystemEntry type: {type(entry)}")
+            return []
+
+    def _register_clean_path(
+        self,
+        clean_path: str,
+        original_filename: str,
+        file_size: int,
+        created_at: Optional[str],
+        updated_at: Optional[str],
+        entry_type: str = "media",
+    ) -> bool:
         """
-        Strip library profile prefix from a path if present.
+        Register a clean VFS path with original_filename mapping.
 
-        Args:
-            path: Path that may have a library profile prefix (e.g., /recent/movies/...)
-
-        Returns:
-            Base path without library profile prefix (e.g., /movies/...)
+        Creates VFSNode with original_filename reference for later resolution.
         """
-        from program.settings.manager import settings_manager
+        clean_path = self._normalize_path(clean_path)
 
-        profiles = settings_manager.settings.filesystem.library_profiles or {}
-
-        for profile in profiles.values():
-            if not profile.enabled:
-                continue
-
-            prefix = profile.library_path
-            if path.startswith(prefix + "/"):
-                # Strip the prefix and return the base path
-                # e.g., "/recent/movies/Title..." -> "/movies/Title..."
-                return path[len(prefix) :]
-
-        # No profile prefix found, return as-is
-        return path
-
-    def rename_file(self, old_path: str, new_path: str) -> bool:
-        """
-        Rename a file from old_path to new_path and update VFS caches and inode mappings.
-
-        Performs a database rename and ensures FUSE entry caches, path↔inode mappings, and parent directory cache entries are updated or invalidated to reflect the move.
-
-        Parameters:
-            old_path (str): Current filesystem path of the file.
-            new_path (str): Target filesystem path for the file.
-
-        Returns:
-            bool: `True` if the file was renamed successfully, `False` otherwise.
-        """
-        old_path = self._normalize_path(old_path)
-        new_path = self._normalize_path(new_path)
-
-        # Rename in database
-        if not self.db.rename(old_path, new_path):
-            log.warning(f"Failed to rename file in database: {old_path} -> {new_path}")
-            return False
-
-        # Update VFS tree
         with self._tree_lock:
-            # Get old node to preserve metadata
-            old_node = self._get_node_by_path(old_path)
-            old_metadata = None
-            if old_node:
-                # Save metadata before removing
-                old_metadata = {
-                    "file_size": old_node.file_size,
-                    "created_at": old_node.created_at,
-                    "updated_at": old_node.updated_at,
-                    "entry_type": old_node.entry_type,
-                }
-                self._remove_node(old_path)
+            # Check if already registered
+            existing_node = self._get_node_by_path(clean_path)
+            if existing_node:
+                log.debug(f"Path already registered: {clean_path}")
+                return False
 
-            # Create new node
-            new_node = self._get_or_create_node(
-                path=new_path,
-                is_directory=False,
-                base_path=new_path,  # For rename, new_path is the base path
+            # Create node in tree
+            node = self._get_or_create_node(
+                path=clean_path, is_directory=False, original_filename=original_filename
             )
 
-            # Restore metadata to new node
-            if old_metadata:
-                new_node.file_size = old_metadata["file_size"]
-                new_node.created_at = old_metadata["created_at"]
-                new_node.updated_at = old_metadata["updated_at"]
-                new_node.entry_type = old_metadata["entry_type"]
+            # Populate metadata in node
+            node.file_size = file_size
+            node.created_at = created_at
+            node.updated_at = updated_at
+            node.entry_type = entry_type
 
-            # Get parent inodes for invalidation (must be done inside lock)
-            parent_inodes = self._get_parent_inodes(new_node)
+            # Get parent inodes for invalidation
+            parent_inodes = self._get_parent_inodes(node)
 
-        # Invalidate FUSE cache for both old and new locations
-        self._invalidate_rename_cache(old_path, new_path, None)
-        self._invalidate_directory_cache(new_path, parent_inodes)
+        # Invalidate FUSE cache
+        self._invalidate_directory_cache(clean_path, parent_inodes)
 
-        log.info(f"Renamed file in VFS: {old_path} -> {new_path}")
         return True
 
-    def file_exists(self, path: str) -> bool:
+    def _unregister_clean_path(self, path: str) -> bool:
         """
-        Check whether a virtual file exists at the given path.
+        Unregister a VFS path and prune empty parent directories.
+
+        Args:
+            path: VFS path to unregister
 
         Returns:
-            true if the file exists, false otherwise.
+            True if successfully unregistered
         """
-        return self.db.exists(self._normalize_path(path))
+        normalized_path = self._normalize_path(path)
+        inodes_to_invalidate = set()
 
-    def get_file_info(self, path: str) -> Optional[VFSEntry]:
-        """
-        Get information about a virtual file.
+        with self._tree_lock:
+            node = self._get_node_by_path(normalized_path)
 
-        Resolves library profile paths to base paths for database lookup using alias map.
-        """
-        path = self._normalize_path(path)
-        resolved_path = self._resolve_path(path)
-        return self.db.get_entry(resolved_path)
+            if not node:
+                return False
 
-    def list_directory(self, path: str) -> list[Dict]:
-        """List contents of a virtual directory using VFS tree."""
-        return self._list_directory_cached(self._normalize_path(path))
+            # Remove the file node
+            parent = node.parent
+            if not parent:
+                return False
 
-    def get_opener_stats(self) -> Dict[str, Dict]:
-        """Get statistics for each opener (process that opened files)."""
-        return self._opener_stats.copy()
+            parent.remove_child(node.name)
+            if node.inode in self._inode_to_node:
+                del self._inode_to_node[node.inode]
 
-    # Helper methods
+            # Walk up and remove empty parent directories
+            current = parent
+            while current and current.parent:  # Don't remove root
+                # Check if directory is now empty
+                if len(current.children) == 0:
+                    # Remove empty directory
+                    grandparent = current.parent
+                    inodes_to_invalidate.add(current.inode)
+                    grandparent.remove_child(current.name)
+                    if current.inode in self._inode_to_node:
+                        del self._inode_to_node[current.inode]
+
+                    # Move up to check grandparent
+                    current = grandparent
+                else:
+                    # Directory not empty, stop walking up
+                    # But still invalidate this directory's cache
+                    inodes_to_invalidate.add(current.inode)
+                    break
+
+        # Invalidate directory caches
+        for inode in inodes_to_invalidate:
+            try:
+                pyfuse3.invalidate_inode(inode, attr_only=False)
+            except Exception:
+                pass
+
+        return True
+
     def _normalize_path(self, path: str) -> str:
         """Normalize a virtual path to canonical form."""
         path = (path or "/").strip()
@@ -1213,24 +1279,11 @@ class RivenVFS(pyfuse3.Operations):
             return "/"
         return "/".join(path.rstrip("/").split("/")[:-1]) or "/"
 
-    def _join_paths(self, base: str, *parts: str) -> str:
-        """Join path components safely."""
-        from pathlib import PurePosixPath
-
-        p = PurePosixPath(base)
-        for part in parts:
-            p = p / part
-        return self._normalize_path(str(p))
-
-    def _exists_cached(self, path: str) -> bool:
-        """Check if path exists in VFS tree (no database query)."""
-        return self._get_node_by_path(path) is not None
-
     def _list_directory_cached(self, path: str) -> list[Dict]:
         """
         List directory contents using VFS tree for O(1) lookups.
 
-        The VFS tree is built during sync_library_profiles() and provides
+        The VFS tree is built during sync() and provides
         instant directory listings without any database queries.
 
         Args:
@@ -1340,77 +1393,6 @@ class RivenVFS(pyfuse3.Operations):
             parent_inodes, attr_only=True, operation="add parent"
         )
 
-    def _invalidate_removed_entry_cache(
-        self, file_path: str, inode: Optional[pyfuse3.InodeT]
-    ) -> None:
-        """
-        Invalidate FUSE cache when removing files.
-
-        Args:
-            file_path: NORMALIZED file path (caller must normalize)
-            inode: Inode of removed file
-        """
-        parent_path = self._get_parent_path(file_path)
-        self._invalidate_entry(
-            parent_path,
-            os.path.basename(file_path),
-            deleted_inode=inode,
-            operation="remove",
-        )
-
-    def _invalidate_potentially_removed_dirs(self, file_path: str) -> None:
-        """
-        Invalidate parent directory entries that may have been removed due to pruning.
-
-        Args:
-            file_path: NORMALIZED file path (caller must normalize)
-        """
-        try:
-            parent = self._get_parent_path(file_path)
-            grandparent = self._get_parent_path(parent)
-
-            # Invalidate the entry for 'parent' under its parent directory (grandparent)
-            name = os.path.basename(parent.rstrip("/"))
-            if name:
-                self._invalidate_entry(grandparent, name, operation="prune")
-
-            # One more level up (e.g., title dir)
-            ggparent = self._get_parent_path(grandparent)
-            gname = os.path.basename(grandparent.rstrip("/"))
-            if gname:
-                self._invalidate_entry(ggparent, gname, operation="prune")
-        except Exception as e:
-            if getattr(e, "errno", None) != errno.ENOENT:
-                log.warning(
-                    f"Failed to invalidate parent dir entries for {file_path}: {e}"
-                )
-
-    def _invalidate_rename_cache(
-        self, old_path: str, new_path: str, inode: Optional[pyfuse3.InodeT]
-    ) -> None:
-        """
-        Invalidate FUSE cache when renaming files.
-
-        Args:
-            old_path: NORMALIZED old file path (caller must normalize)
-            new_path: NORMALIZED new file path (caller must normalize)
-            inode: Inode of renamed file
-        """
-        # Invalidate old parent directory (mark as deleted)
-        old_parent = self._get_parent_path(old_path)
-        self._invalidate_entry(
-            old_parent,
-            os.path.basename(old_path),
-            deleted_inode=inode,
-            operation="rename (old)",
-        )
-
-        # Invalidate new parent directory (mark as added)
-        new_parent = self._get_parent_path(new_path)
-        self._invalidate_entry(
-            new_parent, os.path.basename(new_path), operation="rename (new)"
-        )
-
     # FUSE Operations
     async def getattr(self, inode: pyfuse3.InodeT, ctx=None) -> pyfuse3.EntryAttributes:
         """Get file/directory attributes."""
@@ -1459,7 +1441,7 @@ class RivenVFS(pyfuse3.Operations):
                 return attrs
 
             # It's a file - use cached metadata from node (NO DATABASE QUERY!)
-            # Metadata was populated during sync_library_profiles()
+            # Metadata was populated during sync()
 
             # Parse timestamps from cached metadata
             if node.created_at:
@@ -1614,9 +1596,6 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                 path = node.get_full_path()
-                # Cache metadata from node
-                file_size = node.file_size
-                entry_type = node.entry_type
 
             log.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
@@ -1624,14 +1603,14 @@ class RivenVFS(pyfuse3.Operations):
             if flags & os.O_RDWR or flags & os.O_WRONLY:
                 raise pyfuse3.FUSEError(errno.EACCES)
 
-            # Create file handle with cached node metadata (no DB query!)
+            # Create file handle with minimal metadata
+            # Everything else will be resolved from the inode when needed
             fh = self._next_fh
             self._next_fh += 1
-            # Store metadata in handle (don't store node reference to avoid holding lock)
             self._file_handles[fh] = {
-                "path": path,
-                "file_size": file_size,
-                "entry_type": entry_type,
+                "inode": inode,  # Store inode to resolve node/metadata later
+                "is_scanner": False,  # Will be detected based on read pattern (large jumps)
+                "buffers": [],
                 "sequential_reads": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
@@ -1643,13 +1622,29 @@ class RivenVFS(pyfuse3.Operations):
                 "prefetch_window_end": -1,
             }
 
-            log.trace(f"open: path={path} fh={fh} size={file_size} type={entry_type}")
+            log.trace(f"open: path={path} fh={fh}")
             return pyfuse3.FileInfo(fh=pyfuse3.FileHandleT(fh))
         except pyfuse3.FUSEError:
             raise
 
     async def read(self, fh: pyfuse3.FileHandleT, off: int, size: int) -> bytes:
-        """Simplified read path: fixed-size chunking and straightforward sequential prefetch."""
+        """
+        Read data from file at offset.
+
+        Implements efficient streaming with:
+        - Fixed-size chunk fetching (32MB default)
+        - Concurrent chunk fetching for cache misses
+        - Sequential read detection and prefetching
+        - Per-chunk locking to prevent duplicate fetches
+
+        Args:
+            fh: File handle from open()
+            off: Byte offset to start reading from
+            size: Number of bytes to read
+
+        Returns:
+            Bytes read from file (may be less than size at EOF)
+        """
         try:
             # Log cache stats asynchronously (don't block on trim/I/O)
             try:
@@ -1660,13 +1655,23 @@ class RivenVFS(pyfuse3.Operations):
             handle_info = self._file_handles.get(fh)
             if not handle_info:
                 raise pyfuse3.FUSEError(errno.EBADF)
-            path = handle_info.get("path") or ""
-            if not path:
+
+            # Resolve node from inode to get current metadata
+            inode = handle_info.get("inode")
+            if not inode:
                 raise pyfuse3.FUSEError(errno.EBADF)
 
-            # Get cached metadata from file handle (populated in open())
-            file_size = handle_info.get("file_size")
-            entry_type = handle_info.get("entry_type")
+            with self._tree_lock:
+                node = self._inode_to_node.get(inode)
+                if not node or node.is_directory:
+                    raise pyfuse3.FUSEError(
+                        errno.EISDIR if node and node.is_directory else errno.ENOENT
+                    )
+
+                path = node.get_full_path()
+                file_size = node.file_size
+                entry_type = node.entry_type
+                original_filename = node.original_filename
 
             if size == 0:
                 return b""
@@ -1674,20 +1679,33 @@ class RivenVFS(pyfuse3.Operations):
             # Check if this is a subtitle entry - if so, read from database instead of HTTP
             if entry_type == "subtitle":
                 # Subtitles are stored in the database, not fetched via HTTP
-                # Check if we've already cached the subtitle content in the handle
-                subtitle_content = handle_info.get("subtitle_content")
-                if subtitle_content is None:
-                    # Resolve path alias before querying database for subtitle content
-                    resolved_path = self._resolve_path(path)
-                    # Fetch subtitle content from database (async to avoid blocking)
-                    subtitle_content = await trio.to_thread.run_sync(
-                        lambda: self.db.get_subtitle_content(resolved_path)
+                # Parse subtitle identifier from original_filename (resolved from node above)
+                # Format: "subtitle:{parent_original_filename}:{language}"
+                if not original_filename or not original_filename.startswith(
+                    "subtitle:"
+                ):
+                    log.error(f"Invalid subtitle identifier: {original_filename}")
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                parts = original_filename.split(":", 2)
+                if len(parts) != 3:
+                    log.error(f"Malformed subtitle identifier: {original_filename}")
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                parent_original_filename = parts[1]
+                language = parts[2]
+
+                # Fetch subtitle content from database (subtitles are small, read once)
+                subtitle_content = await trio.to_thread.run_sync(
+                    lambda: self.db.get_subtitle_content(
+                        parent_original_filename, language
                     )
-                    if subtitle_content is None:
-                        log.error(f"Subtitle content not found for {path}")
-                        raise pyfuse3.FUSEError(errno.ENOENT)
-                    # Cache in handle for subsequent reads
-                    handle_info["subtitle_content"] = subtitle_content
+                )
+                if subtitle_content is None:
+                    log.error(
+                        f"Subtitle content not found for {parent_original_filename} ({language})"
+                    )
+                    raise pyfuse3.FUSEError(errno.ENOENT)
 
                 # Slice subtitle content in thread (could be large)
                 def slice_subtitle():
@@ -1705,29 +1723,33 @@ class RivenVFS(pyfuse3.Operations):
 
             # For media entries, continue with normal HTTP streaming logic
 
-            # Resolve path alias to base path for consistent cache keys
-            # This ensures cache is shared between base path and all alias paths
-            resolved_path = self._resolve_path(path)
+            # Fetch URL from database using original_filename from node
+            if not original_filename:
+                log.error(f"No original_filename for {path}")
+                raise pyfuse3.FUSEError(errno.ENOENT)
 
-            now = time.time()
-            cached_url_info = self._url_cache.get(resolved_path)
-            if (
-                not cached_url_info
-                or (now - float(cached_url_info.get("timestamp", 0)))
-                > self.url_cache_ttl
-            ):
-                # Query database for download URL using resolved path (async to avoid blocking)
-                url = await trio.to_thread.run_sync(
-                    lambda: self.db.get_download_url(
-                        resolved_path, for_http=True, force_resolve=False
-                    )
-                )
+            # Get entry info from DB
+            # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
+            # Let the refresh logic handle re-unrestricting on failures
+            entry_info = await trio.to_thread.run_sync(
+                self.db.get_entry_by_original_filename,
+                original_filename,
+                True,  # for_http (use unrestricted URL if available)
+                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
+            )
 
-                if not url:
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-                self._url_cache[resolved_path] = {"url": url, "timestamp": now}
-            else:
-                url = str(cached_url_info.get("url"))
+            if not entry_info:
+                log.error(f"No entry info for {original_filename}")
+                raise pyfuse3.FUSEError(errno.ENOENT)
+
+            url = entry_info.get("url")
+            if not url:
+                log.error(f"No URL for {original_filename}")
+                raise pyfuse3.FUSEError(errno.ENOENT)
+
+            # Use original_filename as cache key for consistency
+            # This ensures cache is shared between all paths pointing to the same file
+            cache_key = original_filename or path
 
             # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
@@ -1747,9 +1769,9 @@ class RivenVFS(pyfuse3.Operations):
             next_aligned_end = next_aligned_start + self.chunk_size - 1
 
             # Try cache first for the exact request (cache handles chunk lookup and slicing)
-            # Use resolved_path for cache to share cache between base and alias paths
+            # Use cache_key to share cache between all paths pointing to same file
             cached_bytes = await trio.to_thread.run_sync(
-                lambda: self.cache.get(resolved_path, request_start, request_end)
+                lambda: self.cache.get(cache_key, request_start, request_end)
             )
 
             if cached_bytes is not None:
@@ -1774,20 +1796,18 @@ class RivenVFS(pyfuse3.Operations):
                 async def fetch_one_chunk(chunk_start: int, chunk_end: int):
                     """Fetch a single chunk with per-chunk locking."""
                     # Get lock for this specific chunk to prevent duplicate fetches
-                    chunk_lock = await self._get_chunk_lock(resolved_path, chunk_start)
+                    chunk_lock = await self._get_chunk_lock(cache_key, chunk_start)
 
                     async with chunk_lock:
                         # Check cache again inside lock (another request might have fetched it)
                         chunk_data = await trio.to_thread.run_sync(
-                            lambda: self.cache.get(
-                                resolved_path, chunk_start, chunk_end
-                            )
+                            lambda: self.cache.get(cache_key, chunk_start, chunk_end)
                         )
 
                         if chunk_data is None:
                             # Fetch this chunk
                             chunk_data = await self._fetch_data_block(
-                                resolved_path, url, chunk_start, chunk_end
+                                cache_key, url, chunk_start, chunk_end
                             )
                             if chunk_data:
                                 chunk_size_mb = len(chunk_data) / (1024 * 1024)
@@ -1797,7 +1817,7 @@ class RivenVFS(pyfuse3.Operations):
                                 # Cache immediately (async to avoid blocking event loop)
                                 await trio.to_thread.run_sync(
                                     lambda: self.cache.put(
-                                        resolved_path, chunk_start, chunk_data
+                                        cache_key, chunk_start, chunk_data
                                     )
                                 )
 
@@ -1872,11 +1892,11 @@ class RivenVFS(pyfuse3.Operations):
                             if file_size is None
                             else min(next_aligned_end, file_size - 1)
                         )
-                        # Use resolved_path for prefetch to share cache between base and alias paths
+                        # Use cache_key for prefetch to share cache between all paths
                         trio.lowlevel.spawn_system_task(
                             self._prefetch_next_chunks,
                             fh,
-                            resolved_path,
+                            cache_key,
                             url,
                             next_aligned_start,
                             pf_end,
@@ -1896,19 +1916,31 @@ class RivenVFS(pyfuse3.Operations):
     async def _prefetch_next_chunks(
         self, fh: int, path: str, url: str, start: int, end: int
     ) -> None:
-        """Prefetch multiple chunks ahead of current read position.
+        """
+        Prefetch multiple chunks ahead of current read position.
 
-        Architecture:
-        - chunk_size (eg. 32MB) = individual CDN request size
-        - fetch_ahead_chunks (eg. 4) = number of chunks to prefetch ahead
-        - Schedules 4 x 32MB requests = 128MB total prefetch window
-        - Coordinates across multiple users reading the same file with fair scheduling
+        Triggered after 3 sequential reads to improve streaming performance.
+        Uses per-chunk locking to prevent duplicate fetches.
+
+        Args:
+            fh: File handle for tracking prefetch state
+            path: Cache key (original_filename) for the file
+            url: Download URL for fetching chunks
+            start: Start byte offset for prefetch window
+            end: End byte offset for prefetch window (unused, kept for compatibility)
         """
         if fh not in self._file_handles:
             return
 
-        # Get file size to avoid prefetching beyond EOF
-        file_size = self._file_handles[fh].get("file_size")
+        # Get file size from node to avoid prefetching beyond EOF
+        handle_info = self._file_handles[fh]
+        inode = handle_info.get("inode")
+        file_size = None
+        if inode:
+            with self._tree_lock:
+                node = self._inode_to_node.get(inode)
+                if node:
+                    file_size = node.file_size
 
         # Get or create prefetch lock for this path
         if path not in self._prefetch_locks:
@@ -2047,18 +2079,28 @@ class RivenVFS(pyfuse3.Operations):
         try:
             handle_info = self._file_handles.pop(fh, None)
             if handle_info:
-                path = handle_info.get("path")
+                # Resolve path from inode
+                inode = handle_info.get("inode")
+                path = None
+                if inode:
+                    with self._tree_lock:
+                        node = self._inode_to_node.get(inode)
+                        if node:
+                            path = node.get_full_path()
 
                 # Clean up per-file-handle prefetch state
                 self._fh_prefetch_state.pop(fh, None)
 
                 # Clean up per-path state if no other handles are using this path
                 if path:
+                    # Check if any other handles reference the same inode
                     remaining_handles = [
-                        h for h in self._file_handles.values() if h.get("path") == path
+                        h
+                        for h in self._file_handles.values()
+                        if h.get("inode") == inode
                     ]
                     if not remaining_handles:
-                        # No other handles for this path, clean up shared path state
+                        # No other handles for this inode, clean up shared path state
                         self._path_chunks_in_progress.pop(path, None)
                         self._prefetch_locks.pop(path, None)
             log.trace(f"release: fh={fh} path={path}")
@@ -2146,15 +2188,33 @@ class RivenVFS(pyfuse3.Operations):
 
     # HTTP helpers
 
-    def _refresh_download_url(self, path: str, target_url: str) -> str | None:
-        import time
+    def _refresh_download_url(
+        self, original_filename: str, target_url: str
+    ) -> str | None:
+        """
+        Refresh download URL by unrestricting from provider.
 
-        self._url_cache.pop(path, None)
-        fresh_url = self.db.get_download_url(path, for_http=True, force_resolve=True)
+        Updates the database with the fresh URL.
 
-        if fresh_url and fresh_url != target_url:
-            self._url_cache[path] = {"url": fresh_url, "timestamp": time.time()}
-            return fresh_url
+        Args:
+            original_filename: Original filename from debrid provider
+            target_url: Current URL that failed
+
+        Returns:
+            Fresh URL if successfully refreshed, None otherwise
+        """
+        # Query database by original_filename and force unrestrict
+        entry_info = self.db.get_entry_by_original_filename(
+            original_filename, for_http=True, force_resolve=True
+        )
+
+        if entry_info:
+            fresh_url = entry_info.get("url")
+            if fresh_url and fresh_url != target_url:
+                log.debug(f"Refreshed URL for {original_filename}")
+                return fresh_url
+
+        return None
 
     def _get_range_request_headers(self, start: int, end: int) -> httpx.Headers:
         return httpx.Headers(

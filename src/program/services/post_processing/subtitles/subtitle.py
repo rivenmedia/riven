@@ -6,16 +6,16 @@ for serving via RivenVFS.
 """
 
 from typing import List, Optional
-import io
-
+from sqlalchemy.orm import object_session
 from loguru import logger
 
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
+from program.services.filesystem.filesystem_service import FilesystemService
 from .providers.opensubtitles import OpenSubtitlesProvider
-from .utils import calculate_opensubtitles_hash, generate_subtitle_path
+from .utils import calculate_opensubtitles_hash
 
 
 class SubtitleService:
@@ -136,7 +136,15 @@ class SubtitleService:
                 )
 
             # Get video file information
-            video_path = item.filesystem_entry.path
+            # Get VFS paths (use base path for video_path)
+            vfs_paths = item.filesystem_entry.get_all_vfs_paths()
+            if not vfs_paths:
+                logger.warning(
+                    f"No VFS paths for {item.log_string}, cannot fetch subtitles"
+                )
+                return
+
+            video_path = vfs_paths[0]  # Use base path
             video_hash = self._calculate_video_hash(item)
             original_filename = item.filesystem_entry.get_original_filename()
 
@@ -194,13 +202,13 @@ class SubtitleService:
 
     def _get_embedded_subtitle_languages(self, item: MediaItem) -> set[str]:
         """
-        Extract embedded subtitle languages from parsed_data.
+        Extract embedded subtitle languages from probed_data.
 
-        Checks the ffprobe_data.subtitles array from MediaAnalysisService
+        Checks the probed_data.subtitles array from MediaAnalysisService
         and returns a set of ISO 639-3 language codes.
 
         Args:
-            item: MediaItem with parsed_data
+            item: MediaItem with filesystem_entry containing probed_data
 
         Returns:
             Set of ISO 639-3 language codes (e.g., {'eng', 'spa', 'fre'})
@@ -208,11 +216,11 @@ class SubtitleService:
         embedded_languages = set()
 
         try:
-            if not item.parsed_data:
+            if not item.filesystem_entry or not item.filesystem_entry.probed_data:
                 return embedded_languages
 
-            ffprobe_data = item.parsed_data.get("ffprobe_data", {})
-            subtitle_tracks = ffprobe_data.get("subtitles", [])
+            probed_data = item.filesystem_entry.probed_data
+            subtitle_tracks = probed_data.get("subtitles", [])
 
             for track in subtitle_tracks:
                 lang = track.get("language")
@@ -247,10 +255,12 @@ class SubtitleService:
         tags = []
 
         try:
-            if not item.parsed_data:
+            if not item.filesystem_entry or not item.filesystem_entry.parsed_data:
                 return None
 
-            parsed_filename = item.parsed_data.get("parsed_filename", {})
+            parsed_filename = item.filesystem_entry.parsed_data.get(
+                "parsed_filename", {}
+            )
 
             # Add release group if available
             release_group = parsed_filename.get("group")
@@ -307,7 +317,16 @@ class SubtitleService:
             from program.settings.manager import settings_manager
 
             mount_path = settings_manager.settings.filesystem.mount_path
-            vfs_path = item.filesystem_entry.path
+
+            # Get VFS paths from MediaEntry (use base path)
+            vfs_paths = item.filesystem_entry.get_all_vfs_paths()
+            if not vfs_paths:
+                logger.debug(
+                    f"No VFS paths for {item.log_string}, cannot calculate hash"
+                )
+                return None
+
+            vfs_path = vfs_paths[0]  # Use base path
 
             # Construct the full path on the host filesystem
             import os
@@ -417,13 +436,18 @@ class SubtitleService:
                 if not content:
                     continue
 
-                # Generate subtitle path
-                subtitle_path = generate_subtitle_path(video_path, language)
+                # Get parent MediaEntry's original_filename
+                parent_original_filename = item.filesystem_entry.original_filename
+                if not parent_original_filename:
+                    logger.error(
+                        f"MediaEntry for {item.log_string} has no original_filename, cannot create subtitle"
+                    )
+                    continue
 
                 # Create SubtitleEntry and store in database
                 subtitle_entry = SubtitleEntry.create_subtitle_entry(
-                    path=subtitle_path,
                     language=language,
+                    parent_original_filename=parent_original_filename,
                     content=content,
                     file_hash=video_hash,
                     video_file_size=item.filesystem_entry.file_size,
@@ -435,13 +459,21 @@ class SubtitleService:
                 subtitle_entry.available_in_vfs = True
 
                 # Save to database
-                with db.Session() as session:
-                    session.add(subtitle_entry)
-                    session.commit()
+                session = object_session(item)
+                session.add(subtitle_entry)
+
+                # Flush to synchronize relationships before VFS sync
+                # This ensures item.subtitles includes the new subtitle
+                session.flush()
 
                 logger.debug(
                     f"Downloaded and stored {language} subtitle for {item.log_string}"
                 )
+                from program.program import riven
+
+                filesystem_service = riven.services.get(FilesystemService)
+                if filesystem_service and filesystem_service.riven_vfs:
+                    filesystem_service.riven_vfs.sync(item)
                 return
 
             except Exception as e:
@@ -478,10 +510,14 @@ class SubtitleService:
             logger.error(f"Failed to check for existing subtitle: {e}")
             return None
 
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
+    def should_submit(self, item: MediaItem) -> bool:
         """
         Check if subtitles should be fetched for an item.
+
+        Checks if:
+        1. Item is a movie or episode
+        2. Item has a filesystem entry
+        3. At least one wanted language is missing (not embedded and not already downloaded)
 
         Args:
             item: MediaItem to check
@@ -497,6 +533,41 @@ class SubtitleService:
         if not item.filesystem_entry:
             return False
 
-        # Check if subtitles already exist
-        # For now, always try to fetch (service will check for existing subtitles)
+        # If subtitle service is not enabled, don't submit
+        if not self.enabled:
+            return False
+
+        # Get embedded subtitle languages from parsed_data (ffprobe)
+        embedded_languages = self._get_embedded_subtitle_languages(item)
+
+        # Get already downloaded subtitle languages from database
+        downloaded_languages = set()
+        try:
+            with db.Session() as session:
+                existing_subtitles = (
+                    session.query(SubtitleEntry).filter_by(media_item_id=item.id).all()
+                )
+                downloaded_languages = {sub.language for sub in existing_subtitles}
+        except Exception as e:
+            logger.warning(
+                f"Failed to check existing subtitles for {item.log_string}: {e}"
+            )
+
+        # Combine embedded and downloaded languages
+        available_languages = embedded_languages | downloaded_languages
+
+        # Check if any wanted language is missing
+        missing_languages = set(self.languages) - available_languages
+
+        if not missing_languages:
+            logger.debug(
+                f"All wanted subtitle languages already available for {item.log_string} "
+                f"(embedded: {embedded_languages}, downloaded: {downloaded_languages})"
+            )
+            return False
+
+        logger.debug(
+            f"Missing subtitle languages for {item.log_string}: {missing_languages} "
+            f"(embedded: {embedded_languages}, downloaded: {downloaded_languages})"
+        )
         return True

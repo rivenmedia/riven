@@ -7,7 +7,6 @@ from RTN import ParsedData, parse
 
 from program.media.stream import Stream
 from program.services.downloaders.models import (
-    ParsedFileData,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -100,13 +99,9 @@ class DownloaderBase(ABC):
         """
 
 
-def parse_filename(filename: str) -> ParsedFileData:
-    """Parse a filename into a ParsedFileData object"""
-    parsed_data: ParsedData = parse(filename)
-    season: int | None = parsed_data.seasons[0] if parsed_data.seasons else None
-    return ParsedFileData(
-        item_type=parsed_data.type, season=season, episodes=parsed_data.episodes
-    )
+def parse_filename(filename: str) -> ParsedData:
+    """Parse a filename using RTN and return ParsedData directly"""
+    return parse(filename)
 
 
 def premium_days_left(expiration: datetime) -> str:

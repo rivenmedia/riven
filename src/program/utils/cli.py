@@ -10,7 +10,7 @@ from program.db.db_functions import (
 from program.utils.logging import log_cleaner, logger
 
 
-def snapshot_database(snapshot_dir: Path = None):
+def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
@@ -18,6 +18,7 @@ def snapshot_database(snapshot_dir: Path = None):
 
     Parameters:
         snapshot_dir (Path | None): Directory to store snapshot files. If None, uses ./data/db_snapshot.
+        snapshot_name (str | None): Custom name for the snapshot file. If None, uses timestamped name.
 
     Returns:
         bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
@@ -65,9 +66,16 @@ def snapshot_database(snapshot_dir: Path = None):
             logger.error("Invalid database URL format")
             return False
 
-        # Create snapshot filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        snapshot_file = snapshot_dir / f"riven_snapshot_{timestamp}.sql"
+        # Create snapshot filename
+        if snapshot_name:
+            # Use custom name (ensure it ends with .sql)
+            if not snapshot_name.endswith(".sql"):
+                snapshot_name = f"{snapshot_name}.sql"
+            snapshot_file = snapshot_dir / snapshot_name
+        else:
+            # Use timestamped name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_file = snapshot_dir / f"riven_snapshot_{timestamp}.sql"
 
         # Check if we're running in Docker or need to use docker exec
         # If host is localhost/127.0.0.1, try to use docker exec to access postgres container
