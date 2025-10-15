@@ -1892,8 +1892,8 @@ class RivenVFS(pyfuse3.Operations):
             return returned_data
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("read(simple) error fh=%s: %s", fh, ex)
+        except Exception as e:
+            log.exception(f"read(simple) error fh={fh}: {e}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def _prefetch_next_chunks(
@@ -2297,6 +2297,8 @@ class RivenVFS(pyfuse3.Operations):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except pyfuse3.FUSEError as e:
+                raise
             except Exception as e:
                 log.exception(
                     f"Unexpected error during preflight checks for {path}: {e}"
@@ -2433,19 +2435,11 @@ class RivenVFS(pyfuse3.Operations):
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError as e:
-                log.error(
-                    f"FUSE error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
-                )
-                if not is_max_attempt:
-                    continue
                 raise
             except Exception as e:
                 log.error(
                     f"Unexpected error fetching data block for {path} ({type(e).__name__}): {e}"
                 )
-
-                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
-                    continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
 
