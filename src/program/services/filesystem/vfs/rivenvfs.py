@@ -2250,13 +2250,13 @@ class RivenVFS(pyfuse3.Operations):
                             await trio.sleep(0.5)  # Brief pause before retry
                             continue
                     # No fresh URL or still erroring after refresh
-                    raise pyfuse3.FUSEError(errno.ENOENT)
+                    raise pyfuse3.FUSEError(errno.ENOENT) from e
                 else:
                     # Other unexpected status codes
                     log.warning(
                         f"Unexpected preflight HTTP {preflight_status_code}: path={path}"
                     )
-                    raise pyfuse3.FUSEError(errno.EIO)
+                    raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.debug(
                     f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
@@ -2283,12 +2283,14 @@ class RivenVFS(pyfuse3.Operations):
                 log.exception(
                     f"Unexpected error during preflight checks for {path}: {e}"
                 )
+
                 if not is_max_attempt:
                     await trio.sleep(
                         backoffs[min(preflight_attempt, len(backoffs) - 1)]
                     )
                     continue
-                raise
+
+                raise pyfuse3.FUSEError(errno.EIO) from e
         raise pyfuse3.FUSEError(errno.EIO)
 
     async def _fetch_data_block(
@@ -2360,14 +2362,14 @@ class RivenVFS(pyfuse3.Operations):
                     if attempt < max_attempts - 1:
                         await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                         continue
-                    raise pyfuse3.FUSEError(errno.EACCES)
+                    raise pyfuse3.FUSEError(errno.EACCES) from e
                 elif (
                     status_code == HTTPStatus.NOT_FOUND
                     or status_code == HTTPStatus.GONE
                 ):
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
-                    raise pyfuse3.FUSEError(errno.ENOENT)
+                    raise pyfuse3.FUSEError(errno.ENOENT) from e
                 elif status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
                     # Requested range not satisfiable; treat as EOF
                     return b""
@@ -2382,11 +2384,11 @@ class RivenVFS(pyfuse3.Operations):
                         )
                         await trio.sleep(backoff_time)
                         continue
-                    raise pyfuse3.FUSEError(errno.EAGAIN)
+                    raise pyfuse3.FUSEError(errno.EAGAIN) from e
                 else:
                     # Other unexpected status codes
                     log.warning(f"Unexpected HTTP {status_code}: path={path}")
-                    raise pyfuse3.FUSEError(errno.EIO)
+                    raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.debug(
                     f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
@@ -2428,6 +2430,6 @@ class RivenVFS(pyfuse3.Operations):
                 if not is_max_attempt:
                     await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
                     continue
-                raise
+                raise pyfuse3.FUSEError(errno.EIO) from e
 
         raise pyfuse3.FUSEError(errno.EIO)
